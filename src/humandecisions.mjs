@@ -28,11 +28,21 @@ import * as cardstore from './cardstore.mjs';
 import * as decisioncard from './decisioncard.mjs';
 import * as question from './question.mjs';
 import * as addressee from './addressee.mjs';
+import { safeText } from './deadlines.mjs';
 
 /** The shelf as the callers want it: handed in, else read here; not readable gives an empty one (every item gets its fallback card). */
 function shelfOf(root, cards) {
   if (cards !== undefined) return cards;
   try { return cardstore.latestCards(root); } catch { return new Map(); }
+}
+
+/** A decision's title is shown up to this many characters (after the mask). */
+const TITLE_SHOWN = 200;
+
+/** The moment a due value is overdue from, in ms; null when it cannot be read (the core says so, nothing is guessed here). */
+function dueAtOf(value, zone) {
+  const p = dueCore.parseDue(value, { zone });
+  return p.ok ? p.overdueFromMs : null;
 }
 
 /** The duty fold, read: `memory.openDuties()`. THROWS when the drawers cannot be read. */
@@ -72,11 +82,14 @@ export function forHuman(root, { human = null, cards = undefined, fold = undefin
   const list = open
     .filter((p) => addressee.ofDuty(p) === who)
     .map((p) => ({
-      id: p.id, title: p.title ?? p.text ?? p.id, due: dueCore.dueText(p), since: dueCore.openSince(p),
+      // Entry text for a terminal, a page and an agent: masked, THEN cut, then bidi made visible (deadlines.safeText).
+      id: p.id, title: safeText(p.title ?? p.text ?? p.id, TITLE_SHOWN), due: dueCore.dueText(p), since: dueCore.openSince(p),
       // The state of its due date, from the core (fresh | due | overdue | unknown), only when the caller names the clock and the
       // zone; null for a duty without a due date. A surface shows it as a chip next to the decision.
       dueState: zone !== undefined && now !== undefined && dueCore.dueValue(p) !== null
         ? dueCore.state(dueCore.dueValue(p), now, { zone }) : null,
+      // The moment it is overdue from (ms), for ordering the cards by deadline; null for no due date or an unreadable one.
+      dueAt: zone !== undefined && dueCore.dueValue(p) !== null ? dueAtOf(dueCore.dueValue(p), zone) : null,
       card: decisioncard.cardOf(p, { type: 'duty', context: { cards: shelf, human: who } }),
     }))
     .sort((a, b) => String(a.since ?? '').localeCompare(String(b.since ?? '')));

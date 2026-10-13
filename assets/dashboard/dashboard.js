@@ -1025,31 +1025,41 @@ function dueChip(state) {
   if (state === 'unknown') return badge('unknown', 'unreadable');
   return '';
 }
+// Decisions by their deadline, overdue first: the duties with a readable due date by that date (earliest first, so the overdue
+// ones lead), then the rest - no due date, or an unreadable one - in the order the server gave them (stable).
+function byDeadline(items) {
+  const dated = items.filter((dt) => Number.isFinite(dt.dueAt));
+  const rest = items.filter((dt) => !Number.isFinite(dt.dueAt));
+  return dated.map((dt, i) => [dt, i]).sort((a, b) => a[0].dueAt - b[0].dueAt || a[1] - b[1]).map((x) => x[0]).concat(rest);
+}
 function todayDecisionsPart(list) {
   if (!list.length) return '';
   const row = (dt) => (dt.card
     ? cardHtml(dt.card, { foot: `${dt.due ? `<span class="small quiet">Due ${esc(dueShown(dt.due))}</span> ${dueChip(dt.dueState)}` : ''}${open(dt.id, 'Open entry ↗', 'btn small ghost')}` })
     : `<button class="attention" data-entry="${esc(dt.id)}"><span class="sym">↗</span><div><strong>${esc(dt.title)}</strong><p>Duty${dt.due ? ' · due ' + esc(dueShown(dt.due)) : ''} ${dueChip(dt.dueState)}</p></div><span class="arrow">↗</span></button>`);
-  const mine = list.filter((dt) => cardForYou(dt.card)); const rest = list.filter((dt) => !cardForYou(dt.card));
+  const mine = byDeadline(list.filter((dt) => cardForYou(dt.card))); const rest = byDeadline(list.filter((dt) => !cardForYou(dt.card)));
   const group = (name, label, items, hint) => (items.length
     ? `<section class="dgroup" data-card-group="${name}"><div class="label" style="margin:16px 0 6px">${label} (${num(items.length)})</div>${hint ? `<p class="small quiet" style="margin-bottom:8px">${hint}</p>` : ''}${items.map(row).join('')}</section>` : '');
   return group('you', 'For you', mine) + group('agent', 'Agent work', rest, 'Tasks and agent postings: nothing for you to decide.');
 }
-// Q7 (src/deadlines.mjs): the due dates of the open duties. The human's duties one by one (the server sends at most eight, the
-// rest counted), everybody else's only as a number. Not readable: said, never an empty card. The key is absent in a build that
-// does not carry the part (the light head): then nothing is drawn.
+// Q7 (src/deadlines.mjs): the due dates of the open duties. The part is a summary, no second list: every duty of the human
+// already stands as a card under "Decisions for you" (with its due chip, overdue ones first), so this part only counts - what
+// is overdue, due today, later, unreadable - and says how many duties belong to nobody here (agents, nobody). Not readable:
+// said, never an empty card. The key is absent in a build that does not carry the part (the light head): then nothing is drawn.
 function todayDeadlinesPart(dl) {
   if (!dl) return '';
   const head = '<div class="label" style="margin:16px 0 6px">Deadlines</div>';
   if (!dl.readable) return `${head}<div class="row"><div><strong>Not measurable</strong><p>${esc(dl.reason || 'unknown')}</p></div>${badge('not measurable')}</div>`;
   const m = dl.mine; const o = dl.others;
-  const rows = (m.list || []).map((r) => `<button class="attention" data-entry="${esc(r.id)}"><span class="sym">↗</span><div><strong>${esc(r.title)}</strong><p>${r.due ? 'due ' + esc(dueShown(r.due)) : 'unreadable due date'} ${dueChip(r.state)}</p></div><span class="arrow">↗</span></button>`).join('');
-  const more = m.more > 0 ? `<p class="small quiet">… and ${num(m.more)} more · <span class="mono">mem deadlines</span></p>` : '';
+  if (!m.withDue && !o.withDue) return '';
+  const counts = m.withDue
+    ? `<p class="small" data-deadlines-counts>${num(m.overdue)} overdue · ${num(m.dueToday)} due today · ${num(m.fresh)} later · ${num(m.unknown)} unreadable</p>`
+    : '';
+  const more = m.more > 0 ? `<p class="small quiet">… and ${num(m.more)} more (<span class="mono">mem deadlines</span>)</p>` : '';
   const others = o.withDue > 0
     ? `<p class="small quiet">Not addressed to you (agents, nobody): ${num(o.withDue)} with a due date${o.overdue ? ` · ${num(o.overdue)} overdue` : ''}${o.dueToday ? ` · ${num(o.dueToday)} due today` : ''}${o.unknown ? ` · ${num(o.unknown)} unreadable` : ''}</p>`
     : '';
-  if (!rows && !others) return '';
-  return `${head}${rows}${more}${others}`;
+  return `${head}${counts}${more}${others}`;
 }
 // N9 parity: a candidate is NEVER written here, only shown (the value
 // comes from this memory's own timeline facts, src/today.mjs part c —

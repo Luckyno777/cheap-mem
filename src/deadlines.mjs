@@ -42,17 +42,20 @@ export const TITLE_MAX = 100;
 /** What an encrypted duty shows instead of its title (the same mark the decision card uses). */
 export const LOCKED = '[locked]';
 
-const TORN_MARKER = /\[REDACTED(?::[A-Za-z0-9-]*)?$/;
-
 /**
  * Entry text for the day brief: masked, THEN cut, then bidi-visible. One line. The cut never leaves a torn `[REDACTED:` marker
  * or half a surrogate pair behind.
  */
-function safeText(text, max = TITLE_MAX) {
+export function safeText(text, max = TITLE_MAX) {
   const masked = maskText(String(text ?? '')).replace(/\s+/g, ' ').trim();
   let cut = masked;
   if (masked.length > max) {
-    cut = masked.slice(0, Math.max(0, max - 1)).replace(TORN_MARKER, '').replace(/[\uD800-\uDBFF]$/, '');
+    let end = Math.max(0, max - 1);
+    // A cut that falls inside a [REDACTED:...] marker moves to the marker's start: no half marker, no stump.
+    for (const m of masked.matchAll(/\[REDACTED(?::[^\]]*)?\]/g)) {
+      if (end > m.index && end < m.index + m[0].length) end = m.index;
+    }
+    cut = masked.slice(0, end).replace(/[\uD800-\uDBFF]$/, '');
     cut = `${cut.trimEnd()}…`;
   }
   return bidi.visible(cut);

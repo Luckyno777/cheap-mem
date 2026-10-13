@@ -81,7 +81,7 @@ dashboard card, the doctor and the before-edit hook ask the core (`src/due.mjs`)
   with an ellipsis, in the middle of a word. The wording of the projects part stays `awaiting confirmation`.
 - **`mem today`, part DEADLINES** (`src/deadlines.mjs`): the human's duties with a due date one by one, earliest first, at most 8
   and the rest counted (`… and 192 more: mem deadlines`); the duties of agents and unaddressed ones only as a number. The title is
-  masked, then cut, and a right-to-left override is made visible; an encrypted duty shows `[locked]`, its date stays readable.
+  masked, then cut, and a right-to-left override is made visible (also in the briefing's list and in the decisions of `mem today --json`); an encrypted duty shows `[locked]`, its date stays readable.
   `--json` carries the same (`deadlines`, `counts.deadlinesOverdue`, `counts.deadlinesDue`; each decision for the human has
   `dueState`). The human comes from `.mem/config.json`.
 - **One pass over the duties.** `today()` reads the duty drawers once and hands the fold to the decisions and the deadlines; the
@@ -91,7 +91,9 @@ dashboard card, the doctor and the before-edit hook ask the core (`src/due.mjs`)
   now, due this week, projects awaiting confirmation - only if a deadline of the human fell due last week or falls due this week;
   then it alone keeps the day from being "empty" (`mem appointment today --json`). The week is Monday to Monday in the HOUSE zone,
   never UTC (pinned across midnight and both clock changes).
-- **Dashboard**: the Today card has a part "Deadlines" and a chip (overdue / due today / unreadable) next to each decision for you;
+- **Dashboard**: the Today card has a part "Deadlines" (counters: overdue, due today, later, unreadable; agents' duties as one number;
+  no second list of the same duties) and a chip (overdue / due today / unreadable) on each decision card; the cards of the human
+  stand by deadline, overdue first, duties without a due date after them in the old order;
   the data (`deadlines`) is in the full AND the compact build (the compact one above its module limit says "not computed", not 0).
   A due DAY is shown as written, not moved by the browser's zone.
 - **Doctor**: finding `deadlines` (WARN only): a duty overdue for more than a day with no newer line, an unreadable value, an old

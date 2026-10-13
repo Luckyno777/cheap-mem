@@ -25,6 +25,7 @@ import { fileURLToPath } from 'node:url';
 import { tempDir } from './temp-dir.mjs';
 import * as today from '../src/today.mjs';
 import * as deadlines from '../src/deadlines.mjs';
+import { safeText } from '../src/deadlines.mjs';
 import * as dayline from '../src/dayline.mjs';
 import * as doctor from '../src/doctor.mjs';
 import * as memory from '../src/memory.mjs';
@@ -278,6 +279,53 @@ test('Deadlines: output guard - a key built at run time standing over the cut is
   assert.doesNotMatch(shown[0].title, /\[REDACTED(:[A-Za-z0-9-]*)?$/, 'no torn marker at the end');
   assert.equal(/[\u202A-\u202E\u2066-\u2069]/.test(part), false, 'no raw bidi control left in the part');
   assert.match(shown[1].title, /\[U\+202E/, 'made visible, not dropped');
+});
+
+test('bidi: the briefing list and the decisions in `mem today --json` show a right-to-left override as [U+202E]; mask, cut, then visible', (t) => {
+  const root = world(t);
+  const key = FAKE_KEY();
+  const long = `${'b'.repeat(190)} ${key} tail`;
+  handWritten(root, [
+    duty({ title: 'Pay \u202Eevil\u202C bill', owner: 'user', due: '2026-10-12' }),
+    duty({ title: long, owner: 'user', due: '2026-10-11' }),
+  ]);
+  const raw = /[\u202A-\u202E\u2066-\u2069]/;
+  // the briefing's list of duties due today or overdue
+  const h = T.today(root, { now: NOW, zone: BERLIN });
+  assert.equal(h.duties.due.length, 2);
+  const titles = h.duties.due.map((d) => d.title);
+  assert.ok(titles.some((x) => /Pay \[U\+202E:RLO\]evil\[U\+202C:PDF\] bill/.test(x)), titles.join(' | '));
+  assert.equal(raw.test(T.briefingText(h)), false, 'no raw control character in the briefing');
+  // the decisions of `mem today --json`
+  const r = today.today(root, opts(root));
+  const dec = r.decisions.list.map((d) => d.title);
+  assert.ok(dec.some((x) => /Pay \[U\+202E:RLO\]evil/.test(x)), dec.join(' | '));
+  assert.equal(raw.test(JSON.stringify(r.decisions.list.map((d) => d.title))), false);
+  // masked BEFORE the cut: a key standing over the cut of 200 leaves no stump, and no torn marker
+  const cut = r.decisions.list.map((d) => d.title).find((x) => /^b+/.test(x));
+  assert.doesNotMatch(cut, /Q{10}/);
+  assert.doesNotMatch(cut, /\[R(EDACTED)?[^\]]*$/, 'no torn marker: a cut inside the marker moves to the marker\'s start');
+  assert.match(cut, /…$/);
+  assert.equal(safeText(`${'c'.repeat(150)} ${key} tail`, 200).includes('[REDACTED:'), true, 'a key that fits before the cut shows as its marker');
+  // positive control: the same title cut first and masked after leaves a stump
+  assert.match(maskText(long.slice(0, 200)), /Q{5}/, 'positive control: cut-then-mask leaks the front of the key');
+  // old way, red: the raw title travels as it is
+  assert.equal(raw.test('Pay \u202Eevil\u202C bill'), true, 'positive control: the probe sees a raw override');
+});
+
+test('decisions carry the moment their due date is overdue from (dueAt), null without a readable date - the page orders its cards by it', (t) => {
+  const root = world(t);
+  handWritten(root, [
+    duty({ title: 'Later', owner: 'user', due: '2026-12-24' }),
+    duty({ title: 'No date', owner: 'user' }),
+    duty({ title: 'Broken', owner: 'user', due: 'soon' }),
+    duty({ title: 'Late', owner: 'user', due: '2026-10-01' }),
+  ]);
+  const by = Object.fromEntries(today.today(root, opts(root)).decisions.list.map((d) => [d.title, d.dueAt]));
+  assert.equal(by.Late, ms('2026-10-01T22:00:00Z'), 'overdue from 00:00 of the following day, Berlin');
+  assert.ok(by.Later > by.Late);
+  assert.equal(by['No date'], null);
+  assert.equal(by.Broken, null, 'an unreadable value has no moment');
 });
 
 // ---------------------------------------------------------------- 3. one pass over the duties
@@ -577,6 +625,9 @@ test('dashboard page: the Today card draws the part and the chip from the data; 
   const js = fs.readFileSync(path.join(REPO, 'assets', 'dashboard', 'dashboard.js'), 'utf8');
   assert.match(js, /function todayDeadlinesPart\(dl\)/);
   assert.match(js, /deadlinesDrawn/);
+  assert.match(js, /function byDeadline\(items\)/, 'the cards of the human are put by deadline');
+  assert.match(js, /data-deadlines-counts/, 'the part is a line of counters');
+  assert.doesNotMatch(js.slice(js.indexOf('function todayDeadlinesPart'), js.indexOf('function todayVerifyRow')), /m\.list/, 'the part draws no second list of the duties');
   assert.match(js, /function dueChip\(state\)/);
   assert.match(js, /dueChip\(dt\.dueState\)/, 'the chip sits next to each decision for the human');
   assert.match(js, /Not measurable/);

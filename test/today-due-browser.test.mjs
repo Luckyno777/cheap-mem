@@ -32,13 +32,16 @@ async function startServer() {
     participants: { alex: { human: true }, 'vm-admin': 'agent' }, language: 'en', timezone: 'UTC',
   }));
   fs.mkdirSync(path.join(r, 'global'), { recursive: true });
+  // Listed in the order the SERVER hands them out (by their start): the page has to put them by deadline, overdue first, and the
+  // duty without a due date after the dated ones.
   const rows = [
+    { id: 'bd000003', title: 'Book the flights', owner: 'alex', due: day(30) },
+    { id: 'bd000006', title: 'Water the plants', owner: 'alex' },
     { id: 'bd000001', title: 'Send the tax papers to the accountant before the office closes for the winter break', owner: 'alex', due: day(-9) },
     { id: 'bd000002', title: 'Renew the domain', owner: 'alex', due: day(0) },
-    { id: 'bd000003', title: 'Book the flights', owner: 'alex', due: day(30) },
     { id: 'bd000004', title: 'Agent task, late', owner: 'vm-admin', due: day(-3) },
     { id: 'bd000005', title: 'Agent task, due', owner: 'vm-admin', due: day(0) },
-  ].map((o) => ({ ts: '2026-09-01T00:00:00Z', agent: 'human:alex', ...o }));
+  ].map((o, i) => ({ ts: `2026-09-01T00:0${i}:00Z`, agent: 'human:alex', ...o }));
   fs.writeFileSync(path.join(r, 'global', 'duties.jsonl'), rows.map((o) => `${JSON.stringify(o)}\n`).join(''));
   return startView(r, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '' });
 }
@@ -70,14 +73,26 @@ test('the Today card shows the part Deadlines and the chips, at 1920 and 390, da
         assert.match(card, /Deadlines/, label);
         assert.match(card, /Send the tax papers/, label);
         assert.match(card, /Renew the domain/, label);
-        assert.match(card, /Not addressed to you \(agents, nobody\): 2 with a due date · 1 overdue · 1 due today/, label);
         assert.doesNotMatch(card, /Agent task/, `${label}: no agent title in the card`);
+        // the part Deadlines is a summary of counters, no second list of the same duties
+        assert.equal((await page.textContent('[data-deadlines-counts]')).trim(), '1 overdue · 1 due today · 1 later · 0 unreadable', label);
+        assert.match(card, /Not addressed to you \(agents, nobody\): 2 with a due date · 1 overdue · 1 due today/, label);
+        // no second row per duty under "Deadlines" (the part used to draw one button row each): the cards are the only rows
+        assert.equal(await page.$$eval('.today-card button.attention', (els) => els.length), 0, `${label}: no deadline rows beside the cards`);
         // the chips next to the decisions for the human: the words of the states
         const chips = await page.$$eval('.today-card .badge', (els) => els.map((e) => e.textContent.trim()));
         assert.ok(chips.includes('overdue'), `${label}: ${chips.join(', ')}`);
         assert.ok(chips.includes('due today'), `${label}: ${chips.join(', ')}`);
+        // the cards by deadline, overdue first; the duty without a due date after the dated ones. The server's own order is another one.
+        const order = await page.evaluate(() => {
+          // the groups of the decision cards (fallback cards stand in one group, written cards for you in another): in page order
+          const t = [...document.querySelectorAll('.today-card [data-card-group]')].map((g) => g.textContent).join('\n');
+          return ['tax papers', 'Renew the domain', 'Book the flights', 'Water the plants'].map((k) => t.indexOf(k));
+        });
+        assert.ok(order.every((x) => x >= 0), `${label}: all four cards are there: ${order}`);
+        assert.deepEqual([...order].sort((a, b) => a - b), order, `${label}: overdue, due today, later, no date - ${order}`);
         // a due DAY is shown as written, whatever the browser's zone
-        assert.match(card, new RegExp(`due ${day(-9)}`), label);
+        assert.match(card, new RegExp(`${day(-9)}`), label);
         // WCAG AA: the text of each chip against the background it sits on (alpha composited up the tree)
         const contrast = await page.evaluate(() => {
           const parse = (c) => { const m = c.match(/rgba?\(([^)]+)\)/); if (!m) return null; const p = m[1].split(/[ ,/]+/).filter(Boolean).map(Number); return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 }; };
@@ -123,6 +138,10 @@ test(`RED on the fixed old state (${OLD}): no part Deadlines and no chip (positi
     assert.match(card, /Decisions for you|Nothing pressing today/, 'positive control: the old card is there');
     assert.doesNotMatch(card, /Deadlines/);
     assert.deepEqual(await page.$$eval('.today-card .badge', (els) => els.map((e) => e.textContent.trim()).filter((x) => /overdue|due today/.test(x))), []);
+    // and the old page keeps the server's order (positive control for the sort: the data really is in another order)
+    const text = await page.evaluate(() => document.querySelector('.today-card')?.textContent ?? '');
+    assert.ok(text.indexOf('Book the flights') < text.indexOf('Renew the domain'), 'the old page shows the duties in the order of the server, not by deadline');
+    assert.doesNotMatch(text, /1 overdue · 1 due today/, 'no counters on the old page');
     await ctx.close();
   } finally { await srv.stop(); }
 });

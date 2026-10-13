@@ -37,6 +37,7 @@ import * as A from './appointments.mjs';
 import * as tm from './appointment-time.mjs';
 import * as dueCore from './due.mjs';
 import * as deadlines from './deadlines.mjs';
+import * as bidi from './bidi.mjs';
 import * as dayline from './dayline.mjs';
 import * as projectnew from './projectnew.mjs';
 import { cutMasked, maskText } from './outputguard.mjs';
@@ -91,7 +92,7 @@ function dutiesSituation(root, nowMs, zone, fold) {
   const situation = dueCore.situationFromOpen(open, { now: nowMs, zone, title: (p) => String(p.title ?? p.text ?? '') });
   const due = situation.list
     .filter((x) => x.state === dueCore.STATE.DUE || x.state === dueCore.STATE.OVERDUE)
-    .map((x) => ({ id: x.id, title: cutMasked(x.title, 120), date: x.day, overdue: x.state === dueCore.STATE.OVERDUE }));
+    .map((x) => ({ id: x.id, title: bidi.visible(cutMasked(x.title, 120)), date: x.day, overdue: x.state === dueCore.STATE.OVERDUE }));
   due.sort((a, b) => a.date.localeCompare(b.date) || String(a.id).localeCompare(String(b.id)));
   return { open: situation.open, withDate: situation.withDue - situation.unknown, due: due.slice(0, 8) };
 }
@@ -122,7 +123,7 @@ function waitingForHuman(root) {
     if (!human) return { n: null, subjects: [] };
     const all = inbox.read(root, participants, { to: human }).messages
       .filter((m) => !inbox.isDone(m.state) && !String(m.requestId ?? '').startsWith('appt-'));
-    return { n: all.length, subjects: all.slice(-5).map((m) => cutMasked(String(m.subject), 100)) };
+    return { n: all.length, subjects: all.slice(-5).map((m) => bidi.visible(cutMasked(String(m.subject), 100))) };
   } catch { return { n: null, subjects: [] }; }
 }
 
