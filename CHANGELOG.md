@@ -14,6 +14,28 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Security - recall server: concurrent starts no longer leave it deaf; a stop takes only its own socket (lucky-mem R3; both houses)
+
+Two recall servers started at the same time: both wrote the key file before `listen`, the loser failed with EADDRINUSE and
+removed the key again, and the server that held the socket had no key file - no client could authenticate, the hook fell back
+to the direct path for good. Red on the previous tip with two real `bin/mem-recall-server.mjs` processes: 6 of 6 rounds deaf, the
+loser exited 1 (the keeper then stays off). Now the key is written only after `listen`, the loser reports `busy` (exit
+`BUSY_RC`, the keeper retries), `close()` removes only the socket it recorded by device and inode (an old server no longer
+takes a newer one's socket away), and the stale-socket clean-up touches only a socket nobody listens on, never a regular file.
+`test/recall-server-concurrent-cm.test.mjs`.
+
+### Security - the MCP SDK peer range carries the floor the suite runs on (lucky-mem F14)
+
+`peerDependencies["@modelcontextprotocol/sdk"]` is `^1.30.0` (was `^1.0.0`), in `package.json` and the lock's root entry; every
+install line names the range, quoted for `cmd.exe`. The request-body limit of the bridge is its own code and does not depend on the
+SDK version. `test/mcp-sdk-floor-cm.test.mjs`.
+
+### Security - guards for the service doors (lucky-mem A3, A5, A7, A8, A13; no defect found here)
+
+Probes, not fixes: unparseable request targets and headers end neither service, the Host check covers every route of the viewer,
+the bridge remembers nothing per process, the body limit is 1 MiB in bytes, and the loopback allow list refuses SIIT/NAT64/6to4
+forms. `test/service-door-cm.test.mjs`.
+
 ### Security / Privacy — no entry text goes to an embedding vendor; Voyage and OpenAI removed (2026-10-13; breaking for users of `voyage` / `openai`)
 
 Owner decision (2026-10-13), both houses: no text goes to an embedding third party, not even masked. External embedding paths
