@@ -193,7 +193,7 @@ export function lightHead(root, { title = 'cheap-mem', writesAllowed = false, ma
         const tp = (ov.perProject[p] ??= fresh());
         for (const z of [ov, tp]) { z.count += 1; z.readable += 1; z.perType[type] = (z.perType[type] ?? 0) + 1; }
         newest.push({
-          id: e.id, type, title: headline(e).slice(0, 240), project: p,
+          id: e.id, type, title: headline(e, { type }).slice(0, 240), project: p,
           tags: Array.isArray(e.tags) ? e.tags.slice(0, 12) : [], ts: e.ts ?? null, agent: e.agent ?? null,
           // Whether superseded is known to the full build only (tombstones over the whole drawer).
           state: 'unknown', readable: true,

@@ -49,6 +49,21 @@ embeddings), but `find-hybrid` / `find-embed` are lexical from now on. For seman
 `ollama pull nomic-embed-text`, `mem embed setup`, `mem embed backfill --force` (the vector size differs, the old store is
 not reusable). Revoke the keys you only had for this, and delete `.mem/embed.env`.
 
+### Changed — the headline names an entry with one field (counterpart of lucky-mem "Lesbare Schlagzeilen in Suche und Netz")
+
+`viewer.headline(e)` took up to two filled fields from `class, title, topic, choice, ...` and joined them with " — ": an error
+read "<class> — <title>", a learning "<title> — <start of the text>". Now it is exactly one naming field (`title`; else `rule`,
+`question`, `fact`; a decision its `choice`, else its `topic`), or without one the first whole sentence of the content (markdown
+removed, never cut inside the first twelve characters, longer than 90 characters at a word boundary with "…"). Lists and objects
+are never printed as JSON. The output guard still masks first, a procedure keeps its mark (now behind the name), a locked entry
+stays `[locked]`. `headline(e, { type })` takes the drawer where the caller knows it (viewer, dashboard, pages, compact pass,
+light head, project package). The class is no longer part of the line.
+
+Deliberate deviations from lucky-mem: a list field (`steps`) reads as its FIRST item, where lucky-mem reads "1. a 2. b" and cuts
+inside the numbering; and the output guard masks the raw field text BEFORE the line is split or cut (a key shape that reaches over
+the 90/160 cut would otherwise stay behind as a fragment). An envelope opened in memory (`__body.state` ok) reads like any entry; an
+unreadable one carries its own label once; a rule of markdown characters only falls on to question/fact and keeps its mark.
+
 ### Added — the due-date core (build plan Q1, step 6b, branch A)
 
 A due date on a duty was read by three readers with guessed names (`today.mjs` and the dashboard `due ?? by`, the day list
