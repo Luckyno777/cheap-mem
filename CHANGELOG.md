@@ -99,11 +99,28 @@ the ratchet `test/mask-before-cut-ratchet.test.mjs`.
 - **Output that went past the guarded `out()`:** `mem context`, `mem core` and `mem raw show` write to stdout directly and now
   mask there; `freshness.formatFact` masks (it fed the session-start block with the full value); the dashboard entry drawer
   (`entryWhole`) masks `raw` and `text`; `mem inbox all|new` masks the subject.
-- **`READ_COMMANDS`** now also holds `inbox`, `skills`, `teach`, `net`, `observations` and `appointment`: they print entry text
-  and ran without the output guard.
+- **The CLI output guard is ON for every command** (it was an allow-list, `READ_COMMANDS`, and every command missing from it
+  printed entry text in the clear: `inbox`, `skills`, `teach`, `net`, `observations`, `appointment`, `suggest`). The exception
+  list `UNGUARDED` in `src/cli/shell.mjs` holds `serve` only (its setup code is what it exists to show).
+- **`mem inbox show`** printed the message byte for byte past `out()` (and `bin/mem-handle-post` hands that to a model); it masks
+  now. `mem suggest procedure` masks the error title in the draft command.
+- **`mem serve`: one exit for all JSON.** `src/servemask.mjs` masks every JSON answer at the request handler (gzip aware, byte for
+  byte unchanged when nothing needs masking): inbox subjects, message bodies and replies, fact values and experience titles left the
+  server in the clear. The field masks in the routes stay as the first layer; a route added later is covered anyway.
 - **An open PEM block** (header and key material, no END line: a text cut inside the key) is masked by `redaction.mjs` too; before,
   ~1990 characters of a key survived `questiontext.prepare` (cut at 8000 before it redacts, a cost bound), and any window that
   ended inside a block. A header alone in prose is not touched.
+
+### Security - a placeholder is a placeholder only as a whole value (both houses, owner decision 2026-10-13)
+
+The exception list of `src/redaction.mjs` excused every value that merely STARTED with `your`, `my`, `test`, `example`, `sample`,
+`dummy`, `fake` or `placeholder`: `password=mySecret123!` and `password=test1234` went through unmasked. Now the whole value must be
+a placeholder word (`your`, `my`, `dein`, `ihr`, `beispiel`, `example`, `sample`, `dummy`, `fake`, `placeholder`), alone or with exactly
+one generic word behind it (`password`, `key`, `api_key`, `token`, `secret`, `value` ...), joined by `_`, `-` or nothing:
+`your_password`, `my-token`, `example` stay; `test...` is no placeholder at all. The commit scan runs the same `redact()`; it keeps
+no list of its own. Fixture `export API_TOKEN=your-token-here` (bench/value-report.mjs) became `your-token`. A random test value that
+started with a placeholder word made `test/headline-rule.test.mjs` flake; its value now starts with `Q7`.
+`test/redaction-placeholder.test.mjs` (red on acff04e).
 
 ### Security - a person's question closes only on the person's confirmation; a headless run never writes tier `user` (2026-10-12)
 

@@ -182,7 +182,9 @@ const KEYS = {
   openai: () => ['s', 'k-'].join('') + rnd(48),
   aws: () => ['AK', 'IA'].join('') + rnd(16).toUpperCase(),
   jwt: () => ['ey', 'J'].join('') + rnd(30) + '.' + ['ey', 'J'].join('') + rnd(40) + '.' + rnd(43),
-  assignment: () => ['pass', 'word='].join('') + rnd(30),
+  // 'Q7' in front: a random value that starts with a placeholder word (my, test, your ...) must never decide whether
+  // this key is masked at all (it flaked one run in ten while the redaction excused every such prefix).
+  assignment: () => ['pass', 'word='].join('') + 'Q7' + rnd(28),
 };
 /** A piece of the key body (not its prefix) that is still readable in `out`, or null. */
 const fragment = (key, out) => {

@@ -473,7 +473,7 @@ export const BENIGN = Object.freeze([
   'request id 123e4567-e89b-12d3-a456-426614174000 timed out',
   'the password reset flow sends an email with a one-time link',
   'token budget for the digest is 4000 tokens per run',
-  'export API_TOKEN=your-token-here  # replace before use',
+  'export API_TOKEN=your-token  # replace before use',
   'set DB_PASSWORD=<your password> in the local env file',
   'password: changeme',
   'see https://example.test/docs/auth?page=2 for the auth flow',

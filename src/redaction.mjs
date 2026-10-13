@@ -223,6 +223,15 @@ export const PATTERNS = Object.freeze([
     /(?<![A-Za-z0-9._%+-])([A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]+\.[A-Za-z]{2,})(\s*[/|:]\s*)((?=[^\s]*[0-9!#$%&*+?@^_-])[^\s"'`,;]{6,})/g],
 ]);
 
+// **A placeholder is a placeholder only as a WHOLE value** (owner decision 2026-10-13, both houses). The old rule
+// excused every value that merely STARTED with `your`, `my`, `test` ...: `password=mySecret123!` and
+// `password=test1234` went through unmasked. Now the whole value must be one of the placeholder words
+// (`your`, `my`, `dein`, `ihr`, `beispiel`, `example`, `sample`, `dummy`, `fake`, `placeholder`), alone or
+// followed by exactly one generic word (`password`, `key`, `api_key`, `token`, `secret`, `value` ...), joined by
+// `_` or `-` or not at all: `your_password`, `my-token`, `example`. `test...` is no placeholder at all.
+const PLACEHOLDER_WORD = '(?:dein|deine|deinen|deiner|ihr|ihre|ihren|your|my|beispiel|example|sample|dummy|fake|placeholder)';
+const GENERIC_WORD = '(?:password|passwort|passwd|pass|pw|passphrase|key|api[_-]?key|apikey|token|secret|geheimnis|value|wert|credential|credentials|schluessel|code|id)';
+const PLACEHOLDER_VALUE = new RegExp(`^${PLACEHOLDER_WORD}(?:[_-]?${GENERIC_WORD})?$`, 'i');
 /**
  * If a match looks like one of these, it is NOT a secret — a
  * placeholder, an example, something already redacted. Otherwise we
@@ -230,7 +239,8 @@ export const PATTERNS = Object.freeze([
  */
 const HARMLESS = [
   /^(x{3,}|\*{3,}|\.{3,}|-{3,})$/i,
-  /^(your|my|test|example|sample|dummy|fake|placeholder|redacted|changeme)/i,
+  PLACEHOLDER_VALUE,
+  /^(redacted|changeme)$/i,
   /^(<|\{|\$\{|%|\[)/,            // <TOKEN>, ${VAR}, {{secret}}, [redacted]
   /^(null|undefined|none|nil|true|false|empty)$/i,
   /^REDACTED/,
