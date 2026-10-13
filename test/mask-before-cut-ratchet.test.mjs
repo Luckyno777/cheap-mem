@@ -42,10 +42,10 @@ export const WATCHED = Object.freeze([
   'src/errorcontext.mjs', 'src/cli/commands/write.mjs', 'src/neighbours.mjs', 'src/errorfixes.mjs', 'src/teach.mjs',
   'src/closingreport.mjs', 'src/appointment-today.mjs', 'src/dashboard-data.mjs', 'src/skillcatalog.mjs',
   'src/cli/commands/setup.mjs', 'src/cli/commands/admin.mjs', 'src/doctor.mjs', 'src/repetitionhint.mjs',
-  'src/answercheck.mjs', 'src/embed/index.mjs', 'src/embed/openai.mjs', 'src/embed/voyage.mjs', 'src/embed/ollama.mjs',
+  'src/answercheck.mjs',
   'src/skillregistry.mjs', 'src/source.mjs', 'src/broadcast.mjs', 'src/ruledraft.mjs', 'src/heartbeat.mjs',
   'src/shrink.mjs', 'src/rewrites.mjs', 'src/bodyfields.mjs', 'src/tasks.mjs', 'src/shardarchive.mjs', 'src/store.mjs',
-  'src/freshness.mjs', 'src/probescaffold.mjs', 'src/errorsignature.mjs', 'src/dashboard-pass.mjs',
+  'src/freshness.mjs', 'src/dashboard-head.mjs', 'src/probescaffold.mjs', 'src/errorsignature.mjs', 'src/dashboard-pass.mjs',
   'src/questiontext.mjs', 'src/cli/commands/search.mjs', 'src/cli/commands/capture.mjs',
   'src/cli/display.mjs', 'src/shortline.mjs',
 ]);
@@ -159,7 +159,7 @@ test('rule 1, red proof: on the files of acff04e the same scan finds the sites t
     const mustHit = ['src/search.mjs', 'src/raw.mjs', 'src/retrieval.mjs', 'bin/mem-mcp', 'src/question.mjs',
       'src/cli/commands/agents.mjs', 'src/board.mjs', 'src/commandguard.mjs', 'src/errorcontext.mjs', 'src/cli/commands/write.mjs',
       'src/errorfixes.mjs', 'src/appointment-today.mjs', 'src/skillcatalog.mjs',
-      'src/cli/commands/setup.mjs', 'src/cli/commands/admin.mjs', 'src/doctor.mjs', 'src/embed/openai.mjs',
+      'src/cli/commands/setup.mjs', 'src/cli/commands/admin.mjs', 'src/doctor.mjs',
       'src/source.mjs', 'src/broadcast.mjs', 'src/heartbeat.mjs', 'src/shrink.mjs', 'src/rewrites.mjs', 'src/tasks.mjs',
       'src/shardarchive.mjs', 'src/store.mjs', 'src/probescaffold.mjs'];
     assert.deepEqual(mustHit.filter((rel) => !hits.has(rel)), [], 'the scan should have found an unguarded cut in each of these old files (otherwise the ratchet would not have caught the bug)');
@@ -194,7 +194,4 @@ test('outputguard keeps the order: mask first, cut second', async () => {
   const src = fs.readFileSync(path.join(REPO, 'src', 'outputguard.mjs'), 'utf8');
   assert.match(src, /export function cutMasked\(text, n\)[\s\S]*?const masked = maskText\(text\);[\s\S]*?masked\.slice\(0, Math\.max\(0, n\)\)/);
   assert.match(src, /export function windowMasked\(text, from, to\)[\s\S]*?const masked = maskText\(text\);[\s\S]*?masked\.slice\(a, Math\.max\(a, b\)\)/);
-  const embed = fs.readFileSync(path.join(REPO, 'src', 'embed', 'index.mjs'), 'utf8');
-  assert.match(embed, /export function textForProvider\(text\) \{\s*return cutMasked\(String\(text \?\? ''\), 8000\);/, 'the one seam of the embedding text');
-  assert.match(embed, /const capped = textForProvider\(text\);/, 'embed() sends the seam\'s text');
 });

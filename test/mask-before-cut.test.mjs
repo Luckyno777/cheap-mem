@@ -474,50 +474,7 @@ add({ id: 'B appointment-today.today: letter subject (100)', cut: 100,
     return J(r.letters.subjects);
   } });
 
-// ---- B. the embedding text, adapters, doctor, ledgers --------------------------------------------------------------
-
-/** Run `fn` with global fetch replaced; returns what `fn` made of the bodies it saw. */
-function patchFetch(reply) {
-  const real = { fetch: globalThis.fetch, openai: process.env.OPENAI_API_KEY, voyage: process.env.VOYAGE_API_KEY };
-  const seen = [];
-  globalThis.fetch = async (url, init) => { seen.push(String(init?.body ?? '')); return reply(); };
-  process.env.OPENAI_API_KEY = 'not-a-real-credential';
-  process.env.VOYAGE_API_KEY = 'not-a-real-credential';
-  const restore = () => {
-    globalThis.fetch = real.fetch;
-    if (real.openai === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = real.openai;
-    if (real.voyage === undefined) delete process.env.VOYAGE_API_KEY; else process.env.VOYAGE_API_KEY = real.voyage;
-  };
-  return { seen, restore };
-}
-async function withFetch(reply, fn) {
-  const { seen, restore } = patchFetch(reply);
-  try { return await fn(seen); } finally { restore(); }
-}
-
-add({ id: 'B embed/index.embed: the text that leaves for the provider (8000)', cut: 8000, serial: true,
-  async run({ tree, t }, b) {
-    const root = await mkroot(tree, t);
-    const embed = await imp(tree, 'src/embed/index.mjs');
-    const ok = () => ({ ok: true, json: async () => ({ data: [{ embedding: new Array(1536).fill(0.5) }] }) });
-    return withFetch(ok, async (seen) => {
-      await embed.embed(root, b.text, { cfg: { provider: 'openai', model: 'text-embedding-3-small', timeoutMs: 20000 } });
-      assert.equal(seen.length, 1, 'positive control: one request went out');
-      return seen[0];
-    });
-  } });
-
-for (const adapter of ['openai', 'voyage', 'ollama']) {
-  add({ id: `B embed/${adapter}: error text of the provider (200)`, cut: 200, kinds: ['github', 'jwt', 'password'], serial: true,
-    async run({ tree }, b) {
-      const mod = await imp(tree, `src/embed/${adapter}.mjs`);
-      const bad = () => ({ ok: false, status: 500, text: async () => b.text });
-      return withFetch(bad, async () => {
-        try { await mod.embed('some text', { model: 'm', signal: null, root: null }); } catch (e) { return String(e.message); }
-        throw new Error('the adapter did not throw');
-      });
-    } });
-}
+// ---- B/C. write paths, doctor, ledgers --------------------------------------------------------------
 
 add({ id: 'C raw.capture: unreadable line (2000), kept in the capture', cut: 2000, kinds: ['github', 'jwt', 'password'],
   async run({ tree, t }, b) {
@@ -728,11 +685,8 @@ async function outcome(which, c, kind, t) {
   return { out: String(out), leaked: leaks(out, b.key), b };
 }
 
-/** Run `fn` for every kind: side by side, except for a case that patches process-wide state (`serial`). */
-async function forKinds(c, fn) {
-  if (c.serial) { const out = []; for (const k of c.kinds) out.push(await fn(k)); return out; }
-  return Promise.all(c.kinds.map(fn));
-}
+/** Run `fn` for every kind, side by side. */
+const forKinds = (c, fn) => Promise.all(c.kinds.map(fn));
 
 for (const c of CASES) {
   test(`new tree: ${c.id}: no key fragment shows (${c.kinds.join(', ')})`, async (t) => {

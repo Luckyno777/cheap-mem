@@ -86,9 +86,6 @@ the ratchet `test/mask-before-cut-ratchet.test.mjs`.
   (`entryWhole`) masks `raw` and `text`; `mem inbox all|new` masks the subject.
 - **`READ_COMMANDS`** now also holds `inbox`, `skills`, `teach`, `net`, `observations` and `appointment`: they print entry text
   and ran without the output guard.
-- **Embedding text.** `embed()` masks the text before it is capped and sent (`textForProvider`, one seam). A text that carries a
-  key now gets a different vector than before. Open owner question: whether a local provider (ollama) should skip the mask, and
-  whether the mask should be widened or switched off per provider, is not decided here.
 - Known edge, named: `questiontext.prepare` still cuts at 8000 characters before it redacts (a cost bound, four times the
   2000 it keeps); a PEM block that begins in the kept part and ends beyond 8000 is not matched.
 

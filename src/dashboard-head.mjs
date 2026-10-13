@@ -48,6 +48,7 @@ import { writeAtomic } from './atomicwrite.mjs';
 import * as memory from './memory.mjs';
 import { headline } from './viewer.mjs';
 
+import { cutMasked } from './outputguard.mjs';
 /** The newest entries the first answer carries; plus at most `HEAD_OPEN` open ones. */
 export const HEAD_ENTRIES = 120;
 const HEAD_OPEN = 150;
@@ -193,7 +194,7 @@ export function lightHead(root, { title = 'cheap-mem', writesAllowed = false, ma
         const tp = (ov.perProject[p] ??= fresh());
         for (const z of [ov, tp]) { z.count += 1; z.readable += 1; z.perType[type] = (z.perType[type] ?? 0) + 1; }
         newest.push({
-          id: e.id, type, title: headline(e).slice(0, 240), project: p,
+          id: e.id, type, title: cutMasked(headline(e), 240), project: p,
           tags: Array.isArray(e.tags) ? e.tags.slice(0, 12) : [], ts: e.ts ?? null, agent: e.agent ?? null,
           // Whether superseded is known to the full build only (tombstones over the whole drawer).
           state: 'unknown', readable: true,
