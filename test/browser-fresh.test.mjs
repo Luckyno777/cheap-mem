@@ -43,10 +43,13 @@ const STEERS_ITSELF = {
   'no-jump.test.mjs': 'needs real "not fresh" answers and background builds (SYNC_TEST_MS=0): a request before the page changes the sequence',
   'cat-confirm-cm-browser.test.mjs': 'rebuilds the state after a click with SYNC_TEST_MS=0 and a long minimum gap: a request before the page would use up the build',
   'dash-package-cm-browser.test.mjs': 'one probe forces the worker lane (SYNC_TEST_MS=0, long gap) with its own server and its own sequence of states',
+  'dash-write-fresh-cm.test.mjs': 'needs the cache honestly stale after a write (SYNC_TEST_MS=0, ten-minute gap, a paused build) to show that the live parts, not a rebuild, deliver the new state',
   'fresh-cache.test.mjs': 'calls fresh() itself and forces the synchronous lane (one-hour threshold) to measure the rebuild',
 };
 /** Files with `keepFresh: false` - none. New ones only with a reason. */
-const NOT_FRESH = {};
+const NOT_FRESH = {
+  'dash-write-fresh-cm.test.mjs': 'a request before the page would start the rebuild the probe has to hold back: the write must be fresh from the live parts while the cache is still old',
+};
 /** Files with `.goto(` whose pages do NOT come from the fixture - none. */
 const NOT_FIXTURE = {};
 
