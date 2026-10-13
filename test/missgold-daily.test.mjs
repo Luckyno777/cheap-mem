@@ -17,6 +17,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import * as mg from '../src/missgold.mjs';
 import { QUESTION, world, cleanup } from './fixture/missgold-world.mjs';
+import { loadChildSource } from './fixture/loadchild.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BIN = path.join(REPO, 'bin', 'mem');
@@ -178,7 +179,9 @@ test('digest tick: a hanging collection is ended by its own cap, the exit code s
     const root = world();
     const k = program(work);
     const without = tick(k, root, work, { MEM_GOLD_DAILY: 'no' });
-    fs.writeFileSync(path.join(k, 'src', 'missgold.mjs'), 'while (true) {}\n');
+    // A hang WITH a leash (failure record 3rmr30wgcgjn): it computes until the cap (2 s) ends it; if the cap fails,
+    // the maximum lifetime (20 s) and the parent leash end the child anyway.
+    fs.writeFileSync(path.join(k, 'src', 'missgold.mjs'), loadChildSource({ maxLifetimeMs: 20000 }));
     const hung = tick(k, root, work, { MEM_GOLD_TIMEOUT: '2' });
     assert.equal(hung.code, without.code);
     assert.ok(hung.ms < 60000, `the tick took ${hung.ms} ms`);
