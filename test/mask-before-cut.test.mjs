@@ -1121,11 +1121,30 @@ test('cutMasked / windowMasked: no edge leaves a piece of a [REDACTED:...] marke
   for (let n = 1; n < masked.length; n += 1) {
     if (piece.test(masked.slice(0, n)) && masked[n - 1] !== ' ') plainTorn += 1;
     const out = cutMasked(text, n);
-    assert.ok(!piece.test(out) || out.endsWith(' ') || out === '', `cut ${n} leaves a piece of a marker: ${JSON.stringify(out.slice(-24))}`);
+    assert.ok(!piece.test(out), `cut ${n} leaves a piece of a marker: ${JSON.stringify(out.slice(-24))}`);
     assert.ok(masked.startsWith(out), `cut ${n} is a prefix of the masked text`);
     const w = windowMasked(text, n, Math.min(masked.length, n + 30));
     assert.ok(!piece.test(w) || w === '', `window ${n} ends inside a marker: ${JSON.stringify(w.slice(-24))}`);
     assert.ok(!lead.test(w), `window ${n} starts inside a marker: ${JSON.stringify(w.slice(0, 24))}`);
   }
   assert.ok(plainTorn > 10, `positive control: a plain slice of the masked text tears markers (${plainTorn})`);
+});
+
+test('marker edges, fixed: on the start the marker stays out, on the end it stays whole; markers at the start and in a row', () => {
+  assert.equal(cutMasked('ab [REDACTED:x] cd', 3), 'ab ');
+  assert.equal(cutMasked('ab [REDACTED:x] cd', 4), 'ab ');
+  assert.equal(cutMasked('ab [REDACTED:x] cd', 15), 'ab [REDACTED:x]');
+  assert.equal(cutMasked('[REDACTED:x][REDACTED:y][REDACTED:z] tail', 11), '');
+  assert.equal(cutMasked('[REDACTED:x][REDACTED:y][REDACTED:z] tail', 12), '[REDACTED:x]');
+  assert.equal(cutMasked('[REDACTED:x][REDACTED:y][REDACTED:z] tail', 30), '[REDACTED:x][REDACTED:y]');
+  assert.equal(windowMasked('ab [REDACTED:x] cd', 5, 9), '');
+});
+
+test('the marker scan stays linear: unclosed [REDACTED: runs do not make a cut quadratic', () => {
+  const bad = '[REDACTED:'.repeat(40000); // 400 KB; unbounded label pattern: 6.5 s (review of torn-marker-cm)
+  const t0 = process.hrtime.bigint();
+  cutMasked(bad, 100);
+  windowMasked(bad, 50, 150);
+  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+  assert.ok(ms < 1500, `cut and window over 400 KB of unclosed markers took ${Math.round(ms)} ms`);
 });

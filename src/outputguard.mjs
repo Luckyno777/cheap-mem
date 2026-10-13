@@ -95,7 +95,9 @@ export function maskOutput(text) {
 
 // A marker the cut tore in half ("[REDACTED:githu") shows nothing secret,
 // but it reads as damage. The cut drops the torn stub.
-const MARKER = /\[REDACTED(?::[^\]]*)?\]/g;
+// The label is a short kind name (`[REDACTED:openai-key]`, redaction.mjs); bounded, so an unclosed
+// `[REDACTED:` run cannot make the scan quadratic (review: 400 KB of them took 6.5 s unbounded).
+const MARKER = /\[REDACTED(?::[A-Za-z0-9_-]{0,64})?\]/g;
 
 /**
  * Where a cut at `end` of a MASKED text may fall: an edge inside a
