@@ -29,7 +29,7 @@ import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as memory from '../src/memory.mjs';
 import * as inbox from '../src/inbox.mjs';
 import * as login from '../src/login.mjs';
@@ -115,7 +115,7 @@ test('(2) module: every task kind and every writing route is in exactly one list
   }
   for (const k of [...Object.keys(dashboardLive.TASK_PARTS), ...Object.keys(dashboardLive.REBUILD_ONLY)]) assert.ok(Object.hasOwn(tasks.KINDS, k), `'${k}' is no task kind (any more)`);
   for (const [k, why] of Object.entries(dashboardLive.REBUILD_ONLY)) assert.ok(String(why).length > 10, `REBUILD_ONLY '${k}' needs a reason`);
-  const mod = await import(`${path.join(REPO, 'bin', 'mem-serve')}?x=${Math.random()}`);
+  const mod = await import(`${pathToFileURL(path.join(REPO, 'bin', 'mem-serve')).href}?x=${Math.random()}`);
   for (const route of mod.WRITE_PATHS) {
     const a = Object.hasOwn(dashboardLive.ROUTE_PARTS, route);
     const b = Object.hasOwn(dashboardLive.ROUTE_NO_PART, route);
