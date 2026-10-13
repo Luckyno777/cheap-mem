@@ -983,13 +983,18 @@ export const COMMANDS = {
       }
       if (what === 'status') {
         const st = missgold.status(root);
-        if (args.json) { out(JSON.stringify(st, null, 2)); return; }
+        // The local question-text file (src/questiontext.mjs) is the other half of what
+        // the reverse test and G7 read; its state is shown here too - counts only.
+        const questiontext = await import('../../questiontext.mjs');
+        const kept = questiontext.status(root);
+        if (args.json) { out(JSON.stringify({ ...st, questionText: kept }, null, 2)); return; }
         const la = st.run;
         out(`Last collection: ${la ? `${la.day} ${la.result}${la.result === 'ok' ? `, ${la.fresh} new case(s)` : la.class ? ` (${la.class})` : la.result === 'running' ? ' (never finished: time cap or abort)' : ''}` : 'never (no stamp)'}`);
         out(`Miss gold: ${st.cases} case(s) (scored from ${st.min}), ${st.broken} broken line(s), ${st.present ? st.path : 'file missing'}`);
         const modeLine = missgold.modeNote(st);
         if (modeLine) out(modeLine);
         if (!st.ignored) out('WARNING: the path sits inside the work tree and git does NOT ignore it.');
+        out(`Question text kept locally: ${kept.on ? 'on' : 'off'}, ${kept.lines} line(s) in ${kept.files} day file(s) (${kept.state}), ${kept.broken} broken, ${kept.failures} failure(s) in 7 days`);
         return;
       }
       if (what === 'score') {

@@ -41,7 +41,8 @@
  * MEM_RH_PATH / MEM_RH_PATH_REASON (M10: server or direct, and why),
  * MEM_RH_CWD / MEM_RH_TRANSCRIPT (the hook JSON's `cwd` and
  * `transcript_path`, read only by the h2 search lever), MEM_RH_PROMPT (the
- * prompt, read only by the skill offer), MEM_RH_WORKFLOW (the workflow
+ * prompt: the skill offer reads it, and every journal line this process books
+ * hands it to the local question-text file, src/questiontext.mjs), MEM_RH_WORKFLOW (the workflow
  * block, see above).
  * Internal to the hooks; not user switches. The user switch that acts
  * here is `MEM_SEARCH_LEVERS` (src/searchlevers.mjs: h2, h5).
@@ -102,6 +103,9 @@ function booking(env, extra) {
     session: env.MEM_RH_SESSION || null,
     occasion: injection.OCCASION.QUESTION,
     questionBytes: num(env.MEM_RH_QB),
+    // The wording goes to the local question-text file, never into the journal line
+    // (src/questiontext.mjs; `injection.book` drops it from the line).
+    questionText: env.MEM_RH_PROMPT || undefined,
     durationMs: start && start > 0 ? Date.now() - start : null,
     // M10: the path the search ran on, handed over by bin/mem-retrieve.
     recallPath: env.MEM_RH_PATH || undefined,
@@ -117,7 +121,7 @@ export async function signal(root, prompt, env = process.env) {
   });
   if (!verdict.search && env.MEM_RH_SESSION) {
     injection.book(root, booking(env, {
-      reason: injection.REASON.NO_SIGNAL, bytes: 0, hits: 0, searched: null,
+      reason: injection.REASON.NO_SIGNAL, bytes: 0, hits: 0, searched: null, questionText: prompt,
     }));
   }
   return verdict;
@@ -131,7 +135,8 @@ export function machine(root, prompt, env = process.env) {
   if (!isForeignTurn(prompt)) return false;
   if (env.MEM_RH_SESSION) {
     injection.book(root, booking(env, {
-      reason: injection.REASON.MACHINE, bytes: 0, hits: 0, searched: null,
+      // A machine-made turn is no question of the person: no wording is kept.
+      reason: injection.REASON.MACHINE, bytes: 0, hits: 0, searched: null, questionText: undefined,
     }));
   }
   return true;
@@ -200,11 +205,13 @@ async function workflowFor(root, prompt, env = process.env) {
  */
 export function recall(root, hitsJson, env = process.env, { offer = null, attach = null } = {}) {
   const hits = parseHits(hitsJson);
+  // The hits of this turn go along: mostly encrypted ones keep the question out of the local file.
+  const book = (extra) => booking(env, { questionHits: hits ?? undefined, ...extra });
   const min = num(env.MEM_RH_MIN, 5.0);
   // The skill offer: one line naming released skills, booked as `skill-offer`.
   const bookOffer = () => {
     if (offer && env.MEM_RH_SESSION) {
-      injection.book(root, booking(env, { occasion: injection.OCCASION.SKILL_OFFER, reason: null,
+      injection.book(root, booking(env, { occasion: injection.OCCASION.SKILL_OFFER, questionText: undefined, reason: null,
         bytes: Buffer.byteLength(offer.line, 'utf8'), hits: offer.ids.length, searched: null, sources: offer.ids,
         ...(offer.accountIds?.length ? { ids: [...offer.ids, ...offer.accountIds] } : {}),
         recallPath: undefined, pathReason: undefined }));
@@ -213,11 +220,11 @@ export function recall(root, hitsJson, env = process.env, { offer = null, attach
   const offerOnly = (reason) => {
     const text = visible(`${RECALL_HEADER}\n${offer.line}`);
     const out = { suppressOutput: true, hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: text } };
-    return { out, book: () => { if (env.MEM_RH_SESSION) injection.book(root, booking(env, { reason, bytes: 0, hits: 0, searched: null })); bookOffer(); } };
+    return { out, book: () => { if (env.MEM_RH_SESSION) injection.book(root, book({ reason, bytes: 0, hits: 0, searched: null })); bookOffer(); } };
   };
   const nothing = (reason) => (offer && reason !== injection.REASON.ALREADY_SHOWN ? offerOnly(reason) : {
     out: null,
-    book: () => { if (env.MEM_RH_SESSION) injection.book(root, booking(env, { reason, bytes: 0, hits: 0, searched: null })); },
+    book: () => { if (env.MEM_RH_SESSION) injection.book(root, book({ reason, bytes: 0, hits: 0, searched: null })); },
   });
   // The search showed nothing: the miss is booked as before, and a
   // workflow block (if the hook handed one over) still goes out alone.
@@ -261,7 +268,7 @@ export function recall(root, hitsJson, env = process.env, { offer = null, attach
   return {
     out,
     book: () => {
-      injection.book(root, booking(env, {
+      injection.book(root, book({
         reason: null, bytes: Buffer.byteLength(json, 'utf8'),
         hits: r.lines.length, searched: null, sources: r.sources, ids: [...r.ids, ...r.attached],
       }));

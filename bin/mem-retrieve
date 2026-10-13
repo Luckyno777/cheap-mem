@@ -256,7 +256,7 @@ fi
 workflow_only() {
   [ -n "$WF_TEXT" ] || return 0
   CHEAP_MEM_ROOT="$ROOT" MEM_RH_SESSION="${SESSION_ID:-}" MEM_RH_TURNS="${TURNS:-$ROOT/.mem/retrieve-turns}" \
-    MEM_RH_QB="$QB" MEM_RH_START_MS="$MEM_HOOK_START_MS" MEM_RH_WORKFLOW="$WF_TEXT" \
+    MEM_RH_QB="$QB" MEM_RH_START_MS="$MEM_HOOK_START_MS" MEM_RH_WORKFLOW="$WF_TEXT" MEM_RH_PROMPT="${PROMPT:0:8000}" \
     capped 5 node "$RECALL_JS" workflow-only </dev/null 2>/dev/null
   return 0
 }
@@ -407,7 +407,7 @@ if [ "$FIND_RC" -ne 0 ]; then
   {
     if [ -f "$TOOL_ROOT/src/injection.mjs" ]; then
       MEM_J_ROOT="$ROOT" MEM_J_SRC="$TOOL_ROOT/src/injection.mjs" MEM_J_SESSION="${SESSION_ID:-}" \
-        MEM_J_QB="${#PROMPT}" MEM_J_REASON="$MEM_J_REASON" \
+        MEM_J_QB="${#PROMPT}" MEM_J_Q="${PROMPT:0:8000}" MEM_J_REASON="$MEM_J_REASON" \
         MEM_J_PATH="$RECALL_PATH" MEM_J_PATH_REASON="$RECALL_REASON" capped 3 node -e '
           import(require("node:url").pathToFileURL(process.env.MEM_J_SRC).href).then((m) => {
             m.book(process.env.MEM_J_ROOT, {
@@ -415,6 +415,7 @@ if [ "$FIND_RC" -ne 0 ]; then
               occasion: m.OCCASION.QUESTION, reason: m.REASON[process.env.MEM_J_REASON],
               bytes: null, hits: 0, searched: null, sources: [],
               questionBytes: Number(process.env.MEM_J_QB) || null,
+              questionText: process.env.MEM_J_Q || undefined,
               durationMs: Date.now() - Number(process.env.MEM_HOOK_START_MS),
               recallPath: process.env.MEM_J_PATH, pathReason: process.env.MEM_J_PATH_REASON || null,
             });

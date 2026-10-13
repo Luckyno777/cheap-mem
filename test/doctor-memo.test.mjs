@@ -149,13 +149,16 @@ const FORMS = {
 // exported old state has no docs/ and install/, so they differ for a reason that has nothing
 // to do with the drawers. Everything else is compared.
 const CODE_TREE_FINDINGS = new Set(['docs-images-fresh', 'integration-contract']);
+// A finding added after the exported old state, reading `.mem/local/question-text/` and no drawer:
+// the old state cannot have it. Its own probes are in test/question-text.test.mjs.
+const NEWER_FINDINGS = new Set(['question-text']);
 // The O_APPEND probe races worker threads against a deadline: under load it answers "could not
 // measure" for a reason that is the machine's, so its text is not compared.
 const TIMING_PROBE = /concurrent (O_APPEND writes|writers)/;
 
 /** Findings with the few run-to-run moving numbers (clock distance, timings, cache state) blanked. */
 function normal(result) {
-  const text = JSON.stringify(result.findings.filter((f) => !CODE_TREE_FINDINGS.has(f.name) && !TIMING_PROBE.test(f.text)), null, 1)
+  const text = JSON.stringify(result.findings.filter((f) => !CODE_TREE_FINDINGS.has(f.name) && !NEWER_FINDINGS.has(f.name) && !TIMING_PROBE.test(f.text)), null, 1)
     .replace(/[\d.]+ min ahead/gi, 'N min ahead')
     .replace(/[\d.]+ min behind/gi, 'N min behind')
     .replace(/\d+(\.\d+)? ?ms\b/g, 'N ms')

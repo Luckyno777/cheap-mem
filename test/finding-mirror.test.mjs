@@ -301,6 +301,10 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
   // delivery into an existing cloud session) and 'haken-stumm' (a registered
   // hook that stopped firing) added on the lucky-mem side, mapped as gaps:
   // this house has neither a cloud route nor a per-event hook journal check.
+  // Question text kept locally (2026-10-12): 'fragetext-lokal' added on the
+  // lucky-mem side, paired here with this house's own 'question-text' —
+  // refreshed as its own reviewed change, per the instructions above (the
+  // other names were not re-captured: only this one was added).
   names: Object.freeze([
     'abrufquote', 'agent-modell', 'altlast', 'anhang', 'anmeldung', 'ansicht',
     'archiv-haltbar', 'archiv-heil', 'archiv-rueckstau', 'auffindbar', 'auftragslage',
@@ -309,7 +313,7 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
     'briefkasten', 'bruecke', 'cloud-zustellung', 'dispatcher', 'doku-bilder-frische', 'dubletten',
     'eintragsform', 'erledigt-ohne-beleg', 'faecher', 'faecher-jsonl',
     'fakt-konflikte', 'fang-doppelt', 'fasser', 'fasser-ausbeute', 'fasser-timer',
-    'fehler-verknuepft', 'frageworte', 'geheimnis-altfaenge', 'git', 'git-hook',
+    'fehler-verknuepft', 'fragetext-lokal', 'frageworte', 'geheimnis-altfaenge', 'git', 'git-hook',
     'haken-fehlen', 'haken-stumm', 'haken-wurzel-stau', 'hook-doppelt', 'hook-kopie', 'hook-stand',
     'index', 'integrationsvertrag', 'kategorien', 'kennzahlen-gleich',
     'klartext-sensibel', 'klingel', 'korrektur-verliert-inhalt', 'latenz',

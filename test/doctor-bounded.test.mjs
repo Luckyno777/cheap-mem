@@ -230,7 +230,11 @@ test('old and new agree on the findings this change must not touch', async () =>
     assert.equal(b.find((x) => x.name === 'contested-claims').level, 'warn', 'positive control: a contested claim exists');
     // `index` differs only in the timing it prints.
     assert.equal(b.find((x) => x.name === 'index').level, a.find((x) => x.name === 'index').level);
-    assert.deepEqual(b.map((x) => x.name), a.map((x) => x.name), 'same findings, same order, no renames');
+    // `question-text` was added after the exported old state (it reads .mem/local/, no drawer);
+    // everything else must be the same findings in the same order, no renames.
+    const newer = new Set(['question-text']);
+    assert.ok(b.some((x) => newer.has(x.name)), 'positive control: the newer finding is there');
+    assert.deepEqual(b.map((x) => x.name).filter((n) => !newer.has(n)), a.map((x) => x.name), 'same findings, same order, no renames');
   } finally {
     fs.rmSync(w, { recursive: true, force: true });
     fs.rmSync(old, { recursive: true, force: true });
