@@ -38,6 +38,7 @@ import { BODY_FIELDS } from './bodyfields.mjs';
 import { shapeProblem, legacyLists, withoutListFlags } from './fieldshape.mjs';
 import * as dueCore from './due.mjs';
 import * as cardrules from './cardrules.mjs';
+import * as cardrule from './cardrule.mjs';
 
 /**
  * The per-writer hash chain (`src/chain.mjs`), loaded lazily and
@@ -1310,6 +1311,8 @@ export const NO_CONTENT_MESSAGE = 'this entry would have no content. At least on
   + 'is never findable again. Nothing was written.';
 
 export function logCheckedEntry(root, type, data, options = {}) {
+  // `route` is NOT a write option for `logEntry`: it names the free input road (`cardrule.ROUTES`) and stays here.
+  const { route = null, ...writeOptions } = options;
   // Q1 (due-date core): `due` only on a duty, only in the two forms - here, so that the CLI and the bridge get the same
   // refusal. First of all: a refusal never wrote anything.
   dueCore.checkWrite(type, data);
@@ -1318,6 +1321,11 @@ export function logCheckedEntry(root, type, data, options = {}) {
     e.code = 'NO_CONTENT';
     throw e;
   }
+  // H11 (owner decision 2026-10-13, 36b3ub1nht9f): a NEW duty or question to a person brings its card. Only on a road that states
+  // its route (cli | mcp | task); an internal writer states none and is exempt (src/cardrule.mjs). Stage 2 throws HERE - before
+  // anything is written; stage 1 hands the verdict back for the caller to say.
+  const cardVerdict = judgeCard(root, type, data, { route, closing: isClosingCorrection(data) });
+  cardrule.refuseIfNeeded(cardVerdict);
   const test = redaction.selfTest();
   if (!test.ok) {
     const e = new Error(
@@ -1350,8 +1358,33 @@ export function logCheckedEntry(root, type, data, options = {}) {
     else delete content[expand.FIELD];
   }
   const { object, found } = redaction.redactEntry(content);
-  const { path: p, entry } = logEntry(root, type, { ...object, ...stamps }, options);
-  return { path: p, entry, findings: found, askedAsDropped };
+  const { path: p, entry } = logEntry(root, type, { ...object, ...stamps }, writeOptions);
+  return { path: p, entry, findings: found, askedAsDropped, card: cardVerdict };
+}
+
+/**
+ * The human participant of this memory (the configured one), or null: no config, none marked, more than one marked. Read only
+ * where the card rule could apply; whoever cannot be told is not protected by a rule that would have to guess.
+ */
+function humanOf(root) {
+  try { return cfgmod.humanParticipant(cfgmod.readConfig(root).participants).name ?? null; } catch { return null; }
+}
+
+/**
+ * The verdict of the card rule for one write (H11, `cardrule.judge`). Cheap when the rule cannot apply (no route, other type):
+ * then neither the config nor the predecessor is read. A line that replaces another (`replaces_id`, the bridge for a question)
+ * is judged against that predecessor: an addressee that stood there already is old stock.
+ */
+export function judgeCard(root, type, data, { route = null, closing = false, previous = undefined } = {}) {
+  if (!cardrule.ROUTES.includes(route) || !cardrule.TYPES.includes(type)) return cardrule.judge(type, data, { route });
+  const human = humanOf(root);
+  let v = cardrule.judge(type, data, { route, human, closing, previous });
+  if (v.applies && previous === undefined && typeof data?.replaces_id === 'string' && data.replaces_id) {
+    let before = null;
+    try { before = entriesById(root).get(data.replaces_id) ?? null; } catch { before = null; }
+    if (before) v = cardrule.judge(type, data, { route, human, closing, previous: before });
+  }
+  return v;
 }
 
 /** A redaction's findings as one line, the same for the CLI and the bridge. */
@@ -3095,7 +3128,7 @@ function inheritedFields(old, without = []) {
  * Backwards-editing is forbidden: the wrong line stays visible; the
  * correction is a NEW line with `replaces_id: <old-id>`.
  */
-export function correctionEntry(root, type, oldId, newData, { project = null, without = [], inherit = true } = {}) {
+export function correctionEntry(root, type, oldId, newData, { project = null, without = [], inherit = true, route = null } = {}) {
   if (typeof oldId !== 'string' || !oldId) {
     throw new Error('Correction needs an old id');
   }
@@ -3185,6 +3218,11 @@ export function correctionEntry(root, type, oldId, newData, { project = null, wi
   // `checkCorrectionContentLoss`) needs both and would otherwise have to
   // look the predecessor up and recompute the same closing-question a
   // second time.
+  // H11: a correction that SETS or CHANGES the addressee to the person is a new duty / question to him - the same rule as `mem log`
+  // (card named in the correction, or inherited from the predecessor). An addressee that stood there already is old stock. Only on a
+  // road that states its route; a closing correction is no new duty.
+  const cardVerdict = judgeCard(root, type, newData, { route, closing, previous: old });
+  cardrule.refuseIfNeeded(cardVerdict);
   const written = logEntry(root, type, { ...newData, replaces_id: oldId }, { project });
   // Y4b: the same early warning `retireEntry`/`closeDuty` give — a
   // correction the authority rule refuses is still written (append-only)
@@ -3192,7 +3230,7 @@ export function correctionEntry(root, type, oldId, newData, { project = null, wi
   // the next recall. Judged on the line as WRITTEN (default tier and
   // ceiling already applied), so the warning and the replay agree.
   return {
-    ...written, old, closing, findings, encrypted: newData.shred === true,
+    ...written, old, closing, findings, encrypted: newData.shred === true, card: cardVerdict,
     verdict: type === 'duty' ? warnIfDutyReplaceRefused(root, written.entry, old) : warnIfRefused(written.entry, old, 'replaces_id'),
   };
 }

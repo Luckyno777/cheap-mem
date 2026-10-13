@@ -31,6 +31,7 @@
  * or merge is only appended lines.
  */
 import * as memory from './memory.mjs';
+import * as cardrule from './cardrule.mjs';
 
 const COPY_SKIP = new Set([
   ...memory.MACHINE_FIELDS, 'restored_from', 'restored_why', 'merged_from', 'merged_why',
@@ -82,7 +83,7 @@ const targetIn = (entries, id) => entries.find((e) => e.id === id && !memory.isC
  * the newer version), what is already restored and still holds, and an
  * entry with no content of its own.
  */
-export function restore(root, id, { why = null } = {}) {
+export function restore(root, id, { why = null, route = null } = {}) {
   const loc = locate(root, id);
   const { entries, retired } = drawer(root, loc);
   const old = targetIn(entries, id);
@@ -104,8 +105,12 @@ export function restore(root, id, { why = null } = {}) {
   }
   const data = { ...content, restored_from: id };
   if (why) data.restored_why = String(why);
+  // H11: a reopened duty / question to the person is a NEW one to him: the card rule applies (on a road that states its route).
+  // The card the original carried on the entry is copied with the content; one that stood on the shelf is not.
+  const cardVerdict = memory.judgeCard(root, loc.type, data, { route });
+  cardrule.refuseIfNeeded(cardVerdict);
   const line = memory.logEntry(root, loc.type, data, { project: loc.project });
-  return { action: 'restore', id, type: loc.type, project: loc.project, created: line.entry.id, was: r.state };
+  return { action: 'restore', id, type: loc.type, project: loc.project, created: line.entry.id, was: r.state, card: cardVerdict };
 }
 
 /**

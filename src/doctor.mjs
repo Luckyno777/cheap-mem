@@ -70,6 +70,9 @@ import * as experience from './experience.mjs';
 import * as envelope from './envelope.mjs';
 import * as mailpermit from './mailpermit.mjs';
 import * as appointmentInvite from './appointment-invite.mjs';
+import * as humandecisions from './humandecisions.mjs';
+import * as cardstore from './cardstore.mjs';
+import * as decisioncard from './decisioncard.mjs';
 
 export const LEVEL = Object.freeze({
   GOOD: 'good',
@@ -440,6 +443,7 @@ function checkAllCore(root) {
   f.push(guarded('checkRepetitionHint', () => checkRepetitionHint(root)));
   f.push(guarded('checkClosedWithoutEvidence', () => checkClosedWithoutEvidence(root)));
   f.push(guarded('checkAutoDutyAge', () => checkAutoDutyAge(root)));
+  f.push(guarded('checkDecisionWithoutExplanation', () => checkDecisionWithoutExplanation(root)));
   f.push(guarded('checkErrorLinked', () => checkErrorLinked(root)));
   f.push(guarded('checkSkillSharpen', () => checkSkillSharpen(root)));
   f.push(guarded('checkGuardSuspicion', () => checkGuardSuspicion(root)));
@@ -1094,6 +1098,59 @@ export function checkAutoDutyAge(root, now = new Date()) {
       + 'or switched off. That is a decision for a session/human; this finding only counts.');
   }
   return finding('auto-duty-age', LEVEL.GOOD, core);
+}
+
+/** How long a NEW decision for the human may stand without a card of its own before it counts as a debt (from its `ts`). */
+export const EXPLANATION_GRACE_DAYS = 1;
+
+/**
+ * Finding `decision-without-explanation` (H11, owner decision 2026-10-13, 36b3ub1nht9f): what a person is meant to decide must be
+ * readable by a person. Counted are the OPEN decisions for the human - the SAME source as `mem today`
+ * (`humandecisions`, the function behind `today.decisionsForHuman`, plus the open questions addressed to him), no second
+ * calculation - and how many of them carry a card of their own (written on the entry or added later on the shelf) against how many
+ * have only the fallback card (`decisioncard.lacksExplanation`, the one derivation).
+ *
+ *   good     nothing is open, or every decision has a card of its own, or those without one are still within the grace period
+ *   warn     at least one decision without a card of its own that is older than the grace period (one day from its `ts`; a date
+ *            that cannot be read does NOT count as fresh). The old stock is a debt until it is added later.
+ *   unknown  the source or the card shelf could not be read, or no human is configured: never 0, never good
+ *
+ * Never `error`: a missing explanation is a debt, not an outage. Reads only.
+ */
+export function checkDecisionWithoutExplanation(root, now = new Date()) {
+  const at = now instanceof Date ? now.getTime() : new Date(now).getTime();
+  let shelf;
+  try { shelf = cardstore.readCards(root); } catch (e) { shelf = { readable: false, reason: `card shelf not readable: ${e?.message || e}` }; }
+  if (!shelf.readable) {
+    return finding('decision-without-explanation', LEVEL.UNKNOWN, `${shelf.reason} — whether the decisions for the human carry a card is unknown, not zero`);
+  }
+  let r;
+  try { r = humandecisions.withQuestions(root, { cards: shelf.cards }); } catch (e) { r = { readable: false, reason: `decisions not readable: ${e?.message || e}` }; }
+  if (!r.readable) return finding('decision-without-explanation', LEVEL.UNKNOWN, `${r.reason} — the open decisions for the human are unknown, not zero`);
+  const list = r.list;
+  if (!list.length) return finding('decision-without-explanation', LEVEL.GOOD, 'no open decision for the human');
+
+  const lacking = list.filter((d) => decisioncard.lacksExplanation(d.card));
+  const own = list.length - lacking.length;
+  const written = list.filter((d) => !decisioncard.lacksExplanation(d.card) && d.card?.origin?.stage === 'written').length;
+  const grace = EXPLANATION_GRACE_DAYS * 24 * 60 * 60 * 1000;
+  let undated = 0;
+  const debt = lacking.filter((d) => {
+    const t = Date.parse(d.since ?? '');
+    if (!Number.isFinite(t)) { undated += 1; return true; }
+    return at - t >= grace;
+  }).sort((a, b) => (Date.parse(a.since ?? '') || 0) - (Date.parse(b.since ?? '') || 0));
+  const core = `${list.length} open decision${list.length === 1 ? '' : 's'} for the human: ${own} with a card of their own `
+    + `(${written} written, ${own - written} added later), ${lacking.length} with the fallback card only`;
+  if (!debt.length) {
+    return finding('decision-without-explanation', LEVEL.GOOD, lacking.length ? `${core} (all within the grace period of ${EXPLANATION_GRACE_DAYS} day)` : core);
+  }
+  const oldest = debt[0];
+  return finding('decision-without-explanation', LEVEL.WARN,
+    `${core}; ${debt.length} of them without explanation and older than ${EXPLANATION_GRACE_DAYS} day${undated ? ` (${undated} without a readable date)` : ''}`,
+    `mem card add ${oldest.id} --question "..." --context "..." --option "Yes — ..." --option "No — ..." `
+    + `(the oldest: ${oldest.id}; until then the person sees only the fallback card). A new duty or question brings its card at once: `
+    + 'mem log duty|question --who <the human> --card_question ... --card_options ...');
 }
 
 // Delivery: is there mail for a recipient nobody reads?

@@ -686,6 +686,7 @@ mem component <path>               everything about ONE file
 mem topic-merge <old> --to <new>   fold topics; applied on read, nothing rewritten
 mem questions / mem answer <q> --with <entry>   what we do not know, and closing it (a person's question: `mem questions confirm`; `--who` names who it goes to)
 mem card add|list                  a decision card for what a person is to decide: question, context, options with effects (docs/CAPABILITIES.md 10.31)
+                                   a NEW duty or question for the human brings its card (`--card_question`, `--card_options` twice); without one it is taken in as "explanation missing", with `CHEAP_MEM_CARD_REJECT=yes` it is refused
 mem procedures / mem teach         recorded steps; what a newcomer needs to hear
 mem sources add|bridge|list        where a claim came from
 mem store put|list|get|verify      files the memory keeps by hash
