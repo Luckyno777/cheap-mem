@@ -27,6 +27,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
@@ -75,40 +76,105 @@ test('POSITIVE: the command list itself is not empty (vacuity check)', async () 
   assert.equal(names.length, 87, `expected 87 commands, found ${names.length}: ${names.join(',')}`);
 });
 
-test('every command: --help exits 0, prints something, and leaves no file behind', async () => {
-  const names = await allCommands();
-  const failures = [];
-  for (const name of names) {
-    const root = freshRoot();
-    const before = snapshot(root);
-    const env = { ...process.env };
-    delete env.CHEAP_MEM_ROOT;
-    const r = spawnSync(process.execPath, [MEM, name, '--help', '--root', root], {
-      encoding: 'utf8',
-      cwd: root,
-      env,
-      timeout: 30000, // one command that never ends must be NAMED, not cost the whole file's 15 minutes
-    });
-    const after = snapshot(root);
-    if (r.error?.code === 'ETIMEDOUT') {
-      failures.push(`${name}: --help did not end within 30 s (stdout so far: ${String(r.stdout).slice(0, 200)})`);
-      continue;
+// **`--help` and `-h` are one contract.** `-h` used to be known only to
+// bin/mem as the FIRST argument; after a command name it was an ordinary word,
+// so `mem init -h` built a memory, `mem status -h` ran, `mem shrink -h`
+// created `.pipeline/` and `mem serve -h` STARTED the server (found 2026-10-13).
+for (const flag of ['--help', '-h']) {
+  test(`every command: ${flag} exits 0, prints something, and leaves no file behind`, async () => {
+    const names = await allCommands();
+    const failures = [];
+    for (const name of names) {
+      const root = freshRoot();
+      const before = snapshot(root);
+      const env = { ...process.env };
+      delete env.CHEAP_MEM_ROOT;
+      const r = spawnSync(process.execPath, [MEM, name, flag, '--root', root], {
+        encoding: 'utf8',
+        cwd: root,
+        env,
+        timeout: 30000, // one command that never ends must be NAMED, not cost the whole file's 15 minutes
+      });
+      const after = snapshot(root);
+      if (r.error?.code === 'ETIMEDOUT') {
+        failures.push(`${name}: ${flag} did not end within 30 s (stdout so far: ${String(r.stdout).slice(0, 200)})`);
+        continue;
+      }
+      if (r.status !== 0) {
+        failures.push(`${name}: exit ${r.status} (stderr: ${r.stderr.trim().slice(0, 200)})`);
+        continue;
+      }
+      if (!r.stdout.trim()) {
+        failures.push(`${name}: ${flag} printed nothing`);
+        continue;
+      }
+      if (before.join('\n') !== after.join('\n')) {
+        failures.push(`${name}: ${flag} left files behind: `
+          + `before=[${before.join(', ')}] after=[${after.join(', ')}]`);
+      }
+      fs.rmSync(root, { recursive: true, force: true });
     }
-    if (r.status !== 0) {
-      failures.push(`${name}: exit ${r.status} (stderr: ${r.stderr.trim().slice(0, 200)})`);
-      continue;
-    }
-    if (!r.stdout.trim()) {
-      failures.push(`${name}: --help printed nothing`);
-      continue;
-    }
-    if (before.join('\n') !== after.join('\n')) {
-      failures.push(`${name}: --help left files behind: `
-        + `before=[${before.join(', ')}] after=[${after.join(', ')}]`);
-    }
-    fs.rmSync(root, { recursive: true, force: true });
+    assert.deepEqual(failures, [], `\n${failures.join('\n')}\n`);
+  });
+}
+
+test('-h stands for --help wherever a switch could stand, not only first', () => {
+  const root = freshRoot();
+  for (const argv of [
+    ['init', '-h'], ['status', '-h'], ['board', '-h'], ['shrink', '-h'],
+    ['log', '-h'], ['log', 'learning', '-h'], ['find', 'x', '-h'], ['inbox', '-h', 'write'], ['project', 'init', '-h'],
+  ]) {
+    const r = spawnSync(process.execPath, [MEM, ...argv, '--root', root], { encoding: 'utf8', cwd: root, timeout: 30000 });
+    assert.equal(r.status, 0, `${argv.join(' ')}: exit ${r.status} ${r.stderr}`);
+    assert.ok(r.stdout.trim(), `${argv.join(' ')}: printed nothing`);
+    assert.deepEqual(snapshot(root), [], `${argv.join(' ')} left files behind`);
   }
-  assert.deepEqual(failures, [], `\n${failures.join('\n')}\n`);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('mem -h as the first argument prints the overview, as before', () => {
+  const r = spawnSync(process.execPath, [MEM, '-h'], { encoding: 'utf8' });
+  assert.equal(r.status, 0);
+  assert.match(r.stdout, /^mem — cheap-mem CLI/);
+});
+
+test('mem serve -h starts nothing: it exits at once and its port stays closed', async () => {
+  const root = freshRoot();
+  const port = await new Promise((resolve) => {
+    const s = net.createServer().listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => resolve(p)); });
+  });
+  const r = spawnSync(process.execPath, [MEM, 'serve', '-h', '--port', String(port), '--root', root],
+    { encoding: 'utf8', cwd: root, timeout: 15000 });
+  assert.equal(r.status, 0, `exit ${r.status} ${r.error?.code ?? ''} ${r.stderr}`);
+  const open = await new Promise((resolve) => {
+    const c = net.connect(port, '127.0.0.1');
+    c.on('connect', () => { c.destroy(); resolve(true); });
+    c.on('error', () => resolve(false));
+  });
+  assert.equal(open, false, 'a server listens on the port after `mem serve -h`');
+  assert.deepEqual(snapshot(root), [], 'mem serve -h left files behind');
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('POSITIVE: -h as the VALUE of a parameter is text, not help', () => {
+  const root = freshRoot();
+  const run = (argv) => spawnSync(process.execPath, [MEM, ...argv, '--root', root], { encoding: 'utf8', cwd: root, timeout: 30000 });
+  assert.equal(run(['init']).status, 0);
+  for (const argv of [
+    ['log', 'learning', '--title', 't-one', '--text', '-h'],
+    ['log', 'learning', '--title', '-h', '--text', 'body two'],
+    ['log', 'learning', '--text=-h', '--title', 't-three'],
+  ]) {
+    const r = run(argv);
+    assert.equal(r.status, 0, `${argv.join(' ')}: exit ${r.status} ${r.stderr}`);
+    assert.doesNotMatch(r.stdout, /^mem log/m, `${argv.join(' ')} printed help instead of writing`);
+  }
+  const learnings = fs.readFileSync(path.join(root, 'global', 'learnings.jsonl'), 'utf8')
+    .split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  assert.equal(learnings.length, 3, `expected 3 learnings, got ${learnings.length}`);
+  assert.ok(learnings.some((e) => e.text === '-h'), 'text "-h" was not written');
+  assert.ok(learnings.some((e) => e.title === '-h'), 'title "-h" was not written');
+  fs.rmSync(root, { recursive: true, force: true });
 });
 
 test('mem status --json: same exit code as the text form, healthy root', () => {
