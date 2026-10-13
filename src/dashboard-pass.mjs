@@ -58,6 +58,7 @@ import * as capability from './capability.mjs';
 import { headline, TYPE_LABEL } from './viewer.mjs';
 import { declaredDerivedFrom } from './dashboard.mjs';
 
+import { cutMasked } from './outputguard.mjs';
 /** The newest entries the pass keeps for the pages of the list. */
 export const WINDOW = 30000;
 /** The newest entries per topic and per drawer: the first page when zooming in. */
@@ -256,8 +257,8 @@ function questionSnapshot(e) {
   const out = {};
   for (const k of SNAPSHOT_FIELDS) {
     const v = e[k];
-    if (typeof v === 'string') out[k] = v.slice(0, 700);
-    else if (Array.isArray(v)) out[k] = v.filter((x) => typeof x === 'string').slice(0, 12).map((x) => x.slice(0, 300));
+    if (typeof v === 'string') out[k] = cutMasked(v, 700);
+    else if (Array.isArray(v)) out[k] = v.filter((x) => typeof x === 'string').slice(0, 12).map((x) => cutMasked(x, 300));
     else if (k === 'body_enc' && v) out[k] = true;
   }
   return out;
@@ -285,7 +286,7 @@ function rowOf(e, { id, type, project, source, line, tags, count, drawer }) {
   const ts = e.ts ? String(e.ts) : '';
   return {
     id, ts, day: ts.slice(0, 10), type, typeLabel: TYPE_LABEL[type] || type, project,
-    tags: tags.slice(0, 12), headline: headlineOf(e, type).slice(0, 240), source, line,
+    tags: tags.slice(0, 12), headline: cutMasked(headlineOf(e, type), 240), source, line,
     readable: true,
     basis: basis.markOf(e), authority: authority.tierOf(e), author: authority.authorOf(e) || null,
     scope: capability.scopeOf(e), derivedFrom: declaredDerivedFrom(e),
@@ -757,6 +758,7 @@ export function runPass(root, {
 export function atlasSearch(root, { theme = null, drawer = null, project = null, max = SAMPLE, recall = null } = {}) {
   const types = Object.keys(memory.TYPES);
   const cut = drawer ? drawer.lastIndexOf('/') : -1;
+  // mask-ok: a drawer name
   const [dp, dt] = cut >= 0 ? [drawer.slice(0, cut), drawer.slice(cut + 1)] : [null, null];
   const only = dp ?? project;
   const projects = [null, ...memory.listProjects(root)].filter((x) => !only || (x ?? 'global') === only);

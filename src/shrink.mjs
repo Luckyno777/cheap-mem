@@ -35,6 +35,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { writeAtomic } from './atomicwrite.mjs';
+import { cutMasked } from './outputguard.mjs';
 
 /** Where the baseline lives. Runtime state, per machine. */
 export const BASELINE_FILE = path.join('.pipeline', 'shrink-baseline.json');
@@ -202,7 +203,7 @@ export function setBaseline(root, now = {}, { why = '' } = {}) {
   const state = {
     version: 1,
     ts: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
-    why: String(why || '').slice(0, 200),
+    why: cutMasked(String(why || ''), 200),
     books: { ...now },
   };
   const where = path.join(root, BASELINE_FILE);

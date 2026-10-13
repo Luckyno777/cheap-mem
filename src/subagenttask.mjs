@@ -38,6 +38,7 @@ import path from 'node:path';
 import * as recallattach from './recallattach.mjs';
 import { renderHit } from './recallrender.mjs';
 
+import { maskText } from './outputguard.mjs';
 /** At most this many hits are added (assignment: three to five). */
 const MAX_HITS = 4;
 /** At most this many bytes are added (assignment: about 1,500). */
@@ -193,7 +194,7 @@ function isPersonal(root, entry, type, { names = null, ctx = null } = {}) {
 // --- 4. Choice and text ---------------------------------------------------------------
 
 function squash(text, max) {
-  const t = String(text ?? '').replace(/\s+/g, ' ').trim();
+  const t = maskText(String(text ?? '')).replace(/\s+/g, ' ').trim();
   return t.length <= max ? t : `${t.slice(0, max - 1).trimEnd()}…`;
 }
 

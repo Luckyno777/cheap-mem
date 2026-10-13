@@ -35,6 +35,7 @@
  */
 import * as memory from './memory.mjs';
 import * as authority from './authority.mjs';
+import { maskText } from './outputguard.mjs';
 import * as addressee from './addressee.mjs';
 
 export const TYPE = 'question';
@@ -75,7 +76,7 @@ export function check(fields = {}) {
     const w = typeof fields.who === 'string' ? fields.who.trim() : '';
     if (!w) errors.push('who is empty — name the participant the question goes to, or leave --who out');
     else if (!WHO_FORM.test(w)) {
-      errors.push(`who '${w.slice(0, 40)}' is not one name — letters, digits and . _ : @ - (at most 64), no blanks`);
+      errors.push(`who '${maskText(String(w)).slice(0, 40)}' is not one name — letters, digits and . _ : @ - (at most 64), no blanks`);
     }
   }
   return { ok: errors.length === 0, errors, warnings };
@@ -191,7 +192,7 @@ export function answer(root, questionId, withId, {
 /** One line per question — open, answered and waiting, or closed. */
 export function line(q) {
   const mark = q.open ? 'open   ' : q.waiting ? 'waiting' : 'closed ';
-  const short = String(q.question).replace(/\s+/g, ' ').slice(0, 100);
+  const short = maskText(String(q.question)).replace(/\s+/g, ' ').slice(0, 100);
   const ids = q.answers.map((a) => a.id).join(', ');
   const rest = q.open ? ''
     : q.waiting ? `  <- ${ids}  (answered, waits for the person's confirmation)`

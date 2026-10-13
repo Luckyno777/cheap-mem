@@ -27,6 +27,7 @@
 import * as memory from './memory.mjs';
 import * as errorclass from './errorclass.mjs';
 import * as procedure from './procedure.mjs';
+import { maskText } from './outputguard.mjs';
 
 export const THRESHOLD = 3;
 
@@ -39,9 +40,9 @@ const CORRECTION_SENTENCE = /[^.?!\n]*\b(fixed|remedy|guard|corrected|resolved|i
  */
 export function correctPathText(entry) {
   for (const f of ['remedy', 'correct']) {
-    if (typeof entry?.[f] === 'string' && entry[f].trim()) return entry[f].trim();
+    if (typeof entry?.[f] === 'string' && entry[f].trim()) return maskText(entry[f].trim());
   }
-  const text = String(entry?.text ?? '').trim();
+  const text = maskText(String(entry?.text ?? '')).trim();
   if (!text) return '(no text in the newest error)';
   const hit = CORRECTION_SENTENCE.exec(text);
   if (hit) return hit[0].trim();
@@ -122,7 +123,7 @@ export function suggestProcedure(root, rawClass) {
   const latest = newest(hits);
   const q = (v) => String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/[\r\n]+/g, ' ');
   const rule = q(correctPathText(latest));
-  const title = q(latest.title ?? cls);
+  const title = q(maskText(String(latest.title ?? cls)));
   const command = `mem log procedure --title "${q(cls)}: ${title}" --rule "${rule}" `
     + `--on-class ${cls} --issued-by owner`;
   return { ok: true, command, source: latest.id, count: hits.length };

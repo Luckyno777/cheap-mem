@@ -51,6 +51,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import * as memory from './memory.mjs';
 import { textOf } from './raw.mjs';
+import { maskText } from './outputguard.mjs';
 
 /** Kill switch: under this hit rate, a pattern stops firing. */
 export const MIN_HIT_RATE = 1 / 5;
@@ -145,7 +146,7 @@ export function isActive(pattern) {
 
 /** Redact a matched line to one safe, capped line for a continuation reason. */
 export function redactExcerpt(s, max = EXCERPT_CHARS) {
-  const one = String(s).replace(/\s+/g, ' ').replace(/["`]/g, "'").trim();
+  const one = maskText(String(s)).replace(/\s+/g, ' ').replace(/["`]/g, "'").trim();
   return one.length > max ? `${one.slice(0, max - 1)}…` : one;
 }
 

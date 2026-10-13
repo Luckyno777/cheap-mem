@@ -48,6 +48,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { weekKey } from './gap.mjs';
 import { writeAtomic } from './atomicwrite.mjs';
+import { maskText } from './outputguard.mjs';
 
 export const TAG = 'rule-proposal';
 export const WINDOW_DAYS = 14;
@@ -57,7 +58,7 @@ const MAX_PATTERN_LINES = 5;
 const MAX_QUOTE = 300;
 
 const clip = (s, n) => {
-  const t = String(s ?? '').replace(/\s+/g, ' ').trim();
+  const t = maskText(String(s ?? '')).replace(/\s+/g, ' ').trim();
   return t.length > n ? `${t.slice(0, n - 1)}…` : t;
 };
 

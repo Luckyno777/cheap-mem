@@ -7,7 +7,7 @@
 //   3. Moving a due date is append-only: the original stays byte for byte, a lower tier is refused, the debtor may.
 //   4. Age doping: "open since" is the start of the chain; overdue is computed from the due date.
 //   5. One place: no module besides src/due.mjs reads the field (bench/calculations.mjs, with a positive control).
-//   6. Output guard (READ_COMMANDS, masking) and an encrypted duty whose due date stays readable.
+//   6. Output guard (on by default, UNGUARDED exceptions, masking) and an encrypted duty whose due date stays readable.
 //   7. The parity table of field names and the shared fixture (same fixture, same state in both houses).
 //
 // invariant: frist-eine-stelle
@@ -469,12 +469,12 @@ test('MCP: mem_duties carries due and due_state, mem_deadlines the whole situati
 
 // ------------------------------------------------ 6. output guard, encrypted duty
 
-test('output guard: `deadlines` is a READ command and masks a key shape that sits past the write path (text and --json)', (t) => {
+test('output guard: `deadlines` runs with the guard on and masks a key shape that sits past the write path (text and --json)', (t) => {
   const shell = fs.readFileSync(path.join(REPO, 'src', 'cli', 'shell.mjs'), 'utf8');
-  const m = /const READ_COMMANDS = new Set\(\[([\s\S]*?)\]\);/.exec(shell);
-  assert.ok(m, 'READ_COMMANDS found');
-  assert.match(m[1], /'deadlines'/);
-  assert.match(m[1], /'duties'/, 'positive control: the same slice knows its neighbours');
+  const m = /const UNGUARDED = Object\.freeze\(new Set\(\[([\s\S]*?)\]\)\);/.exec(shell);
+  assert.ok(m, 'UNGUARDED found');
+  assert.doesNotMatch(m[1], /'deadlines'|'duties'/, 'the guard is on for these');
+  assert.match(m[1], /'serve'/, 'positive control: the slice is the exception list');
   const root = world(t);
   handWritten(root, [{ id: 'g0000001', ts: '2026-09-01T00:00:00Z', title: `Access ${FAKE_TOKEN} check`, owner: 'human', due: '2099-01-01' }]);
   assert.ok(raw(root).includes(FAKE_TOKEN), 'precondition: the sample key sits unmasked on disk');

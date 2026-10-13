@@ -47,7 +47,7 @@ import * as rules from './cardrules.mjs';
 import * as card from './decisioncard.mjs';
 import * as addressee from './addressee.mjs';
 import { yesNoValue } from './yesno.mjs';
-import { maskText } from './outputguard.mjs';
+import { maskText, costCut } from './outputguard.mjs';
 
 /** The switch of stage 2. Default: off (stage 1, warn and mark). */
 const ENV_REJECT = 'CHEAP_MEM_CARD_REJECT';
@@ -84,7 +84,8 @@ const scrub = (t) => t.replace(/(?![\n\r\t])[\p{Cc}\p{Cf}]/gu, '');
 function partsOf(data) {
   const F = card.CARD_FIELDS;
   const mask = (v) => {
-    if (typeof v === 'string') return maskText(scrub(v.length > 2 * rules.MAX_IN ? v.slice(0, 2 * rules.MAX_IN) : v));
+    // the cost bound (twice MAX_IN) drops the run the edge broke; what is kept is masked next
+    if (typeof v === 'string') return maskText(scrub(costCut(v, 2 * rules.MAX_IN)));
     if (Array.isArray(v)) return v.slice(0, 200).map(mask);
     return v;
   };

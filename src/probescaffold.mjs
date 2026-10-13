@@ -28,6 +28,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { maskText } from './outputguard.mjs';
+
 /** The marker that flags a scaffold as not yet filled in. */
 export const EMPTY_MARK = '// scaffold: empty';
 
@@ -52,7 +54,7 @@ const oneLine = (s) => String(s ?? '').replace(/[\r\n]+/g, ' ').trim();
 /** The scaffold's text. A pure function — writes nothing. */
 export function text(entry) {
   const id = String(entry.id);
-  const title = oneLine(entry.title ?? entry.text ?? '(no title)').slice(0, 160);
+  const title = oneLine(maskText(String(entry.title ?? entry.text ?? '(no title)'))).slice(0, 160);
   const file = oneLine(entry.file ?? (Array.isArray(entry.files) ? entry.files.join(', ') : ''));
   const why = 'scaffold empty — empty is not passing';
   const q = (s) => JSON.stringify(s);

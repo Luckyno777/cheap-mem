@@ -23,6 +23,7 @@ import * as memory from './memory.mjs';
 import * as errorfile from './errorfile.mjs';
 import * as neighbours from './neighbours.mjs';
 import * as search from './search.mjs';
+import { maskText, cutMasked } from './outputguard.mjs';
 import * as procedure from './procedure.mjs';
 
 /** How long a commit hash is in `evidence` (git-usual, unique enough). */
@@ -139,7 +140,7 @@ function edgesFromCommits(root, commits, { checkOnly = false, errors = null, kno
       const res = writeResolves(root, {
         from: evidence, errorId: id, evidence,
         why: `Commit ${evidence.slice(memory.COMMIT_EVIDENCE_PREFIX.length)} carries "Fixes: ${id}": `
-          + `${String(c.body).split('\n')[0].slice(0, 120)}`,
+          + `${cutMasked(maskText(String(c.body)).split('\n')[0], 120)}`,
       }, { errors: f, known: k, checkOnly });
       if (res.written) r.written.push({ hash: c.hash, id });
       else if (res.would) r.would.push({ hash: c.hash, id });
@@ -226,7 +227,7 @@ export function backfill(root, { repo = root, since = null, checkOnly = false } 
       const res = writeResolves(root, {
         from: evidence, errorId: id, evidence,
         why: `Commit ${evidence.slice(memory.COMMIT_EVIDENCE_PREFIX.length)} says "fixes ${id}": `
-          + `${String(c.body).split('\n')[0].slice(0, 120)}`,
+          + `${cutMasked(maskText(String(c.body)).split('\n')[0], 120)}`,
       }, { errors, known, checkOnly });
       if (res.written) text.written.push({ hash: c.hash, id });
       else if (res.would) text.would.push({ hash: c.hash, id });
@@ -313,7 +314,7 @@ function words(...parts) {
 }
 
 function short(e) {
-  const t = String(e.title ?? e.learning ?? e.rule ?? e.text ?? '').replace(/\s+/g, ' ').slice(0, 70);
+  const t = maskText(String(e.title ?? e.learning ?? e.rule ?? e.text ?? '')).replace(/\s+/g, ' ').slice(0, 70);
   return `${String(e.ts ?? '').slice(0, 10)}  ${String(e.id).padEnd(12)} ${t}`;
 }
 
@@ -401,10 +402,11 @@ export function noteForError(root, errorEntry, { max = NOTE_MAX } = {}) {
   if (!learn.length && !proc.length && !fixes.length) return [];
   const where = [cls && `class ${cls}`, files[0] && `file ${files[0]}`].filter(Boolean).join(', ');
   const lines = ['', `  Already there for this (${where}; a note, nothing injected, nothing written):`];
+  // mask-ok: a list slice; short() masks before it cuts
   for (const x of learn.slice(0, max)) lines.push(`    learning  ${short(x.e)}`);
   for (const x of proc.slice(0, max)) lines.push(`    procedure ${short(x.e)}`);
   for (const l of fixes.slice(0, max)) {
-    lines.push(`    fix       ${l.evidence} fixed ${l.to}: ${String(all.get(l.to)?.title ?? '').replace(/\s+/g, ' ').slice(0, 60)}`);
+    lines.push(`    fix       ${l.evidence} fixed ${l.to}: ${maskText(String(all.get(l.to)?.title ?? '')).replace(/\s+/g, ' ').slice(0, 60)}`);
   }
   return lines;
 }

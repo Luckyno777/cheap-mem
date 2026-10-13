@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MIT
 /**
  * cardrules — the rules by which a decision card may be written, and the
- * small text tools every card needs (H11, card-core-cm). A leaf: it imports
- * nothing and does no I/O. It stands alone because three places need it and a
+ * small text tools every card needs (H11, card-core-cm). A leaf: its only import
+ * is `outputguard.mjs` (itself a leaf over `redaction.mjs`, which imports nothing) and it does no I/O. It stands alone because three places need it and a
  * ring between them would be the price otherwise: the write core
  * (`memory.logEntry`, type `card`), the card itself (`decisioncard`) and the
  * card shelf (`cardstore`).
@@ -20,6 +20,8 @@
  */
 
 // invariant: eine-regel-eine-stelle
+
+import { maskText, costCut } from './outputguard.mjs';
 
 /** The three kinds of card: the human chooses between ways / releases what another prepared / a task, not a decision. */
 export const KINDS = Object.freeze(['decide', 'approve', 'do-it']);
@@ -39,7 +41,11 @@ const SENTENCE_SOURCE_MAX = 2000;
  * bidi switches such as U+202E, zero-width characters). A card goes to a terminal, a page and an agent's context.
  */
 export function clean(v) {
-  const t = typeof v === 'string' ? v.slice(0, MAX_IN) : (typeof v === 'number' ? String(v) : '');
+  // The cost bound comes through `costCut`, which drops the run the edge broke: the fold below squeezes white space, so a
+  // plain cut at MAX_IN would leave the cut-through rest of a key at the END of the folded text, where no pattern knows
+  // it (an 8160-space lead and a token over the edge did exactly that). The mask runs on what is kept, before the fold
+  // and before every later cut (shorten, sentencesOf, the limits).
+  const t = typeof v === 'string' ? maskText(costCut(v, MAX_IN)) : (typeof v === 'number' ? String(v) : '');
   return t.replace(/\s+/g, ' ').replace(/[\p{Cc}\p{Cf}]/gu, '').trim();
 }
 
@@ -55,6 +61,7 @@ const SEPARATOR = /\s+[—–]\s+|\s+--?\s+/;
 /** An option "choice — effect" as `{choice, effect}` (effect empty when none is named). */
 export function splitOption(o) {
   const m = SEPARATOR.exec(o);
+  // mask-ok: `o` is an option from listOf(), which masks (clean)
   return { choice: m ? o.slice(0, m.index) : o, effect: m ? o.slice(m.index + m[0].length) : '' };
 }
 
@@ -69,7 +76,7 @@ const ELLIPSIS = '…';
 
 /** Cut to `max` characters at a word boundary, with "…" (only when it was cut). */
 export function shorten(text, max) {
-  const t = String(text ?? '').replace(/\s+/g, ' ').trim();
+  const t = maskText(String(text ?? '')).replace(/\s+/g, ' ').trim();
   if (t.length <= max) return t;
   let s = t.slice(0, max - 1);
   if (!/\s/.test(t[max - 1] ?? '')) {
@@ -87,7 +94,8 @@ const ABBREVIATIONS = new Set(['e', 'g', 'i', 'eg', 'ie', 'etc', 'vs', 'cf', 'ap
 
 /** Markdown out, whitespace folded: bounded patterns only (at most a few hundred characters per link). */
 function plainText(text) {
-  return String(text ?? '').slice(0, SENTENCE_SOURCE_MAX)
+  // the cost bound drops the run the edge broke (outputguard.costCut); the mask runs on what is kept, before any sentence is cut
+  return maskText(costCut(String(text ?? ''), SENTENCE_SOURCE_MAX))
     .replace(/!?\[([^\]\n]{0,200})\]\([^)\n]{0,300}\)/g, '$1')
     .replace(/`+/g, '')
     .replace(/\*\*|__/g, '')
@@ -106,6 +114,7 @@ function sentenceEnd(t) {
       // the word before the dot: at most 8 letters back
       let j = i;
       while (j > 0 && i - j < 9 && /\p{L}/u.test(t[j - 1])) j -= 1;
+      // mask-ok: a lookup of the (at most 8) letters before a dot, never shown
       if (ABBREVIATIONS.has(t.slice(j, i).toLowerCase())) continue;
     }
     return i;
@@ -123,6 +132,7 @@ export function sentencesOf(text, n = 2) {
   while (t && out.length < n) {
     const e = sentenceEnd(t);
     if (e < 0) { out.push(t); t = ''; break; }
+    // mask-ok: `t` is plainText(), which masks before the sentence is cut
     const s = t.slice(0, e + 1).trim();
     if (s) out.push(s);
     t = t.slice(e + 1).trim();
@@ -179,6 +189,7 @@ export function checkCardContent({ question, context, options, advice, evidence,
   if (opt.length && !read.some((o) => isDecline(o.choice))) {
     errors.push('no No / not-now option — every card needs one (e.g. "No — ..." or "Not now — ...")');
   }
+  // mask-ok: options come from clean(), which masks
   for (const o of read) {
     if (o.choice.length > L.choice) errors.push(`option "${o.choice.slice(0, 30)}...": the choice is longer than ${L.choice} characters`);
     if (!o.effect) warnings.push(`option "${o.choice.slice(0, 40)}" names no effect ("choice — effect")`);

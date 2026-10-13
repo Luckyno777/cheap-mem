@@ -73,6 +73,7 @@ import { pack } from './language.mjs';
 import { detectEntryLanguage, DETECTABLE_LANGUAGES, UNCERTAIN } from './langdetect.mjs';
 import * as profile from './profile.mjs';
 import * as capabilityMod from './capability.mjs';
+import { cutMasked } from './outputguard.mjs';
 
 /**
  * The packs consulted when an entry's (or a query's) language is not
@@ -352,6 +353,7 @@ export function splitCompound(word, lexicon, lang, minPart = 4) {
     const rest = word.slice(i);
     if (!lexicon.has(left)) {
       for (const l of linking) {
+        // mask-ok: stem arithmetic on one word, not shown
         if (left.endsWith(l) && lexicon.has(left.slice(0, -l.length))) {
           left = left.slice(0, -l.length);
           break;
@@ -753,6 +755,7 @@ function* rawDocuments(root, lexicons, only = null) {
     }
     if (pieces.length === 0) continue;
 
+    // mask-ok: the indexing window (RAW_CAP), not shown; the excerpt shown goes through cutMasked below
     const text = pieces.join('\n').slice(0, RAW_CAP);
     // A capture is a transcript — it carries the same silent-mis-stem
     // risk a typed entry does, and a raw German session is common
@@ -784,7 +787,7 @@ function* rawDocuments(root, lexicons, only = null) {
       entry: {
         ts: header?.__stamp?.ts_to ?? header?.__captured_at ?? null,
         title: `[raw] ${rel.split('/').pop()}`,
-        text: text.slice(0, 400),
+        text: cutMasked(text, 400),
         surface: header?.__stamp?.surface ?? null,
         session_id: header?.__stamp?.session_id ?? null,
       },
@@ -3171,6 +3174,7 @@ export function retrievalQuery(text, { root = null, index = null, requestFrame =
     try { idx = loadIndex(root); } catch { idx = null; }
   }
   const df = idx?.statsDocFreq ?? idx?.docFreq;
+  // mask-ok: a list of query words, not entry text
   if (!idx || !df) return withAnchors(w.slice(0, RETRIEVE_WORDS_MAX));
 
   // From the CURATED statistic, for the same reason as the idf — and it
@@ -3188,6 +3192,7 @@ export function retrievalQuery(text, { root = null, index = null, requestFrame =
     for (const t of tokenize(x)) lowest = Math.min(lowest, df.get(t) ?? 0);
     return Number.isFinite(lowest) ? lowest : 0;
   };
+  // mask-ok: a list of query words, not entry text
   return withAnchors([...w].sort((a, b) => rarity(a) - rarity(b)).slice(0, RETRIEVE_WORDS_MAX));
 }
 

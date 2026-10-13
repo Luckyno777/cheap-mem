@@ -37,7 +37,7 @@ import path from 'node:path';
 // O2: straight from the leaf module that is the ONE source for every
 // display and for the indexed field set (`retrieval.mjs` re-exports it).
 import { BODY_FIELDS, NON_BODY_FIELDS, bodyAsText } from './bodyfields.mjs';
-import { maskEntry } from './outputguard.mjs';
+import { maskEntry, maskText } from './outputguard.mjs';
 import { FIELD as EXPAND_FIELD } from './expand.mjs';
 
 /** Characters of text per hit (the line's prefix — day, id, lane — not counted). */
@@ -62,7 +62,8 @@ const text = (v) => (typeof v === 'string' && v.trim() ? squash(v) : '');
  * Returns `{ text, cut }`; a cut text ends with an ellipsis.
  */
 export function cutAtBoundary(t, max) {
-  const s = squash(t);
+  // Mask first: a caller may hand in text that is not masked yet (searchlevers does with a finished line).
+  const s = squash(maskText(String(t ?? '')));
   if (s.length <= max) return { text: s, cut: false };
   const window = s.slice(0, Math.max(1, max - 1));
   const floor = Math.floor(window.length * 0.4);

@@ -28,6 +28,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import * as today from './today.mjs';
+import { maskText } from './outputguard.mjs';
 
 /** At most this many lines and characters. */
 export const MAX_LINES = 3;
@@ -74,7 +75,7 @@ function readState(p) {
 }
 
 const short = (s, n) => {
-  const t = String(s ?? '').replace(/\s+/g, ' ').trim();
+  const t = maskText(String(s ?? '')).replace(/\s+/g, ' ').trim();
   return t.length > n ? `${t.slice(0, n - 1)}…` : t;
 };
 
@@ -101,6 +102,7 @@ export function reportText(list) {
   const rest = list.length - Math.min(list.length, NAMES_MAX);
   const head = `Open duties from this session (${list.length}): ${names}${rest > 0 ? ` (+${rest} more)` : ''}`;
   const lines = `${head}\nLook: mem duties`.split('\n').slice(0, MAX_LINES).join('\n');
+  // mask-ok: every title in `lines` went through short(), which masks before it cuts
   return lines.length > MAX_CHARS ? `${lines.slice(0, MAX_CHARS - 1)}…` : lines;
 }
 

@@ -90,6 +90,8 @@ export async function embed(text, { model = 'nomic-embed-text', signal = null } 
     throw err;
   }
   if (res.status < 200 || res.status >= 300) {
+    // mask-ok: the reply of the LOOPBACK Ollama server, and src/embed/ may import nothing but its own helpers (the
+    // local-only rail, test/embed-local-only.test.mjs); the error reaches the user through a guarded out()
     throw new Error(
       `ollama HTTP ${res.status}: ${res.text.slice(0, 200)}\n`
       + `Is ollama running? Is '${model}' pulled (ollama pull ${model})?`);

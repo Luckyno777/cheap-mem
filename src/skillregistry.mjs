@@ -24,6 +24,7 @@ import * as procedure from './procedure.mjs';
 import * as workflow from './workflow.mjs';
 import * as snippet from './snippet.mjs';
 import { writeAtomic } from './atomicwrite.mjs';
+import { maskText, maskEntry } from './outputguard.mjs';
 
 /** The four drawers, in a fixed order (determinism). */
 export const TYPES = Object.freeze(['skill', 'workflow', 'snippet', 'procedure']);
@@ -65,7 +66,7 @@ export function statusOf(type, e, idx) {
 
 /** ASCII lower case, digits, hyphens. */
 export function slug(text, max = 40) {
-  let s = String(text ?? '').toLowerCase().replace(/ß/g, 'ss').normalize('NFKD').replace(/[̀-ͯ]/g, '')
+  let s = maskText(String(text ?? '')).toLowerCase().replace(/ß/g, 'ss').normalize('NFKD').replace(/[̀-ͯ]/g, '')
     .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
   if (s.length > max) {
     s = s.slice(0, max);
@@ -98,7 +99,7 @@ export function stems(text) {
 
 function label(e, field) {
   const v = (e.label && typeof e.label === 'object' ? e.label[field] : undefined) ?? e[field];
-  return typeof v === 'string' && v.trim() ? v.trim() : null;
+  return typeof v === 'string' && v.trim() ? maskText(v.trim()) : null;
 }
 
 /** Full text with origin/status head. Deterministic. */
@@ -111,7 +112,7 @@ export function fullText(item) {
   else if (item.type === 'workflow') body = workflow.display(e);
   else if (item.type === 'snippet') body = snippet.display(e);
   else body = [e.title, e.skill, e.text].filter((x) => typeof x === 'string' && x.trim()).join('\n\n');
-  return `${head}\n\n${String(body).trimEnd()}\n`;
+  return `${head}\n\n${maskText(String(body)).trimEnd()}\n`;
 }
 
 function rawText(e) {
@@ -138,13 +139,13 @@ export function registry(root) {
         if (!memory.holds(e, retired) && st.status !== 'withdrawn') continue;
         items.push({
           type, id: e.id, project, ts: String(e.ts ?? ''), entry: e,
-          title: String(e.title ?? e.id), status: st.status, legacy: st.legacy,
+          title: maskText(String(e.title ?? e.id)), status: st.status, legacy: st.legacy,
           mark: st.status === 'trial' ? '[trial]' : '',
           baseName: baseName(e),
-          triggers: procedure.keywordTriggersOf(e),
+          triggers: maskEntry(procedure.keywordTriggersOf(e)),
           label: {
-            what: label(e, 'what') ?? String(e.title ?? e.id),
-            for_whom: label(e, 'for_whom') ?? (typeof e.scope === 'string' && e.scope.trim() ? e.scope.trim() : 'unknown'),
+            what: label(e, 'what') ?? maskText(String(e.title ?? e.id)),
+            for_whom: label(e, 'for_whom') ?? (typeof e.scope === 'string' && e.scope.trim() ? maskText(e.scope.trim()) : 'unknown'),
             cost: label(e, 'cost') ?? `~${Math.ceil(Buffer.byteLength(rawText(e), 'utf8') / 4)} tokens full text (estimate bytes/4)`,
           },
         });
@@ -230,9 +231,10 @@ export function offer(root, question) {
 
 const yamlText = (s) => JSON.stringify(String(s));
 function cap(s, max) {
-  const t = String(s).replace(/\s+/g, ' ').trim();
+  const t = maskText(String(s)).replace(/\s+/g, ' ').trim();
   return t.length > max ? `${t.slice(0, max - 1)}…` : t;
 }
+// mask-ok: `it.name` is a slug of masked text (slug() masks first)
 const dirName = (it) => `${PREFIX}${it.name}`.slice(0, 64);
 
 /** The content of one SKILL.md — a pure function, byte-stable. */

@@ -21,6 +21,7 @@ import * as raw from '../../raw.mjs';
 import * as archive from '../../archive.mjs';
 import * as stores from '../../stores.mjs';
 import * as redaction from '../../redaction.mjs';
+import { maskEntry } from '../../outputguard.mjs';
 import * as userhabits from '../../userhabits.mjs';
 import { out, die, checkFlags, numberFlag, isHelp, findRoot, requireConfig } from '../shell.mjs';
 
@@ -337,7 +338,7 @@ export const COMMANDS = {
       }
       if (args.head) return;
       const to = count === null ? lines.length : Math.min(lines.length, from + count);
-      for (let i = from; i < to; i += 1) process.stdout.write(`${JSON.stringify(lines[i])}\n`);
+      for (let i = from; i < to; i += 1) process.stdout.write(`${JSON.stringify(maskEntry(lines[i]))}\n`);
       if (to < lines.length) {
         process.stderr.write(`-- ${to} of ${lines.length} lines. Continue with: `
           + `--from ${to}${count === null ? '' : ` --count ${count}`}\n`);

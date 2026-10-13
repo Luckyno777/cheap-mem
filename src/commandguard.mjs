@@ -124,10 +124,12 @@ export function normalise(command) {
 }
 
 function atCommandStart(text, pos) {
+  // mask-ok: a cut of the checked COMMAND at a match position, not entry text
   let before = text.slice(0, pos).replace(/ +$/, '');
   for (let i = 0; i < 6; i += 1) {
     const m = before.match(LEAD_WORD);
     if (!m) break;
+    // mask-ok: the checked COMMAND cut at a match position, not entry text
     before = before.slice(0, m.index).replace(/ +$/, '');
   }
   if (before === '' || /[;&|({`]$/.test(before)) return true;
@@ -145,6 +147,7 @@ function endOk(text, end) {
 export function hits(text, pattern) {
   const [rawFirst, ...more] = pattern;
   const bare = rawFirst.endsWith('$');
+  // mask-ok: the checked COMMAND, a trailing character
   const first = bare ? rawFirst.slice(0, -1) : rawFirst;
   let pos = text.indexOf(first);
   let found = false;
@@ -222,7 +225,7 @@ function collect(root) {
     out.push({
       id: e.id,
       className: e.class ? (errorclass.normalise(e.class) ?? String(e.class)) : 'no-class',
-      title: String(e.title ?? e.text ?? '').replace(/\s+/g, ' ').trim().slice(0, TITLE_MAX),
+      title: maskText(String(e.title ?? e.text ?? '')).replace(/\s+/g, ' ').trim().slice(0, TITLE_MAX),
       patterns,
     });
   }
@@ -374,7 +377,7 @@ export function seedPlan(root, entries) {
 export function candidates(root) {
   return errorsInForce(root)
     .filter(({ entry: e }) => errorclass.normalise(e.class) === GUARD_CLASS && !parseField(e[FIELD]).length)
-    .map(({ entry: e }) => ({ id: e.id, title: String(e.title ?? e.text ?? '').replace(/\s+/g, ' ').trim().slice(0, TITLE_MAX) }));
+    .map(({ entry: e }) => ({ id: e.id, title: maskText(String(e.title ?? e.text ?? '')).replace(/\s+/g, ' ').trim().slice(0, TITLE_MAX) }));
 }
 
 /** Write the correction lines for every `ready` entry (on the current state of the error). Returns the new ids. */

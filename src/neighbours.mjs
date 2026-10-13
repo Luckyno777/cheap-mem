@@ -30,6 +30,7 @@
 import fs from 'node:fs';
 import * as memory from './memory.mjs';
 import * as search from './search.mjs';
+import { maskText } from './outputguard.mjs';
 
 /**
  * Which field makes two entries "about the same subject".
@@ -198,7 +199,7 @@ export function neighbours(root, type, data = {}, {
 export function line(e) {
   const core = e.choice ?? e.rule ?? e.title ?? e.value ?? e.text ?? '';
   return `${String(e.ts ?? '').slice(0, 10)}  ${String(e.id).padEnd(14)} `
-    + String(core).replace(/\s+/g, ' ').slice(0, 80);
+    + maskText(String(core)).replace(/\s+/g, ' ').slice(0, 80);
 }
 
 /**
