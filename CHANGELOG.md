@@ -165,6 +165,9 @@ the ratchet `test/mask-before-cut-ratchet.test.mjs`.
   the run the edge broke, used in `clean`, `plainText`, `partsOf` and `maskedCopy`. `cardstore.write` now says what the mask took
   out (`redacted: github-token x2`; it said nothing since `clean` masks before the write core sees the fields), on the CLI and in the
   bridge. Probes run against this tree and against mutant copies of it (`test/mask-before-cut.test.mjs`).
+  Trade-off, known: a field longer than `MAX_IN` (8192) with no white space at all (a long URL, a long run of Chinese or Japanese
+  text) now loses the broken run whole instead of being shortened, so such a card field can come back empty. Card fields show at
+  most 320 characters, so only inputs far beyond that are touched.
 - **An open PEM block** (header and key material, no END line: a text cut inside the key) is masked by `redaction.mjs` too; before,
   ~1990 characters of a key survived `questiontext.prepare` (cut at 8000 before it redacts, a cost bound), and any window that
   ended inside a block. A header alone in prose is not touched.
