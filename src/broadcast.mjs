@@ -41,6 +41,7 @@
 import * as memory from './memory.mjs';
 import * as inbox from './inbox.mjs';
 import * as capability from './capability.mjs';
+import { maskText, cutMasked } from './outputguard.mjs';
 
 /**
  * A path in plain text: at least one slash, an extension.
@@ -188,7 +189,7 @@ export function alreadySent(root, entry, { participants }) {
 /** The text of one note. Short, evidenced, not in the imperative. */
 export function note(entry, evidence, { from }) {
   const cls = entry?.class ? `[${entry.class}] ` : '';
-  const title = String(entry?.title ?? entry?.text ?? '').split('\n')[0].slice(0, 300);
+  const title = cutMasked(maskText(String(entry?.title ?? entry?.text ?? '')).split('\n')[0], 300);
   const where = evidence.source
     ? `${evidence.source}${evidence.line ? `:${evidence.line}` : ''}`
     : '(no location)';

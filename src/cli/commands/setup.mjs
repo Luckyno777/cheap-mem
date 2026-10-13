@@ -33,6 +33,7 @@ import * as board from '../../board.mjs';
 import * as errorcontext from '../../errorcontext.mjs';
 import { PKG_ROOT, out, die, warn, checkFlags, numberFlag, isHelp, findRoot, requireConfig } from '../shell.mjs';
 import { compactLine, countLines } from '../display.mjs';
+import { maskText } from '../../outputguard.mjs';
 import { installHook, proveHook, writeMergeDriver, writeMemoryGitignore, armHookIfRepo } from '../githook.mjs';
 
 /** 15 commands. */
@@ -790,7 +791,7 @@ export const COMMANDS = {
       // Titles only for the entries that are listed.
       const want = new Set([...d.auto, ...d.borderline].flatMap((l) => [l.from, l.to]));
       const title = new Map();
-      if (want.size) for (const r of rows) if (want.has(r.entry.id)) title.set(r.entry.id, String(r.entry.title ?? '').slice(0, 50));
+      if (want.size) for (const r of rows) if (want.has(r.entry.id)) title.set(r.entry.id, maskText(String(r.entry.title ?? '')).slice(0, 50));
       out(args.json ? JSON.stringify(d, null, 2) : netderive.asText(d, (id) => title.get(id) || id));
       return;
     }

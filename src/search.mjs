@@ -73,6 +73,7 @@ import { pack } from './language.mjs';
 import { detectEntryLanguage, DETECTABLE_LANGUAGES, UNCERTAIN } from './langdetect.mjs';
 import * as profile from './profile.mjs';
 import * as capabilityMod from './capability.mjs';
+import { cutMasked } from './outputguard.mjs';
 
 /**
  * The packs consulted when an entry's (or a query's) language is not
@@ -780,7 +781,7 @@ function* rawDocuments(root, lexicons, only = null) {
       entry: {
         ts: header?.__stamp?.ts_to ?? header?.__captured_at ?? null,
         title: `[raw] ${rel.split('/').pop()}`,
-        text: text.slice(0, 400),
+        text: cutMasked(text, 400),
         surface: header?.__stamp?.surface ?? null,
         session_id: header?.__stamp?.session_id ?? null,
       },

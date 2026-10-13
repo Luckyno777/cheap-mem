@@ -19,6 +19,8 @@
 // Nothing here calls a model, opens the network, or writes to disk. Same
 // contract as search: deterministic, milliseconds, offline.
 
+import { maskText } from './outputguard.mjs';
+
 /** The subject a timeline entry is a version of, or null for a one-off. */
 export function subjectKey(e) {
   const k = e.key ?? e.subject;
@@ -151,6 +153,12 @@ export function resolveFacts(entries, { now = new Date(), staleDays = 120, retir
  * flags. Pure formatting, so the CLI and the context dump render alike.
  */
 export function formatFact(f) {
+  // The key shapes are masked HERE, so every caller (mem context, mem core, mem facts, the
+  // session-start block) gets the mask, whether or not it prints through the guarded out().
+  return maskText(formatFactLine(f));
+}
+
+function formatFactLine(f) {
   // Nothing holds right now. Saying so is the whole point — a line that
   // printed the future value here would be the defect this guards.
   if (!f.current) {

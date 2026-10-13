@@ -26,6 +26,7 @@ import path from 'node:path';
 import * as memory from './memory.mjs';
 import * as store from './store.mjs';
 import * as redaction from './redaction.mjs';
+import { cutMasked } from './outputguard.mjs';
 
 export const TYPE = 'source';
 
@@ -91,10 +92,14 @@ export function isAddress(what) {
  */
 export function excerpt(content, { max = MAX_EXCERPT } = {}) {
   const raw = String(content ?? '');
-  const truncated = raw.length > max;
-  const cut = truncated ? raw.slice(0, max) : raw;
-  const { object, found } = redaction.redactEntry({ text: cut });
-  return { text: object.text, truncated, findings: found };
+  // Redact the WHOLE text first, cut the redacted text after: a key that
+  // crosses the cap would otherwise leave a stump below its pattern's
+  // minimum length, and the stump would stay on disk for good. (A PEM block
+  // also needs its END line in view, so no look-ahead window is enough.)
+  const { object, found } = redaction.redactEntry({ text: raw });
+  const clean = String(object.text ?? '');
+  const truncated = clean.length > max;
+  return { text: truncated ? cutMasked(clean, max) : clean, truncated, findings: found };
 }
 
 /**
@@ -218,5 +223,5 @@ export function line(e) {
     : e.kind === 'bridge' ? `${e.source_uri} via ${e[BRIDGE_TOOL_FIELD]}`
       : `store:${String(e.hash ?? '?').slice(0, 12)}`;
   return `${String(e.kind ?? '?').padEnd(8)} ${String(e.id).padEnd(14)} `
-    + `${String(e.title ?? '').slice(0, 50).padEnd(50)} ${where}`;
+    + `${cutMasked(String(e.title ?? ''), 50).padEnd(50)} ${where}`;
 }

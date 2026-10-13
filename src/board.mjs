@@ -37,6 +37,7 @@ import * as heartbeat from './heartbeat.mjs';
 import * as errorclass from './errorclass.mjs';
 import * as setup from './setup.mjs';
 import { appendLine } from './append.mjs';
+import { maskText } from './outputguard.mjs';
 
 export const STATE = Object.freeze({
   CALM: 'calm',         // measured, in order
@@ -253,7 +254,7 @@ export function tileQuestions(root) {
   return {
     id: 'questions', title: 'Open questions', state: STATE.CALM,
     line: (open.length
-      ? `${open.length} open — ${String(open[0]?.question ?? '').slice(0, 60)}`
+      ? `${open.length} open — ${maskText(String(open[0]?.question ?? '')).slice(0, 60)}`
       : 'none open') + waits,
     numbers: { count: open.length, waiting: waiting.length },
   };

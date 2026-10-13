@@ -46,6 +46,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import * as redaction from './redaction.mjs';
 import { appendLine } from './append.mjs';
+import { cutMasked } from './outputguard.mjs';
 
 export const STORE = 'store';
 export const REGISTER = 'store/register.jsonl';
@@ -94,7 +95,7 @@ export function readRegister(root) {
   for (const line of fs.readFileSync(p, 'utf8').split('\n')) {
     if (!line.trim()) continue;
     try { out.push(JSON.parse(line)); }
-    catch { out.push({ __broken: true, raw: line.slice(0, 120) }); }
+    catch { out.push({ __broken: true, raw: cutMasked(line, 120) }); }
   }
   return out;
 }

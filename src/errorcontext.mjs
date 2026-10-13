@@ -44,6 +44,7 @@ import * as memory from './memory.mjs';
 import * as errorfile from './errorfile.mjs';
 import * as repetition from './repetition.mjs';
 import * as procedure from './procedure.mjs';
+import { maskText } from './outputguard.mjs';
 
 /** Marker on a duty: created automatically by this path. */
 export const AUTOMATIC_FIELD = 'automatic';
@@ -184,7 +185,7 @@ export function historyLines(root, entry, { project = null } = {}) {
     const guardText = e.guard && typeof e.guard === 'object'
       ? `guard: ${e.guard.kind ?? '?'}@${e.guard.path ?? '?'}`
       : 'guard: none';
-    const title = String(e.title ?? e.text ?? '').replace(/\s+/g, ' ').slice(0, 60);
+    const title = maskText(String(e.title ?? e.text ?? '')).replace(/\s+/g, ' ').slice(0, 60);
     lines.push(`    ${String(e.ts ?? '').slice(0, 10)}  ${String(e.id).padEnd(14)} `
       + `[${e.class ?? '?'}] ${title}  (${guardText})`);
   }

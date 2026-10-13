@@ -222,7 +222,7 @@ function collect(root) {
     out.push({
       id: e.id,
       className: e.class ? (errorclass.normalise(e.class) ?? String(e.class)) : 'no-class',
-      title: String(e.title ?? e.text ?? '').replace(/\s+/g, ' ').trim().slice(0, TITLE_MAX),
+      title: maskText(String(e.title ?? e.text ?? '')).replace(/\s+/g, ' ').trim().slice(0, TITLE_MAX),
       patterns,
     });
   }
@@ -374,7 +374,7 @@ export function seedPlan(root, entries) {
 export function candidates(root) {
   return errorsInForce(root)
     .filter(({ entry: e }) => errorclass.normalise(e.class) === GUARD_CLASS && !parseField(e[FIELD]).length)
-    .map(({ entry: e }) => ({ id: e.id, title: String(e.title ?? e.text ?? '').replace(/\s+/g, ' ').trim().slice(0, TITLE_MAX) }));
+    .map(({ entry: e }) => ({ id: e.id, title: maskText(String(e.title ?? e.text ?? '')).replace(/\s+/g, ' ').trim().slice(0, TITLE_MAX) }));
 }
 
 /** Write the correction lines for every `ready` entry (on the current state of the error). Returns the new ids. */

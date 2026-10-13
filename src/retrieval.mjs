@@ -26,6 +26,7 @@ import { deriveState, statusOf } from './state.mjs';
 import * as capabilityMod from './capability.mjs';
 import { loadIndex, search, isEchoHit, exactHits, corpusGeneration } from './search.mjs';
 import { floodGroups } from './memory.mjs';
+import { cutMasked, maskText } from './outputguard.mjs';
 import { BODY_FIELDS, bodyAsText } from './bodyfields.mjs';
 
 /**
@@ -91,7 +92,9 @@ export function coverageOf({ reasons = [] } = {}) {
 /** A claim as it leaves the memory. Fields only — no assembled text. */
 function toClaim(hit, { bodyChars, state }) {
   const e = hit.entry;
-  const body = bodyOf(e);
+  // Mask BEFORE the cut: a key that crosses the bodyChars boundary would
+  // otherwise leave a stump below the pattern's minimum length.
+  const body = maskText(bodyOf(e));
   const truncated = body.length > bodyChars;
 
   // Status comes from the LOG, via deriveState — never from the index.
@@ -118,7 +121,7 @@ function toClaim(hit, { bodyChars, state }) {
   return {
     id: e.id ?? null,
     type: e.type ?? hit.type ?? null,
-    body: truncated ? body.slice(0, bodyChars) : body,
+    body: truncated ? cutMasked(body, bodyChars) : body,
     bodyTruncated: truncated,
     author: authority.authorOf(e),
     authority: authority.tierOf(e),

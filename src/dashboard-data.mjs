@@ -73,6 +73,7 @@ import * as raw from './raw.mjs';
 import * as modelcost from './modelcost.mjs';
 import * as effect from './effect.mjs';
 import * as today from './today.mjs';
+import { maskText, maskEntry } from './outputguard.mjs';
 import * as release from './release.mjs';
 import * as checkrecord from './checkrecord.mjs';
 import * as latencybudget from './latencybudget.mjs';
@@ -135,7 +136,8 @@ export const NOT_AVAILABLE = Object.freeze({
 });
 
 function excerpt(s, max = EXCERPT_MAX) {
-  const t = String(s ?? '').replace(/\s+/g, ' ').trim();
+  // Mask BEFORE the cut: a key over the boundary would leave a stump.
+  const t = maskText(String(s ?? '')).replace(/\s+/g, ' ').trim();
   return t.length > max ? `${t.slice(0, max - 1)}…` : t;
 }
 
@@ -1103,7 +1105,8 @@ export function entryWhole(root, id, { getCard = dashboard.getEntryFast } = {}) 
   if (card.state === 'unknown' || card.state === 'error') return card;
   let rawLine = null;
   try { rawLine = memory.getEntry(root, id) ?? null; } catch { rawLine = null; }
-  return { ...card, raw: rawLine, text: rawLine ? textOf(rawLine, card.type ?? null) : null };
+  // The raw line is shown whole, so the mask is the only guard: the line on disk stays as it is.
+  return { ...card, raw: rawLine ? maskEntry(rawLine) : rawLine, text: rawLine ? maskText(textOf(rawLine, card.type ?? null)) : null };
 }
 
 // ---------------------------------------------------------------------
@@ -1177,7 +1180,7 @@ export function factsAt(root, { known, valid } = {}, { readAll = null } = {}) {
       id: e.id ?? null,
       key: freshness.subjectKey(e) ?? null,
       title: excerpt(e.title || `${e.key ?? ''}${e.key ? ' = ' : ''}${e.value ?? e.fact ?? textOf(e, 'timeline')}`, 160) || e.id,
-      value: e.value ?? e.fact ?? null,
+      value: maskEntry(e.value ?? e.fact ?? null),
       validFrom: e.valid_from ?? null,
       ts: e.ts ?? null,
       source: e._source ?? null,

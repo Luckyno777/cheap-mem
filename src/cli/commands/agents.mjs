@@ -31,6 +31,7 @@ import * as repetitionhint from '../../repetitionhint.mjs';
 import * as board from '../../board.mjs';
 import * as appointmentCli from '../appointments.mjs';
 import * as authority from '../../authority.mjs';
+import { maskText } from '../../outputguard.mjs';
 import { out, die, warn, checkFlags, numberFlag, isHelp, findRoot, readStdin, requireConfig, whoAmIOrDie, receiptHint, showOnboarding, authorityArg } from '../shell.mjs';
 
 /** Duplicates are shown, never dropped: same id sent twice, folded into the older message. */
@@ -205,7 +206,7 @@ export const COMMANDS = {
         const held = m.claim?.status === 'claimed' ? `, claimed by ${m.claim.holder}` : '';
         out(`  [${m.state}${source}${held}] ${m.name}`);
         if (m.inReplyTo) out(`         in reply to ${m.inReplyTo}`);
-        out(`         ${m.subject} (from ${m.from})`);
+        out(`         ${maskText(String(m.subject))} (from ${m.from})`);
       }
       duplicateLines(duplicates);
       receiptHint(messages);
@@ -238,7 +239,7 @@ export const COMMANDS = {
       out(`${fresh.length} new for '${to}': (${known} known)`);
       for (const m of fresh) {
         out(`  [${m.state}] ${m.name}`);
-        out(`         ${m.subject} (from ${m.from})`);
+        out(`         ${maskText(String(m.subject))} (from ${m.from})`);
       }
       if (!args['no-mark']) {
         inbox.markSeen(root, { to, names: fresh.map((m) => m.name) });
@@ -647,7 +648,7 @@ export const COMMANDS = {
     }
     for (const q of list) {
       out(`  ${question.line(q)}`);
-      if (q.why) out(`                 because ${String(q.why).slice(0, 90)}`);
+      if (q.why) out(`                 because ${maskText(String(q.why)).slice(0, 90)}`);
     }
     out('');
     const waits = list.filter((q) => q.waiting).length;

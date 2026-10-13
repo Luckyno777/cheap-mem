@@ -9,6 +9,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { cutMasked } from '../outputguard.mjs';
 
 export function name() { return 'openai'; }
 
@@ -49,7 +50,7 @@ export async function embed(text, { model = 'text-embedding-3-small', signal = n
   }
   if (!res.ok) {
     const txt = await res.text().catch(() => '(no body)');
-    throw new Error(`openai HTTP ${res.status}: ${txt.slice(0, 200)}`);
+    throw new Error(`openai HTTP ${res.status}: ${cutMasked(txt, 200)}`);
   }
   const data = await res.json();
   const vec = data?.data?.[0]?.embedding;

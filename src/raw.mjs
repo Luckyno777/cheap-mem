@@ -21,6 +21,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import * as redaction from './redaction.mjs';
+import { cutMasked, maskText, windowMasked } from './outputguard.mjs';
 import * as archive from './archive.mjs';
 import { appendLine } from './append.mjs';
 import { writeAtomic } from './atomicwrite.mjs';
@@ -573,7 +574,7 @@ export function capture(root, transcriptPath, {
     if (!l.trim()) continue;
     let o;
     try { o = JSON.parse(l); }
-    catch { o = { __unparsable: true, raw: l.slice(0, 2000) }; }
+    catch { o = { __unparsable: true, raw: cutMasked(l, 2000) }; }
     if (!realSessionId && typeof o.sessionId === 'string' && o.sessionId) realSessionId = o.sessionId;
 
     // Drop BEFORE redacting: redaction is the expensive part, and a
@@ -677,7 +678,10 @@ export function snippet(root, relPath, terms, { width = 260, accept = null } = {
     // `accept`: a role filter from the caller (see userhabits.userSnippet).
     // Without it every line counts, assistant and tool lines included.
     if (accept && !accept(l)) continue;
-    const text = textOf(l);
+    // Mask the WHOLE line first, then place and cut the window on the masked
+    // text: a window cut from the clear text can start or end inside a key
+    // and leave a stump below the pattern's minimum length.
+    const text = maskText(textOf(l));
     if (!text) continue;
     const low = text.toLowerCase();
     for (const w of words) {
@@ -685,7 +689,7 @@ export function snippet(root, relPath, terms, { width = 260, accept = null } = {
       if (i < 0) continue;
       const from = Math.max(0, i - Math.floor(width / 3));
       const to = Math.min(text.length, from + width);
-      return (from > 0 ? '…' : '') + text.slice(from, to).replace(/\s+/g, ' ')
+      return (from > 0 ? '…' : '') + windowMasked(text, from, to).replace(/\s+/g, ' ')
         + (to < text.length ? '…' : '');
     }
   }

@@ -40,6 +40,7 @@ import * as commandguard from '../../commandguard.mjs';
 import * as categories from '../../categories.mjs';
 import { out, die, warn, checkFlags, numberFlag, isHelp, findRoot, requireConfig } from '../shell.mjs';
 import { asOfOf, sinceOf, showWindow, compactLine, markedEntry, sanitizeForDisplay } from '../display.mjs';
+import { maskText } from '../../outputguard.mjs';
 
 // What a raw hit shows when no real user line carries a query word: never
 // the entry text (an unfiltered join of every role).
@@ -1017,7 +1018,8 @@ export const COMMANDS = {
           + '  is worse than none.');
       }
     }
-    process.stdout.write(memory.context(root, { n, maxChars }));
+    // Past out() on purpose (a block, no newline handling), so the mask is applied here.
+    process.stdout.write(maskText(memory.context(root, { n, maxChars })));
     process.stdout.write('\n');
   },
 
@@ -1094,7 +1096,7 @@ export const COMMANDS = {
     requireConfig(root);
     const staleDays = numberFlag('stale-days', args['stale-days'], { fallback: 120, min: 0 });
     const max = numberFlag('max', args.max, { fallback: 40, min: 1 });
-    process.stdout.write(memory.core(root, { staleDays, max }));
+    process.stdout.write(maskText(memory.core(root, { staleDays, max })));
     process.stdout.write('\n');
   },
 

@@ -29,6 +29,7 @@ import * as cfgmod from './config.mjs';
 import * as A from './appointments.mjs';
 import * as tm from './appointment-time.mjs';
 import * as dueCore from './due.mjs';
+import { cutMasked } from './outputguard.mjs';
 
 const NO_RESPONSE_MS = 2 * 3600000;
 /** The session-start line may carry at most this many bytes (a hook budget: one short line). */
@@ -81,7 +82,7 @@ function dutiesSituation(root, nowMs, zone) {
   const situation = dueCore.situationFromOpen(open, { now: nowMs, zone, title: (p) => String(p.title ?? p.text ?? '') });
   const due = situation.list
     .filter((x) => x.state === dueCore.STATE.DUE || x.state === dueCore.STATE.OVERDUE)
-    .map((x) => ({ id: x.id, title: x.title.slice(0, 120), date: x.day, overdue: x.state === dueCore.STATE.OVERDUE }));
+    .map((x) => ({ id: x.id, title: cutMasked(x.title, 120), date: x.day, overdue: x.state === dueCore.STATE.OVERDUE }));
   due.sort((a, b) => a.date.localeCompare(b.date) || String(a.id).localeCompare(String(b.id)));
   return { open: situation.open, withDate: situation.withDue - situation.unknown, due: due.slice(0, 8) };
 }
@@ -94,7 +95,7 @@ function waitingForHuman(root) {
     if (!human) return { n: null, subjects: [] };
     const all = inbox.read(root, participants, { to: human }).messages
       .filter((m) => !inbox.isDone(m.state) && !String(m.requestId ?? '').startsWith('appt-'));
-    return { n: all.length, subjects: all.slice(-5).map((m) => String(m.subject).slice(0, 100)) };
+    return { n: all.length, subjects: all.slice(-5).map((m) => cutMasked(String(m.subject), 100)) };
   } catch { return { n: null, subjects: [] }; }
 }
 

@@ -103,6 +103,7 @@ import * as levers from '../src/searchlevers.mjs';
 import * as errorfixes from '../src/errorfixes.mjs';
 import * as bridgefields from '../src/bridgefields.mjs';
 import * as shred from '../src/shred.mjs';
+import { maskText } from '../src/outputguard.mjs';
 import * as dueCore from '../src/due.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -1523,7 +1524,7 @@ async function handleCall(name, args) {
       const lines = r.claims.length
         ? r.claims.map((c) => `${c.id}  [${c.authority}${c.author ? '/' + c.author : ''}]  `
             + `${c.scope}  ${c.ts ?? '?'}  ${c.score.toFixed(2)}\n  `
-            + `${c.body.replace(/\s+/g, ' ').slice(0, 300)}`)
+            + `${maskText(c.body).replace(/\s+/g, ' ').slice(0, 300)}`)
         : [`No claims for '${r.query}' within ${r.scopes.join(' ') || '(no scope)'}.`];
       if (r.excluded.length) {
         lines.push('', `excluded: ${r.excluded.length}`);

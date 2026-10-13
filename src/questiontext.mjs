@@ -208,6 +208,9 @@ export function sweep(root, { now = Date.now() } = {}) {
 
 /** Redacted, cut question — `{ question, redacted, truncated }`. */
 export function prepare(text, { env = process.env } = {}) {
+  // mask-ok: RAW_MAX_CHARS (8000) is a deliberate cost bound and four times the 2000 that is kept; a key
+  // crossing it lies beyond the kept part. Known edge: a PEM block that begins in the kept part and ends
+  // beyond 8000 is not matched (no END line in view).
   const raw = String(text ?? '').slice(0, RAW_MAX_CHARS);
   const a = redact(raw);
   const b = redactAgainstEnv(a.text, envSecrets(env).filter((x) => !HANDOVER.has(x.name)));

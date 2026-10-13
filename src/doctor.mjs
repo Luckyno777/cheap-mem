@@ -70,6 +70,7 @@ import * as experience from './experience.mjs';
 import * as envelope from './envelope.mjs';
 import * as mailpermit from './mailpermit.mjs';
 import * as appointmentInvite from './appointment-invite.mjs';
+import { maskText } from './outputguard.mjs';
 
 export const LEVEL = Object.freeze({
   GOOD: 'good',
@@ -2063,7 +2064,7 @@ function checkGitState(root) {
 export function alarm({ findings }, { limit = 6, width = 120 } = {}) {
   const red = (findings ?? []).filter((f) => f?.level === LEVEL.ERROR);
   const short = (t) => {
-    const first = String(t ?? '').split('\n')[0];
+    const first = maskText(String(t ?? '')).split('\n')[0];
     return first.length > width ? `${first.slice(0, width - 1)}…` : first;
   };
   const lines = red.slice(0, limit).map((f) => `FAIL  ${f.name}  ${short(f.text)}`);
@@ -2735,7 +2736,7 @@ export function checkEntryForm(root) {
           const at = `${rel}:${i + 1}`;
           const when = typeof o.ts === 'string' ? o.ts : null;
           const gap = Object.keys(o).find((k) => /\s/.test(k));
-          if (gap) broken.push({ where: at, ts: when, what: `field name with whitespace: "${gap.slice(0, 40)}…"` });
+          if (gap) broken.push({ where: at, ts: when, what: `field name with whitespace: "${maskText(gap).slice(0, 40)}…"` });
           else {
             const bare = TEXT_FIELDS.find((f) => o[f] === true);
             if (bare) broken.push({ where: at, ts: when, what: `${bare} is true instead of text` });
@@ -2763,7 +2764,7 @@ export function checkEntryForm(root) {
         const ts = e.ts ? String(e.ts) : null;
         const spaced = Object.keys(e).find((k) => /\s/.test(k));
         if (spaced) {
-          broken.push({ where, ts, what: `field name with whitespace: "${spaced.slice(0, 40)}…"` });
+          broken.push({ where, ts, what: `field name with whitespace: "${maskText(spaced).slice(0, 40)}…"` });
           return;
         }
         const empty = TEXT_FIELDS.find((f) => e[f] === true);

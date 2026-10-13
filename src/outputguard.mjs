@@ -92,3 +92,47 @@ export function maskOutput(text) {
   }
   return maskText(text);
 }
+
+// A marker the cut tore in half ("[REDACTED:githu") shows nothing secret,
+// but it reads as damage. The cut drops the torn stub.
+const TORN_MARKER = /\[REDACTED(?::[A-Za-z0-9-]*)?$/;
+
+/**
+ * **Mask first, then cut.** Cutting a text and masking the piece lets a key
+ * that crosses the cut survive as a stump below the pattern's minimum length
+ * (`ghp_` plus 29 characters is not found by a 30-character pattern). The
+ * order is the whole rule: the mask sees the key whole, the cut sees only
+ * the marker. Every surface that shortens entry text for display, a hook
+ * message or a stored line goes through here (or through `maskText` before
+ * its own cutter; the ratchet test `mask-before-cut-ratchet` guards it).
+ *
+ * `cutMasked(text, n)` is `maskText(text).slice(0, n)` and nothing more:
+ * no ellipsis, no word boundary. A caller with its own cutter masks first
+ * and cuts the masked text.
+ */
+export function cutMasked(text, n) {
+  if (typeof text !== 'string' || !text) return text ?? '';
+  const masked = maskText(text);
+  if (masked.length <= n) return masked;
+  return masked.slice(0, Math.max(0, n)).replace(TORN_MARKER, '');
+}
+
+/**
+ * The window variant: `text.slice(from, to)` of the MASKED text, so the
+ * window cannot start or end inside a key (a tail without its prefix is
+ * the same leak from the front). A window edge that falls inside a marker
+ * moves to the marker's start, so no half marker is shown.
+ */
+export function windowMasked(text, from, to) {
+  if (typeof text !== 'string' || !text) return text ?? '';
+  const masked = maskText(text);
+  let a = Math.max(0, from);
+  let b = Math.min(masked.length, to);
+  for (const m of masked.matchAll(/\[REDACTED:[^\]]*\]/g)) {
+    const s0 = m.index;
+    const e0 = s0 + m[0].length;
+    if (a > s0 && a < e0) a = s0;
+    if (b > s0 && b < e0) b = s0;
+  }
+  return masked.slice(a, Math.max(a, b));
+}

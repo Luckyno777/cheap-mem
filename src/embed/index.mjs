@@ -24,6 +24,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { cutMasked } from '../outputguard.mjs';
 
 export const CONFIG_PATH = path.join('.mem', 'embed.json');
 
@@ -84,6 +85,19 @@ export function dimensions(provider, model) {
 export function knownProviders() { return Object.keys(MODEL_DEFAULTS); }
 
 /**
+ * The ONE place that decides which text leaves the machine for an embedding
+ * provider (a third party for every provider but a local one). Today: key
+ * shapes are masked FIRST (`[REDACTED:type]`), then the text is capped at
+ * 8000 characters, so a key over the cap cannot leave as a stump. A text that
+ * carries a key therefore gets a different vector than before; that is the
+ * point. Whether the mask is also wanted for a local provider, or widened
+ * further, is the owner's decision and would change only this function.
+ */
+export function textForProvider(text) {
+  return cutMasked(String(text ?? ''), 8000);
+}
+
+/**
  * Turn text into a vector.
  *
  * The dimension is checked against the config, because a provider that
@@ -93,7 +107,7 @@ export function knownProviders() { return Object.keys(MODEL_DEFAULTS); }
 export async function embed(root, text, { cfg = null, timeoutMs = null } = {}) {
   const c = cfg ?? readConfig(root);
   const t = timeoutMs ?? c.timeoutMs;
-  const capped = text.length > 8000 ? text.slice(0, 8000) : text;
+  const capped = textForProvider(text);
 
   const adapter = await loadAdapter(c.provider);
   const controller = new AbortController();

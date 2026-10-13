@@ -11,6 +11,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { cutMasked } from '../outputguard.mjs';
 
 export function name() { return 'voyage'; }
 
@@ -54,7 +55,7 @@ export async function embed(text, { model = 'voyage-3-lite', signal = null, root
   }
   if (!res.ok) {
     const txt = await res.text().catch(() => '(no body)');
-    throw new Error(`voyage HTTP ${res.status}: ${txt.slice(0, 200)}`);
+    throw new Error(`voyage HTTP ${res.status}: ${cutMasked(txt, 200)}`);
   }
   const data = await res.json();
   const vec = data?.data?.[0]?.embedding;

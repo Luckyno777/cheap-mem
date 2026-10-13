@@ -58,6 +58,7 @@ import * as capability from './capability.mjs';
 import { headline, TYPE_LABEL } from './viewer.mjs';
 import { declaredDerivedFrom } from './dashboard.mjs';
 
+import { cutMasked } from './outputguard.mjs';
 /** The newest entries the pass keeps for the pages of the list. */
 export const WINDOW = 30000;
 /** The newest entries per topic and per drawer: the first page when zooming in. */
@@ -273,7 +274,7 @@ function rowOf(e, { id, type, project, source, line, tags, count, drawer }) {
   const ts = e.ts ? String(e.ts) : '';
   return {
     id, ts, day: ts.slice(0, 10), type, typeLabel: TYPE_LABEL[type] || type, project,
-    tags: tags.slice(0, 12), headline: headlineOf(e).slice(0, 240), source, line,
+    tags: tags.slice(0, 12), headline: cutMasked(headlineOf(e), 240), source, line,
     readable: true,
     basis: basis.markOf(e), authority: authority.tierOf(e), author: authority.authorOf(e) || null,
     scope: capability.scopeOf(e), derivedFrom: declaredDerivedFrom(e),

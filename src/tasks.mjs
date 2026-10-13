@@ -118,6 +118,7 @@ import { appendLine } from './append.mjs';
 import * as procedure from './procedure.mjs';
 import * as skillregistry from './skillregistry.mjs';
 import * as categoriesMod from './categories.mjs';
+import { maskText, cutMasked } from './outputguard.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MEM_BIN = path.join(HERE, '..', 'bin', 'mem');
@@ -608,7 +609,7 @@ function classifyResult(kind, { code, stdout, stderrTail }) {
     return { state: verdict.state, result: json, reason: verdict.reason };
   }
   if (code === 0 && spec.plainOk && spec.plainOk.test(String(stdout ?? ''))) {
-    return { state: 'ok', result: { output: String(stdout).trim().slice(0, 2000) }, reason: null };
+    return { state: 'ok', result: { output: cutMasked(String(stdout).trim(), 2000) }, reason: null };
   }
   // No JSON at all. Exit 0 without JSON is NOT automatically a failure
   // of this module — `raw export` returns `out('No captures in that
@@ -623,13 +624,13 @@ function classifyResult(kind, { code, stdout, stderrTail }) {
       state: 'warning',
       result: null,
       reason: 'process finished successfully, but without usable JSON: '
-        + `${String(stdout ?? '').trim().slice(0, 500) || '(empty output)'}`,
+        + `${cutMasked(String(stdout ?? '').trim(), 500) || '(empty output)'}`,
     };
   }
   return {
     state: 'error',
     result: null,
-    reason: stderrTail ? stderrTail.slice(-2000) : `exit code ${code}, no usable output`,
+    reason: stderrTail ? maskText(stderrTail).slice(-2000) : `exit code ${code}, no usable output`,
   };
 }
 

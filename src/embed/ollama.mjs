@@ -11,6 +11,8 @@
  * Setup: ollama pull nomic-embed-text
  */
 
+import { cutMasked } from '../outputguard.mjs';
+
 export function name() { return 'ollama'; }
 
 function endpoint() {
@@ -41,7 +43,7 @@ export async function embed(text, { model = 'nomic-embed-text', signal = null } 
   if (!res.ok) {
     const txt = await res.text().catch(() => '(no body)');
     throw new Error(
-      `ollama HTTP ${res.status}: ${txt.slice(0, 200)}\n`
+      `ollama HTTP ${res.status}: ${cutMasked(txt, 200)}\n`
       + `Is ollama running? Is '${model}' pulled (ollama pull ${model})?`);
   }
   const data = await res.json();
