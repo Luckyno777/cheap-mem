@@ -16,6 +16,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -589,7 +591,7 @@ test('the surfaces name the card fields, the addressee and the switch: mem log -
   for (const w of ['card_question', 'card_context', 'card_options', 'CHEAP_MEM_CARD_REJECT', 'explanation missing']) assert.ok(help.includes(w), `mem log --help: ${w}`);
   const init = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 't', version: '1' } } });
   const list = JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
-  const mem = fs.mkdtempSync(path.join(fs.realpathSync(process.env.TMPDIR ?? '/tmp'), 'cm-cardrule-tools-'));
+  const mem = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'cm-cardrule-tools-'));
   try {
     fs.mkdirSync(path.join(mem, '.mem'), { recursive: true });
     fs.writeFileSync(path.join(mem, '.mem/config.json'), JSON.stringify({ version: 1 }));
@@ -604,6 +606,7 @@ test('the surfaces name the card fields, the addressee and the switch: mem log -
 });
 
 test('the shared card cases are not touched by this build (sha256 fixed)', () => {
-  const sha = execFileSync('sha256sum', [path.join(REPO, 'shared', 'entscheidungskarten.jsonl')], { encoding: 'utf8' }).split(' ')[0];
+  // node's own hash: `sha256sum` is not on every runner and, in Git for Windows, escapes its output with a leading backslash
+  const sha = crypto.createHash('sha256').update(fs.readFileSync(path.join(REPO, 'shared', 'entscheidungskarten.jsonl'))).digest('hex');
   assert.match(sha, /^37da67a8.*1ec3$/);
 });
