@@ -110,6 +110,7 @@ if (!head || head === '--help' || head === '-h' || head === 'help') {
   out("  workflow new|check|list|show          named sequences, with triggers/patterns");
   out("  command-guard build|show|check|seed   mishandling errors with --command-pattern warn before a matching Bash command");
   out("  snippet new|list|show                 reusable blocks with {{PLACEHOLDERS}}");
+  out("  card add|list                         decision cards: question, context, options with effects (mem card --help)");
   out("  experiences      [--all] [--type T]   what the memory stands behind");
   out("                    ranked by citations, not by how often it was read");
   out("  viewer           [--out f.html] [--title \"...\"] [--open]");

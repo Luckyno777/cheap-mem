@@ -70,8 +70,7 @@ export const TYPE = 'procedure';
  * all agents cannot come from one of them.
  */
 export function isHuman(name) {
-  const n = String(name ?? '').trim();
-  return n === 'owner' || /^human:[^\s]+$/.test(n);
+  return authority.isHumanName(name);
 }
 
 /**

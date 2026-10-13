@@ -546,7 +546,7 @@ export const COMMANDS = {
     if (isHelp(args)) {
       out([
         'mem questions                    [--all] [--project <name>]',
-        'mem questions new "<text>"       [--why "..."] [--topic ...] [--authority user]',
+        'mem questions new "<text>"       [--why "..."] [--topic ...] [--who <name>] [--authority user]',
         'mem questions confirm <id>       --authority user [--with <answer-id>] [--why "..."] [--json]',
         '',
         '  What we do NOT know. Without a subcommand: the open ones, and the',
@@ -579,16 +579,16 @@ export const COMMANDS = {
     requireConfig(root);
 
     if (rest[0] === 'new') {
-      checkFlags(args, ['why', 'topic', 'project', 'tags', 'root', 'authority'], 'questions new');
+      checkFlags(args, ['why', 'topic', 'project', 'tags', 'root', 'authority', 'who'], 'questions new');
       const text = rest.slice(1).join(' ').trim();
-      const qr = question.check({ question: text });
+      const qr = question.check({ question: text, ...(args.who !== undefined ? { who: args.who === true ? '' : String(args.who) } : {}) });
       if (!qr.ok) die(`questions new:\n  ${qr.errors.join('\n  ')}`);
       for (const w of qr.warnings) warn(w);
       const data = { question: text };
       // A question of tier user is the person's question: only a person writes it (not headless, not capped).
       const tier = userClaim('questions new', args);
       if (tier) data.authority = tier;
-      for (const k of ['why', 'topic']) if (args[k] && args[k] !== true) data[k] = String(args[k]);
+      for (const k of ['why', 'topic', 'who']) if (args[k] && args[k] !== true) data[k] = String(args[k]);
       if (args.tags && args.tags !== true) {
         data.tags = String(args.tags).split(',').map((x) => x.trim()).filter(Boolean);
       }

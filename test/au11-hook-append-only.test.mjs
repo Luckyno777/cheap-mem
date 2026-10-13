@@ -44,6 +44,11 @@ const sh = (env, cwd, cmd, args, input) => spawnSync(cmd, args, { cwd, env, enco
 const git = (x, cwd, ...a) => sh(x.env, cwd, 'git', [...ID, ...a]);
 function gitOk(x, cwd, ...a) { const r = git(x, cwd, ...a); assert.equal(r.status, 0, `git ${a.join(' ')}: ${r.stderr}`); return r.stdout.trim(); }
 const mem = (x, cwd, ...a) => sh(x.env, cwd, 'node', [MEM, ...a]);
+// The folder the installer arms, compared as the SAME folder rather than as the same text: the memory's root comes from
+// the process working directory, which the system spells in its canonical form (macOS /var -> /private/var, a Windows
+// 8.3 name RUNNER~1 -> runneradmin), while the test built `dir` from os.tmpdir().
+const armedDir = (dir) => path.join(dir, '.mem', 'hooks');
+const sameFolderAs = (actual, expected) => actual !== '' && fs.realpathSync.native(actual) === fs.realpathSync.native(expected);
 const hooksPath = (x, dir) => git(x, dir, 'config', '--local', '--get', 'core.hooksPath').stdout.trim();
 
 // --- (1) the installers arm the hook ----------------------------------
@@ -56,7 +61,7 @@ test('AU11: mem init in a git repository arms core.hooksPath and says so', () =>
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /git hook armed/);
   assert.match(r.stdout, /Test: does the hook catch a planted token\?[\s\S]*blocked/);
-  assert.equal(hooksPath(x, dir), path.join(dir, '.mem', 'hooks'));
+  assert.ok(sameFolderAs(hooksPath(x, dir), armedDir(dir)), `core.hooksPath is ${hooksPath(x, dir)}, not the memory's .mem/hooks`);
   assert.doesNotMatch(r.stdout, /mem hooks install\s+<- do this one/);
 });
 
@@ -100,7 +105,7 @@ test('AU11: running mem init again on an initialized memory arms a hook that is 
   const r = mem(x, dir, 'init');
   assert.match(r.stdout, /Already initialized/);
   assert.match(r.stdout, /git hook armed/);
-  assert.equal(hooksPath(x, dir), path.join(dir, '.mem', 'hooks'));
+  assert.ok(sameFolderAs(hooksPath(x, dir), armedDir(dir)), `core.hooksPath is ${hooksPath(x, dir)}, not the memory's .mem/hooks`);
 });
 
 // --- (2) the append-only check -----------------------------------------
@@ -225,7 +230,7 @@ test('AU11: mem setup claude arms the memory\'s git hook as well (installer, not
   const r = mem(x, dir, 'setup', 'claude');
   assert.equal(r.status, 0, `${r.stderr}\n${r.stdout}`);
   assert.match(r.stdout, /git hook armed/);
-  assert.equal(hooksPath(x, dir), path.join(dir, '.mem', 'hooks'));
+  assert.ok(sameFolderAs(hooksPath(x, dir), armedDir(dir)), `core.hooksPath is ${hooksPath(x, dir)}, not the memory's .mem/hooks`);
   assert.ok(fs.existsSync(path.join(x.t, '.claude', 'settings.json')), 'the installer did not run in the temp home');
 });
 
@@ -253,7 +258,7 @@ function mergeSetup() {
   w('global/errors.jsonl', jl('B', 'Y', 'A', 'T1', 'C', 'X')); w('README.md', 'main\n');
   gitOk(x, dir, '-c', 'core.hooksPath=/dev/null', 'commit', '-qam', 'main');
   gitOk(x, dir, 'checkout', '-q', 'side');
-  assert.equal(hooksPath(x, dir), path.join(dir, '.mem', 'hooks'), 'precondition: `mem init` armed the hook');
+  assert.ok(sameFolderAs(hooksPath(x, dir), armedDir(dir)), `precondition: \`mem init\` armed the hook (core.hooksPath is '${hooksPath(x, dir)}')`);
   const m = git(x, dir, 'merge', '--no-commit', 'main');
   assert.notEqual(m.status, 0, 'precondition: the merge stops at the README');
   w('README.md', 'resolved\n'); gitOk(x, dir, 'add', 'README.md');

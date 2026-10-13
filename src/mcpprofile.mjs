@@ -51,6 +51,8 @@ export const PROFILE = Object.freeze({
  */
 export const READING = Object.freeze([
   'mem_board', 'mem_questions',
+  // H11: reads the card shelf, writes nothing.
+  'mem_card_list',
   'mem_procedures', 'mem_component', 'mem_links',
   'mem_skill_find', 'mem_skill_fetch',
   'mem_show', 'mem_experiences', 'mem_topics', 'mem_facts',
@@ -73,7 +75,7 @@ export const READING = Object.freeze([
  * event line (Z3/A8; until 2026-09-30 it rewrote the message file). Exactly the sort of mistake the test pins.
  */
 export const WRITING = Object.freeze([
-  'mem_answer', 'mem_log', 'mem_duty_close', 'mem_inbox_new',
+  'mem_answer', 'mem_log', 'mem_duty_close', 'mem_card_add', 'mem_inbox_new',
   'mem_inbox_write', 'mem_inbox_ack', 'mem_project_init', 'mem_project_new', 'mem_store_put',
   // O1 (2026-09-30): claim lines in the inbox's claim file — state other
   // agents read.

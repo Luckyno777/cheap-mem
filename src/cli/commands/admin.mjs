@@ -767,7 +767,7 @@ export const COMMANDS = {
       const db = await store.open(root, dim);
       try {
         for (const project of only ?? [null, ...memory.listProjects(root)]) {
-          for (const type of Object.keys(memory.TYPES)) {
+          for (const type of memory.SEARCH_TYPES) {
             const file = memory.logPath(root, type, project);
             if (!fs.existsSync(file)) continue;
             const lines = fs.readFileSync(file, 'utf8').split('\n');
