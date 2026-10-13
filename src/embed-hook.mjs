@@ -33,16 +33,22 @@ export function entryText(entry) {
  * Never throws when onFail is 'warn' — returns `{status, ...}`:
  *   ok     stored
  *   empty  nothing embeddable in this entry
- *   off    embeddings are not set up (no key) — silent, not a defect
+ *   off    embeddings are not set up — silent, not a defect
+ *   rejected  the config names a provider that would send text out
+ *          (voyage, openai, a remote ollama host): refused, never silent
  *   broken a real failure worth reporting
  */
 export async function embedEntry(root, file, line, entry) {
   const text = entryText(entry);
   if (!text) return { status: 'empty', reason: 'no embeddable text in the entry' };
 
-  let cfg;
-  try { cfg = embed.readConfig(root); }
-  catch (e) { return { status: 'broken', reason: 'config', detail: e.message }; }
+  // The gate comes first: nothing below may run for a provider that is
+  // not local, and nothing leaves the machine before this answers.
+  const st = await embed.embedState(root);
+  if (st.state === 'broken') return { status: 'broken', reason: 'config', detail: st.message };
+  if (st.state === 'not-configured') return { status: 'off', reason: 'embeddings are not configured' };
+  if (st.state === 'rejected') return { status: 'rejected', reason: st.reason, detail: st.message };
+  const cfg = st.cfg;
 
   let dim;
   try { dim = embed.dimensions(cfg.provider, cfg.model); }
@@ -52,11 +58,12 @@ export async function embedEntry(root, file, line, entry) {
   try {
     vector = await embed.embed(root, text, { cfg });
   } catch (e) {
-    // No key means "not set up", the normal state for anyone who does
-    // not want embeddings. Reporting it as broken would warn on every
-    // single `mem log` — and once people are used to warnings, they
-    // stop seeing the real ones.
-    if (e.code === 'NO_KEY') return { status: 'off', reason: `no key for ${cfg.provider}` };
+    // Not configured is the normal state for anyone who does not want
+    // embeddings. Reporting it as broken would warn on every single
+    // `mem log` — and once people are used to warnings, they stop
+    // seeing the real ones.
+    if (e.code === 'NOT_CONFIGURED') return { status: 'off', reason: 'embeddings are not configured' };
+    if (e.code === 'EXTERNAL_DISABLED') return { status: 'rejected', reason: 'external-provider', detail: e.message };
     return { status: 'broken', reason: 'embed', detail: `${cfg.provider}: ${e.message}` };
   }
 

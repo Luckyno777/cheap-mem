@@ -345,8 +345,9 @@ memory it reads; it measures a scratch copy and says so in each record.
   came back "atomic here". (The machine this run was taken on reports
   `ext2/ext3`, which is what `stat -f -c %T` says about ext4 — they
   share a statfs magic — so this particular run was not on overlay.)
-- **`mem find-embed` and the embedding backfill** — need an API key and
-  an optional native dependency; this phase makes no network calls.
+- **`mem find-embed` and the embedding backfill** — need a local ollama
+  and an optional native dependency; this phase makes no network calls
+  (and since 2026-10-13 there is no embedding provider that could).
 - **the register prototype past 40 000 rows** — the new `register` phase
   (sqlite+FTS5 against today's linear scan) ladders to 40,000 rows for
   this run's time budget; a 2026-09-20 one-off prototype separately

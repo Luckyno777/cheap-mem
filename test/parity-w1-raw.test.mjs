@@ -14,8 +14,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as raw from '../src/raw.mjs';
 import * as timesearch from '../src/timesearch.mjs';
-import * as openai from '../src/embed/openai.mjs';
-import * as voyage from '../src/embed/voyage.mjs';
 import { tempDir } from './temp-dir.mjs';
 
 function transcript(dir, name, lines, { endNewline = true } = {}) {
@@ -91,24 +89,10 @@ test('B19: only a half line present -> nothing, offset stays', (t) => {
   assert.equal(r2.lines, 1);
 });
 
-for (const [name, mod, envKey] of [['openai', openai, 'OPENAI_API_KEY'], ['voyage', voyage, 'VOYAGE_API_KEY']]) {
-  test(`B23: ${name} finds .mem/embed.env relative to the memory root, not the cwd`, async (t) => {
-    const root = tempDir('cm-w1-embed-', t);
-    fs.mkdirSync(path.join(root, '.mem'), { recursive: true });
-    fs.writeFileSync(path.join(root, '.mem', 'embed.env'), `${envKey}=test-key-from-root\n`);
-    const saved = process.env[envKey];
-    const savedFetch = globalThis.fetch;
-    delete process.env[envKey];
-    let auth = null;
-    globalThis.fetch = async (_url, opts) => {
-      auth = opts.headers.Authorization;
-      return { ok: true, status: 200, json: async () => ({ data: [{ embedding: [0.1, 0.2] }] }), text: async () => '' };
-    };
-    t.after(() => { globalThis.fetch = savedFetch; if (saved === undefined) delete process.env[envKey]; else process.env[envKey] = saved; });
-    await mod.embed('hello', { root }).catch(() => { /* the reply shape is not the point */ });
-    assert.equal(auth, 'Bearer test-key-from-root');
-  });
-}
+// B23 (an embedding key found relative to the memory root, not the cwd) is gone with the
+// adapters it tested: voyage and openai were removed on 2026-10-13 (no entry text goes to an
+// embedding vendor), and nothing reads `.mem/embed.env` any more.
+// test/embed-local-only.test.mjs proves the replacement: no key is read, no call is made.
 
 test('B45: the time search reads captures that live in the archive, not only in the repo', (t) => {
   const root = tempDir('cm-w1-ts-', t);
