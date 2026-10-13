@@ -46,7 +46,8 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { tempDir } from './temp-dir.mjs';
 import { exportCommit } from './helpers/export-commit.mjs';
-import { spawn, execFileSync } from 'node:child_process';
+import { startLoadChildren } from './fixture/loadchild.mjs';
+import { execFileSync } from 'node:child_process';
 import {
   readLoadavgPerCpu,
   VERDICT, timeVerdict, timeVerdictUnderLoad, foreignLoadDelta, captureForeignLoad,
@@ -70,16 +71,20 @@ const FAIL_AT = 5000;
  */
 let lastRealLoadMeasurement = null;
 
-/** Spawn `count` CPU-bound child processes that spin until killed, for tests that need REAL foreign load rather than a fabricated `foreignLoadDelta`. Always killed in the caller's `finally`. */
 // Every load child this file ever started: the positive control below must not
 // measure "the load is gone" while a SIGKILLed fresser is still dying.
 const EVERY_EATER = [];
+const EATER_MAX_LIFETIME_MS = 20000;
+/**
+ * Spawn `count` CPU-bound child processes for tests that need REAL foreign load rather than a fabricated
+ * `foreignLoadDelta`. They come from test/fixture/loadchild.mjs (failure record 3rmr30wgcgjn): a hard
+ * maximum lifetime plus a parent leash, so a hard-killed test run cannot leave eaters behind (a raw
+ * `while (true)` child once ran 9.5 days). The callers still kill them in their `finally`; the lifetime
+ * (20 s) is far above what any probe here needs (2-5 s) and below every probe timeout.
+ */
 function spawnCpuEater(count) {
-  const children = [];
-  for (let i = 0; i < count; i += 1) {
-    const c = spawn(process.execPath, ['-e', 'let x = 0; while (true) { x += Math.sqrt(x + 1); }']);
-    children.push(c); EVERY_EATER.push(c);
-  }
+  const { children } = startLoadChildren(count, { maxLifetimeMs: EATER_MAX_LIFETIME_MS });
+  EVERY_EATER.push(...children);
   return children;
 }
 /** Resolves when every load child has really exited (event-based), or says which ones did not by the deadline. */
@@ -89,10 +94,14 @@ async function waitEatersGone(deadlineMs) {
   while (alive().length > 0) {
     const left = deadlineMs - (Date.now() - t0);
     if (left <= 0) return { gone: false, still: alive().map((c) => c.pid), waitedMs: Date.now() - t0 };
+    // The load children are unref()ed by the helper, so the event loop must be held by this timer while we
+    // wait for their exit; it is cleared as soon as the race is decided.
+    let timer;
     await Promise.race([
       ...alive().map((c) => new Promise((ok) => c.once('exit', ok))),
-      new Promise((ok) => setTimeout(ok, left).unref()),
+      new Promise((ok) => { timer = setTimeout(ok, left); }),
     ]);
+    clearTimeout(timer);
   }
   return { gone: true, still: [], waitedMs: Date.now() - t0 };
 }
