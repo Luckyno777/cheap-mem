@@ -128,8 +128,8 @@ async function panelView(base, { oldScript } = {}) {
     });
   } finally { await ctx.close(); }
 }
-// The row title reads "Procedure, issued by <who> on <date> — <title>"; compare the tail.
-const short = (t) => t.split(' — ').pop();
+// The row title reads "<title> — Procedure, issued by <who> on <date>" (the name first, the mark behind it); compare the head.
+const short = (t) => t.split(' — ')[0];
 const titles = (v) => v.rows.map((z) => short(z.title)).sort();
 
 test('RED on the fixed old state: a proposed rule stands in the panel (positive control)', NEEDS, async (t) => {
