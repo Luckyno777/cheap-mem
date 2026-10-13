@@ -98,10 +98,12 @@ test('control and bidi characters appear in no card (fallback, written, addendum
 test('a key is masked BEFORE the cut: a key that straddles the cut cannot slip through half-written', () => {
   const key = `sk-${'a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6'}`;
   // the key starts shortly before the 320-character cut of the context
-  const text = `${'word '.repeat(60)}${key} and more words after it.`;
-  const k = card.cardOf(entry({ card_question: 'Q?', card_context: text, card_options: BOTH }), { type: 'duty' });
-  assert.ok(!k.context.includes('sk-a1B2'), k.context);
-  assert.ok(!JSON.stringify(k).includes('a1B2c3D4e5F6'));
+  // (no blank before the cut: the cut at a word boundary cannot save a key inside one long word)
+  for (const text of [`${'y'.repeat(305)}=${key} and more words after it.`, `${'word '.repeat(60)}${key} and more words after it.`]) {
+    const k = card.cardOf(entry({ card_question: 'Q?', card_context: text, card_options: BOTH }), { type: 'duty' });
+    assert.ok(!k.context.includes('sk-a1B2'), k.context);
+    assert.ok(!JSON.stringify(k).includes('a1B2c3D4e5F6'));
+  }
 });
 
 // --- the higher tier counts, then the youngest -----------------------------------------------------

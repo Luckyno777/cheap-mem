@@ -359,3 +359,22 @@ test('the type `card` is a drawer like the others: `mem doctor` names no finding
   const levels = (out) => out.split('\n').filter((l) => /^(WARN|FAIL|ERR)/.test(l)).map((l) => l.split(/\s+/).slice(0, 2).join(' ')).sort();
   assert.deepEqual(levels(after), levels(before));
 });
+
+test('S3: the pre-edit lookup of a file (`mem component --table`) names the entry, not the card that repeats its path', (t) => {
+  const w = tempDir('cm-shelf-comp-', t);
+  assert.equal(cli(w, ['init']).status, 0);
+  // the table lists git-tracked paths: a real repository with the file in it
+  fs.mkdirSync(path.join(w, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(w, 'src', 'zeta-module.mjs'), 'export const zeta = 1;\n');
+  const git = (...a) => spawnSync('git', ['-c', 'user.name=probe', '-c', 'user.email=probe@example.test', '-c', 'commit.gpgsign=false', ...a], { cwd: w, encoding: 'utf8' });
+  git('init', '-q'); git('add', 'src/zeta-module.mjs'); git('commit', '-q', '-m', 'file');
+  fs.appendFileSync(path.join(w, 'global', 'duties.jsonl'), `${JSON.stringify({ id: 'pzeta0001', ts: '2026-10-01T00:00:00Z', title: 'Fix src/zeta-module.mjs', text: 'It breaks in src/zeta-module.mjs.', who: 'user', agent: 'o', authority: 'agent' })}\n`);
+  const { entry } = cardstore.write(w, {
+    target_id: 'pzeta0001', question: 'Should src/zeta-module.mjs be fixed?', context: 'It breaks in src/zeta-module.mjs.',
+    options: ['Yes — fixed', 'No — stays'], evidence: ['src/zeta-module.mjs'],
+  }, { agent: 'orch' });
+  cli(w, ['component', '--rebuild', '--table']);
+  const r = cli(w, ['component', 'src/zeta-module.mjs', '--table']);
+  assert.match(r.stdout + r.stderr, /pzeta0001/, r.stdout + r.stderr);
+  assert.ok(!(r.stdout + r.stderr).includes(entry.id), 'the card stands in the component lookup');
+});
