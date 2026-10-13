@@ -1100,6 +1100,7 @@ export const COMMANDS = {
       }
       if (v.orphans.length) {
         out(`  ${v.orphans.length} orphaned (on disk, in no register):`);
+        // mask-ok: a list of store hashes
         for (const h of v.orphans.slice(0, 10)) out(`    ${h.slice(0, 12)}`);
       }
       if (!bad && !v.orphans.length) out('  all intact');
@@ -1347,6 +1348,7 @@ export const COMMANDS = {
         + `table: ${res.tableState}${usedTable ? ' (used)' : ' (fell back to live search)'}:`);
       for (const h of hits.slice(0, top)) {
         out(`  ${String(h._form).padEnd(9)} ${h._source}:${h._line}  ${String(h.ts ?? '').slice(0, 10)}`);
+        // mask-ok: compactLine masks the entry before it cuts
         out(`         ${compactLine(h).slice(0, 120)}`);
       }
       return;
@@ -1395,6 +1397,7 @@ export const COMMANDS = {
       // The form travels: a base hit is weaker evidence, and whoever
       // reads it should see that.
       out(`  ${h._form.padEnd(5)} ${h._source}:${h._line}  ${String(h.ts ?? '').slice(0, 10)}`);
+      // mask-ok: compactLine masks the entry before it cuts
       out(`        ${compactLine(h).slice(0, 120)}`);
     }
     if (hits.length > top) out(`  (${hits.length - top} more, raise --top)`);

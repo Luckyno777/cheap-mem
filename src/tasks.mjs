@@ -972,6 +972,7 @@ export function overview(root) {
     try {
       for (const name of fs.readdirSync(tasksDir(root))) {
         if (!name.endsWith('.jsonl')) continue;
+        // mask-ok: a file name
         const id = name.slice(0, -'.jsonl'.length);
         if (!validId(id)) continue;
         const b = read(root, id);

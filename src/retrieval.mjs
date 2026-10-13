@@ -411,6 +411,7 @@ export function retrieve(root, query, capability, {
 
   const q = String(query ?? '');
   const qCapped = q.length > limits.queryChars;
+  // mask-ok: the QUERY the caller typed (a bound on search cost), not entry text
   const useQuery = qCapped ? q.slice(0, limits.queryChars) : q;
 
   const idx = index ?? loadIndex(root);

@@ -1651,7 +1651,7 @@ async function handleCall(name, args) {
           ? (userhabits.userSnippet(root, h.source, q) || '(raw capture: no user line matches the query)')
           : shortLine(h.entry);
         return `${h.source}:${h.line}  [${h.entry.ts ?? '?'}]  ${h.score.toFixed(2)}${mark}\n`
-          + `  ${String(preview).replace(/\s+/g, ' ').slice(0, 200)}`;
+          + `  ${maskText(String(preview)).replace(/\s+/g, ' ').slice(0, 200)}`;
       }).join('\n'));
     }
 

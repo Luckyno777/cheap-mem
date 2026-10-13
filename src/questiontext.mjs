@@ -163,6 +163,7 @@ function countFailure(root, kind, now) {
     const where = path.join(root, ERRORS_REL);
     try { if (fs.statSync(where).size > ERRORS_MAX_BYTES) return; } catch { /* no file yet */ }
     fs.mkdirSync(path.dirname(where), { recursive: true });
+    // mask-ok: a short event kind token
     fs.appendFileSync(where, `${JSON.stringify({ ts: new Date(now).toISOString(), kind: String(kind).slice(0, 60) })}\n`);
   } catch { /* the counter itself must hold nothing up */ }
 }

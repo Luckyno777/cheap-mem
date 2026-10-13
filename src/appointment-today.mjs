@@ -243,12 +243,12 @@ export function sessionLine(root, { now = Date.now() } = {}) {
     let title = maskText(String(next.title ?? '')).replace(/\s+/g, ' ');
     // Bytes, not characters: a multi-byte letter counts more.
     if (Buffer.byteLength(head + title, 'utf8') > LINE_MAX_BYTES) {
-      // mask-ok: `title` was masked where it was read, above
       while (Buffer.byteLength(`${head}${title}...`, 'utf8') > LINE_MAX_BYTES && title.length > 1) title = title.slice(0, -1);
       title = `${title.trimEnd()}...`;
     }
     line = head + title;
   }
+  // mask-ok: the line is built from the title masked above
   while (Buffer.byteLength(line, 'utf8') > LINE_MAX_BYTES) line = line.slice(0, -2);
   return line;
 }

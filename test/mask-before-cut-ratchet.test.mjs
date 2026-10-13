@@ -6,21 +6,22 @@
 // entry text must mask first: `maskText` / `cutMasked` / `windowMasked` / `maskEntry` (src/outputguard.mjs)
 // or, on the write path, `redact*`, in front of the cut. This file keeps it that way.
 //
-// Two rules, deliberately narrow so they do not drown in false alarms:
+// Two rules (the scanner is test/helpers/mask-cut-scan.mjs, a real parse):
 //
-//   1. WATCHED FILES (the explicit list below: every file that cut entry text when the round was made, plus
-//      the ones inspected and found fine). In them, every line that cuts (`.slice(0, n)`, `.slice(-n)`,
-//      `.substring(0, n)`) AND looks at text (a receiver or neighbour word like title, text, body, subject,
-//      why, stdout ...) must have a mask call on the same line or in the two lines above, or carry the
-//      exception comment `mask-ok: <reason>` on that line or in the two lines above. A new unguarded cut in a
-//      watched file turns this red.
+//   1. WATCHED FILES (the explicit list below: every file that cut entry text when the round was made, plus the
+//      ones inspected and found fine). In them EVERY cut (`x.slice(a, b)`, `.substring`, `.substr`, a tail cut
+//      `x.slice(-n)`) must be GUARDED: its receiver calls a mask, or is a variable made from a mask in the same
+//      function, or is plainly not entry text (a date, a hash, an array cut), or the cut carries a comment
+//      `mask-ok: <reason>` on its line or in the four lines above. Per function, not per line: a mask elsewhere
+//      in the same function does not excuse a cut of something else. A new unguarded cut turns this red.
 //   2. EVERYWHERE ELSE in src/ and bin/: the commonest shape of the bug, an entry field cut inline
 //      (`e.title.slice(0, 80)`, `String(e.text).slice(0, 60)`), with no mask call and no `mask-ok:`.
 //
-// Both rules are pure functions over source text, so the red proof can run them on the OLD files (acff04e,
-// exported with a fixed hash, never a moving merge-base) and must find violations there, and the positive
-// control feeds them a bad and a good snippet. A watched file that no longer exists or no longer cuts
-// anything is reported, not skipped: a ratchet over a moved file guards nothing.
+// Red proof: the same scan runs on the files of acff04e (a FIXED hash, never a moving merge-base) and must find the
+// sites this round fixed. Mutation proof: the masks of the fixed sites are taken out one by one, IN MEMORY, and the
+// scan must turn red for each (a ratchet that bites only nine of twenty-six removals was the review's finding).
+// A structural pin covers what a scan cannot see (raw.snippet must cut through windowMasked). A watched file that is
+// gone is reported, not skipped: a ratchet over a moved file guards nothing.
 //
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -29,6 +30,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { exportCommit } from './helpers/export-commit.mjs';
+import { unguardedCuts } from './helpers/mask-cut-scan.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 /** The state before the fix. Pinned, never `merge-base`. */
@@ -49,56 +51,7 @@ export const WATCHED = Object.freeze([
   'src/cli/display.mjs', 'src/shortline.mjs',
 ]);
 
-const CUT = /\.(?:slice\(\s*(?:0\s*,|-\s*\d)|substring\(\s*0\s*,|substr\(\s*0\s*,)/;
-// A word that says "this is entry text" on the line. Identifiers like ts, id, hash, sha, commit, day are not text.
-const TEXTY = /\b(?:title|titleFull|text|body|subject|question|why|reason|content|excerpt|query|stdout|stderr|stderrTail|snippet|note|message|summary|label|choice|rule|learning|remedy|headline|description|what|quote|raw|firstLine|spaced|gap|txt)\b|\.value\b/;
-const BENIGN = /\b(?:ts|id|ids|hash|sha|sha256|commit|day|date|iso|tags|files|lines|sources|patterns|claims|hits|rows|items|list|top|names|parts|words|tokens|stems|projects|entries|keys|args|rest|argv)\b/;
-const GUARD = /\b(?:maskText|cutMasked|windowMasked|maskEntry|maskOutput|sanitizeForDisplay|redactExcerpt|redactEntry|redactObject|redact)\b|mask-ok:/;
-// Rule 2: an entry field cut inline.
-const INLINE = /\b(?:e|e0|entry|h|x|q|m|c|p|l|r|it|d|a|o|res|msg)\.(?:title|text|body|why|question|subject|reason|choice|learning|rule|fact|value|remedy|note)\b[^;\n]*\.(?:slice\(\s*(?:0\s*,|-\s*\d)|substring\(\s*0\s*,)/;
-
-/** The expression a cut at `at` is applied to: `String(e.ts ?? '')` in `String(e.ts ?? '').slice(0, 10)`. */
-export function receiverBefore(code, at) {
-  let i = at;
-  for (;;) {
-    while (i > 0 && /[\w$.?]/.test(code[i - 1])) i -= 1;
-    if (i > 0 && code[i - 1] === ')') {
-      let depth = 0;
-      while (i > 0) {
-        i -= 1;
-        if (code[i] === ')') depth += 1;
-        else if (code[i] === '(') { depth -= 1; if (depth === 0) break; }
-      }
-      continue; // the identifier in front of the opening parenthesis (String, maskText ...)
-    }
-    break;
-  }
-  return code.slice(i, at);
-}
-
-/** Lines of `source` that cut text without a mask call or an exception; `{ line, text }`. */
-export function unguardedCuts(source, { rule = 1 } = {}) {
-  const lines = source.split('\n');
-  const found = [];
-  lines.forEach((l, i) => {
-    const code = l.replace(/\/\/.*$/, (m) => (m.includes('mask-ok:') ? m : ''));
-    if (/^\s*(\*|\/\*|\/\/)/.test(l) && !CUT.test(l)) return;
-    if (/^\s*\*|^\s*\/\//.test(l)) return; // a comment line is not code
-    if (!CUT.test(code)) return;
-    if (rule === 1) {
-      if (!TEXTY.test(code)) return;
-      // What sits right before the cut says what is cut: `ts.slice(0, 10)` is a date, `commit.slice(0, 12)` a hash.
-      const cuts = [...code.matchAll(new RegExp(CUT.source, 'g'))];
-      if (cuts.every((m) => BENIGN.test(receiverBefore(code, m.index)))) return;
-    } else if (!INLINE.test(code)) return;
-    // A mask call must stand on the line or just above it; an exception comment may head a short block (4 lines).
-    const near = [lines[i - 2] ?? '', lines[i - 1] ?? '', l].join('\n');
-    const block = [lines[i - 4] ?? '', lines[i - 3] ?? '', near].join('\n');
-    if (GUARD.test(near) || /mask-ok:/.test(block)) return;
-    found.push({ line: i + 1, text: l.trim().slice(0, 140) });
-  });
-  return found;
-}
+export { unguardedCuts };
 
 function everySource(dir) {
   const out = [];
@@ -125,9 +78,13 @@ test('the scanner: a bad snippet is found, a masked one and an excepted one are 
   assert.equal(unguardedCuts('const t = String(e.title).slice(0, 60); // mask-ok: id only').length, 0, 'an exception comment on the line');
   assert.equal(unguardedCuts('const day = String(e.ts ?? "").slice(0, 10);').length, 0, 'a date is not entry text');
   assert.equal(unguardedCuts('const tail = stderrTail.slice(-2000);').length, 1, 'a tail cut of stderr is a cut too');
-  assert.equal(receiverBefore("x = String(e.ts ?? '').slice(0, 10)", "x = String(e.ts ?? '')".length), "String(e.ts ?? '')");
   assert.equal(unguardedCuts("const a = `${String(h.id).padEnd(14)} ${String(h.title).slice(0, 70)}`;").length, 1, 'a benign word elsewhere on the line does not excuse the cut');
   assert.equal(unguardedCuts('// the title is cut with .slice(0, 80) below\nconst x = 1;').length, 0, 'a comment is not code');
+  assert.equal(unguardedCuts('function f(s) { const t = maskText(s).trim(); return t.slice(0, 9); }').length, 0, 'a variable made from a mask');
+  assert.equal(unguardedCuts('function f(s) { const t = s.trim(); return t.slice(0, 9); }').length, 1, 'a variable that is not');
+  assert.equal(unguardedCuts('function f(s, u) { const a = maskText(u); return s.slice(0, 9); }').length, 1, 'a mask elsewhere in the function excuses nothing');
+  assert.equal(unguardedCuts('const x = list.filter(Boolean).sort().slice(0, 9);').length, 0, 'an array chain');
+  assert.equal(unguardedCuts('const x = text.slice(from, to);').length, 1, 'a window cut with two variables is a cut');
 });
 
 // ------------------------------------------------------------------------------ rule 1: the watched files
@@ -193,4 +150,52 @@ test('outputguard keeps the order: mask first, cut second', async () => {
   const src = fs.readFileSync(path.join(REPO, 'src', 'outputguard.mjs'), 'utf8');
   assert.match(src, /export function cutMasked\(text, n\)[\s\S]*?const masked = maskText\(text\);[\s\S]*?masked\.slice\(0, Math\.max\(0, n\)\)/);
   assert.match(src, /export function windowMasked\(text, from, to\)[\s\S]*?const masked = maskText\(text\);[\s\S]*?masked\.slice\(a, Math\.max\(a, b\)\)/);
+});
+
+// ------------------------------------------------------------------------------ mutation proof
+
+/** Each entry takes ONE mask out of a fixed site, leaving the cut: the scan must turn red on the result. */
+const MUTATIONS = [
+  ['src/teach.mjs', 'teach.short', (s) => s.replace('maskText(String(e?.title ?? e?.choice ?? e?.text ?? e?.fact ?? e?.id ?? \'\'))', 'String(e?.title ?? e?.choice ?? e?.text ?? e?.fact ?? e?.id ?? \'\')')],
+  ['src/closingreport.mjs', 'closing.short', (s) => s.replace('maskText(String(s ?? \'\'))', 'String(s ?? \'\')')],
+  ['src/ruledraft.mjs', 'ruledraft.clip', (s) => s.replace('maskText(String(s ?? \'\'))', 'String(s ?? \'\')')],
+  ['src/skillcatalog.mjs', 'whenOf', (s) => s.replace('maskText(String(raw))', 'String(raw)')],
+  ['src/skillcatalog.mjs', 'shortTitle', (s) => s.replace("maskText(String(e.title ?? e.rule ?? fallback ?? ''))", "String(e.title ?? e.rule ?? fallback ?? '')")],
+  ['src/dashboard-data.mjs', 'excerpt', (s) => s.replace("maskText(String(s ?? ''))", "String(s ?? '')")],
+  ['src/timesearch.mjs', 'shortContent', (s) => s.replace('maskText(c)', 'c')],
+  ['src/errorsignature.mjs', 'signature', (s) => s.replace('maskText(line).trim()', 'line.trim()')],
+  ['src/source.mjs', 'source.line', (s) => s.replace("cutMasked(String(e.title ?? ''), 50)", "String(e.title ?? '').slice(0, 50)")],
+  ['src/bodyfields.mjs', 'restOfBody', (s) => s.replace('maskText(bodyAsText(e[f]))', 'bodyAsText(e[f])')],
+  ['src/answercheck.mjs', 'redactExcerpt', (s) => s.replace('maskText(String(s))', 'String(s)')],
+  ['src/question.mjs', 'question.line', (s) => s.replace('maskText(String(q.question))', 'String(q.question)')],
+  ['src/board.mjs', 'board', (s) => s.replace("maskText(String(open[0]?.question ?? ''))", "String(open[0]?.question ?? '')")],
+  ['src/cli/commands/agents.mjs', 'why90', (s) => s.replace('maskText(String(q.why))', 'String(q.why)')],
+  ['src/skillregistry.mjs', 'cap', (s) => s.replace('maskText(String(s)).replace(/\\s+/g, \' \').trim()', 'String(s).replace(/\\s+/g, \' \').trim()')],
+  ['src/errorfixes.mjs', 'short', (s) => s.replace("maskText(String(e.title ?? e.learning ?? e.rule ?? e.text ?? ''))", "String(e.title ?? e.learning ?? e.rule ?? e.text ?? '')")],
+  ['src/commandguard.mjs', 'collect', (s) => s.replace("maskText(String(e.title ?? e.text ?? '')).replace(/\\s+/g, ' ').trim().slice(0, TITLE_MAX),\n      patterns", "String(e.title ?? e.text ?? '').replace(/\\s+/g, ' ').trim().slice(0, TITLE_MAX),\n      patterns")],
+  ['src/probescaffold.mjs', 'title', (s) => s.replace("oneLine(maskText(String(entry.title ?? entry.text ?? '(no title)')))", "oneLine(String(entry.title ?? entry.text ?? '(no title)'))")],
+  ['src/tasks.mjs', 'stderr tail', (s) => s.replace('maskText(stderrTail).slice(-2000)', 'stderrTail.slice(-2000)')],
+  ['src/closingreport.mjs', 'report names', (s) => s.replace("${short(p.title, 60)}", "${String(p.title).slice(0, 60)}")],
+  ['src/appointment-today.mjs', 'sessionLine', (s) => s.replace("maskText(String(next.title ?? ''))", "String(next.title ?? '')")],
+  ['src/doctor.mjs', 'alarm short', (s) => s.replace("maskText(String(t ?? '')).split", "String(t ?? '').split")],
+  ['src/neighbours.mjs', 'line', (s) => s.replace("maskText(String(core))", "String(core)")],
+];
+
+for (const [rel, name, mutate] of MUTATIONS) {
+  test(`mutation: ${rel} (${name}): taking the mask out is caught`, () => {
+    const src = fs.readFileSync(path.join(REPO, rel), 'utf8');
+    assert.deepEqual(unguardedCuts(src), [], 'control: the real file is clean');
+    const out = mutate(src);
+    assert.notEqual(out, src, 'the anchor is stale: the mutation changed nothing (update the table with the code)');
+    const hit = unguardedCuts(out).length + unguardedCuts(out, { rule: 2 }).length;
+    assert.ok(hit > 0, `not caught: ${rel} ${name}`);
+  });
+}
+
+test('structure: raw.snippet cuts its window through windowMasked, and the other sites call the helpers they must', () => {
+  const raw = fs.readFileSync(path.join(REPO, 'src', 'raw.mjs'), 'utf8');
+  const body = /export function snippet\([\s\S]*?\n}\n/.exec(raw)[0];
+  assert.match(body, /windowMasked\(text, from, to\)/, 'the window is cut from the MASKED text');
+  assert.match(body, /maskText\(textOf\(l\)\)/, 'and the hit is located in the masked text');
+  assert.doesNotMatch(body.replace(/windowMasked\(text, from, to\)/, ''), /text\.slice\(/, 'no plain slice of the text is left in snippet');
 });

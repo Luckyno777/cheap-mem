@@ -129,6 +129,7 @@ function atCommandStart(text, pos) {
   for (let i = 0; i < 6; i += 1) {
     const m = before.match(LEAD_WORD);
     if (!m) break;
+    // mask-ok: the checked COMMAND cut at a match position, not entry text
     before = before.slice(0, m.index).replace(/ +$/, '');
   }
   if (before === '' || /[;&|({`]$/.test(before)) return true;
@@ -146,6 +147,7 @@ function endOk(text, end) {
 export function hits(text, pattern) {
   const [rawFirst, ...more] = pattern;
   const bare = rawFirst.endsWith('$');
+  // mask-ok: the checked COMMAND, a trailing character
   const first = bare ? rawFirst.slice(0, -1) : rawFirst;
   let pos = text.indexOf(first);
   let found = false;

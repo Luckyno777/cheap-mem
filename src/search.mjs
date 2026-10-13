@@ -349,6 +349,7 @@ export function splitCompound(word, lexicon, lang, minPart = 4) {
     const rest = word.slice(i);
     if (!lexicon.has(left)) {
       for (const l of linking) {
+        // mask-ok: stem arithmetic on one word, not shown
         if (left.endsWith(l) && lexicon.has(left.slice(0, -l.length))) {
           left = left.slice(0, -l.length);
           break;
@@ -3169,6 +3170,7 @@ export function retrievalQuery(text, { root = null, index = null, requestFrame =
     try { idx = loadIndex(root); } catch { idx = null; }
   }
   const df = idx?.statsDocFreq ?? idx?.docFreq;
+  // mask-ok: a list of query words, not entry text
   if (!idx || !df) return withAnchors(w.slice(0, RETRIEVE_WORDS_MAX));
 
   // From the CURATED statistic, for the same reason as the idf — and it
@@ -3186,6 +3188,7 @@ export function retrievalQuery(text, { root = null, index = null, requestFrame =
     for (const t of tokenize(x)) lowest = Math.min(lowest, df.get(t) ?? 0);
     return Number.isFinite(lowest) ? lowest : 0;
   };
+  // mask-ok: a list of query words, not entry text
   return withAnchors([...w].sort((a, b) => rarity(a) - rarity(b)).slice(0, RETRIEVE_WORDS_MAX));
 }
 

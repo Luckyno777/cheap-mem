@@ -315,6 +315,7 @@ export function checkRunningCodeFor(root, service) {
   return {
     level: LEVEL.WARN,
     text: `'${service}': runs old code — ${codeChanges.length} code path(s) changed since start `
+      // mask-ok: commit hash prefixes
       + `(${marker.commit.slice(0, 12)}..${currentCommit.slice(0, 12)}), e.g. ${codeChanges[0]}`,
   };
 }

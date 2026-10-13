@@ -573,7 +573,7 @@ export const COMMANDS = {
       const preview = h.raw
         ? sanitizeForDisplay(userhabits.userSnippet(root, h.source, query) || RAW_NO_USER_LINE)
         : compactLine(h.entry, { root });
-      out(`    ${String(preview).replace(/\s+/g, ' ').slice(0, 160)}`);
+      out(`    ${maskText(String(preview)).replace(/\s+/g, ' ').slice(0, 160)}`);
     }
   },
 
@@ -671,7 +671,7 @@ export const COMMANDS = {
       const ts = h.entry?.ts ?? h.ts ?? '?';
       const preview = h.entry ? compactLine(h.entry) : sanitizeForDisplay(String(h.text ?? ''));
       out(`  ${src}:${line}  [${ts}]  [${f.found_by.join('+')}]`);
-      out(`    ${String(preview).replace(/\s+/g, ' ').slice(0, 160)}`);
+      out(`    ${maskText(String(preview)).replace(/\s+/g, ' ').slice(0, 160)}`);
     }
   },
 

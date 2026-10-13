@@ -170,6 +170,7 @@ function formatFactLine(f) {
     const lastExpired = f.expired?.[0];
     if (lastExpired) {
       return `${f.key} = (expired) ${valueOf(lastExpired)}  `
+        // mask-ok: a date
         + `(ran out ${String(lastExpired.valid_until ?? '').slice(0, 10) || '?'})`;
     }
     return `${f.key} = (nothing valid)`;

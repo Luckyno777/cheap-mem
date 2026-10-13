@@ -734,6 +734,7 @@ export function runPass(root, {
 export function atlasSearch(root, { theme = null, drawer = null, project = null, max = SAMPLE, recall = null } = {}) {
   const types = Object.keys(memory.TYPES);
   const cut = drawer ? drawer.lastIndexOf('/') : -1;
+  // mask-ok: a drawer name
   const [dp, dt] = cut >= 0 ? [drawer.slice(0, cut), drawer.slice(cut + 1)] : [null, null];
   const only = dp ?? project;
   const projects = [null, ...memory.listProjects(root)].filter((x) => !only || (x ?? 'global') === only);
