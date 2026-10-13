@@ -34,9 +34,10 @@ const CASES_FILE = path.join(REPO, 'shared', 'entscheidungskarten.jsonl');
 
 /** The pin: the same hash stands in lucky-mem's test of the cases. */
 const CASES_SHA256 = '37da67a8eaf3790ea72a629760437f27f60b2604fe57d80cc0633ef99dde1ec3';
+/** The shared invariants this runner serves: its own `// invariant:` marker lines (the ids are not typed a second time here). */
+const SERVED = fs.readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n')
+  .map((l) => /^\/\/ invariant: (\S+)$/.exec(l)?.[1]).filter(Boolean);
 const TOPICS = ['stages', 'fallback', 'protection', 'unknown', 'rank'];
-/** The neutral topic of a case -> the id of the shared invariant it serves (this house's register), where there is one. */
-const INVARIANT_OF = { unknown: 'nicht-messbar-ist-nicht-null', protection: 'kein-rueckfall-auf-erfundene-daten' };
 /** The tiers in the neutral language of the cases -> this house's (authority.mjs). */
 const RANK = { user: 'user', system: 'system', agent: 'agent', external: 'external', derived: 'inferred', unknown: 'unknown' };
 
@@ -173,7 +174,8 @@ test('the cases are not empty, every topic and stage occurs, ids are unique, eve
   for (const t of Object.keys(TYPE)) assert.ok(cases.some((f) => f.type === t), `type '${t}' has no case`);
   for (const f of cases) assert.ok(TOPICS.includes(f.topic), `${f.id}: topic '${f.topic}' unknown`);
   const inv = new Set(fs.readFileSync(path.join(REPO, 'shared', 'invariants.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l).id));
-  for (const id of Object.values(INVARIANT_OF)) assert.ok(inv.has(id), `invariant '${id}' is missing in shared/invariants.jsonl`);
+  assert.equal(SERVED.length, 2, 'the runner names the two invariants it serves');
+  for (const id of SERVED) assert.ok(inv.has(id), `invariant '${id}' is missing in shared/invariants.jsonl`);
 });
 
 test('every shared case holds against this house\'s card', () => {

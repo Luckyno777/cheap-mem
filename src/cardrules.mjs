@@ -171,7 +171,7 @@ export function checkCard({ target_id: target, question, context, options, advic
   if (!c) errors.push('card_context missing — one or two sentences: what is it about, why now');
   else if (c.length > L.context) errors.push(`card_context is ${c.length} characters long, ${L.context} are allowed`);
   const opt = listOf(options);
-  if (opt.length < 2) errors.push(`at least two options are needed (--option "choice — effect"), given: ${opt.length}`);
+  if (opt.length < 2) errors.push(`at least two options are needed (one "choice — effect" each; \`mem card add\`: --option twice, \`mem log card\`: --card_options twice or one per line), given: ${opt.length}`);
   if (opt.length > L.optionsMax) errors.push(`at most ${L.optionsMax} options, given: ${opt.length}`);
   const read = opt.map(splitOption);
   if (opt.length && !read.some((o) => isDecline(o.choice))) {

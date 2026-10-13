@@ -378,3 +378,24 @@ test('S3: the pre-edit lookup of a file (`mem component --table`) names the entr
   assert.match(r.stdout + r.stderr, /pzeta0001/, r.stdout + r.stderr);
   assert.ok(!(r.stdout + r.stderr).includes(entry.id), 'the card stands in the component lookup');
 });
+
+// --- review of e73f830, B7: `mem log card` lists -----------------------------------------------------------
+
+test('B7: `mem log card` takes a repeated --card_options / --card_evidence; the refusal names the flag of THAT road, not only --option', (t) => {
+  const w = world(t);
+  const base = ['log', 'card', '--target_id', 'pl0001abc', '--card_question', 'Which way?', '--card_context', 'c'];
+  const twice = cli(w, [...base, '--card_options', 'Left — go left', '--card_options', 'No — stay', '--card_evidence', 'e1', '--card_evidence', 'e2']);
+  assert.equal(twice.status, 0, twice.stderr);
+  const row = JSON.parse(shelfLines(w).at(-1));
+  assert.deepEqual(row.card_options, ['Left — go left', 'No — stay']);
+  assert.deepEqual(row.card_evidence, ['e1', 'e2']);
+  // one per line in one value still works
+  assert.equal(cli(w, [...base, '--card_options', 'Left — a\nNo — b']).status, 0);
+  // one option only: refused, and the message names the flags of this road
+  const one = cli(w, [...base, '--card_options', 'No — stay']);
+  assert.notEqual(one.status, 0);
+  assert.match(one.stderr, /--card_options twice or one per line/);
+  assert.match(one.stderr, /mem card add`: --option twice/);
+  assert.match(cli(w, ['log', '--help']).stdout, /--card_options .* \(twice or more, or one per line/);
+  assert.equal(shelfLines(w).length, 2);
+});

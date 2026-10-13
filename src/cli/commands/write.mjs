@@ -38,7 +38,7 @@ import * as cardstore from '../../cardstore.mjs';
 import * as decisioncard from '../../decisioncard.mjs';
 import * as authority from '../../authority.mjs';
 import { zoneOf } from '../../appointments.mjs';
-import { out, die, warn, checkFlags, numberFlag, isHelp, fieldsFrom, findRoot, requireConfig, authorityArg, textFlag } from '../shell.mjs';
+import { out, die, warn, checkFlags, numberFlag, isHelp, fieldsFrom, findRoot, requireConfig, authorityArg, textFlag, repeatedFlag } from '../shell.mjs';
 import { dateFieldOf, compactLine, countLines, retireCmd } from '../display.mjs';
 
 /** 15 commands. */
@@ -64,6 +64,8 @@ export const COMMANDS = {
         "  --due <YYYY-MM-DD|ISO with zone>  only on a duty: a day in the house zone",
         "             (overdue from 00:00 of the following day) or a point in time with a",
         "             zone. Anything else is refused. Read it with `mem deadlines`.",
+        "  card (the card shelf, see `mem card --help`): --target_id <id> --card_question .. --card_context ..",
+        "             --card_options \"choice — effect\" (twice or more, or one per line in one value) [--card_evidence ..]",
         "  --valid_from / --valid_until  when the content HOLDS (not when it was",
         "             written — that is --ts). --valid_until is refused if it is",
         "             not a readable date. State it only when you know a real end",
@@ -87,6 +89,13 @@ export const COMMANDS = {
     // The rules live in fieldsFrom() — once, for `log` and `correction`
     // together. They used to be written out here and again below.
     Object.assign(data, fieldsFrom('log', args, ['category', 'category-new']));
+    // The list fields of a card may stand several times (`--card_options a --card_options b`); the parser keeps only the last value.
+    if (type === 'card') {
+      for (const name of ['card_options', 'card_evidence']) {
+        const all = repeatedFlag(name);
+        if (all.length > 1) data[name] = all;
+      }
+    }
 
     // `valid_until` is refused, not silently accepted, if it cannot be
     // read as a date — see `dateFieldOf`. `valid_from` had this exact
@@ -644,15 +653,7 @@ export const COMMANDS = {
     const target = rest[1];
     if (!target) die('card add: <target-id> missing. Example: mem card add 3demxykbnzkx --question "..." --context "..." --option "Yes — ..." --option "No — ..."');
     // `--option` and `--evidence` may stand several times; the parser keeps only the last value, so read them from the command line.
-    const repeated = (name) => {
-      const found = [];
-      const av = process.argv.slice(3);
-      for (let i = 0; i < av.length; i += 1) {
-        if (av[i] === '--') break;
-        if (av[i] === `--${name}`) { if (av[i + 1] !== undefined && !av[i + 1].startsWith('--')) { found.push(av[i + 1]); i += 1; } } else if (av[i].startsWith(`--${name}=`)) found.push(av[i].slice(name.length + 3));
-      }
-      return found;
-    };
+    const repeated = repeatedFlag;
     const one = (v) => (v === undefined || v === true ? undefined : String(v));
     for (const n of ['question', 'context', 'advice', 'kind', 'project', 'authority']) {
       if (args[n] === true) die(`card add: --${n} came without a value. Nothing was written.`);

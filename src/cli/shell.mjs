@@ -114,6 +114,21 @@ export function die(t) {
 // of it. A warning may disturb a write; it must never break a contract.
 export function warn(text) { process.stderr.write(`! ${text}\n`); }
 
+/**
+ * Every value of a flag that stands several times on the command line (`--option a --option b`, also `--option=a`). The
+ * parser keeps only the last one; a list flag that may repeat reads them from here. Stops at `--`.
+ */
+export function repeatedFlag(name, argv = process.argv.slice(3)) {
+  const found = [];
+  for (let i = 0; i < argv.length; i += 1) {
+    if (argv[i] === '--') break;
+    if (argv[i] === `--${name}`) {
+      if (argv[i + 1] !== undefined && !argv[i + 1].startsWith('--')) { found.push(argv[i + 1]); i += 1; }
+    } else if (argv[i].startsWith(`--${name}=`)) found.push(argv[i].slice(name.length + 3));
+  }
+  return found;
+}
+
 export function checkFlags(args, known, sub) {
   const bad = Object.keys(args).filter((k) => k !== 'help' && k !== 'root' && !known.includes(k));
   if (bad.length) {

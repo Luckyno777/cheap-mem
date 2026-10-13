@@ -63,10 +63,29 @@ const LOCKED_MARK = '[locked]';
 const isObject = (e) => e !== null && typeof e === 'object' && !Array.isArray(e) && !e.__broken;
 const isLocked = (e) => isObject(e) && Boolean(e.body_enc);
 
-/** Mask, THEN cut. */
+/**
+ * Mask, THEN cut, and mask what is left once more (the cut can never leave half a key: nothing was left to cut). Idempotent:
+ * what already reads `[REDACTED:...]` is not found again.
+ */
 function text(v, max) {
   const t = maskText(clean(v));
-  return max ? shorten(t, max) : t;
+  return max ? maskText(shorten(t, max)) : t;
+}
+
+/** Strings longer than this are clipped before masking: no card text is read past `rules.MAX_IN`, and the mask costs by length. */
+const MASK_CLIP = 2 * rules.MAX_IN;
+/**
+ * A copy of an entry with EVERY string in it masked (to a depth of 6; deeper is dropped). The fallback card cuts and splits
+ * the entry's texts into sentences, a title and a question: a key must be gone BEFORE any of that, or a key straddling a cut
+ * (a PEM block longer than the limit) survives as clear text. Masking each finished field afterwards is the second layer.
+ */
+function maskedCopy(v, depth = 0) {
+  if (typeof v === 'string') return maskText(v.length > MASK_CLIP ? v.slice(0, MASK_CLIP) : v);
+  if (v === null || typeof v !== 'object' || depth >= 6) return depth >= 6 && typeof v === 'object' ? null : v;
+  if (Array.isArray(v)) return v.slice(0, 200).map((x) => maskedCopy(x, depth + 1));
+  const out = {};
+  for (const [k, x] of Object.entries(v)) out[k] = maskedCopy(x, depth + 1);
+  return out;
 }
 
 /** One option from "choice — effect" (or an object `{choice, effect}`). */
@@ -108,9 +127,14 @@ function isDecisionDuty(p) {
  * What the target of a card is called (`target_id` on the shelf): the id of the entry; a project `project:<name>`; a letter
  * `letter:<id>`; a word pair `word-pair:<a>|<b>`. Without a handle `null` — no key is invented.
  */
-export function identifierOf(e, type = null) {
+export function identifierOf(e, type = null, { shown = false } = {}) {
   if (!isObject(e)) return null;
-  const s = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+  // `shown`: for display each PART is cleaned and masked on its own, then joined (a mask over the joined text can stop at the
+  // join and leave the second part in the clear). Without it: the key as written, for the lookup in the shelf.
+  const s = (v) => {
+    if (typeof v !== 'string' || !v.trim()) return null;
+    return shown ? (text(v) || null) : v.trim();
+  };
   if (type === 'project') return s(e.name) ? `project:${s(e.name)}` : null;
   if (type === 'letter') return s(e.id) ? `letter:${s(e.id)}` : null;
   if (type === 'word-pair') return s(e.a) && s(e.b) ? `word-pair:${s(e.a)}|${s(e.b)}` : null;
@@ -143,7 +167,9 @@ function withoutEllipsis(t) {
   }
   return t.slice(0, end);
 }
-const END_MARKS = new Set(['.', '!', '?', ':', ';', ',', ' ']);
+// Question marks of other scripts count as the end mark too (full-width, Arabic, interrobang and the double forms): the card
+// ends in exactly one ASCII "?".
+const END_MARKS = new Set(['.', '!', '?', ':', ';', ',', ' ', '？', '؟', '‽', '！', '⁇', '⁈', '⁉', '՞', '﹖']);
 function withoutEnd(t) {
   const a = withoutEllipsis(clean(t));
   let end = a.length;
@@ -245,7 +271,7 @@ function fallbackDuty(p) {
   // Everything else: the first sentence of the title (or of the text) as a task; a question in the title stays the question.
   const rawSentence = title || sentencesOf(textWithoutSource(p.text), 1)[0] || '';
   let question;
-  if (/\?\s*$/.test(rawSentence)) question = shorten(clean(rawSentence), L.question);
+  if (/[?？؟‽]\s*$/.test(rawSentence)) question = shorten(clean(rawSentence), L.question);
   else {
     const sentence = withoutEnd(rawSentence);
     question = sentence
@@ -331,7 +357,7 @@ function fallbackReview(v, context) {
   const titleOfId = (id) => {
     const t = context?.titles;
     const r = t instanceof Map ? t.get(id) : (typeof t === 'function' ? t(id) : null);
-    return clean(r);
+    return maskText(clean(r));
   };
   const command = clean(v.command);
   const merge = v.kind === 'merge';
@@ -389,7 +415,8 @@ function fallbackGeneral(e) {
   };
 }
 
-function fallbackOf(e, type, context) {
+function fallbackOf(entry, type, context) {
+  const e = isObject(entry) ? maskedCopy(entry) : entry;
   if (!isObject(e)) {
     return {
       kind: 'do-it', question: 'Entry not readable, content unknown: what is to be done?',
@@ -463,7 +490,7 @@ export function precedes(a, b) {
 /** Of a displaced card `{author, rank, ts}` (or null). */
 export function summary(h) {
   if (!h || typeof h !== 'object') return null;
-  return { author: clean(h.author) || null, rank: h.rank ? clean(h.rank) : null, ts: clean(h.ts) || null };
+  return { author: text(h.author) || null, rank: h.rank ? text(h.rank) : null, ts: text(h.ts) || null };
 }
 
 /**
@@ -502,6 +529,8 @@ export function cardOf(entry, { type = null, context = {} } = {}) {
 
 function cardWithoutNorm(entry, { type = null, context = {} } = {}) {
   const identifier = identifierOf(entry, type);
+  // The lookup in the shelf uses the identifier as written; what the card SHOWS is cleaned and masked like every other text.
+  const shownId = identifier === null ? null : identifierOf(entry, type, { shown: true });
   const readable = isObject(entry);
   const locked = readable && isLocked(entry);
 
@@ -514,8 +543,8 @@ function cardWithoutNorm(entry, { type = null, context = {} } = {}) {
     const addendum = identifier && context?.cards instanceof Map ? context.cards.get(identifier) : null;
     const addendumHere = isObject(addendum) && clean(addendum.question);
     const inlineHere = Boolean(clean(entry[CARD_FIELDS.question]));
-    const addendumFrom = addendumHere ? { author: clean(addendum.author) || null, rank: tierName(addendum.rank), ts: clean(addendum.ts) || null } : null;
-    const inlineFrom = inlineHere ? { author: authority.authorOf(entry) ?? null, rank: authority.tierOf(entry), ts: clean(entry.ts) || null } : null;
+    const addendumFrom = addendumHere ? { author: text(addendum.author) || null, rank: tierName(addendum.rank), ts: text(addendum.ts) || null } : null;
+    const inlineFrom = inlineHere ? { author: text(authority.authorOf(entry)) || null, rank: authority.tierOf(entry), ts: text(entry.ts) || null } : null;
     // Two cards for one target: the HIGHER tier counts (authority order), at equal tier the youngest, at equal ts the addendum.
     // The card that loses stands as `replaced`: an agent's addendum never silently displaces the card the owner wrote himself.
     const takeAddendum = addendumHere && (!inlineHere || precedes(addendumFrom, inlineFrom));
@@ -538,7 +567,7 @@ function cardWithoutNorm(entry, { type = null, context = {} } = {}) {
   const fb = fallbackCleaned(fallbackOf(entry, type, context));
   if (!parts) {
     return { kind: fb.kind, question: fb.question, context: fb.context, options: fb.options, advice: null, evidence: fb.evidence,
-      origin: { stage: 'fallback', author: null, rank: null, ts: null }, replaced: null, identifier, supplemented: [] };
+      origin: { stage: 'fallback', author: null, rank: null, ts: null }, replaced: null, identifier: shownId, supplemented: [] };
   }
 
   // A card with gaps is filled from the fallback card, visibly (`supplemented`). The ADVICE never.
@@ -559,6 +588,6 @@ function cardWithoutNorm(entry, { type = null, context = {} } = {}) {
   return {
     kind: k.kind, question: k.question, context: k.context, options: k.options,
     advice: k.advice ? { text: k.advice, author: from.author } : null,
-    evidence: k.evidence, origin: { stage, ...from }, replaced, identifier, supplemented,
+    evidence: k.evidence, origin: { stage, ...from }, replaced, identifier: shownId, supplemented,
   };
 }

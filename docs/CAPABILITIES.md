@@ -2158,5 +2158,11 @@ projects. Items of a known agent carry none. At most 200 cards per list; `cards_
 shelf itself is reported as `cards` (readable with counts of broken and unusable lines, or unknown with a
 reason; then every card is a fallback card and the reasons say so).
 
+**Known limits** (also in `docs/security-model.md`). A name is a field in a file: tier `user` on a card is refused for
+an author who is not `owner` or `human:<name>`, but `--agent owner --authority user` typed from an agent's shell is not
+stopped (a headless run and the bridge are). `letter:` and `word-pair:` targets name things that are not entries of this
+house, so they are not looked up. `mem log card` takes a list flag twice (`--card_options a --card_options b`) or one
+value with one option per line.
+
 A question can name who it goes to: `mem questions new "..." --who <participant>`, `mem log question --who`.
 Open questions with an addressee are not counted as "decisions for the human" yet; that is the owner's call.

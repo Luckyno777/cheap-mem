@@ -599,6 +599,9 @@ function checkCardLine(root, data) {
   }
   const errors = [];
   // Tier `user` on a card: only from a person. An agent writing `--authority user` would displace the owner's own card.
+  // KNOWN LIMIT (docs/security-model.md, "Decision cards"): `data.agent` is a name in a field, and the CLI is the same program for
+  // a person and an agent, so `--agent owner --authority user` from an agent's shell passes. The headless run and the bridge are
+  // stopped before this point; the forgery is not prevented, it is made visible (the card shows its author).
   if (data.authority === 'user' && !authority.isHumanName(data.agent)) {
     errors.push(`Tier user for a card exists only from a person; the author '${data.agent ?? 'unknown'}' is none (an agent writes with tier agent)`);
   }
@@ -612,6 +615,8 @@ function checkCardLine(root, data) {
     const project = cardrules.projectOfTarget(target);
     if (project !== null) {
       if (!projectExists(root, project)) errors.push(`no project '${project}' — the card would hang on nothing`);
+    // `letter:<id>` and `word-pair:<a>|<b>` name things that are not entries of this house: nothing to look up, so a well-formed
+    // one is accepted (a known limit, docs/security-model.md; the sibling house does the same).
     } else if (cardrules.targetIsEntry(target)) {
       const e = getEntry(root, target);
       if (!e) errors.push(`no entry with id '${target}' — nobody reads a card without a target`);
