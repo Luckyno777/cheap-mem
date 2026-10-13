@@ -24,9 +24,9 @@
  * **Three states.** `readCards` tells: the shelf is missing (a fresh store, normal: empty), readable (with the count of broken
  * and of unusable lines) and not readable (`readable: false` with a reason — then every target gets the fallback card and the
  * caller SAYS so; never a silent "no cards").
- *
- * invariant: nicht-messbar-ist-nicht-null
  */
+
+// invariant: nicht-messbar-ist-nicht-null
 
 import * as memory from './memory.mjs';
 import * as authority from './authority.mjs';

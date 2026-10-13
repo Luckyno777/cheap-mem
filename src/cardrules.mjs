@@ -32,7 +32,7 @@ export const LIMITS = Object.freeze({
 /** So many characters of an input text are looked at: every output is shorter, and no pattern may work longer. */
 export const MAX_IN = 8192;
 /** Sentences are looked for in this many characters from the start. */
-export const SENTENCE_SOURCE_MAX = 2000;
+const SENTENCE_SOURCE_MAX = 2000;
 
 /**
  * One input as ONE clean line: cut to `MAX_IN`, whitespace folded, then control and format characters removed (ESC, the
@@ -50,7 +50,7 @@ const DECLINE = /(^|[^\p{L}])(no|not|nothing|never|decline\w*|reject\w*|discard\
 export const isDecline = (choice) => DECLINE.test(String(choice ?? ''));
 
 /** The separator between choice and effect: an em or en dash, or a hyphen with spaces around it. */
-export const SEPARATOR = /\s+[—–]\s+|\s+--?\s+/;
+const SEPARATOR = /\s+[—–]\s+|\s+--?\s+/;
 
 /** An option "choice — effect" as `{choice, effect}` (effect empty when none is named). */
 export function splitOption(o) {

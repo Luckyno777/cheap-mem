@@ -81,7 +81,7 @@ export function check(fields = {}) {
 }
 
 /** The form of an addressee: one name (a participant of `.mem/config.json`, or an agent name). */
-export const WHO_FORM = /^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,63}$/;
+const WHO_FORM = /^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,63}$/;
 
 /**
  * The addressee of a question: its `who`, else null. Only a text counts (a legacy line with a list there is no addressee). Pure.

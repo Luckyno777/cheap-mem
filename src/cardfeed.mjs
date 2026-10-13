@@ -14,9 +14,9 @@
  *     (`cards_omitted`): left out is not "no card needed".
  *
  * No participant name stands in this file: the human and the agents come from the configuration (design commitment 3).
- *
- * invariant: nicht-messbar-ist-nicht-null
  */
+
+// invariant: nicht-messbar-ist-nicht-null
 
 import * as cfgmod from './config.mjs';
 import * as agents from './agents.mjs';

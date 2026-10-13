@@ -53,13 +53,12 @@ export const CARD_FIELDS = Object.freeze({
 });
 
 export const KINDS = rules.KINDS;
-export const STAGES = Object.freeze(['written', 'addendum', 'fallback']);
 export const LIMITS = L;
 /** At most this many cards per list of the dashboard data; the rest is counted (`cards_omitted`). */
 export const CARD_LIST_MAX = 200;
 
 /** The marker of a locked entry: it is no question and stays as it is. */
-export const LOCKED_MARK = '[locked]';
+const LOCKED_MARK = '[locked]';
 
 const isObject = (e) => e !== null && typeof e === 'object' && !Array.isArray(e) && !e.__broken;
 const isLocked = (e) => isObject(e) && Boolean(e.body_enc);
@@ -97,7 +96,7 @@ const DECISION_WORD = /\b(decid\w*|decision\w*|approv\w*|sign-?off)/i;
  * Is a duty a decision (and not a task)? Deterministic and named: a tag from DECISION_TAGS OR a stem in the title. An aid for
  * the display, not a verdict.
  */
-export function isDecisionDuty(p) {
+function isDecisionDuty(p) {
   const tags = Array.isArray(p?.tags) ? p.tags.map((t) => String(t).toLowerCase()) : [];
   if (tags.some((t) => DECISION_TAGS.includes(t))) return true;
   return DECISION_WORD.test(clean(p?.title ?? p?.duty ?? p?.text).slice(0, 400));
