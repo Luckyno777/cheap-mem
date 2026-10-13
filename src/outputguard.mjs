@@ -95,7 +95,20 @@ export function maskOutput(text) {
 
 // A marker the cut tore in half ("[REDACTED:githu") shows nothing secret,
 // but it reads as damage. The cut drops the torn stub.
-const TORN_MARKER = /\[REDACTED(?::[A-Za-z0-9-]*)?$/;
+const MARKER = /\[REDACTED(?::[^\]]*)?\]/g;
+
+/**
+ * Where a cut at `end` of a MASKED text may fall: an edge inside a
+ * `[REDACTED:...]` marker moves to the marker's start, so neither a half
+ * marker (`[RED`, `[REDACTED:git`) nor a stump of one is shown.
+ */
+function markerSafeEnd(masked, end) {
+  for (const m of masked.matchAll(MARKER)) {
+    if (m.index >= end) break;
+    if (end < m.index + m[0].length) return m.index;
+  }
+  return end;
+}
 
 /**
  * **Mask first, then cut.** Cutting a text and masking the piece lets a key
@@ -114,7 +127,7 @@ export function cutMasked(text, n) {
   if (typeof text !== 'string' || !text) return text ?? '';
   const masked = maskText(text);
   if (masked.length <= n) return masked;
-  return masked.slice(0, Math.max(0, n)).replace(TORN_MARKER, '');
+  return masked.slice(0, Math.max(0, n)).slice(0, markerSafeEnd(masked, Math.max(0, n)));
 }
 
 /**
@@ -126,14 +139,8 @@ export function cutMasked(text, n) {
 export function windowMasked(text, from, to) {
   if (typeof text !== 'string' || !text) return text ?? '';
   const masked = maskText(text);
-  let a = Math.max(0, from);
-  let b = Math.min(masked.length, to);
-  for (const m of masked.matchAll(/\[REDACTED:[^\]]*\]/g)) {
-    const s0 = m.index;
-    const e0 = s0 + m[0].length;
-    if (a > s0 && a < e0) a = s0;
-    if (b > s0 && b < e0) b = s0;
-  }
+  const a = markerSafeEnd(masked, Math.max(0, from));
+  const b = markerSafeEnd(masked, Math.min(masked.length, to));
   return masked.slice(a, Math.max(a, b));
 }
 

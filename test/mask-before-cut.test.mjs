@@ -1108,3 +1108,24 @@ for (const c of CASES) {
     });
   });
 }
+
+const KINDS_FOR_EDGE = ['github', 'jwt', 'password'];
+// A cut or window edge that falls anywhere inside a marker moves to the marker's start: not only past
+// `[REDACTED` (the old trailing pattern) but also at `[R`, `[REDA`, `[REDACTED:git` (review of today-due-cm).
+test('cutMasked / windowMasked: no edge leaves a piece of a [REDACTED:...] marker (positive control: a plain slice does)', () => {
+  const text = `lead text ${KINDS_FOR_EDGE.map((k) => bait(k, 60).key).join(' middle ')} end words`;
+  const masked = maskText(text);
+  const piece = /\[(?:R(?:E(?:D(?:A(?:C(?:T(?:E(?:D(?::[^\]]*)?)?)?)?)?)?)?)?)?$/;
+  const lead = /^[^[]*?\]/;
+  let plainTorn = 0;
+  for (let n = 1; n < masked.length; n += 1) {
+    if (piece.test(masked.slice(0, n)) && masked[n - 1] !== ' ') plainTorn += 1;
+    const out = cutMasked(text, n);
+    assert.ok(!piece.test(out) || out.endsWith(' ') || out === '', `cut ${n} leaves a piece of a marker: ${JSON.stringify(out.slice(-24))}`);
+    assert.ok(masked.startsWith(out), `cut ${n} is a prefix of the masked text`);
+    const w = windowMasked(text, n, Math.min(masked.length, n + 30));
+    assert.ok(!piece.test(w) || w === '', `window ${n} ends inside a marker: ${JSON.stringify(w.slice(-24))}`);
+    assert.ok(!lead.test(w), `window ${n} starts inside a marker: ${JSON.stringify(w.slice(0, 24))}`);
+  }
+  assert.ok(plainTorn > 10, `positive control: a plain slice of the masked text tears markers (${plainTorn})`);
+});
