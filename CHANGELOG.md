@@ -41,8 +41,14 @@ in the body (OpenAI the same); `test/embed-local-only.test.mjs` makes the same c
   `mem embed backfill --force` with a local setup moves such a store to `.mem/local/kept-vectors/` instead of deleting it.
 - **`VOYAGE_API_KEY`, `OPENAI_API_KEY`, `.mem/embed.env`** are no longer read by anything (marked REMOVED in
   `docs/environment-variables.md` and `src/envregister.mjs`); `mem embed status` names them when present, never their values.
-- **Rail**: a test fails when a file appears in `src/embed/` that is not on its allowlist, or when an allowlisted file imports
-  a network module, calls `fetch`, spawns a process or spells a non-loopback URL.
+- **Rails**: `test/embed-local-only.test.mjs` fails when a file appears in `src/embed/` that is not on its allowlist, or when
+  one of them imports a network module, calls `fetch`, spawns a process or spells a non-loopback URL.
+  `test/network-allowlist.test.mjs` watches all of `src/` and `bin/` (and the shell scripts in `bin/`, `hooks/`, `install/`):
+  a `fetch`, a network-module import (`http`, `https`, `net`, `tls`, `dns`, ...), `http(s).request/get`, `net.connect`,
+  `tls.connect`, `WebSocket` or `createRequire` is allowed only in the files named there, each with its reason, and the
+  embedding adapter's request must go to exactly the address the loopback check approved. A stale allowlist entry is red too.
+- `mem embed backfill` (also `--force`) now checks that the optional sqlite packages are installed BEFORE it moves or deletes
+  anything, and stops with exit 2 and the install hint if they are not.
 
 **What you have to do if you used voyage or openai:** nothing breaks (`mem find`, `mem retrieve` and the hooks never used
 embeddings), but `find-hybrid` / `find-embed` are lexical from now on. For semantic search again, locally: install ollama,

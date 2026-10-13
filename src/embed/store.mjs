@@ -58,6 +58,13 @@ async function loadSqliteVec() {
 }
 
 /**
+ * Throws the install hint when the optional sqlite packages are missing.
+ * Callers that are about to change the store ask this FIRST, so a run that
+ * cannot work does not move or delete anything on its way to failing.
+ */
+export async function requireSqlite() { await loadSqliteVec(); }
+
+/**
  * Open (or create) the database. The schema is set idempotently.
  * `dim` fixes the vector dimension and must match the provider config.
  */

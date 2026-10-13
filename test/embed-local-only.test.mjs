@@ -449,14 +449,26 @@ test('mem embed backfill with an external setup: refused, exit 2, and --force de
   assert.equal(w.netLog(), '');
 });
 
-test('mem embed backfill --force with a local setup moves a store it cannot vouch for aside; it never deletes it', (t) => {
+test('mem embed backfill --force with a local setup: never leaves the memory without a store because the run cannot work', async (t) => {
   const w = cliWorld(t, { provider: 'ollama' });
   const db = path.join(w.root, '.mem', 'vectors.db');
-  fs.writeFileSync(db, 'stand-in for vectors an external provider made earlier');
-  w.run(['embed', 'backfill', '--force'], { OLLAMA_HOST: 'http://127.0.0.1:9' }); // the exit code depends on whether sqlite is installed here
-  assert.ok(!fs.existsSync(db), 'the old store is still in the way');
+  const old = 'stand-in for vectors an external provider made earlier';
+  fs.writeFileSync(db, old);
+  const r = w.run(['embed', 'backfill', '--force'], { OLLAMA_HOST: 'http://127.0.0.1:9' });
+  const sqliteHere = await import('better-sqlite3').then(() => true, () => false);
   const kept = path.join(w.root, '.mem', 'local', 'kept-vectors', 'vectors.db');
-  assert.equal(fs.readFileSync(kept, 'utf8'), 'stand-in for vectors an external provider made earlier', 'the old store was not kept');
+  if (!sqliteHere) {
+    // The optional packages are missing: the run cannot work, so it must say so, fail, and touch NOTHING.
+    assert.notEqual(r.status, 0, r.all);
+    assert.match(r.stderr, /Backfill stopped: .*better-sqlite3/s);
+    assert.match(r.stderr, /Nothing was embedded, moved or deleted/);
+    assert.equal(fs.readFileSync(db, 'utf8'), old, 'the store was moved or changed although the run could not work');
+    assert.ok(!fs.existsSync(kept));
+  } else {
+    // With sqlite: a store we cannot vouch for is kept aside, never deleted.
+    assert.ok(!fs.existsSync(db) || fs.readFileSync(db, 'utf8') !== old);
+    assert.equal(fs.readFileSync(kept, 'utf8'), old, 'the old store was not kept');
+  }
 });
 
 test('mem embed status: names the state, ignores old key variables without printing them', (t) => {

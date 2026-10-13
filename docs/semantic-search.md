@@ -66,6 +66,13 @@ port on this machine, not at another machine.
 | **not configured** | no `.mem/embed.json` | lexical search. The line says `lexical only — semantic search is not configured`. Nothing is wrong |
 | **refused** | the config names `voyage` or `openai` (or any other provider), or `OLLAMA_HOST` is not loopback | lexical search, **loudly**: stderr carries `external embedding providers are disabled: no entry text leaves this machine; using lexical search` and the first line says `lexical only — REFUSED` |
 
+Where the notice goes differs on purpose. A **refused** setup is an
+alarm: stderr and the first line. **Not configured** is not an alarm,
+it is the normal state of most memories, so it appears **only in the
+first line** of the answer (`lexical only — semantic search is not
+configured`), never on stderr; a script that watches stderr stays quiet
+for a memory that never asked for embeddings.
+
 A config file that cannot be read is a fourth, separate answer (it
 says what is wrong and uses lexical search). A configured local model
 that is not running gives `bm25 only — local semantic search failed:

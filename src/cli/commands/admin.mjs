@@ -741,6 +741,15 @@ export const COMMANDS = {
         process.exit(2);
       }
       const store = await import('../../embed/store.mjs');
+      // Can this run work at all? Ask BEFORE touching the store: without the
+      // optional sqlite packages `--force` used to move (or delete) the store
+      // and then stop, leaving a memory with no store and no embeddings.
+      try { await store.requireSqlite(); }
+      catch (e) {
+        process.stderr.write(`Backfill stopped: ${e.message}\n`
+          + '  Nothing was embedded, moved or deleted.\n');
+        process.exit(2);
+      }
       if (args.force) {
         // Vectors an external provider wrote are the user's data: they are
         // not used any more, but --force moves them aside instead of
