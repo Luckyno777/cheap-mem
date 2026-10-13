@@ -427,8 +427,8 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-numbers.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **86 CLI commands, 43 MCP tools, 200 modules, 4281
-tests**; as of 2026-09-20, about 81757 lines in `bin/` and `src/`, at
+As of 2026-09-26: **87 CLI commands, 45 MCP tools, 204 modules, 4500
+tests**; as of 2026-09-20, about 85094 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 
 ### Reading it with a model, or evaluating it properly
@@ -523,7 +523,7 @@ worse than no memory.
 
 ```
 mem init                       one-time setup
-mem log <type> --<field> ...   append an entry (15 types)
+mem log <type> --<field> ...   append an entry (16 types)
                                --asked "word, word" = words to FIND it by,
                                which the entry itself does not contain
                                `error`: shows up to 3 earlier errors for the

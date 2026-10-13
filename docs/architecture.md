@@ -88,7 +88,7 @@ otherwise the digest fires in the middle of your working day.
 The tick itself is cheap: it asks `mem digest due` and is back out in
 milliseconds with no lock, no git, no model.
 
-### The 15 drawers
+### The 16 drawers
 
 `decision` · `error` · `event` · `timeline` · `thought` · `learning` ·
 `duty` · `question` · `skill` · `procedure` · `source` · `update` ·
