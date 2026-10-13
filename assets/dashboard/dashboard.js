@@ -1879,7 +1879,12 @@ function mcpPage() {
       .map(([n, kind]) => {
         const s = seen[n];
         const l = live[n];
-        const seenCell = s ? badge('good', `${s.client} · ${whenTime(s.ts)}`) : badge('unknown', 'not seen yet');
+        // E1: an unreadable or broken journal is NOT "not seen yet".
+        const sv = k.clientVisibleState;
+        const seenCell = s ? badge('good', `${s.client} · ${whenTime(s.ts)}`)
+          : (sv && (sv.state === 'unreadable' || sv.state === 'broken')
+            ? badge('broken', `journal ${sv.state}${sv.reason ? ` (${sv.reason})` : ''}`)
+            : badge('unknown', 'not seen yet'));
         const liveCell = l ? badge(l.state, liveWord[l.state] || l.reason || l.state) : badge('unknown');
         return `<tr><td class="mono">${esc(n)}</td><td><span class="badge">${kind}</span></td><td>${seenCell}</td><td>${liveCell}</td></tr>`;
       })
