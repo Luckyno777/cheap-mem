@@ -198,7 +198,8 @@ test('(5b) a broken NEIGHBOUR line in the same drawer still returns the entry, b
     const found = dashboard.getEntryFast(r, leaf.id);
     assert.equal(found.state, 'warning');
     assert.ok(found.entry, 'the entry itself should still be there');
-    assert.equal(found.entry.headline, 'leaf — no edges at all');
+    // The headline names the entry with its title alone (test/headline-rule.test.mjs); the text no longer hangs on.
+    assert.equal(found.entry.headline, 'leaf');
     assert.match(found.reason, /could not be read/);
   } finally { gone(r); }
 });

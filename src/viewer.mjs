@@ -74,11 +74,31 @@ export const TYPE_LABEL = Object.freeze({
   update: 'Updates',
 });
 
-// Fields that carry the meaning of an entry, best first. The headline
-// picks the first few that are present; everything else shows in the
-// detail table. Kept in sync by intent with the retrieve hook's own
-// preference order — both answer "what is this entry, in one line?".
-const HEADLINE_FIELDS = ['class', 'title', 'topic', 'choice', 'rule', 'question', 'excerpt', 'text', 'summary', 'fact'];
+// The headline NAMES an entry; it is not the entry's beginning.
+// (Counterpart of lucky-mem's "Lesbare Schlagzeilen in Suche und Netz".)
+// It used to take up to two filled fields from [class, title, topic,
+// choice, ...] and join them with " — ": an error read "<class> — <title>",
+// a learning "<title> — <start of the text>". That read as the first lines
+// of a log file, not as a title.
+//
+// Now: exactly ONE field that names the entry (`title`; without a title,
+// by kind, `rule` (first sentence, at most 160), `question`, `fact`; for a
+// decision the choice, else the topic). Without any of them the first whole
+// sentence of the content stands there, at most HEADLINE_MAX characters.
+// Class, project and status are marks beside the line, not part of it.
+//
+// The content fields the first sentence is taken from when nothing names
+// the entry, in this order. `choice` leads the decision's own list below.
+const SENTENCE_FIELDS = Object.freeze([
+  'text', 'excerpt', 'choice', 'learning', 'duty', 'skill', 'summary',
+  'description', 'body', 'steps',
+]);
+// The reason of a line that only closes or links something.
+const REASON_FIELDS = Object.freeze(['why', 'reason', 'text']);
+/** The longest sentence that stands as a headline without a title. */
+export const HEADLINE_MAX = 90;
+/** A rule names itself by its first sentence, cut here. */
+const RULE_MAX = 160;
 
 // Which JSON keys are bookkeeping, not content — hidden from the detail
 // table (they are shown as chips/meta instead), so the table is signal.
@@ -106,35 +126,132 @@ function projectOfEntry(e) {
 // Exported since D1 (2026-09-27), for the same reason as `TYPE_LABEL`
 // above: a pure function of ONE entry that `getEntryFast()` needs
 // without writing the headline rule out a second time.
-export function headline(e) {
+//
+// `opt.type` (optional): the drawer of the entry. A decision without a
+// title and without a choice is then named by its topic (otherwise the rule
+// recognises a decision only by its `choice`).
+export function headline(e, opt = {}) {
   // Output guard: the headline feeds the viewer, the dashboard, the pages and
   // the compact pass, so known key shapes are masked here, once, before any caller cuts it.
-  return maskText(buildHeadline(e));
+  return maskText(buildHeadline(e, opt));
 }
 
-function buildHeadline(e) {
-  const bits = [];
+/** The text of one field as one line (arrays and objects never as a JSON cloud). */
+function fieldText(v) {
+  if (v == null) return '';
+  // Masked BEFORE anything is cut or split: a key shape that reaches over a
+  // cut boundary would otherwise stay behind as a fragment no mask matches.
+  if (typeof v === 'string') return maskText(v).replace(/\s+/g, ' ').trim();
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  return Array.isArray(v) ? maskText(arrayText(v)).replace(/\s+/g, ' ').trim() : '';
+}
+
+/** A list of steps as numbered text in one line. */
+function arrayText(v) {
+  return v.filter((s) => typeof s === 'string' && s.trim()).map((s, i) => `${i + 1}. ${s.trim()}`).join(' ');
+}
+
+/**
+ * The first whole sentence of a text, as a line: markdown characters (`*`,
+ * backticks, leading `#`) removed, cut at the first paragraph break or the
+ * first sentence end (never inside the first twelve characters, so "e.g."
+ * or "No. 3" at the start do not tear a sentence), and longer than `max`
+ * cut at a word boundary with "…". Exported for the tests.
+ */
+export function firstSentence(raw, max = HEADLINE_MAX) {
+  if (raw == null) return '';
+  // A list (steps) reads as its first item: "1. first 2. second" would be cut at "2.".
+  // This is a DELIBERATE deviation from lucky-mem, whose list reads "1. a 2. b" (and is cut
+  // inside the numbering); noted in CHANGELOG.md.
+  let t = typeof raw === 'string' ? raw : (Array.isArray(raw) ? (raw.find((x) => typeof x === 'string' && x.trim()) ?? '') : '');
+  // Output guard first, on the RAW text, before the line is chosen, split or cut (the outer
+  // `maskText` in `headline` is the second belt, not the only one).
+  t = maskText(t);
+  // First non-empty line: a paragraph is a boundary, even without a full stop.
+  t = t.split(/\r?\n/).map((z) => z.trim()).find((z) => z && !/^[-*#>`\s]*$/.test(z)) ?? '';
+  t = t.replace(/^#+\s*/, '').replace(/^[-*>]\s+/, '').replace(/[*`]/g, '').replace(/\s+/g, ' ').trim();
+  // Again: removing markdown characters can JOIN a key shape ("ghp_*body" becomes "ghp_body"),
+  // and that must be masked before the cut as well.
+  t = maskText(t);
+  const m = /[.!?…](?=\s|$)/g;
+  let hit;
+  while ((hit = m.exec(t))) {
+    if (hit.index >= 12) { t = t.slice(0, hit.index + 1); break; }
+  }
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max - 1);
+  const word = cut.lastIndexOf(' ');
+  return `${(word > max * 0.5 ? cut.slice(0, word) : cut).replace(/[\s,;:—–-]+$/, '')}…`;
+}
+
+function sentenceFrom(e, fields) {
+  for (const f of fields) {
+    const s = firstSentence(e[f]);
+    if (s) return s;
+  }
+  return '';
+}
+
+/** A decision: carries a `choice`, or the caller knows its drawer. */
+function isDecision(e, type) {
+  return e.choice != null || type === 'decision';
+}
+
+/** The one field that NAMES the entry — or ''. Never two. */
+function naming(e, type = null) {
+  const title = fieldText(e.title);
+  if (title) return title;
+  // A rule, a question, a fact name themselves.
+  // A rule made only of markdown characters has no sentence: fall on to question and fact.
+  for (const f of ['rule', 'question', 'fact']) {
+    const s = fieldText(e[f]);
+    if (!s) continue;
+    const named = f === 'rule' ? firstSentence(e.rule, RULE_MAX) : s;
+    if (named) return named;
+  }
+  // A decision without a title is named by what was decided: the first
+  // whole sentence of its choice; only without a choice by its topic.
+  if (isDecision(e, type)) {
+    const sentence = firstSentence(e.choice);
+    if (sentence) return sentence;
+    const topic = fieldText(e.topic);
+    if (topic) return topic;
+  }
+  return '';
+}
+
+function buildHeadline(e, { type = null } = {}) {
+  if (!e || typeof e !== 'object') return '(empty entry)';
+  // A locked envelope is never opened: its clear title if it has one, and
+  // the word. Never a field from inside, never the envelope as JSON.
+  // Not so for an entry the display layer has opened in memory
+  // (`shred.makeReveal`: `__body.state` 'ok' - it reads like any other), and
+  // not twice for one it could not open ('unreadable': its title already IS
+  // the label, "[encrypted entry: not readable - ...]").
+  if (e.body_enc) {
+    const state = e.__body?.state;
+    if (state === 'unreadable') return fieldText(e.title) || '[locked]';
+    if (state !== 'ok') {
+      const clear = fieldText(e.title);
+      return clear ? `${clear} [locked]` : '[locked]';
+    }
+  }
+  const name = naming(e, type) || sentenceFrom(e, SENTENCE_FIELDS) || sentenceFrom(e, REASON_FIELDS);
   // **A procedure does not come out of the viewer without its author
   // either.** The viewer is the third display path next to CLI and
-  // bridge; a latch that hangs on two of three is not one. A human
-  // reading the rule here should see who set it, exactly as an agent
-  // does in its context.
-  if (e.rule) bits.push(procedure.mark(e));
-  for (const k of HEADLINE_FIELDS) {
-    if (e[k] != null && String(e[k]).trim()) bits.push(String(e[k]).trim());
-    if (bits.length >= 2) break;
-  }
-  let s = bits.length ? bits.join(' — ') : '';
-  if (!s) {
-    // Nothing named: show whatever content the entry has, so an
-    // unfamiliar shape still reads as something, not "[object]".
-    const rest = Object.entries(e)
-      .filter(([k]) => !META_KEYS.has(k) && !k.startsWith('_'))
-      .map(([, v]) => (typeof v === 'string' ? v : JSON.stringify(v)))
-      .filter(Boolean);
-    s = rest.join(' — ') || '(empty entry)';
-  }
-  return s;
+  // bridge; a latch that hangs on two of three is not one. The name
+  // stands first and the mark behind it, so twenty rules in a list do
+  // not all begin the same way. Whatever the rule's text, the mark stays.
+  if (e.rule) return name ? `${name} — ${procedure.mark(e)}` : procedure.mark(e);
+  if (name) return name;
+  // Nothing named and no sentence: show what content the entry has, so an
+  // unfamiliar shape still reads as something, not "[object]" — as ONE
+  // short sentence, not a chain of all fields.
+  const rest = Object.entries(e)
+    .filter(([k]) => !META_KEYS.has(k) && !k.startsWith('_') && k !== 'agent' && k !== 'origin')
+    .map(([k, v]) => `${k}: ${fieldText(v)}`)
+    .filter((s) => !s.endsWith(': '));
+  return rest.length ? firstSentence(rest.join(', ')) : '(empty entry)';
 }
 
 /**
@@ -394,7 +511,7 @@ export function collect(root) {
       id: e.id || '',
       source: e._source || '',
       line: e._line || 0,
-      headline: headline(e),
+      headline: headline(e, { type }),
       ...(ruleStatus ? { status: ruleStatus } : {}),
       retired: e._retired ? { state: e._retired.state, why: e._retired.why || null } : null,
       details,
@@ -919,11 +1036,10 @@ h2.area .n{
     if (!a && !b) return e.headline;
     return (a ? a.headline : d.from) + '  \u2192 ' + (d.kind || 'related') + ' \u2192  ' + (b ? b.headline : d.to);
   }
-  // A headline is two fields joined with " \u2014 ": for a learning, the
-  // title and the text. Both short, and it reads as one line. When the
-  // second is a paragraph \u2014 and real learnings often are \u2014 the
-  // heading becomes six lines and the card has no head left to skim. So it
-  // breaks at exactly that seam: title above, body as prose below.
+  // A headline is ONE naming field. The only seam left is a rule: its name,
+  // then " \u2014 " and the procedure mark (who issued it, when). When that
+  // makes the heading longer than a heading should be, it breaks at exactly
+  // that seam: name above, the mark as prose below.
   var BREAK_OVER = 160;   // past this, the line is no longer a heading
   var HEAD_MAX = 240;     // and past this, neither is the head
   function headAndBody(e) {
@@ -977,11 +1093,7 @@ h2.area .n{
     var cur = byId(t.current);
     var h = '<button class="item" data-topic="' + esc(t.topic) + '">';
     h += '<h3>' + esc(leaf || t.topic) + '</h3>';
-    // For a topic entry the headline starts with the topic itself (it is
-    // the second-best headline field). Under a heading that already IS
-    // the topic, that is a repetition.
     var sub = cur ? cur.headline : '(nothing current)';
-    if (cur && sub.indexOf(t.topic + ' \u2014 ') === 0) sub = sub.slice(t.topic.length + 3);
     h += '<div class="sub">' + esc(sub) + '</div>';
     h += '<div class="row" style="margin-top:7px">';
     h += '<span class="chip mono">' + t.count + (t.count === 1 ? ' entry' : ' entries') + '</span>';
