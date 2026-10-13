@@ -276,9 +276,9 @@ function tagCountFor(rand) {
   return Math.min(n, 6);
 }
 
-// `card` is the card shelf (card-core-cm): a card repeats the words of its target and is no drawer of entries a corpus is made of. It
-// also sat in this list unnoticed and made the 'heaps' form of test/doctor-memo.test.mjs red against the exported old state (which does
-// not know the type: `cards.jsonl` read as an orphan drawer there).
+// `card` is a side shelf (cards.jsonl): every line points at a target entry and is refused
+// without one, so random corpus lines there would be invalid cards, not vocabulary — and a
+// fixed old state the doctor probes compare against does not know the drawer at all.
 const TYPE_FILES = Object.entries(TYPES).filter(([t]) => t !== 'link' && t !== 'timeline' && t !== 'card');
 
 /**
