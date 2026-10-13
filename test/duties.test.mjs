@@ -67,8 +67,14 @@ test('every type is writable and lands in its own file', () => {
   const root = fresh();
   try {
     const files = new Set();
+    // The card shelf (card-core-cm) takes only a whole card at a target that exists (`memory.logEntry` checks it for every road):
+    // it is written as one here, instead of being left out of "every type".
+    const target = memory.logEntry(root, 'duty', { title: 'the target of the card' }).entry;
+    const plain = (type) => (type === 'card'
+      ? { target_id: target.id, card_question: 'Should it happen?', card_context: 'It is time.', card_options: ['Yes — it happens', 'No — it stays'] }
+      : { title: `a ${type}` });
     for (const type of Object.keys(memory.TYPES)) {
-      const { path: p } = memory.logEntry(root, type, { title: `a ${type}` });
+      const { path: p } = memory.logEntry(root, type, plain(type));
       assert.ok(p.endsWith(memory.TYPES[type]), `${type} landed in ${p}`);
       files.add(memory.TYPES[type]);
     }
