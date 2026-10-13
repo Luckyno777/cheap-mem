@@ -52,6 +52,8 @@ directory. The section number in brackets is where it is explained.
 | `appointment-time.mjs` | points in time for appointments: any IANA zone, UTC stored, English expressions, repeats in wall time, clock-change rules |
 | `appointment-today.mjs` | "Today in the calendar": the day list, the briefing text, the session-start line, the state of fired actions, the dashboard's overview |
 | `due.mjs` | the due-date core: when a duty is fresh, due or overdue — the field `due` (a day in the house zone or an ISO point in time with a zone), the day boundary at midnight of the zone (never UTC), the aliases still read, "open since" from the start of the chain; the one place that knows the field name (`shared/calculations.jsonl`, `due-one-place`) |
+| `deadlines.mjs` | the day brief's view of the due dates (Q7), pure: the part "Deadlines" of `mem today` (the human's duties one by one, at most 8 and the rest counted; agents' and unaddressed duties only as a number; titles masked, then cut, bidi made visible; an encrypted duty shows `[locked]` with its date readable) and the Monday week review (week = Monday to Monday in the house zone, shown only when a deadline of the human fell due last week or falls due this week); asks `due.mjs`, never reads the field |
+| `dayline.mjs` | the one line of the day and how it is shortened: parts with a rank (overdue deadlines, due today, decisions, operations, projects, verify, gold); too long = whole parts fall away, the least important first, never a cut in a word; read by `today.line` and the briefing |
 | `appointments.mjs` | the calendar's store: append-only `appointments/`, the fold, who may do what, the plan, the caps (`docs/appointments.md`) |
 | `agentledger.mjs` | counts agent job outcomes from the event log — never a claimed strength below 20 jobs for a group (`unknown (n<20)`) |
 | `afterfailure.mjs` | X2b: the after-error occasion — what the PostToolUseFailure hook (`bin/mem-after-failure`, bash and PowerShell) asks and shows after a tool call really failed: parse the failure, pick the error and learning lanes, book the journal line with its reason |
@@ -225,7 +227,7 @@ directory. The section number in brackets is where it is explained.
 | `switches.mjs` | which switch names the CLI keeps for itself, and how close a typo may come |
 | `tasks.mjs` | long CLI work as tasks — progress/result/cancel over a real child process (E1.7, 7.4) |
 | `teach.mjs` | what the memory has to say to a newcomer, in five sections |
-| `today.mjs` | one source for "what does the owner need today" — `mem today`, the dashboard's Today card and the session-start line all read this; part (f) lists the projects awaiting a person's confirmation (7) |
+| `today.mjs` | one source for "what does the owner need today" — `mem today`, the dashboard's Today card and the session-start line all read this; part (f) lists the projects awaiting a person's confirmation, and the part `deadlines` the due dates of the open duties; the day's duty drawers are read once (7) |
 | `thesaurus.mjs` | curated word groups plus what the memory learned |
 | `timeexpr.mjs` | natural language to a time window |
 | `timesearch.mjs` | retrieval by time window, no model |

@@ -15,6 +15,13 @@
  * that a model summarises is NOT built, on purpose (code first, model last): it would be its own
  * path later and would count against the cap.
  *
+ * **The day line and the Monday week review (Q7, today-due-cm).** The briefing opens with the line of the day, built in
+ * `src/dayline.mjs` (the same parts and wording as the session-start line of `mem today`): the human's overdue deadlines, what is
+ * due today, the projects awaiting confirmation. Quiet says nothing; what could not be read says "not measurable". On a Monday the
+ * briefing carries a week review (`src/deadlines.mjs`, week = Monday to Monday in the HOUSE zone, never UTC), but only if a
+ * deadline of the human fell due last week or falls due this week; then the review alone keeps a day from being "empty". The
+ * duty drawers are read ONCE per day list (`today()` hands the fold to the situation, the line and the review).
+ *
  * **The state of an action** comes from the inbox states that already exist, nothing new:
  *   due           the clock decided, the letter is not written yet
  *   delivered     the letter lies there, nobody has taken it
@@ -29,6 +36,9 @@ import * as cfgmod from './config.mjs';
 import * as A from './appointments.mjs';
 import * as tm from './appointment-time.mjs';
 import * as dueCore from './due.mjs';
+import * as deadlines from './deadlines.mjs';
+import * as dayline from './dayline.mjs';
+import * as projectnew from './projectnew.mjs';
 
 const NO_RESPONSE_MS = 2 * 3600000;
 /** The session-start line may carry at most this many bytes (a hook budget: one short line). */
@@ -74,16 +84,33 @@ function actionStates(root, state, nowMs, zone) {
  * `situationFromOpen`): this module guesses no field names any more. `withDate` counts the duties with a READABLE due
  * value, `date` is the calendar day of the due date in the house zone.
  */
-function dutiesSituation(root, nowMs, zone) {
-  let open = [];
-  try { open = memory.openDuties(root) ?? []; } catch { return { open: null, withDate: 0, due: [] }; }
-  if (!Array.isArray(open)) open = open.open ?? [];
+function dutiesSituation(root, nowMs, zone, fold) {
+  if (fold.error) return { open: null, withDate: 0, due: [] };
+  const open = fold.open;
   const situation = dueCore.situationFromOpen(open, { now: nowMs, zone, title: (p) => String(p.title ?? p.text ?? '') });
   const due = situation.list
     .filter((x) => x.state === dueCore.STATE.DUE || x.state === dueCore.STATE.OVERDUE)
     .map((x) => ({ id: x.id, title: x.title.slice(0, 120), date: x.day, overdue: x.state === dueCore.STATE.OVERDUE }));
   due.sort((a, b) => a.date.localeCompare(b.date) || String(a.id).localeCompare(String(b.id)));
   return { open: situation.open, withDate: situation.withDue - situation.unknown, due: due.slice(0, 8) };
+}
+
+/** The open duties, read once per day list: `memory.openDuties()` (`{ open, done }`), or `{ error }` when the drawers cannot be read. */
+function readFold(root) {
+  try {
+    const r = memory.openDuties(root);
+    return Array.isArray(r) ? { open: r, done: [] } : { open: r?.open ?? [], done: r?.done ?? [] };
+  } catch (e) { return { error: e }; }
+}
+
+/** The configured human, from the participants (never a name in code): `{ name, reason }`. */
+function humanOf(root) {
+  try { return cfgmod.humanParticipant(A.participantsOf(root)); } catch (e) { return { name: null, reason: `config not readable: ${e?.message || e}` }; }
+}
+
+/** The projects awaiting confirmation — the one list `today.projectsAwaiting` uses too; `null` when it cannot be read (never 0). */
+function projectsWaiting(root) {
+  try { return projectnew.awaiting(root).length; } catch { return null; }
 }
 
 /** Letters waiting for the human (without the calendar's own reminders). */
@@ -143,11 +170,34 @@ export function today(root, { now = Date.now(), state = null, zone = null } = {}
       state: a.outcome === 'woke' ? (stateByIntent.get(a.id)?.state ?? null) : null,
     }));
 
+  // Q7: the duty drawers ONCE; the situation, the day line and the Monday review all read this one fold.
+  const fold = readFold(root);
+  const human = humanOf(root);
+  const projects = projectsWaiting(root);
+  const mine = deadlines.lineCounts(deadlines.part(fold, { human: human.name, humanReason: human.reason, now: nowMs, zone: z, max: 0 }));
+  const monday = deadlines.isoWeekday(nowMs, z) === 1;
   return {
     day: dayText, weekday: WEEKDAY[f.weekday], dateText: dayText, zone: z,
     appointments: items, actions: items.filter((t) => t.wake),
-    duties: dutiesSituation(root, nowMs, z), letters: waitingForHuman(root), yesterday,
+    duties: dutiesSituation(root, nowMs, z, fold), letters: waitingForHuman(root), yesterday,
+    // null = not measurable, never 0 (three states).
+    dayLine: { overdue: mine.overdue, dueToday: mine.dueToday, projects },
+    week: monday ? deadlines.week(fold, { human: human.name, humanReason: human.reason, now: nowMs, zone: z, projectsWaiting: projects }) : null,
   };
+}
+
+/** The day line parts of a day list: the human's deadlines and the waiting projects (`dayline`, the same words as `mem today`). */
+function dayLineParts(h) {
+  const l = h.dayLine ?? { overdue: null, dueToday: null, projects: null };
+  const parts = [{ text: dayline.overdueText(l.overdue), rank: dayline.RANK.overdue }];
+  if (l.overdue !== null) parts.push({ text: dayline.dueTodayText(l.dueToday), rank: dayline.RANK.dueToday });
+  parts.push({ text: dayline.projectsText(l.projects), rank: dayline.RANK.projects });
+  return parts;
+}
+
+/** The line of the day for the briefing, `null` when it is quiet. Whole parts fall away when it is long, never a word. */
+function dayLineText(h, { max = 100 } = {}) {
+  return dayline.fit(dayLineParts(h), { max, prefix: '', sep: ' · ' });
 }
 
 /**
@@ -163,25 +213,36 @@ export function machine(h, { cap = null } = {}) {
   });
   const appointments = h.appointments.map(item);
   const { due: dutiesDue } = h.duties; // the day list's own result (due today or overdue), not a duty's field
-  const empty = appointments.length === 0 && dutiesDue.length === 0 && !(h.letters.n > 0) && h.yesterday.length === 0;
+  // The Monday week review alone keeps a day from being empty; so does a day line that says something (a deadline overdue, a
+  // project waiting, or "not measurable").
+  const line = dayLineText(h);
+  const empty = appointments.length === 0 && dutiesDue.length === 0 && !(h.letters.n > 0) && h.yesterday.length === 0
+    && line === null && !h.week?.show;
   return {
     date: h.day, weekday: h.weekday, zone: h.zone, empty,
     appointments, actions: appointments.filter((t) => t.type === 'action'),
     duties: { due: dutiesDue, open: h.duties.open, withDate: h.duties.withDate },
     letters: { waiting: h.letters.n, subjects: h.letters.subjects },
     yesterday: h.yesterday,
+    day_line: { text: line, ...(h.dayLine ?? { overdue: null, dueToday: null, projects: null }) },
+    week_review: h.week ? { ...h.week } : null,
     ...(cap ? { cap } : {}),
   };
 }
 
 export function briefingSubject(h, late = false) {
-  return `Today in the calendar (${h.weekday}, ${h.dateText})${late ? ' (late)' : ''}`;
+  const head = `Today in the calendar (${h.weekday}, ${h.dateText})${late ? ' (late)' : ''}`;
+  // The same parts as the first line of the text, kept short for a subject (whole parts fall away).
+  const line = dayline.fit(dayLineParts(h), { max: 90, prefix: '', sep: ', ' });
+  return line ? `${head} - ${line}` : head;
 }
 
 /** The letter text — short, plain ASCII, no model. */
 export function briefingText(h, { late = null } = {}) {
   const z = [`Today in the calendar (${h.weekday}, ${h.dateText})`, ''];
   if (late) z.push(late, '');
+  const dayLine = dayLineText(h);
+  if (dayLine) z.push(`Day line: ${dayLine}`, '');
   z.push(`Appointments today: ${h.appointments.length || 'none'}`);
   for (const t of h.appointments) {
     z.push(`- ${t.time} ${t.title}${t.wake ? ` [wakes ${t.wake}: ${t.state ?? 'planned'}]` : (t.state ? ` [${t.state}]` : '')}`);
@@ -209,6 +270,8 @@ export function briefingText(h, { late = null } = {}) {
     z.push('', 'Yesterday:');
     for (const g of h.yesterday) z.push(`- ${g.title}: ${g.outcome}${g.late ? ' (late)' : ''}${g.state ? `, state ${g.state}` : ''}`);
   }
+  const review = deadlines.weekLines(h.week);
+  if (review.length) z.push('', ...review);
   return z.join('\n');
 }
 

@@ -940,11 +940,37 @@ function todayOperationsPart(notable) {
     .map((f) => `<div class="row"><div><strong>${esc(f.name)}</strong><p>${esc(f.text)}</p>${f.advice ? `<p class="small quiet">${esc(f.advice)}</p>` : ''}</div>${badge(f.level)}</div>`)
     .join('')}`;
 }
+// A due date as the server wrote it: a day (YYYY-MM-DD, the day in the house zone) is shown as it is — turning it into a Date
+// would move it by the browser's zone — and a point in time as a date.
+const dueShown = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v)) ? String(v) : when(v));
+// The state of a due date (src/due.mjs: fresh | due | overdue | unknown) as a chip. Words and tones are the existing badge's.
+function dueChip(state) {
+  if (state === 'overdue') return badge('error', 'overdue');
+  if (state === 'due') return badge('warn', 'due today');
+  if (state === 'unknown') return badge('unknown', 'unreadable');
+  return '';
+}
 function todayDecisionsPart(list) {
   if (!list.length) return '';
   return `<div class="label" style="margin:16px 0 6px">Decisions for you</div>${list
-    .map((dt) => `<button class="attention" data-entry="${esc(dt.id)}"><span class="sym">↗</span><div><strong>${esc(dt.title)}</strong><p>Duty${dt.due ? ' · due ' + esc(when(dt.due)) : ''}</p></div><span class="arrow">↗</span></button>`)
+    .map((dt) => `<button class="attention" data-entry="${esc(dt.id)}"><span class="sym">↗</span><div><strong>${esc(dt.title)}</strong><p>Duty${dt.due ? ' · due ' + esc(dueShown(dt.due)) : ''} ${dueChip(dt.dueState)}</p></div><span class="arrow">↗</span></button>`)
     .join('')}`;
+}
+// Q7 (src/deadlines.mjs): the due dates of the open duties. The human's duties one by one (the server sends at most eight, the
+// rest counted), everybody else's only as a number. Not readable: said, never an empty card. The key is absent in a build that
+// does not carry the part (the light head): then nothing is drawn.
+function todayDeadlinesPart(dl) {
+  if (!dl) return '';
+  const head = '<div class="label" style="margin:16px 0 6px">Deadlines</div>';
+  if (!dl.readable) return `${head}<div class="row"><div><strong>Not measurable</strong><p>${esc(dl.reason || 'unknown')}</p></div>${badge('not measurable')}</div>`;
+  const m = dl.mine; const o = dl.others;
+  const rows = (m.list || []).map((r) => `<button class="attention" data-entry="${esc(r.id)}"><span class="sym">↗</span><div><strong>${esc(r.title)}</strong><p>${r.due ? 'due ' + esc(dueShown(r.due)) : 'unreadable due date'} ${dueChip(r.state)}</p></div><span class="arrow">↗</span></button>`).join('');
+  const more = m.more > 0 ? `<p class="small quiet">… and ${num(m.more)} more · <span class="mono">mem deadlines</span></p>` : '';
+  const others = o.withDue > 0
+    ? `<p class="small quiet">Not addressed to you (agents, nobody): ${num(o.withDue)} with a due date${o.overdue ? ` · ${num(o.overdue)} overdue` : ''}${o.dueToday ? ` · ${num(o.dueToday)} due today` : ''}${o.unknown ? ` · ${num(o.unknown)} unreadable` : ''}</p>`
+    : '';
+  if (!rows && !others) return '';
+  return `${head}${rows}${more}${others}`;
 }
 // N9 parity: a candidate is NEVER written here, only shown (the value
 // comes from this memory's own timeline facts, src/today.mjs part c —
@@ -1029,8 +1055,11 @@ function todayCard() {
   const gold = t.gold?.candidates || [];
   const projects = t.projects?.list || [];
   const c = t.counts || {};
+  // Q7: the deadlines part is its own key of the data (both builds carry it); the day result brings the same object.
+  const dl = D.deadlines || t.deadlines;
+  const deadlinesDrawn = todayDeadlinesPart(dl);
   const anyUnknown = c.decisions === null || c.operations === null || c.verify === null || c.goldQuestions === null;
-  const nothingPressing = !anyUnknown && !ops.length && !decisions.length && !verify.length && !gold.length && !projects.length;
+  const nothingPressing = !anyUnknown && !ops.length && !decisions.length && !verify.length && !gold.length && !projects.length && !deadlinesDrawn;
   const unknownNote = [['decisions', 'Decisions'], ['operations', 'Operations'], ['verify', 'Verify'], ['goldQuestions', 'Gold questions']]
     .filter(([k]) => c[k] === null).map(([, n]) => n);
   const body = (t.line ? `<p class="small mono" data-today-line>${esc(t.line)}</p>` : '')
@@ -1038,9 +1067,9 @@ function todayCard() {
     + todayUnknownPart('Login', t.login)
     + (nothingPressing
     ? empty('Nothing pressing today — operations calm, no decisions open, nothing uncertain to verify, no gold questions.')
-    : todayOperationsPart(ops) + todayDecisionsPart(decisions) + todayProjectsPart(projects) + todayVerifyPart(verify) + todayGoldPart(t.gold))
+    : todayOperationsPart(ops) + todayDecisionsPart(decisions) + deadlinesDrawn + todayProjectsPart(projects) + todayVerifyPart(verify) + todayGoldPart(t.gold))
     + todayUnknownPart('Review suggestions', t.review) + todayUnknownPart('Word-pair suggestions', t.wordPairs);
-  return `<div class="today-card" style="margin-bottom:22px">${panel('Today', body, 'Operations, decisions, projects awaiting confirmation, facts to verify and gold questions — the same source as `mem today`.', '', ['gold', 'projects'])}</div>`;
+  return `<div class="today-card" style="margin-bottom:22px">${panel('Today', body, 'Operations, decisions, deadlines, projects awaiting confirmation, facts to verify and gold questions — the same source as `mem today`.', '', ['gold', 'projects'])}</div>`;
 }
 
 // The day strip above the figures. cheap-mem has no appointment clock yet, so there is nothing to

@@ -121,13 +121,16 @@ test('reviewSuggestions() and wordPairSuggestions() are honest "unknown", never 
 });
 
 test('line(): null when nothing is notable, one line when something is', () => {
+  // Q7: a day result carries its deadlines part (`today()` always does; one that lacks it says "not measurable", see
+  // test/today-due.test.mjs). Calm deadlines: nothing overdue, nothing due.
+  const calmDeadlines = { readable: true, mine: { overdue: 0, due: 0, fresh: 0, unknown: 0, list: [], more: 0 }, others: {} };
   assert.equal(today.line({
     decisions: { readable: true, list: [] }, operations: { readable: true, worst: 'good', notable: [] },
-    verify: { readable: true, list: [] }, gold: { drawn: { readable: true }, candidates: [] },
+    verify: { readable: true, list: [] }, gold: { drawn: { readable: true }, candidates: [] }, deadlines: calmDeadlines,
   }), null);
   const l = today.line({
     decisions: { readable: true, list: [{ id: 'd1' }] }, operations: { readable: true, worst: 'warn', notable: [{}] },
-    verify: { readable: true, list: [{ key: 'x' }] }, gold: { drawn: { readable: true }, candidates: [] },
+    verify: { readable: true, list: [{ key: 'x' }] }, gold: { drawn: { readable: true }, candidates: [] }, deadlines: calmDeadlines,
   });
   assert.match(l, /^Today: /);
   assert.match(l, /1 decision open/);

@@ -866,8 +866,12 @@ export function collectDashboard(root, {
   const alloc = cardfeed.allocation(root);
   const openDuties = [];
   const openQuestions = [];
+  // Q7: the duty drawers ONCE for the whole build — the list below, the card "Today" and the part "Deadlines" read this one fold.
+  let dutiesFold;
+  try { dutiesFold = dutiesOpen(root); } catch (e) { dutiesFold = { error: e }; }
   try {
-    for (const p of dutiesOpen(root).open) {
+    if (dutiesFold.error) throw dutiesFold.error;
+    for (const p of dutiesFold.open) {
       if (!p?.id) continue;
       const who = p.who ?? p.owner ?? p.to ?? null;
       openDuties.push({
@@ -903,9 +907,14 @@ export function collectDashboard(root, {
   // Reuses the doctor result already computed above instead of running
   // doctor.checkAll() a second time.
   let todayResult;
-  try { todayResult = todayOf(root, { env, now, doctorResult: doc.result }); } catch (e) {
+  try { todayResult = todayOf(root, { env, now, doctorResult: doc.result, duties: dutiesFold }); } catch (e) {
     todayResult = { state: 'unknown', reasons: [`today() failed: ${e?.message || e}`] };
   }
+  // Q7: the part "Deadlines" travels with the data of BOTH builds. The full build takes it from the day result (the same fold,
+  // computed once); the compact build has no day result (the doctor does not run there) and computes it from the fold it read.
+  const deadlines = todayResult?.deadlines && typeof todayResult.deadlines.readable === 'boolean'
+    ? todayResult.deadlines
+    : today.deadlinesPart(root, { fold: dutiesFold, now, env });
 
   // --- 6. tasks: kinds and what runs --------------------------------------
   const kinds = {};
@@ -1033,6 +1042,8 @@ export function collectDashboard(root, {
     },
     work: d.work,
     openDuties,
+    // Q7: the part "Deadlines" (src/deadlines.mjs) — in the full AND the compact build; readable:false with a reason, never 0.
+    deadlines,
     openQuestions,
     waitingQuestions,
     // H11: the state of the card shelf (readable, or unknown with a reason — never "no cards"), and what the cap of 200 cards per

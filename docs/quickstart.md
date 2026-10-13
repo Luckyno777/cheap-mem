@@ -103,6 +103,7 @@ mem log duty --title "send the tax papers" --owner human --due 2026-11-01
 mem deadlines                       # open duties with a due date: fresh / due / overdue
 mem correction duty <id> --due 2026-11-15      # move it: the old line stays, the new one replaces it
 mem correction duty <id> --without due         # take the date away again
+mem today                           # the part DEADLINES: your duties with a due date, earliest first (at most 8)
 ```
 Moving or removing a due date counts only from whoever wrote the duty or from a higher authority tier (`--authority`),
 not from the person it is owed to; that person still closes it. The old names (`--deadline`, `--due_date`, `--until`, `--by`)

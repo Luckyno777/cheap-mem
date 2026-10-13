@@ -696,7 +696,7 @@ mem agents / mem agent new|show    who is registered, an address per agent
 mem onboarding <agent>             five checks, each evidenced by an entry
 mem broadcast <error-id>           tell the agents who touched the same file
 mem heartbeat                      this agent was running and could write
-mem today                          operations, decisions and facts to verify
+mem today                          operations, decisions, deadlines and facts to verify
 mem guard run|quote|gaps           every latch: is the error back, which has none
 mem gaps [rate]                    open and closed knowledge gaps
 mem suggest procedure <class>      draft a procedure for a repeated error class
