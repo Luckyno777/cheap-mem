@@ -14,7 +14,7 @@ import { pathToFileURL, fileURLToPath } from 'node:url';
 import * as tasks from '../src/tasks.mjs';
 import { personCookie } from './person-session.mjs';
 
-const { scrubServerPaths } = tasks;
+const { scrubServerPaths, realpathsOf } = tasks;
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SERVE = path.join(REPO, 'bin', 'mem-serve');
@@ -167,4 +167,38 @@ test('scrubServerPaths: a Windows root and code folder in every spelling the chi
 test('scrubServerPaths: POSIX hosts keep their case-sensitive match', () => {
   const out = scrubServerPaths('/srv/Mem/x and /srv/mem/x', [['/srv/Mem', '<root>']], { pathApi: path.posix, realpaths: () => [], caseless: false });
   assert.equal(out, '<root>/x and /srv/mem/x');
+});
+
+test('realpathsOf asks both lookups (the JS one and the native one), keeps both answers, and leaves out one that fails', () => {
+  const calls = [];
+  const js = (d) => { calls.push('js'); return `${d}-as-written`; };
+  const native = (d) => { calls.push('native'); return `${d}-long-name`; };
+  assert.deepEqual(realpathsOf('/x', [js, native]), ['/x-as-written', '/x-long-name']);
+  assert.deepEqual(calls, ['js', 'native']);
+  const gone = () => { throw Object.assign(new Error('gone'), { code: 'ENOENT' }); };
+  assert.deepEqual(realpathsOf('/x', [gone, native]), ['/x-long-name']);
+  assert.deepEqual(realpathsOf('/x', [gone, gone]), []);
+  // The real default: both lookups of the real file system, on a folder that exists.
+  const here = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-taskpaths-rp-'));
+  try {
+    const got = realpathsOf(here);
+    assert.equal(got.length, 2, 'both lookups answered');
+    assert.equal(fs.realpathSync.native(got[0]), fs.realpathSync.native(here));
+    assert.equal(got[1], fs.realpathSync.native(here));
+    assert.deepEqual(realpathsOf(path.join(here, 'not-there')), []);
+  } finally { fs.rmSync(here, { recursive: true, force: true }); }
+});
+
+test('scrubServerPaths: the default case rule follows the platform it is given', () => {
+  const root = 'C:\\profiles\\RUNNER~1\\Temp\\r1';
+  const asked = [];
+  const realpaths = (d) => { asked.push(d); return []; };
+  const lower = root.toLowerCase();
+  // win32: caseless without being told so; anything else: exact case.
+  assert.equal(scrubServerPaths(lower, [[root, '<root>']], { pathApi: path.win32, realpaths, platform: 'win32' }), '<root>');
+  assert.equal(scrubServerPaths(lower, [[root, '<root>']], { pathApi: path.win32, realpaths, platform: 'linux' }), lower);
+  assert.equal(scrubServerPaths(lower, [[root, '<root>']], { pathApi: path.win32, realpaths, platform: 'darwin' }), lower);
+  // An explicit rule wins over the platform's.
+  assert.equal(scrubServerPaths(lower, [[root, '<root>']], { pathApi: path.win32, realpaths, platform: 'linux', caseless: true }), '<root>');
+  assert.ok(asked.length > 0, 'the real-path lookup was consulted');
 });

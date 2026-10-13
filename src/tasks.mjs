@@ -866,13 +866,20 @@ function withoutServerPaths(root, value) {
   return scrubServerPaths(value, [[root, '<root>'], [path.join(HERE, '..'), '<code>']]);
 }
 
-const realpathsOf = (dir) => {
+/**
+ * The real paths of a folder, every way this host can name it: `realpathSync` keeps what the caller wrote (a Windows
+ * 8.3 short name such as RUNNER~1 stays), `.native` asks the operating system, which answers with the long name a child
+ * process reports. Both are asked; one that fails (the folder is gone) is left out.
+ * Open: the reverse way (only the LONG name is known, the child reports the SHORT 8.3 form) is not covered; nothing
+ * here can derive a short name from a long one, and no run has shown it.
+ * @param {string} dir
+ * @param {Array<(d: string) => string>} [lookups]
+ */
+export function realpathsOf(dir, lookups = [fs.realpathSync, fs.realpathSync.native]) {
   const out = [];
-  // `realpathSync` keeps what the caller wrote (a Windows 8.3 short name such as RUNNER~1 stays); `.native` asks the
-  // operating system, which answers with the long name a child process reports.
-  for (const f of [fs.realpathSync, fs.realpathSync.native]) { try { out.push(f(dir)); } catch { /* not there (any more) */ } }
+  for (const f of lookups) { try { out.push(f(dir)); } catch { /* not there (any more) */ } }
   return out;
-};
+}
 
 /**
  * The pure part of `withoutServerPaths`, with the platform injectable so a Linux run can prove the Windows behaviour
@@ -885,9 +892,10 @@ const realpathsOf = (dir) => {
  * replaced by halves.
  * @param {*} value strings anywhere in it are scrubbed; other types pass unchanged
  * @param {Array<[string, string]>} folders [directory, mark]
- * @param {{ pathApi?: typeof path, realpaths?: (dir: string) => string[], caseless?: boolean }} [opt]
+ * @param {{ pathApi?: typeof path, realpaths?: (dir: string) => string[], platform?: string, caseless?: boolean }} [opt]
+ *   `caseless` overrides the platform's own rule (win32 matches without regard to case)
  */
-export function scrubServerPaths(value, folders, { pathApi = path, realpaths = realpathsOf, caseless = process.platform === 'win32' } = {}) {
+export function scrubServerPaths(value, folders, { pathApi = path, realpaths = realpathsOf, platform = process.platform, caseless = platform === 'win32' } = {}) {
   const spellings = (dir, mark) => {
     const given = pathApi.resolve(dir);
     const out = new Set();

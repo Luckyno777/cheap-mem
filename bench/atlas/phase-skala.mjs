@@ -228,15 +228,21 @@ export function judgePeakRss(peaks, boundMb, platform = process.platform) {
   const why = platform === 'linux'
     ? 'the build child ended before /proc/<pid>/status could be read'
     : `the build's peak is read from /proc/<pid>/status (VmHWM), which ${platform} does not have`;
+  // A bound that is not a positive finite number (NaN, undefined, null, Infinity, 0, a string) judges nothing: a
+  // comparison with it is false either way, which must never read as "under the bound". Written as a negated
+  // `<=` so that every doubtful case falls to FAIL, as it did before this function existed.
+  const boundOk = typeof boundMb === 'number' && Number.isFinite(boundMb) && boundMb > 0;
   let verdict;
-  if (peakMax != null && peakMax > boundMb) verdict = VERDICT.FAIL;
+  if (peakMax != null && !(boundOk && peakMax <= boundMb)) verdict = VERDICT.FAIL;
   else if (peakMax == null || buildMissing) verdict = VERDICT.NOT_MEASURED;
   else verdict = VERDICT.PASS;
   const listed = present.map(([k, v]) => `${k} ${v}`).join(', ');
   const actual = peakMax == null
     ? 'no peak read'
     : (buildMissing ? `build peak not measurable here; largest of the others ${peakMax} MB (${listed})` : `largest ${peakMax} MB (${listed})`);
-  const evidence = buildMissing
+  const evidence = peakMax != null && !boundOk
+    ? `the bound is not a positive finite number (${String(boundMb)}), so no peak can be judged against it; this is a defect of the harness, not a measurement`
+    : buildMissing
     ? `not measurable here: ${why}. The other processes' own maxRSS at exit is listed, but it is not the build's peak and is not passed off as it.`
     : 'build: VmHWM polled while the child ran; the rest: the process\'s own maxRSS at exit';
   return { verdict, peakMax: buildMissing ? null : peakMax, actual, evidence, buildMeasured: !buildMissing };

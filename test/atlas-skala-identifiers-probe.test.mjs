@@ -177,6 +177,16 @@ test('judgePeakRss: a build peak that could not be read is not-measured, never a
   assert.equal(skala.judgePeakRss({ build: 700, ...others }, 500, 'linux').verdict, VERDICT.FAIL);
   // Nothing read at all stays not-measured.
   assert.equal(skala.judgePeakRss({ build: null, find: null, context: null, hook: null, loadProbe: null }, 500, 'linux').verdict, VERDICT.NOT_MEASURED);
+  // A bound that is no usable number judges nothing and never reads as "under the bound" (fail-closed, as a plain `>` was not).
+  for (const bad of [NaN, undefined, null, Infinity, -Infinity, 0, -5, '500']) {
+    for (const platform of ['linux', 'darwin']) {
+      const j = skala.judgePeakRss({ build: platform === 'linux' ? 900 : null, ...others, find: 1 }, bad, platform);
+      assert.equal(j.verdict, VERDICT.FAIL, `bound ${String(bad)} on ${platform}`);
+      assert.match(j.evidence, /bound is not a positive finite number/);
+    }
+  }
+  // Nothing read stays not-measured even with a broken bound (there is nothing to judge).
+  assert.equal(skala.judgePeakRss({ build: null, find: null, context: null, hook: null, loadProbe: null }, NaN, 'linux').verdict, VERDICT.NOT_MEASURED);
   // Zero is a number: a build that read 0 is not "missing".
   assert.equal(skala.judgePeakRss({ build: 0, ...others }, 500, 'linux').buildMeasured, true);
 });
