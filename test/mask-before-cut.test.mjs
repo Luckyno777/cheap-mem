@@ -27,6 +27,7 @@ import { KIND_NAMES, bait, baitTail, leaks } from './helpers/mask-before-cut-bai
 import http from 'node:http';
 import zlib from 'node:zlib';
 import { maskText, cutMasked, windowMasked, costCut } from '../src/outputguard.mjs';
+import * as deadlines from '../src/deadlines.mjs';
 import { guardResponse, maskBody } from '../src/servemask.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -1138,6 +1139,10 @@ test('marker edges, fixed: on the start the marker stays out, on the end it stay
   assert.equal(cutMasked('[REDACTED:x][REDACTED:y][REDACTED:z] tail', 12), '[REDACTED:x]');
   assert.equal(cutMasked('[REDACTED:x][REDACTED:y][REDACTED:z] tail', 30), '[REDACTED:x][REDACTED:y]');
   assert.equal(windowMasked('ab [REDACTED:x] cd', 5, 9), '');
+  // the write layer's own marker carries a second colon and a variable name (redaction.mjs `env:<NAME>`)
+  assert.equal(cutMasked('ab [REDACTED:env:MY_API_TOKEN] cd', 10), 'ab ');
+  assert.equal(cutMasked('ab [REDACTED:env:MY_API_TOKEN] cd', 22), 'ab ');
+  assert.equal(windowMasked('ab [REDACTED:env:MY_API_TOKEN] cd', 8, 25), '');
 });
 
 test('the marker scan stays linear: unclosed [REDACTED: runs do not make a cut quadratic', () => {
@@ -1145,6 +1150,7 @@ test('the marker scan stays linear: unclosed [REDACTED: runs do not make a cut q
   const t0 = process.hrtime.bigint();
   cutMasked(bad, 100);
   windowMasked(bad, 50, 150);
+  deadlines.safeText(bad, 100);
   const ms = Number(process.hrtime.bigint() - t0) / 1e6;
   assert.ok(ms < 1500, `cut and window over 400 KB of unclosed markers took ${Math.round(ms)} ms`);
 });

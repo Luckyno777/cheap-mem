@@ -95,16 +95,17 @@ export function maskOutput(text) {
 
 // A marker the cut tore in half ("[REDACTED:githu") shows nothing secret,
 // but it reads as damage. The cut drops the torn stub.
-// The label is a short kind name (`[REDACTED:openai-key]`, redaction.mjs); bounded, so an unclosed
-// `[REDACTED:` run cannot make the scan quadratic (review: 400 KB of them took 6.5 s unbounded).
-const MARKER = /\[REDACTED(?::[A-Za-z0-9_-]{0,64})?\]/g;
+// The label is a kind name (`[REDACTED:openai-key]`) or `env:<NAME>` (redaction.mjs, the write layer);
+// bounded, so an unclosed `[REDACTED:` run cannot make the scan quadratic (review: 400 KB of them took
+// 6.5 s unbounded), and wide enough for any environment variable name.
+const MARKER = /\[REDACTED(?::[^\]]{0,128})?\]/g;
 
 /**
  * Where a cut at `end` of a MASKED text may fall: an edge inside a
  * `[REDACTED:...]` marker moves to the marker's start, so neither a half
  * marker (`[RED`, `[REDACTED:git`) nor a stump of one is shown.
  */
-function markerSafeEnd(masked, end) {
+export function markerSafeEnd(masked, end) {
   for (const m of masked.matchAll(MARKER)) {
     if (m.index >= end) break;
     if (end < m.index + m[0].length) return m.index;
