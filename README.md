@@ -235,8 +235,10 @@ Nowhere. That is not a policy, it is the architecture:
 - **Redacted before it touches the disk.** Everything captured goes
   through a redaction pass first: tokens, API keys, passwords and
   credential-shaped strings are masked before a single line is written.
-  `mem hooks install` arms a pre-commit check that proves itself against
-  a decoy token rather than asserting it works.
+  `mem hooks install` (done for you by `mem init` and `mem setup claude` in a
+  git repository) arms a pre-commit check that proves itself against a decoy
+  token rather than asserting it works, and refuses any commit that changes or
+  deletes a line a log already holds.
 - **Zero runtime dependencies.** `npm install` pulls nothing. The core —
   capture, search, digest — runs on Node's standard library. There is no
   supply chain to audit because there is no supply.
@@ -425,7 +427,7 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-numbers.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **85 CLI commands, 42 MCP tools, 196 modules, 4281
+As of 2026-09-26: **86 CLI commands, 43 MCP tools, 200 modules, 4281
 tests**; as of 2026-09-20, about 81757 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 
@@ -533,7 +535,10 @@ mem find "<query>"             ranked search, no model    [--literal --fresh]
                                recorded now (same rule as `mem retrieve`)
 mem browse                     interactive search: re-ranks on every keystroke
 mem discard <id> / done <id>   retire a thought/task (recall hides it)
-mem duties                     what is still owed
+mem duties                     what is still owed (a due date shows behind the title with its state)
+mem deadlines [--json]         the open duties WITH a due date, earliest first, each fresh / due / overdue / unknown
+                               (`mem log duty --title ... --due 2026-11-01`; move it with `mem correction duty <id> --due ...`,
+                               remove it with `--without due`; a day is overdue from 00:00 of the next day in the house zone)
 mem duties close <id>          append a closing line — refused with no
                                evidence (a `guard` field on the error, or a
                                test/ file with `// error: <id>` and `test(`)
@@ -678,7 +683,7 @@ mem merge <id> <id> ...            merge entries of one drawer (append-only)
 mem when "<time expression>"       time-range recall, no model
 mem component <path>               everything about ONE file
 mem topic-merge <old> --to <new>   fold topics; applied on read, nothing rewritten
-mem questions / mem answer <q> --with <entry>   what we do not know, and closing it
+mem questions / mem answer <q> --with <entry>   what we do not know, and closing it (a person's question: `mem questions confirm`)
 mem procedures / mem teach         recorded steps; what a newcomer needs to hear
 mem sources add|bridge|list        where a claim came from
 mem store put|list|get|verify      files the memory keeps by hash
@@ -690,6 +695,7 @@ mem today                          operations, decisions and facts to verify
 mem guard run|quote|gaps           every latch: is the error back, which has none
 mem gaps [rate]                    open and closed knowledge gaps
 mem suggest procedure <class>      draft a procedure for a repeated error class
+mem suggest rules [--write]        the weekly list of rule drafts (thoughts `rule-proposal`), never a procedure
 mem raw review|delete|archive|migrate|export   audit, remove, relocate captures
 mem observations                   what the memory injected, and when (local)
 mem ledger | mem gauges | mem modelcost   what agents did, occupancy, token estimate

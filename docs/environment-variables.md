@@ -28,6 +28,7 @@ A variable that is not in the table is not a switch: there is none.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `CHEAP_MEM_CALENDAR_ROUTE` | not set (no outside calendar) | Which route puts an appointment into a real calendar: SMTP invitation or the Google Calendar API. |
+| `CHEAP_MEM_JSONL_APPROVAL` | not set (the pre-commit hook refuses any changed or deleted committed log line) | AU11: lets ONE commit change or delete committed lines of a memory log (a real redaction, an entry moved to another drawer). The value is the reason and the approval id; the hook names it and the files in the log. Set it inline before `git commit`, never export it. |
 | `CHEAP_MEM_MAX_AUTHORITY` | not set (no ceiling; the digest sets `inferred`) | The highest authority a process may claim in what it writes. A model-backed writer must never produce a `user` entry; the digest and the reflector run under a lower ceiling. |
 | `CHEAP_MEM_MCP_DECRYPT` | off (the bridge shows encrypted entries as unreadable) | With `1` the MCP bridge decrypts entries written with `shred` for the agents connected to it. The keyring sits beside the data, so without this a connected foreign agent could read what a clone of the git data cannot. |
 | `CHEAP_MEM_MCP_READONLY` | off (full tool profile) | With `1` the MCP bridge offers only the read tools. |
@@ -48,7 +49,7 @@ A variable that is not in the table is not a switch: there is none.
 | `MEM_CORRECTION_WARN_OFF` | off | With `1` `mem correction` does not warn when a rare word of the old entry is missing from the correction. |
 | `MEM_EXPAND` | off | With `1` the search also reads the `asked_as` phrasings stored next to an entry (document expansion, weight 0.3). Off, the search is bit-identical to before. |
 | `MEM_GOLD_DAILY` | yes | With `no` the digest does not run the daily gold-miss collection. |
-| `MEM_HEADLESS` | not set | Marks an unattended run (the digest, the reflector, any `claude -p` worker); its value names the run. Such a run is not captured, writes with a lowered authority, and may not confirm projects, categories, appointments or mail permits. |
+| `MEM_HEADLESS` | not set | Marks an unattended run (the digest, the reflector, any `claude -p` worker); its value names the run. Such a run is not captured, writes with a lowered authority, may not confirm projects, categories, appointments or mail permits, and never writes a line of tier `user` (refused in the write core). |
 | `MEM_HOOK_OFF` | off (all hook stages active) | Emergency stop for the whole hook chain in one session: every hook stage is switched off by `1`. A session without hooks has no memory. |
 | `MEM_RAW_EXCLUDE` | off | With `1` the raw capture skips the session (the environment form of the exclude mark). |
 | `MEM_RECALL_SERVER` | on (the hook asks the warm server when its socket exists) | With `0` the recall hook never asks the warm recall server and always searches directly. |
@@ -57,6 +58,7 @@ A variable that is not in the table is not a switch: there is none.
 | `MEM_RETRIEVE_OFF` | off | The recall hook (the relevant entries shown on a question) is switched off by `1` |
 | `MEM_RETRIEVE_REQUEST_FRAME` | on (`0` switches it off) | With `0` the request frame at the start of a question ("explain", "can you show me") is searched like every other word, in the recall hook and in the content-word query. |
 | `MEM_REWRITES` | on (the table ships empty) | `off` switches the whole query-rewrite table off. |
+| `MEM_RULE_DRAFT` | on (`no` switches it off) | AU6: with `no` the digest tick does not write the weekly rule drafts (thoughts tagged `rule-proposal`, at most one per error class and week). |
 | `MEM_SEARCH_LEVERS` | the levers' own defaults | `off`, `all` or a list such as `h1,h3`: which Block H search levers are on (`mem search-levers`). |
 | `MEM_SKILL_ACCOUNT_OFFER` | on (`0` switches it off) | With `0` a skill offer no longer brings the two most important lines of the skill's experience account. |
 | `MEM_SKIP_DIGEST` | off | Windows installer: with `1` the digest task is not registered. |
@@ -86,6 +88,7 @@ A variable that is not in the table is not a switch: there is none.
 | `MEM_CATCH_FAIL_TOP` | 3 | How many hits the swallowed-failure hook shows at most. |
 | `MEM_CORRECTION_RARE_DF` | 3 | Document frequency at or below which a word counts as rare in the correction warning. |
 | `MEM_DIGEST_AGE_RESERVE_PCT` | 25 | Share of a digest batch reserved for the oldest captures. |
+| `MEM_DIGEST_AGE_WITHOUT_BELL_H` | not set (the due check's own default, 24 hours) | AU4: without a bell, hours the OLDEST open capture may wait before a digest is due (besides the 500 KB volume rule). |
 | `MEM_DIGEST_ARGS` | `-p` | Windows digest: arguments of the model command. |
 | `MEM_DIGEST_CEILING_H` | not set (the due check's own default) | Hours after which a digest is due regardless. |
 | `MEM_DIGEST_DEDUP_SINCE` | not set (whole memory) | Window such as `30d`, `24h` or `90m` of entries the digest compares against for duplicates. |
@@ -111,6 +114,7 @@ A variable that is not in the table is not a switch: there is none.
 | `MEM_RETRIEVE_TIE` | 0 (off) | Relative score spread within which ONE more hit than `MEM_RETRIEVE_TOP` comes along when it ties the last one shown (the recall hook only; `0.01` is the 1 % of lucky-mem; valid above 0 up to 0.5, anything else is the hard cut). Off by default: on the gold set it gained nothing and cost one gold case (`docs/recall-levers-2026-10-10.md`). |
 | `MEM_RETRIEVE_TIME` | 5 seconds | Time budget of one recall search, server and direct fallback alike. |
 | `MEM_RETRIEVE_TOP` | 3 | How many hits the recall hook shows at most. |
+| `MEM_RULE_DRAFT_TIMEOUT` | 120 | AU6: seconds the weekly rule-draft step of the digest tick may take. |
 | `MEM_SKILLUSAGE_DAYS` | 30 | Days of capture coverage `mem skills usage` needs before it gives a verdict. |
 | `MEM_SKILLUSAGE_TIME_MS` | 8000 | Time cap, in milliseconds, for reading the captures. |
 | `MEM_SUBAGENT_TASK_SECONDS` | 2 seconds | Time budget of the sub-agent start block for the assignment; past it the base block comes alone (the POSIX hook runs a first, tighter pass and falls back). |
@@ -187,6 +191,8 @@ A variable that is not in the table is not a switch: there is none.
 | `CHEAP_MEM_AGENT` | `MEM_AGENT`, else the system user | Names the agent behind a write; a deployment sets it for an MCP-bridged agent. |
 | `CHEAP_MEM_CHECK_HOUSE` | `package.json` name, else the directory name | The house a check-record row names. |
 | `CHEAP_MEM_CHECK_MACHINE` | `cloud` or a short hostname | The machine a check-record row names; tests override it. |
+| `CHEAP_MEM_GIT_EMAIL` | not set (the session-start hook says so and sets nothing) | AU1: source for the git e-mail in the memory clone. The session-start hook sets `user.email` there (locally) only when the clone has none AND this and `CHEAP_MEM_GIT_NAME` are both set; nothing is guessed. |
+| `CHEAP_MEM_GIT_NAME` | not set (see `CHEAP_MEM_GIT_EMAIL`) | AU1: source for the git name in the memory clone; the pair of `CHEAP_MEM_GIT_EMAIL`, only a label on the commits. |
 | `CHEAP_MEM_SERVE_TITLE` | `cheap-mem` | Title of the viewer page. |
 | `CHEAP_MEM_SMTP_FROM` | not set | Sender of the invitation. |
 | `CHEAP_MEM_SMTP_TO` | not set | Recipient of the invitation. |
@@ -214,6 +220,7 @@ A variable that is not in the table is not a switch: there is none.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
+| `CHEAP_MEM_SERVE_BUILD_PAUSE_TEST_MS` | 0 | Probes only: a pause (ms) before every background build of the viewer's cache, to imitate the duration of a real store's build. |
 | `CHEAP_MEM_SERVE_CACHE_GAP_TEST_MS` | 0 | Probes only (with the sync switch): the minimum gap between two background builds of the viewer's cache. |
 | `CHEAP_MEM_SERVE_CACHE_SYNC_TEST_MS` | not set | Probes only: the sync window of the viewer's cache. |
 | `CHEAP_MEM_SERVE_TEMPO_TEST_MS` | not set | Probes only: delays the viewer's build so a test can watch the tempo. |

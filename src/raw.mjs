@@ -1047,7 +1047,33 @@ export const DUE_DEFAULTS = Object.freeze({
   volumeMin:  32 * 1024,   // below this a call is not worth it
   quietMs:    45 * 60 * 1000,
   ceilingMs:   8 * 60 * 60 * 1000,
+  // AU4: without a bell the AGE of the oldest open capture counts as well. 24 h
+  // because the working day is the longest rhythm here (the ceiling WITH a bell
+  // is 8 h) and a capture without a bell has already survived a crash: after a
+  // day without digesting, "a small rest" is no reason to wait any longer.
+  ageWithoutBellMs: 24 * 60 * 60 * 1000,
 });
+
+const CAPTURE_TIME_RE = /^(\d{4}-\d{2}-\d{2}T\d{2})-(\d{2})-(\d{2})Z--/;
+
+/**
+ * AU4: the time of the OLDEST still-open capture, read from its file name
+ * (`raw/YYYY/MM/<time>--<session>.jsonl.gz`, see capturePath) - not guessed.
+ * `{time: null, reason}` when no open name carries a readable time (a
+ * pre-scheme capture): not measurable is not "young".
+ */
+export function oldestOpenTime(open) {
+  if (!Array.isArray(open) || open.length === 0) return { time: null, reason: 'nothing open' };
+  let oldest = null;
+  for (const f of open) {
+    const m = CAPTURE_TIME_RE.exec(path.basename(String(f ?? '')));
+    if (!m) continue;
+    const iso = `${m[1]}:${m[2]}:${m[3]}Z`;
+    if (Number.isFinite(Date.parse(iso)) && (oldest === null || iso < oldest)) oldest = iso;
+  }
+  if (oldest === null) return { time: null, reason: 'no readable time in any open capture name (captures from before the naming scheme?)' };
+  return { time: oldest, reason: null };
+}
 
 /**
  * Is the digest due?
@@ -1055,7 +1081,7 @@ export const DUE_DEFAULTS = Object.freeze({
  * Three states, never two:
  *   `{due:false, reason:'no-bell'}`            nothing happened, do nothing
  *   `{due:false, reason:'too-little'|'waiting'}` material there, not ripe
- *   `{due:true,  reason:'volume'|'quiet'|'ceiling'}`
+ *   `{due:true,  reason:'volume'|'quiet'|'ceiling'|'volume-without-bell'|'age-without-bell'}`
  *
  * Takes `now` and the thresholds as arguments so it can be tested
  * without waiting and without a clock.
@@ -1073,12 +1099,26 @@ export function due(root, { now = new Date(), thresholds = {} } = {}) {
     // Material without a bell can happen after a crash. We treat it as
     // due-by-volume so nothing is stranded — but report it, because it
     // is a finding.
+    const without = { bytes: state.bytes, captures: state.open.length };
     if (state.bytes >= s.volumeNow) {
-      return { due: true, reason: 'volume-without-bell', bytes: state.bytes,
-        captures: state.open.length };
+      return { due: true, reason: 'volume-without-bell', ...without };
     }
-    return { due: false, reason: 'no-bell', bytes: state.bytes,
-      captures: state.open.length };
+    // AU4: OR the oldest open capture has waited too long. Its age comes from
+    // the file name; when that is unreadable, `ageReason` says so.
+    const o = oldestOpenTime(state.open);
+    if (o.time) {
+      const ageMs = new Date(now).getTime() - Date.parse(o.time);
+      without.oldestMin = Math.round(ageMs / 60000);
+      if (ageMs >= s.ageWithoutBellMs) {
+        // Like the quiet rule: below the volume floor (volumeMin, 32 KB) a full model call costs more than
+        // it brings - a tiny old capture waits for the next bell (then the ceiling applies, without a floor).
+        if (state.bytes >= s.volumeMin) return { due: true, reason: 'age-without-bell', ...without };
+        without.ageRule = 'below-floor';
+      }
+    } else {
+      without.ageReason = o.reason;
+    }
+    return { due: false, reason: 'no-bell', ...without };
   }
 
   const t = new Date(now).getTime();

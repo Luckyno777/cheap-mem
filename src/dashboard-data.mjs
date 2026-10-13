@@ -48,6 +48,7 @@ import { fileURLToPath } from 'node:url';
 import * as writegate from './writegate.mjs';
 import * as dashboard from './dashboard.mjs';
 import * as memory from './memory.mjs';
+import * as dueCore from './due.mjs';
 import { projectStatus } from './projectnew.mjs';
 import * as categoriesMod from './categories.mjs';
 import * as question from './question.mjs';
@@ -431,6 +432,59 @@ function findingNamed(state, name) {
 // Pieces the old desk did not carry
 // ---------------------------------------------------------------------
 
+/**
+ * The `raw` section of the dashboard from the capture review `d.raw` (`captures`, `counts`, `readable`, `error`).
+ * `topicsOf(path)` and `entriesOf(path)` say which topics and entries belong to a capture: the build takes them from
+ * its pass over the drawers, the live part (`rawLive`) from the stored state. One place for both.
+ */
+function rawSection(rawReview, topicsOf, entriesOf) {
+  if (!rawReview.readable) return { readable: false, error: rawReview.error, counts: rawReview.counts, captures: [] };
+  return {
+    readable: true,
+    error: null,
+    counts: rawReview.counts,
+    bytes: rawReview.captures.reduce((n, r) => n + (r.bytes ?? 0), 0),
+    projects: [...rawReview.captures.reduce((m, r) => m.set(r.project ?? null, (m.get(r.project ?? null) ?? 0) + 1), new Map())]
+      .map(([project, count]) => ({ project, count })),
+    captures: rawReview.captures.map((r) => ({
+      path: r.path, state: r.state, at: r.at ?? null, project: r.project ?? null,
+      surface: r.surface ?? null, session: r.session ?? null, lines: r.lines ?? null,
+      bytes: r.bytes ?? null, deleted: r.deleted ?? null,
+      topics: topicsOf(r.path),
+      entries: entriesOf(r.path),
+    })),
+  };
+}
+
+/**
+ * The `raw` section as of NOW on top of a stored one (board-width-fresh-cm, after a capture was deleted): the
+ * register is read again, the topics and entries of a capture stay those of the stored state (a deletion changes
+ * neither). THROWS when the register cannot be read — the caller names the reason and keeps the stored section.
+ */
+export function rawLive(root, stored) {
+  const captures = raw.capturesWithState(root);
+  const counts = {};
+  for (const st of raw.CAPTURE_STATES) counts[st] = 0;
+  for (const r of captures) counts[r.state] = (counts[r.state] ?? 0) + 1;
+  const known = new Map((stored?.captures ?? []).map((c) => [c.path, c]));
+  return rawSection({ readable: true, captures, counts }, (p) => known.get(p)?.topics ?? [], (p) => known.get(p)?.entries ?? []);
+}
+
+/** The human's tray summary (open count, oldest age) from the tray list; one place for the build and the live part. */
+export function trayOf(humanInbox, now) {
+  if (!humanInbox?.readable) return { checkable: false, reason: humanInbox?.reason ?? 'no human participant configured' };
+  const open = humanInbox.messages.filter((m) => !inbox.isDone(m.state));
+  const oldest = open.map((m) => Date.parse(m.time)).filter(Number.isFinite).sort((a, b) => a - b)[0];
+  return { checkable: true, who: humanInbox.who, count: open.length, oldestMin: oldest ? (now.getTime() - oldest) / 60000 : null };
+}
+
+/** The whole inbox, every recipient, without bodies. THROWS when the inbox cannot be read at all (the live part names it). */
+export function inboxListNow(root, now) {
+  const got = inboxList(root, now);
+  if (got.readable === false) throw new Error(got.reason);
+  return got;
+}
+
 /** The whole inbox, every recipient, without bodies. */
 function inboxList(root, now) {
   let participants = null;
@@ -498,7 +552,7 @@ export function messageWhole(root, name) {
 }
 
 /** Per project: which drawers are filled, empty, missing — and its companion files. */
-function projectShelf(root) {
+export function projectShelf(root) {
   const types = Object.keys(memory.TYPES);
   const out = [];
   for (const project of memory.listProjects(root)) {
@@ -757,7 +811,7 @@ export function collectDashboard(root, {
   doctorCheck = doctor.checkAll,
   // The compact build (src/dashboard-compact.mjs) answers these from its single
   // pass or marks them unknown; in service they read the whole store.
-  dutiesOpen = memory.openDuties, questionsOpen = question.open,
+  dutiesOpen = memory.openDuties, questionsOpen = question.open, questionsWaiting = question.waiting,
   todayOf = today.today, integrityOf = integrity.scanIntegrity,
 } = {}) {
   const d = collect(root, { env, now, cfg });
@@ -805,32 +859,20 @@ export function collectDashboard(root, {
   const openQuestions = [];
   try {
     for (const p of dutiesOpen(root).open) {
-      if (p?.id) openDuties.push({ id: p.id, who: p.who ?? p.owner ?? p.to ?? null, due: p.due ?? p.by ?? null });
+      if (p?.id) openDuties.push({ id: p.id, who: p.who ?? p.owner ?? p.to ?? null, due: dueCore.dueText(p) });
     }
   } catch (e) { reasons.push(`duties not readable: ${e?.message || e}`); }
   try {
     for (const q of questionsOpen(root)) if (q?.id) openQuestions.push({ id: q.id });
   } catch (e) { reasons.push(`questions not readable: ${e?.message || e}`); }
+  // Answered, waiting for the person who asked (a question of tier user with only agent answers).
+  const waitingQuestions = [];
+  try {
+    for (const q of questionsWaiting(root)) if (q?.id) waitingQuestions.push({ id: q.id });
+  } catch (e) { reasons.push(`waiting questions not readable: ${e?.message || e}`); }
 
   // --- 4. the raw capture: the old desk's four-state review + topics ------
-  const rawCounts = d.raw.counts;
-  const rawOut = d.raw.readable
-    ? {
-      readable: true,
-      error: null,
-      counts: rawCounts,
-      bytes: d.raw.captures.reduce((n, r) => n + (r.bytes ?? 0), 0),
-      projects: [...d.raw.captures.reduce((m, r) => m.set(r.project ?? null, (m.get(r.project ?? null) ?? 0) + 1), new Map())]
-        .map(([project, count]) => ({ project, count })),
-      captures: d.raw.captures.map((r) => ({
-        path: r.path, state: r.state, at: r.at ?? null, project: r.project ?? null,
-        surface: r.surface ?? null, session: r.session ?? null, lines: r.lines ?? null,
-        bytes: r.bytes ?? null, deleted: r.deleted ?? null,
-        topics: [...(topicsByCapture.get(r.path) ?? [])].slice(0, 12),
-        entries: entriesByCapture.get(r.path) ?? [],
-      })),
-    }
-    : { readable: false, error: d.raw.error, counts: rawCounts, captures: [] };
+  const rawOut = rawSection(d.raw, (path) => [...(topicsByCapture.get(path) ?? [])].slice(0, 12), (path) => entriesByCapture.get(path) ?? []);
 
   // --- 5. the doctor, cached --------------------------------------------
   const doc = doctorState(root, { now, check: doctorCheck });
@@ -926,13 +968,7 @@ export function collectDashboard(root, {
     const b = raw.bellState(root);
     bell = { checkable: true, rung: Boolean(b), last: b?.last ?? null, reason: b?.reason ?? null };
   } catch (e) { bell = { checkable: false, reason: e?.message || String(e) }; }
-  const tray = d.humanInbox?.readable
-    ? (() => {
-      const open = d.humanInbox.messages.filter((m) => !inbox.isDone(m.state));
-      const oldest = open.map((m) => Date.parse(m.time)).filter(Number.isFinite).sort((a, b) => a - b)[0];
-      return { checkable: true, who: d.humanInbox.who, count: open.length, oldestMin: oldest ? (now.getTime() - oldest) / 60000 : null };
-    })()
-    : { checkable: false, reason: d.humanInbox?.reason ?? 'no human participant configured' };
+  const tray = trayOf(d.humanInbox, now);
 
   const usage = usageFromJournal(root, { read: readJournal });
   // dash-fix3 parity: these are their OWN sources (the cost journal /
@@ -978,6 +1014,7 @@ export function collectDashboard(root, {
     work: d.work,
     openDuties,
     openQuestions,
+    waitingQuestions,
     agents: d.agents,
     bell,
     humanTray: tray,

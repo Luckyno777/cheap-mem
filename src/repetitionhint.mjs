@@ -50,7 +50,7 @@ export function correctPathText(entry) {
 }
 
 /** Title reduced to a comparable core: case, punctuation, runs of blanks gone. */
-function normaliseTitle(title) {
+export function normaliseTitle(title) {
   return String(title ?? '').trim().toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 }
 

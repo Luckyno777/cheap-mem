@@ -14,6 +14,84 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Added — the due-date core (build plan Q1, step 6b, branch A)
+
+A due date on a duty was read by three readers with guessed names (`today.mjs` and the dashboard `due ?? by`, the day list
+`due / due_date / until / deadline`) and written by nobody. Now one module owns it: `src/due.mjs`.
+
+- **`mem log duty --due`** (and `mem_log` with `due`, and a named `--due` in `mem correction`): exactly two forms, `YYYY-MM-DD` in
+  the house zone or an ISO point in time WITH a zone; a date-time without a zone is refused loudly, nothing is written.
+  Only a duty may carry it (any other type refuses the field). The check stands in the write core (`logCheckedEntry`,
+  `correctionEntry`), so the CLI and the bridge cannot differ.
+- **States** `fresh | due | overdue | unknown`, computed from the due date, never from the age of a line. The day boundary is
+  midnight of the house zone (`.mem/config.json` timezone, else `CHEAP_MEM_TZ`, else the system zone), never UTC - also on
+  the two clock changes (a day of 25 and one of 23 hours) and in a second zone. A broken value is `unknown`, not an error.
+- **`mem deadlines [--json]`** and the MCP tool `mem_deadlines`; `mem duties` and `mem_duties` show the due date and its state.
+- **Moving is append-only**: `mem correction duty <id> --due ...` inherits the rest, `--without due` removes the date; the
+  duty replacement rule (authority, debtor) applies unchanged. "Open since" comes from the START of the chain (`_since`),
+  so a moved due date does not make a duty look young.
+- Only `due` is WRITTEN: `--due_date / --until / --deadline / --by` (and the same fields over the bridge) are refused with a
+  hint to use `--due`, on a duty and on every other type. Older lines that carry them are still READ; `due.aliasUsed` names the
+  alias for the doctor. The due date of an encrypted duty stays readable (`shred.NEVER_ENCRYPT`).
+- **Who may move a due date**: a correction that changes or removes `due` counts only from the author or a higher tier - not
+  from the debtor and not sideways from the same tier (`dutyReplaceVerdict`, the strict `authority.maySupersede`); a refused
+  one stays on record and the original keeps its date. Closing a duty stays with the debtor.
+- A broken old value (a number, a boolean, nonsense text) in `due` or its aliases no longer makes a line "broken": the duty stays
+  open with the state `unknown`, and only text or null is passed on to the day list and the dashboard (`due.dueText`). An object
+  or a list of objects there is still a broken line by the general field-shape rule.
+- Invariant `frist-eine-stelle` / calculation `due-one-place`; the field names and states are paired with lucky-mem in
+  `shared/field-names-parity.jsonl`, and `shared/due-states.jsonl` is the fixture both houses must answer the same.
+
+### Dashboard — full width on a desktop, and a write of your own is what you see at once (2026-10-12)
+
+Reproduced in a real Chromium on the previous tip first (red), then fixed (green). `test/dash-width-cm.test.mjs`,
+`test/dash-write-fresh-cm.test.mjs`.
+
+- **Width.** `main` no longer stops at 1700 px: at 2560 px it left 636 px empty. It fills the column next to the
+  sidebar (1696 px at 1920, 2336 px at 2560). Reading text in cards keeps 110 characters per line (it ran to 208), the
+  setting inputs 720 px (they ran to 1608). 390/720/950 px measure the same as before.
+- **A write of your own.** Saving a setting, acknowledging or answering a message, rating a gold question, confirming a
+  project and deleting a raw capture wrote correctly, and the page showed the OLD state, also after a reload, until the
+  cache's rebuild (seconds on a real store, minutes with the gap) was through. `invalidate(parts)` now remembers which
+  parts of `/dashboard.json` a write changed; `src/dashboard-live.mjs` computes just those from the small read functions
+  (0.3-1.5 ms against a 3.2 s build on 2000 entries) and the server lays them over the stored answer, the deferred lists
+  included. Holds until a build that started after the write is through. A read without a write computes nothing. A part
+  that cannot be computed is named in `cache.live_errors` and said at its card, never silently old. Writes that change
+  the whole entry stock (done, restore, merge) stay with the rebuild. New probe switch
+  `CHEAP_MEM_SERVE_BUILD_PAUSE_TEST_MS`.
+
+### Security - a person's question closes only on the person's confirmation; a headless run never writes tier `user` (2026-10-12)
+
+Port of lucky-mem `fragen-rang-lm` (owner decision, variant A). Reproduced on the previous tip first (red), then fixed
+(green): `test/question-rank-cm.test.mjs`.
+
+- **The `resolves` gap.** `question.all()` read "some `resolves` edge points at it" and never asked who wrote the edge, so
+  `mem answer`, the bridge's `mem_answer` and a raw `mem log link --kind resolves` closed a question the owner had asked
+  himself. A question of tier `user` is now closed only by an edge of tier `user` (`authority.mayCloseQuestion`); an
+  agent's answer leaves it `waiting` ("answered, waiting for you") in `mem questions`, the board tile, the work tile, the
+  dashboard payload (`waitingQuestions`, full and compact build) and the entry state. Every other question closes on any
+  edge, as before. Nothing is rewritten: the state is folded from the graph (`question.stateFrom`).
+- **The person's way.** `mem questions new "..." --authority user` asks as the person, `mem questions confirm <id>
+  --authority user` closes an answered question, `mem answer ... --authority user` answers and closes at once; the
+  dashboard has a "Confirm answer" button (task `question-confirm`, password session only, 403 for the token alone).
+  The bridge has no confirm tool on purpose.
+- **A headless run never writes as the person.** The guard moved from single commands into the write core
+  (`memory.logEntry`): a line that would carry tier `user` from a run with `MEM_HEADLESS` set is refused, whatever the
+  route. Under a lower `CHEAP_MEM_MAX_AUTHORITY` the claim is still lowered and recorded (digest, reflector unchanged).
+  `authority.checkNotHeadless / checkUnderUserCeiling / checkUserWrite` are the shared parts; `mailpermit` uses them.
+- **Existing data changes state, once, on update.** A question a person asked (tier `user`) that an agent has ALREADY
+  closed before this update reads as `waiting` afterwards, not as closed: the rule is folded from the graph on every read,
+  so no migration runs and no line changes. Look for them with `mem questions` and close each with
+  `mem questions confirm <id> --authority user` (or leave it waiting). Questions asked by agents, and old ones without a
+  tier, are unaffected.
+- **What the headless guard is for.** It protects against accidental and injected writing (a watcher-woken or
+  reflector session, a prompt that talks an agent into claiming the person's word). It is not a defence against an agent
+  that has its own shell: whoever has a shell is a person for the CLI, as in `docs/security-model.md`.
+- **Counts.** Waiting questions are counted apart, beside `open` and never inside it: the per-project `waitingQuestions`
+  (full and compact build), the weekly metric `waitingQuestions` in the measurement series, and the board/work tiles.
+- **The button.** "Confirm answer" is a live button only where the dashboard has a password session (the same test as the
+  category clicks); otherwise it is shown disabled with the command to copy, instead of a click that ends in a 403.
+
 ### Security — second review of the shape rule (2026-10-12): one write gate, non-object lines, cache format 16
 
 Each finding was reproduced on the previous tip first (red), then fixed (green). `test/closing-why-gate.test.mjs`,

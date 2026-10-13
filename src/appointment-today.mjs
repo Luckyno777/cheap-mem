@@ -28,6 +28,7 @@ import * as memory from './memory.mjs';
 import * as cfgmod from './config.mjs';
 import * as A from './appointments.mjs';
 import * as tm from './appointment-time.mjs';
+import * as dueCore from './due.mjs';
 
 const NO_RESPONSE_MS = 2 * 3600000;
 /** The session-start line may carry at most this many bytes (a hook budget: one short line). */
@@ -68,24 +69,21 @@ function actionStates(root, state, nowMs, zone) {
   });
 }
 
-/** Open duties addressed to the human that have a date field ... or at least how many are open. */
-function dutiesSituation(root, dayText) {
+/**
+ * Open duties that are due today or overdue. The computation stands in the due-date core (src/due.mjs,
+ * `situationFromOpen`): this module guesses no field names any more. `withDate` counts the duties with a READABLE due
+ * value, `date` is the calendar day of the due date in the house zone.
+ */
+function dutiesSituation(root, nowMs, zone) {
   let open = [];
   try { open = memory.openDuties(root) ?? []; } catch { return { open: null, withDate: 0, due: [] }; }
   if (!Array.isArray(open)) open = open.open ?? [];
-  const due = []; let withDate = 0;
-  for (const p of open) {
-    let d = null;
-    for (const f of ['due', 'due_date', 'until', 'deadline']) {
-      const m = /^(\d{4}-\d{2}-\d{2})/.exec(String(p[f] ?? ''));
-      if (m) { d = m[1]; break; }
-    }
-    if (!d) continue;
-    withDate += 1;
-    if (d <= dayText) due.push({ id: p.id, title: String(p.title ?? p.text ?? '').slice(0, 120), date: d, overdue: d < dayText });
-  }
-  due.sort((a, b) => a.date.localeCompare(b.date));
-  return { open: open.length, withDate, due: due.slice(0, 8) };
+  const situation = dueCore.situationFromOpen(open, { now: nowMs, zone, title: (p) => String(p.title ?? p.text ?? '') });
+  const due = situation.list
+    .filter((x) => x.state === dueCore.STATE.DUE || x.state === dueCore.STATE.OVERDUE)
+    .map((x) => ({ id: x.id, title: x.title.slice(0, 120), date: x.day, overdue: x.state === dueCore.STATE.OVERDUE }));
+  due.sort((a, b) => a.date.localeCompare(b.date) || String(a.id).localeCompare(String(b.id)));
+  return { open: situation.open, withDate: situation.withDue - situation.unknown, due: due.slice(0, 8) };
 }
 
 /** Letters waiting for the human (without the calendar's own reminders). */
@@ -148,7 +146,7 @@ export function today(root, { now = Date.now(), state = null, zone = null } = {}
   return {
     day: dayText, weekday: WEEKDAY[f.weekday], dateText: dayText, zone: z,
     appointments: items, actions: items.filter((t) => t.wake),
-    duties: dutiesSituation(root, dayText), letters: waitingForHuman(root), yesterday,
+    duties: dutiesSituation(root, nowMs, z), letters: waitingForHuman(root), yesterday,
   };
 }
 
@@ -164,11 +162,12 @@ export function machine(h, { cap = null } = {}) {
     remindBeforeMin: t.beforeMin ?? null, wake: t.wake ?? null, state: t.state ?? null, status: t.status,
   });
   const appointments = h.appointments.map(item);
-  const empty = appointments.length === 0 && h.duties.due.length === 0 && !(h.letters.n > 0) && h.yesterday.length === 0;
+  const { due: dutiesDue } = h.duties; // the day list's own result (due today or overdue), not a duty's field
+  const empty = appointments.length === 0 && dutiesDue.length === 0 && !(h.letters.n > 0) && h.yesterday.length === 0;
   return {
     date: h.day, weekday: h.weekday, zone: h.zone, empty,
     appointments, actions: appointments.filter((t) => t.type === 'action'),
-    duties: { due: h.duties.due, open: h.duties.open, withDate: h.duties.withDate },
+    duties: { due: dutiesDue, open: h.duties.open, withDate: h.duties.withDate },
     letters: { waiting: h.letters.n, subjects: h.letters.subjects },
     yesterday: h.yesterday,
     ...(cap ? { cap } : {}),
@@ -192,10 +191,11 @@ export function briefingText(h, { late = null } = {}) {
     for (const t of h.actions) z.push(`- ${t.time} ${t.title} -> ${t.wake}: ${t.state ?? 'planned'}`);
   }
   z.push('');
+  const { due: dutiesDue } = h.duties; // the day list's own result (due today or overdue), not a duty's field
   if (h.duties.open === null) z.push('Duties: not readable.');
-  else if (h.duties.due.length) {
-    z.push(`Duties due today or overdue: ${h.duties.due.length} (of ${h.duties.open} open)`);
-    for (const p of h.duties.due) z.push(`- ${p.date}${p.overdue ? ' (overdue)' : ''} ${p.title} [${p.id}]`);
+  else if (dutiesDue.length) {
+    z.push(`Duties due today or overdue: ${dutiesDue.length} (of ${h.duties.open} open)`);
+    for (const p of dutiesDue) z.push(`- ${p.date}${p.overdue ? ' (overdue)' : ''} ${p.title} [${p.id}]`);
   } else {
     z.push(`Duties: ${h.duties.open} open, ${h.duties.withDate ? `${h.duties.withDate} with a date, none due today` : 'none carries a due date'}.`);
   }

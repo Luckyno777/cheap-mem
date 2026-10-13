@@ -58,6 +58,7 @@ import * as dashboardPage from '../src/dashboard-page.mjs';
 import * as entriesPage from '../src/entries-page.mjs';
 import * as dashboardData from '../src/dashboard-data.mjs';
 import * as dashboardCache from '../src/dashboard-cache.mjs';
+import * as dashboardLive from '../src/dashboard-live.mjs';
 import * as dashboardHead from '../src/dashboard-head.mjs';
 import * as dashboardPass from '../src/dashboard-pass.mjs';
 import * as fulltext from '../src/fulltext.mjs';
@@ -389,6 +390,10 @@ export function buildHandler(root, cfg, env = process.env) {
     // this size in the worker (heap cap): the compact build — not minutes and
     // gigabytes again with every rebuild.
     buildInBackground: async () => {
+      // board-width-fresh-cm: PROBES ONLY - a tiny probe store builds in milliseconds, a real one in 5-18 s; the pause
+      // (read at every build, so a probe can switch it on after priming) imitates the duration without a large store.
+      const pauseTest = Number(env.CHEAP_MEM_SERVE_BUILD_PAUSE_TEST_MS || 0);
+      if (pauseTest > 0) await new Promise((r) => { setTimeout(r, pauseTest).unref(); });
       const bytes = dashboardCache.storeBytes(root, { env });
       const b = bytes?.build ?? null;
       if (b !== null && b > fullBuildMax) return compactBuild(b);
@@ -545,6 +550,52 @@ export function buildHandler(root, cfg, env = process.env) {
   }
   const taskEndSeen = new Set(); // task ids whose end already invalidated the cache
   let dashText = null; // { key, plain, gzip() } — the last serialized text
+  // board-width-fresh-cm: the parts a write of the person's own made stale (`st.live.parts`), computed fresh and laid
+  // over the stored answer (src/dashboard-live.mjs) - once per state and write, never on a read without a write
+  // (`null`). A head from disk, a quick head and the placeholder get nothing laid on: they lack the lists, and the
+  // page asks again until the first build anyway.
+  let liveMemo = null; // { key, data, errors }
+  function liveOf(st) {
+    const parts = st.live?.parts ?? [];
+    if (!parts.length || st.source !== 'build' || st.data.light || st.data.placeholder) return null;
+    const key = `${st.id}|${st.live.key}`;
+    if (liveMemo?.key === key) return liveMemo;
+    const { data, errors } = dashboardLive.compute(root, st.data, parts, { env, now: new Date() });
+    liveMemo = { key, data, errors };
+    return liveMemo;
+  }
+  /**
+   * The cache part of an answer; a part that could not be computed fresh (`live.errors`, per part) or a throw of
+   * the laying-on itself (`thrown`, as `all`) puts the reason in `live_errors` - the page says it at the card.
+   * That part stays the stored one: never silently old, never a made-up fresh one.
+   */
+  function metaWithLiveErrors(st, live, thrown = null) {
+    const raw = { ...(live?.errors ?? {}), ...(thrown ? { all: thrown?.message || String(thrown) } : {}) };
+    // No server path in an answer (the same rule as /task.json): the memory root is written as <memory>.
+    const errors = Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, String(v).split(root).join('<memory>')]));
+    return Object.keys(errors).length ? { ...st.meta, live_errors: errors } : st.meta;
+  }
+  /** Lay the fresh sections over the head answer; the deferred lists stay deferred (path and count). */
+  function layLive(whole, st, live) {
+    for (const name of st.live.parts) {
+      if (Object.hasOwn(live.errors, name)) continue; // stays the stored one
+      for (const k of dashboardLive.PARTS[name]?.sections ?? []) {
+        const value = live.data[k];
+        const deferred = Object.entries(DEFERRED_PARTS).find(([, d]) => d.section === k);
+        if (!deferred) { whole[k] = value; continue; }
+        const [partName, d] = deferred;
+        const list = value?.[d.field];
+        if (d.readable(live.data) && Array.isArray(list)) {
+          const { [d.field]: _gone, ...rest } = value;
+          whole[k] = rest;
+          whole.parts = { ...whole.parts, [partName]: { ...(whole.parts?.[partName] ?? { path: `${dashboardPage.PATHS.part}?part=${partName}` }), count: list.length } };
+        } else {
+          whole[k] = value;
+          if (whole.parts?.[partName]) { const { [partName]: _w, ...rest } = whole.parts; whole.parts = rest; }
+        }
+      }
+    }
+  }
   const packedPerVersion = new Map(); // 'path:version' -> gzip of a page file (tempo)
   function dashboardAnswerText(st) {
     // dash-fix3 parity: append "live checked" (mcplive.mjs) and "client
@@ -597,11 +648,17 @@ export function buildHandler(root, cfg, env = process.env) {
     const catStamp = dashboardData.categoriesStamp(root);
     const key = JSON.stringify([st.id, mcpNew && {
       live: mcpNew.live, at: mcpNew.liveCheckedAt, reason: mcpNew.liveReason, seen: mcpNew.clientVisible,
-    }, st.meta, catStamp]);
+    }, st.meta, catStamp, st.live?.key ?? '']);
     if (dashText?.key === key) return dashText;
     const whole = mcpNew ? { ...data, catalog: { ...data.catalog, mcp: mcpNew } } : { ...data };
     try { if (whole.categories) whole.categories = dashboardData.categoriesLive(root, whole.categories); } catch { /* the stored state stays */ }
-    whole.cache = st.meta;
+    // board-width-fresh-cm: the parts of a write of the person's own, fresh (see liveOf).
+    let live = null; let thrown = null;
+    try {
+      live = liveOf(st);
+      if (live) layLive(whole, st, live);
+    } catch (e) { thrown = e; }
+    whole.cache = metaWithLiveErrors(st, live, thrown);
     const plain = JSON.stringify(whole);
     let packed = null;
     dashText = { key, plain, gzip: () => (packed ??= zlib.gzipSync(plain)) };
@@ -887,10 +944,15 @@ export function buildHandler(root, cfg, env = process.env) {
         // the page notice when a rebuild happened between two pages.
         found = { state: 'ok', part: name, ...dashboardHead.page(headOf(st).sorted, url.searchParams.get('from'), url.searchParams.get('n'), { total: headOf(st).total }), state_id: st.id, cache: st.meta };
       } else {
-        const list = partList(st.data, p);
-        found = p.readable(st.data) && Array.isArray(list)
-          ? { state: 'ok', part: name, data: list, cache: st.meta }
-          : { state: 'unknown', part: name, data: null, reason: (p.section && st.data[p.section]?.reason) || `${p.section ?? p.field} not readable`, cache: st.meta };
+        // board-width-fresh-cm: after a write of the person's own the list comes from the freshly computed parts.
+        let live = null; let thrown = null;
+        try { live = liveOf(st); } catch (e) { thrown = e; } // the stored state stays, the reason goes into live_errors
+        const source = live?.data ?? st.data;
+        const list = partList(source, p);
+        const cacheMeta = metaWithLiveErrors(st, live, thrown);
+        found = p.readable(source) && Array.isArray(list)
+          ? { state: 'ok', part: name, data: list, cache: cacheMeta }
+          : { state: 'unknown', part: name, data: null, reason: (p.section && source[p.section]?.reason) || `${p.section ?? p.field} not readable`, cache: cacheMeta };
       }
       const body = JSON.stringify(found);
       if (/\bgzip\b/.test(String(req.headers['accept-encoding'] ?? ''))) {
@@ -1090,6 +1152,7 @@ export function buildHandler(root, cfg, env = process.env) {
           short(res, 400, e?.message || String(e));
           return;
         }
+        dashCache.invalidate(dashboardLive.ROUTE_PARTS['/inbox/state']); // board-width-fresh-cm: the new state is fresh at once
         res.writeHead(303, { location: '/' }).end();
       });
       return;
@@ -1139,6 +1202,7 @@ export function buildHandler(root, cfg, env = process.env) {
         // Back to the dashboard: the only page there is (a CLOSED target,
         // never the submitted value — an open redirect target is how a
         // form field becomes a way to send someone somewhere else).
+        dashCache.invalidate(dashboardLive.ROUTE_PARTS['/setting']); // board-width-fresh-cm: the settings are fresh at once
         res.writeHead(303, { location: '/' }).end();
       });
       return;
@@ -1279,6 +1343,8 @@ export function buildHandler(root, cfg, env = process.env) {
             .end(JSON.stringify({ state: 'error', reason: result.defects.join('; ') }));
           return;
         }
+        // board-width-fresh-cm: a rated example must not come back in Today before the rebuild is through.
+        dashCache.invalidate(dashboardLive.ROUTE_PARTS[GOLD_VERDICT_PATH]);
         res.writeHead(201, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
           .end(JSON.stringify({ state: 'ok', written: true, id: result.row.id }));
       });
@@ -1329,6 +1395,7 @@ export function buildHandler(root, cfg, env = process.env) {
           short(res, 400, e?.message || String(e));
           return;
         }
+        dashCache.invalidate(dashboardLive.ROUTE_PARTS['/inbox/reply']); // board-width-fresh-cm: the reply is fresh at once
         // Redirect after writing, so a reload does not send it twice.
         // A CLOSED target, like `/setting`'s: the desk, nothing else.
         res.writeHead(303, { location: '/' }).end();
@@ -1448,7 +1515,7 @@ export function buildHandler(root, cfg, env = process.env) {
         if (found.running === false && !taskEndSeen.has(id)) {
           taskEndSeen.add(id);
           if (taskEndSeen.size > 500) taskEndSeen.delete(taskEndSeen.values().next().value);
-          dashCache.invalidate();
+          dashCache.invalidate(dashboardLive.partsForTask(found.kind)); // board-width-fresh-cm: the parts of this kind are fresh at once
         }
         const code = { ok: 200, warning: 200, unknown: 404, error: 500 }[found.state] ?? 500;
         res.writeHead(code, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })

@@ -139,6 +139,39 @@ export function installHook(root, dirOverride, { prePush = false } = {}) {
 }
 
 /**
+ * AU11: arm the hook from the installers (`mem init`, `mem setup claude`)
+ * instead of leaving it to a line of advice that must be followed by hand.
+ *
+ * Only when the memory IS a git repository on its own (the toplevel is the
+ * root - a memory nested in a bigger repo would change THAT repo's hooks) and
+ * `core.hooksPath` is not set yet. Whatever is set is left alone. Never throws:
+ * an installer must not die because the hook could not be armed; the result says
+ * what happened and what to do by hand.
+ *
+ * Returns `{ state: 'armed'|'already'|'not-a-repo'|'nested'|'failed', lines }`.
+ */
+export function armHookIfRepo(root) {
+  const run = (...a) => {
+    try { return execFileSync('git', ['-C', root, ...a], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); }
+    catch { return null; }
+  };
+  const top = run('rev-parse', '--show-toplevel');
+  if (top === null || top === '') return { state: 'not-a-repo', lines: [] };
+  let sameDir = false;
+  try { sameDir = fs.realpathSync(top) === fs.realpathSync(root); } catch { sameDir = false; }
+  if (!sameDir) {
+    return { state: 'nested', lines: [`git hook NOT armed: the memory sits inside the repository ${top}; arm it yourself if that is meant: mem hooks install`] };
+  }
+  const set = run('config', '--get', 'core.hooksPath');
+  if (set) return { state: 'already', lines: [`git hook already set (core.hooksPath = ${set}), left alone`] };
+  let r;
+  try { r = installHook(root, null); }
+  catch (e) { return { state: 'failed', lines: [`git hook NOT armed (${e.message}); by hand: mem hooks install`] }; }
+  if (!r.ok) return { state: 'failed', lines: [...r.lines, 'git hook NOT armed; by hand: mem hooks install'] };
+  return { state: 'armed', lines: ['git hook armed (secret check + append-only check):', ...r.lines.map((l) => `  ${l}`)] };
+}
+
+/**
  * Prove the hook fires, using a decoy secret in a THROWAWAY index.
  * Neither the real index nor the history is touched.
  *

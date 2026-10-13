@@ -62,6 +62,7 @@ import * as injection from './injection.mjs';
 import * as questiontext from './questiontext.mjs';
 import * as contract from './integrationcontract.mjs';
 import * as workflowdetect from './workflowdetect.mjs';
+import * as appendonly from './appendonly.mjs';
 import * as snippet from './snippet.mjs';
 import * as categories from './categories.mjs';
 import * as errorfixes from './errorfixes.mjs';
@@ -3185,16 +3186,12 @@ export function checkAppendOnlyGit(root) {
 
     // core.autocrlf on a Windows checkout: the blob is LF, the working
     // file CRLF. Line endings are not an edit of a line. (UNVERIFIED.)
-    current = current.replace(/\r\n/g, '\n');
-    const committedLf = committed.replace(/\r\n/g, '\n');
+    // The rule (prefix after folding CRLF) lives in src/appendonly.mjs and is the
+    // same one the pre-commit hook applies to the index (AU11): one truth.
     checked += 1;
-    if (current.startsWith(committedLf)) continue;   // only appended — good
-
-    const oldLines = committedLf.split('\n');
-    const newLines = current.split('\n');
-    let bad = 1;
-    while (bad <= oldLines.length && newLines[bad - 1] === oldLines[bad - 1]) bad += 1;
-    errors.push({ rel: f.rel, line: bad });
+    const verdict = appendonly.onlyAppended(committed, current);
+    if (verdict.ok) continue;   // only appended - good
+    errors.push({ rel: f.rel, line: verdict.line });
   }
 
   const cappedNote = capped.length ? `, ${capped.length} file(s) skipped (over ${

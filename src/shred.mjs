@@ -240,6 +240,10 @@ export const SHREDDABLE_FIELDS = Object.freeze([
  *  prose to know which ones matter. */
 export const NEVER_ENCRYPT = Object.freeze([
   'id', 'ts', 'v', 'agent', 'project', 'shredded_of', 'shredded_reason',
+  // Q1 (owner decision 2026-10-12, 2j9kw9bic5b9): the due date of an encrypted duty stays READABLE, like a "private
+  // appointment" - without it nobody could say THAT something is overdue. Title and text stay in the body. `due` is
+  // not a body field, so it is not in SHREDDABLE_FIELDS either; the entry here makes the promise explicit and testable.
+  'due',
 ]);
 
 export function keyringPath(root) {
