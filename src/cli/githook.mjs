@@ -158,8 +158,8 @@ export function armHookIfRepo(root) {
   const top = run('rev-parse', '--show-toplevel');
   if (top === null || top === '') return { state: 'not-a-repo', lines: [] };
   let sameDir = false;
-  // `.native` asks the operating system: it resolves a Windows 8.3 short name (C:\Users\RUNNER~1) to the long name git
-  // reports for the toplevel (C:/Users/runneradmin), which the JS `realpathSync` leaves as written. With the plain call
+  // `.native` asks the operating system: it resolves a Windows 8.3 short name (RUNNER~1) to the long name git
+  // reports for the toplevel (runneradmin), which the JS `realpathSync` leaves as written. With the plain call
   // the memory looked "nested" in its own repository there and the hook was never armed (CI run 912, AU11).
   try { sameDir = fs.realpathSync.native(top) === fs.realpathSync.native(root); } catch { sameDir = false; }
   if (!sameDir) {

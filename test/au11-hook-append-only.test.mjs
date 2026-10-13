@@ -46,7 +46,7 @@ function gitOk(x, cwd, ...a) { const r = git(x, cwd, ...a); assert.equal(r.statu
 const mem = (x, cwd, ...a) => sh(x.env, cwd, 'node', [MEM, ...a]);
 // The folder the installer arms, compared as the SAME folder rather than as the same text: the memory's root comes from
 // the process working directory, which the system spells in its canonical form (macOS /var -> /private/var, a Windows
-// 8.3 name C:\\Users\\RUNNER~1 -> runneradmin), while the test built `dir` from os.tmpdir().
+// 8.3 name RUNNER~1 -> runneradmin), while the test built `dir` from os.tmpdir().
 const armedDir = (dir) => path.join(dir, '.mem', 'hooks');
 const sameFolderAs = (actual, expected) => actual !== '' && fs.realpathSync.native(actual) === fs.realpathSync.native(expected);
 const hooksPath = (x, dir) => git(x, dir, 'config', '--local', '--get', 'core.hooksPath').stdout.trim();

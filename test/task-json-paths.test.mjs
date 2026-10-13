@@ -137,8 +137,8 @@ test('tasks.read: a symlinked root (the child reports the real path) and both se
 // --- Windows spellings, proven on every host with path.win32 (CI run 888: the tasks.read test failed on Windows only) ----------------
 
 test('scrubServerPaths: a Windows root and code folder in every spelling the child may report', () => {
-  const root = 'C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\cm-taskpaths-abc';
-  const longRoot = 'C:\\Users\\runneradmin\\AppData\\Local\\Temp\\cm-taskpaths-abc';
+  const root = 'C:\\profiles\\RUNNER~1\\Temp\\cm-taskpaths-abc';
+  const longRoot = 'C:\\profiles\\runneradmin\\Temp\\cm-taskpaths-abc';
   const code = 'D:\\a\\cheap-mem\\cheap-mem';
   const realpaths = (dir) => (dir === root ? [root, longRoot] : [dir]);
   const folders = [[root, '<root>'], [code, '<code>']];
