@@ -15,6 +15,10 @@
 //              (`src/embed/loopback.mjs`); the SIIT form `::ffff:0:a.b.c.d` and its relatives are refused, the real
 //              loopback spellings pass. cheap-mem has no feed fetcher at all (see test/network-allowlist.test.mjs:
 //              nothing in `src/`/`bin/` resolves a foreign name or opens an outbound HTTP connection).
+//   A5  / F05  The bridge keeps no "already shown" memory per process: several clients of one stateless bridge get the
+//              same answers (lm: the card set of `mem_aufgabe` was remembered per process and root, so a second chat
+//              got nothing). cheap-mem has no such tool; its recall dedupe lives in files keyed by the client's session
+//              (src/recallhook.mjs `claimTurn`), not in the bridge process.
 //   A8  / F14  The body limit of the bridge is cheap-mem's OWN (1 MiB, counted in bytes, answered 413), not the
 //              SDK's default: it holds whichever SDK version is installed. Probed on the wire.
 //
@@ -299,4 +303,64 @@ test('A8/F14: the bridge answers 413 above 1 MiB and passes exactly 1 MiB on to 
   const src = fs.readFileSync(MCP, 'utf8');
   assert.match(src, /transport\.handleRequest\(req, res, body\)/, 'the bridge must hand its own, already bounded, body to the transport');
   assert.match(src, /size > 1024 \* 1024/, 'the bounded reader must still be there');
+});
+
+// --- A5/F05: no per-process "already shown" state in the stateless bridge ----------------------------------------
+
+test('A5/F05: several clients of one stateless bridge get the same answers to the same question, every time', async (t) => {
+  const root = memoryRoot(t);
+  memory.logEntry(root, 'learning', { title: 'zebrafinch swirl needs a lock', text: 'the zebrafinch swirl in the mirror hall needs a lock file before the second start' });
+  const port = await freePort();
+  let err = '';
+  const child = spawn(process.execPath, [MCP, '--http'], {
+    cwd: ROOT, stdio: ['ignore', 'ignore', 'pipe'],
+    env: { ...process.env, CHEAP_MEM_ROOT: root, CHEAP_MEM_MCP_PORT: String(port) },
+  });
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', (c) => { err += c; });
+  t.after(() => { if (child.exitCode === null) child.kill('SIGTERM'); });
+  const until = Date.now() + 15000;
+  while (Date.now() < until && child.exitCode === null) {
+    if (/ 200 /.test(await wire(port, 'GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n'))) break;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  let id = 0;
+  const call = (client, name, args) => new Promise((resolve, reject) => {
+    const body = JSON.stringify({ jsonrpc: '2.0', id: ++id, method: 'tools/call', params: { name, arguments: args } });
+    const q = http.request({
+      host: '127.0.0.1', port, path: '/mcp', method: 'POST',
+      // A different "client" each time: its own connection (agent: false) and its own identity headers.
+      agent: false,
+      headers: { host: '127.0.0.1', accept: 'application/json, text/event-stream', 'content-type': 'application/json', 'user-agent': client, 'mcp-session-id': `${client}-session` },
+    }, (r) => {
+      let text = '';
+      r.setEncoding('utf8');
+      r.on('data', (c) => { text += c; });
+      r.on('end', () => { try { resolve(JSON.parse(text)); } catch { reject(new Error(`not JSON (${r.statusCode}): ${text.slice(0, 200)} ${err}`)); } });
+    });
+    q.on('error', reject);
+    q.end(body);
+  });
+  const textOf = (r) => JSON.stringify(r.result?.structuredContent ?? r.result?.content ?? r.error);
+  for (const [tool, args] of [
+    ['mem_retrieve', { query: 'zebrafinch swirl mirror hall lock' }],
+    ['mem_find', { query: 'zebrafinch swirl mirror hall lock' }],
+  ]) {
+    const answers = [];
+    for (const client of ['chat-one', 'chat-two', 'chat-three', 'chat-one']) answers.push(textOf(await call(client, tool, args)));
+    assert.match(answers[0], /zebrafinch/, `positive control: ${tool} finds the entry at all (${answers[0].slice(0, 200)})`);
+    for (let i = 1; i < answers.length; i += 1) {
+      // Compare without the timing fields that legitimately differ between calls.
+      const norm = (a) => a.replace(/"(?:duration|elapsed|took)[A-Za-z_]*":\s*[\d.]+/g, '');
+      assert.equal(norm(answers[i]), norm(answers[0]), `${tool}: client #${i + 1} got another answer than the first one`);
+    }
+  }
+});
+
+test('A5/F05: bin/mem-mcp holds no module-level collection that could remember what one client was shown', () => {
+  const src = fs.readFileSync(MCP, 'utf8');
+  const holder = /^(?:const|let|var)\s+\w+\s*=\s*new\s+(?:Map|Set|WeakMap|WeakSet)\b/m;
+  // Positive control: the pattern does see the shape that lm's GEZEIGT_AUFGABE had.
+  assert.match('const SHOWN_TASK = new Map();\n', holder);
+  assert.doesNotMatch(src, holder, 'a process-wide Map/Set in the bridge: it would be shared by every client of the stateless bridge');
 });
