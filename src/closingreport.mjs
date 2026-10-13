@@ -94,7 +94,10 @@ export function dutiesOfSession(root, startMs) {
 
 /** The report text, capped. */
 export function reportText(list) {
-  const names = list.slice(0, NAMES_MAX).map((p) => `${p.id} ${short(p.title, 60)}`).join('; ');
+  // H11: a card somebody WROTE (on the entry or on the card shelf) names the duty by its question; a fallback card is machine-made
+  // from the title and says nothing the title does not.
+  const nameOf = (p) => (p.card && p.card.origin?.stage !== 'fallback' ? p.card.question : p.title);
+  const names = list.slice(0, NAMES_MAX).map((p) => `${p.id} ${short(nameOf(p), 60)}`).join('; ');
   const rest = list.length - Math.min(list.length, NAMES_MAX);
   const head = `Open duties from this session (${list.length}): ${names}${rest > 0 ? ` (+${rest} more)` : ''}`;
   const lines = `${head}\nLook: mem duties`.split('\n').slice(0, MAX_LINES).join('\n');

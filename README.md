@@ -509,6 +509,7 @@ your-memory/
     links.jsonl            a typed relation between two entries
     workflows.jsonl        a named sequence (issued by a person only)
     snippets.jsonl         a reusable block with {{PLACEHOLDERS}}
+    cards.jsonl            decision cards for targets (question, context, options with effects); not searched
   projects/<name>/         same shape, per project
   inbox/                   messages between sessions (git-synced)
   raw/YYYY/MM/*.jsonl.gz   captured transcripts, redacted
@@ -683,7 +684,8 @@ mem merge <id> <id> ...            merge entries of one drawer (append-only)
 mem when "<time expression>"       time-range recall, no model
 mem component <path>               everything about ONE file
 mem topic-merge <old> --to <new>   fold topics; applied on read, nothing rewritten
-mem questions / mem answer <q> --with <entry>   what we do not know, and closing it (a person's question: `mem questions confirm`)
+mem questions / mem answer <q> --with <entry>   what we do not know, and closing it (a person's question: `mem questions confirm`; `--who` names who it goes to)
+mem card add|list                  a decision card for what a person is to decide: question, context, options with effects (docs/CAPABILITIES.md 10.31)
 mem procedures / mem teach         recorded steps; what a newcomer needs to hear
 mem sources add|bridge|list        where a claim came from
 mem store put|list|get|verify      files the memory keeps by hash

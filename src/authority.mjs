@@ -66,6 +66,16 @@ export function authorOf(entry) {
   return entry?.author ?? entry?.agent ?? entry?.origin?.agent ?? null;
 }
 
+/**
+ * Is this author name a person? `owner` is the role in the inbox, `human:<name>` the origin the CLI stamps for a shell
+ * (`memory.agentDefault`). The ONE rule (`procedure.isHuman` and the card check read it from here); an agent name never
+ * counts. Not a proof - a name is a field in a file - but the line an agent has to forge to claim it.
+ */
+export function isHumanName(name) {
+  const n = String(name ?? '').trim();
+  return n === 'owner' || /^human:[^\s]+$/.test(n);
+}
+
 /** Is `a` strictly more entitled than `b`? */
 export function outranks(a, b) {
   return rank(a) < rank(b);

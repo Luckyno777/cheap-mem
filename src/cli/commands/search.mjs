@@ -139,7 +139,7 @@ export const COMMANDS = {
         '             1 % of the last one shown comes along (at most one more than --top).',
         '             Switch for the frame: MEM_RETRIEVE_REQUEST_FRAME. A plain `mem find',
         '             --top N` stays exactly N.',
-        `  --type     one of ${Object.keys(memory.TYPES).join(', ')}`,
+        `  --type     one of ${memory.SEARCH_TYPES.join(', ')} (cards are not searched: mem card list)`,
         '  --category only entries whose topic is assigned to this category',
         '             (confirmed or proposal; see `mem category list`)',
       ].join('\n'));
@@ -152,6 +152,12 @@ export const COMMANDS = {
     const cfg = requireConfig(root);
     let query = rest[0];
     if (!query) die("find: no query. Example: mem find 'flaky ci'");
+    // Cards are not in the search index (`memory.SEARCH_TYPES`): say where they stand instead of a silent "nothing found".
+    if (args.type === 'card') {
+      const hint = 'Cards are not in the search index: mem card list (or mem show <card-id>)';
+      out(args.json ? JSON.stringify({ query, ms: 0, asOf: null, hits: [], hint }) : hint);
+      return;
+    }
     // The gate below (M16 port) reads the text exactly as it arrived —
     // before --content-words may shorten it to a rarity-ranked word list,
     // which would throw away the very tag a harness wrapper starts with.
@@ -213,7 +219,7 @@ export const COMMANDS = {
     }
 
     if (args.literal) {
-      const types = args.type ? [args.type] : Object.keys(memory.TYPES);
+      const types = args.type ? [args.type] : memory.SEARCH_TYPES;
       // issue #136: `memory.find` now requires a real Capability instead
       // of a hand-built drawer list. Minted exactly the way `mem
       // retrieve`/the ranked branch below already do: a real project

@@ -311,6 +311,10 @@ const WEIGHT_BY_FIELD = Object.freeze({
   // (that is the title).
   steps: 1.0,
   body: 1.0,
+  // The decision card on an entry (H11, src/decisioncard.mjs): its question names what the entry is about, its context is prose
+  // like `text`. Findable like any other content of the entry.
+  card_question: 1.5,
+  card_context: 1.0,
 });
 
 export const FIELD_WEIGHTS = (() => {
@@ -843,7 +847,7 @@ function buildLexicon(rawEntries, langPack) {
  */
 export function buildIndex(root, { types = null, language = 'en' } = {}) {
   const lang = pack(language);
-  const targetTypes = types ?? Object.keys(memory.TYPES);
+  const targetTypes = types ?? memory.SEARCH_TYPES;
   const rawEntries = [];
 
   for (const project of [null, ...memory.listProjects(root)]) {
@@ -2118,7 +2122,7 @@ export function corpusGeneration(root, { types = null } = {}) {
 
 export function indexedFiles(root, { types = null } = {}) {
   const out = new Map();
-  const targetTypes = types ?? Object.keys(memory.TYPES);
+  const targetTypes = types ?? memory.SEARCH_TYPES;
   for (const project of [null, ...memory.listProjects(root)]) {
     for (const type of targetTypes) {
       let p;
@@ -2150,7 +2154,7 @@ export function corpusStamp(root) {
     if (st.mtimeMs > newest) newest = st.mtimeMs;
   };
   for (const project of [null, ...memory.listProjects(root)]) {
-    for (const type of Object.keys(memory.TYPES)) {
+    for (const type of memory.SEARCH_TYPES) {
       try { visit(memory.logPath(root, type, project)); } catch { /* skip */ }
     }
   }

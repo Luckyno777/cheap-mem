@@ -95,7 +95,7 @@ let guardOutput = false;
 const READ_COMMANDS = new Set([
   'find', 'find-embed', 'find-hybrid', 'retrieve', 'explain', 'when', 'show', 'browse', 'topics', 'topic',
   'context', 'digest', 'core', 'workflow', 'snippet', 'links', 'facts', 'experiences', 'duties', 'deadlines',
-  'procedures', 'today', 'board', 'questions', 'error-fixes', 'component', 'viewer', 'raw', 'user',
+  'procedures', 'today', 'board', 'questions', 'error-fixes', 'component', 'viewer', 'raw', 'user', 'card',
 ]);
 /** Switch the output guard on for a read command (bin/mem calls this once, before the handler). */
 export function guardOutputFor(command) { guardOutput = READ_COMMANDS.has(command); }

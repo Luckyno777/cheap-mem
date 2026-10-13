@@ -73,6 +73,9 @@ import * as raw from './raw.mjs';
 import * as modelcost from './modelcost.mjs';
 import * as effect from './effect.mjs';
 import * as today from './today.mjs';
+import * as decisioncard from './decisioncard.mjs';
+import * as cardstore from './cardstore.mjs';
+import * as cardfeed from './cardfeed.mjs';
 import * as release from './release.mjs';
 import * as checkrecord from './checkrecord.mjs';
 import * as latencybudget from './latencybudget.mjs';
@@ -855,20 +858,37 @@ export function collectDashboard(root, {
   });
 
   // --- 3. work: what is open is decided by memory/question, not here ----
+  // H11: the card shelf ONCE for every list below; not readable -> `cards.readable` false, fallback cards, and the reason says so.
+  const shelf = cardstore.readCards(root);
+  const shelfState = cardstore.stateOf(shelf);
+  reasons.push(...cardstore.reasonsOf(shelfState));
+  const cardContext = { cards: shelf.cards };
+  const alloc = cardfeed.allocation(root);
   const openDuties = [];
   const openQuestions = [];
   try {
     for (const p of dutiesOpen(root).open) {
-      if (p?.id) openDuties.push({ id: p.id, who: p.who ?? p.owner ?? p.to ?? null, due: dueCore.dueText(p) });
+      if (!p?.id) continue;
+      const who = p.who ?? p.owner ?? p.to ?? null;
+      openDuties.push({
+        id: p.id, who, due: dueCore.dueText(p),
+        card: alloc.card('openDuties', who, () => decisioncard.cardOf(p, { type: 'duty', context: cardContext })),
+      });
     }
   } catch (e) { reasons.push(`duties not readable: ${e?.message || e}`); }
+  // A question row: its id, its addressee `who` and the card. The compact build hands the snapshot of the question along.
+  const questionPost = (q, list) => {
+    const e = q.snapshot ?? q;
+    const who = question.whoOf(e);
+    return { id: q.id, who, card: alloc.card(list, who, () => decisioncard.cardOf(e, { type: 'question', context: cardContext })) };
+  };
   try {
-    for (const q of questionsOpen(root)) if (q?.id) openQuestions.push({ id: q.id });
+    for (const q of questionsOpen(root)) if (q?.id) openQuestions.push(questionPost(q, 'openQuestions'));
   } catch (e) { reasons.push(`questions not readable: ${e?.message || e}`); }
   // Answered, waiting for the person who asked (a question of tier user with only agent answers).
   const waitingQuestions = [];
   try {
-    for (const q of questionsWaiting(root)) if (q?.id) waitingQuestions.push({ id: q.id });
+    for (const q of questionsWaiting(root)) if (q?.id) waitingQuestions.push(questionPost(q, 'waitingQuestions'));
   } catch (e) { reasons.push(`waiting questions not readable: ${e?.message || e}`); }
 
   // --- 4. the raw capture: the old desk's four-state review + topics ------
@@ -1015,6 +1035,10 @@ export function collectDashboard(root, {
     openDuties,
     openQuestions,
     waitingQuestions,
+    // H11: the state of the card shelf (readable, or unknown with a reason — never "no cards"), and what the cap of 200 cards per
+    // list left out, counted.
+    cards: shelfState,
+    cards_omitted: alloc.omitted,
     agents: d.agents,
     bell,
     humanTray: tray,
