@@ -352,8 +352,16 @@ test('cosmetic: a file whose name starts with two dots is inside the intake fold
 test('CHEAP_MEM_STORE_INTAKE takes absolute paths only: a relative entry is ignored, and the refusal says so', (t) => {
   const { root, outside } = intakeWorld(t);
   fs.writeFileSync(path.join(outside, 'x.txt'), 'x\n');
-  const rel = path.relative(process.cwd(), outside); // rel-ok: handed straight back to path APIs on this host, never stored or compared as a key
+  // A relative entry that WOULD resolve to `outside` if it were honoured: stand in its parent and name
+  // it by its last segment. `path.relative(process.cwd(), outside)` is not a way to get one: on Windows
+  // the temp folder (C:) and the checkout (D:) are on different drives, and there `path.relative`
+  // answers with the absolute target itself (CI run 888, test 633).
+  const here = process.cwd();
+  process.chdir(path.dirname(outside));
+  t.after(() => process.chdir(here));
+  const rel = path.basename(outside);
   assert.ok(!path.isAbsolute(rel));
+  assert.equal(fs.realpathSync.native(path.resolve(rel)), fs.realpathSync.native(outside), 'honoured, the entry would open the outside folder');
   assert.deepEqual(store.intakeDirs(root, { [store.INTAKE_ENV]: rel }), [path.join(root, 'store', 'intake')]);
   assert.throws(() => store.intakeFile(root, path.join(outside, 'x.txt'), { [store.INTAKE_ENV]: rel }), /Ignored \(a relative path/);
   assert.doesNotThrow(() => store.intakeFile(root, path.join(outside, 'x.txt'), { [store.INTAKE_ENV]: outside }));

@@ -219,7 +219,14 @@ jobs:
         run: |
           set -o pipefail
           # Red probes are named as annotations here too (see the tests job).
-          npx c8 --reporter=text-summary node --test --test-timeout=900000 2>&1 | tee /tmp/cov.txt || {
+          #
+          # --merge-async: c8 reads the raw V8 coverage of every child process (one file per node process; this
+          # suite starts about 8,000 of them, 3 GB together, measured 2026-10-13) either all at once into one
+          # array (the default: 5.1 GB peak RSS when measured, and on this runner node's 4 GB heap limit: the
+          # "JavaScript heap out of memory" of run 888, after the last test had passed) or one file at a time,
+          # merged as it goes (174 MB). The same suite gives the same statement figure either way (91.36 %, 84092 of 92035); the
+          # branch total differs in the third digit, and nothing here reads it. The floor below is untouched.
+          npx c8 --merge-async --reporter=text-summary node --test --test-timeout=900000 2>&1 | tee /tmp/cov.txt || {
             rc=$?
             grep -E '^ *not ok [0-9]+ - ' /tmp/cov.txt | head -40 \
               | sed -E 's/^ *not ok [0-9]+ - /::error::red probe: /' || true

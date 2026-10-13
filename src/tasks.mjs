@@ -863,22 +863,52 @@ export async function cancel(root, kind, context = {}) {
  * (command, result, reason, progress), nested objects and lists too; other types pass unchanged.
  */
 function withoutServerPaths(root, value) {
-  // Every spelling of the two folders: as given, as the file system names them (a symlinked root: the child reports the real
-  // path), and with either separator (a Windows path with `/`, a POSIX one with `\\`). The longer path first, so a root inside
-  // the code folder (or the other way round) is not replaced by halves.
+  return scrubServerPaths(value, [[root, '<root>'], [path.join(HERE, '..'), '<code>']]);
+}
+
+/**
+ * The real paths of a folder, every way this host can name it: `realpathSync` keeps what the caller wrote (a Windows
+ * 8.3 short name such as RUNNER~1 stays), `.native` asks the operating system, which answers with the long name a child
+ * process reports. Both are asked; one that fails (the folder is gone) is left out.
+ * Open: the reverse way (only the LONG name is known, the child reports the SHORT 8.3 form) is not covered; nothing
+ * here can derive a short name from a long one, and no run has shown it.
+ * @param {string} dir
+ * @param {Array<(d: string) => string>} [lookups]
+ */
+export function realpathsOf(dir, lookups = [fs.realpathSync, fs.realpathSync.native]) {
+  const out = [];
+  for (const f of lookups) { try { out.push(f(dir)); } catch { /* not there (any more) */ } }
+  return out;
+}
+
+/**
+ * The pure part of `withoutServerPaths`, with the platform injectable so a Linux run can prove the Windows behaviour
+ * (`path.win32`, a stub for the real path, case-insensitive matching).
+ *
+ * Every spelling of each folder is swapped for its mark: as given, as the file system names it (a symlinked root: the child
+ * reports the real path; on Windows also the long form of an 8.3 short name), and with either separator (a Windows path
+ * with `/`, a POSIX one with `\\`). Windows paths do not care about case, so there the match does not either (`d:\a` and
+ * `D:\a` are one folder). The longer path goes first, so a root inside the code folder (or the other way round) is not
+ * replaced by halves.
+ * @param {*} value strings anywhere in it are scrubbed; other types pass unchanged
+ * @param {Array<[string, string]>} folders [directory, mark]
+ * @param {{ pathApi?: typeof path, realpaths?: (dir: string) => string[], platform?: string, caseless?: boolean }} [opt]
+ *   `caseless` overrides the platform's own rule (win32 matches without regard to case)
+ */
+export function scrubServerPaths(value, folders, { pathApi = path, realpaths = realpathsOf, platform = process.platform, caseless = platform === 'win32' } = {}) {
   const spellings = (dir, mark) => {
-    const given = path.resolve(dir);
-    let real = given;
-    try { real = fs.realpathSync(given); } catch { /* not there (any more): the given spelling alone */ }
+    const given = pathApi.resolve(dir);
     const out = new Set();
-    for (const p of [given, real]) for (const q of [p, p.replace(/[\\/]/g, '\\'), p.replace(/[\\/]/g, '/')]) out.add(q);
+    for (const p of [given, ...realpaths(given)]) for (const q of [p, p.replace(/[\\/]/g, '\\'), p.replace(/[\\/]/g, '/')]) out.add(q);
     return [...out].map((from) => [from, mark]);
   };
-  const swaps = [...spellings(root, '<root>'), ...spellings(path.join(HERE, '..'), '<code>')]
-    .filter(([from]) => from.length > path.parse(from).root.length) // never the bare drive root: that would eat every separator
-    .sort((a, b) => b[0].length - a[0].length);
+  const swaps = folders.flatMap(([dir, mark]) => spellings(dir, mark))
+    .filter(([from]) => from.length > pathApi.parse(from).root.length) // never the bare drive root: that would eat every separator
+    .sort((a, b) => b[0].length - a[0].length)
+    .map(([from, to]) => [caseless ? new RegExp(from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi') : from, to]);
+  const swap = (t, [from, to]) => (typeof from === 'string' ? t.split(from).join(to) : t.replace(from, () => to));
   const walk = (v) => {
-    if (typeof v === 'string') return swaps.reduce((t, [from, to]) => t.split(from).join(to), v);
+    if (typeof v === 'string') return swaps.reduce(swap, v);
     if (Array.isArray(v)) return v.map(walk);
     if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x)]));
     return v;
