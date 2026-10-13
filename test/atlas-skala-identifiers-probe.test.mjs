@@ -132,7 +132,18 @@ test('skala (quick, two small rungs): the records are all there, nothing is sile
     const cand = byId.get(`skala.rung${n}.candidates`);
     assert.ok(cand.measured.documents >= n, 'the scan visits every document');
     assert.ok(Number.isFinite(cand.measured.scored[0]));
-    assert.ok(Number.isFinite(byId.get(`skala.rung${n}.peak-rss`).measured.build), 'the peak RSS of the build');
+    // The build's peak comes from /proc (VmHWM): Linux only. Where it cannot be read the record
+    // must say so (not-measured, with the reason) instead of carrying a number it did not measure.
+    const rss = byId.get(`skala.rung${n}.peak-rss`);
+    if (process.platform === 'linux') {
+      assert.ok(Number.isFinite(rss.measured.build), 'the peak RSS of the build');
+    } else if (rss.measured.build == null) {
+      assert.notEqual(rss.verdict, VERDICT.PASS, `${rss.id}: a pass without the build's peak`);
+      assert.match(rss.evidence, /not measurable here/);
+      assert.ok(atlas.blindSpots.some((b) => b.what.includes('build\'s peak RSS')), 'the missing build peak is a named blind spot');
+    } else {
+      assert.ok(Number.isFinite(rss.measured.build), 'the peak RSS of the build');
+    }
     assert.ok(byId.get(`skala.rung${n}.index-bytes`).measured.indexBytes > 0);
   }
   for (const g of ['find-lines-read', 'find-corpus-bytes-read', 'find-index-bytes-read', 'candidates', 'peak-rss']) {
@@ -146,6 +157,28 @@ test('skala (quick, two small rungs): the records are all there, nothing is sile
   }
   assert.ok(atlas.blindSpots.some((b) => b.what.includes('100000')), 'the missing 100k rung is a named blind spot');
   assert.ok(atlas.blindSpots.some((b) => /recall server/.test(b.what)));
+});
+
+test('judgePeakRss: a build peak that could not be read is not-measured, never a pass and never invented', () => {
+  const others = { find: 80, context: 70, hook: null, loadProbe: 90 };
+  // The shape of macOS and Windows: no /proc, so the build figure is null.
+  for (const platform of ['darwin', 'win32']) {
+    const j = skala.judgePeakRss({ build: null, ...others }, 500, platform);
+    assert.equal(j.verdict, VERDICT.NOT_MEASURED, platform);
+    assert.equal(j.buildMeasured, false);
+    assert.equal(j.peakMax, null, 'the smaller processes are not passed off as the largest');
+    assert.match(j.evidence, new RegExp(`not measurable here.*${platform}`));
+    assert.match(j.actual, /not measurable/);
+  }
+  // A measured process over the bound is a fail whatever the build did.
+  assert.equal(skala.judgePeakRss({ build: null, ...others, find: 900 }, 500, 'darwin').verdict, VERDICT.FAIL);
+  // Linux: all measured, under the bound is a pass; over it is a fail.
+  assert.equal(skala.judgePeakRss({ build: 300, ...others }, 500, 'linux').verdict, VERDICT.PASS);
+  assert.equal(skala.judgePeakRss({ build: 700, ...others }, 500, 'linux').verdict, VERDICT.FAIL);
+  // Nothing read at all stays not-measured.
+  assert.equal(skala.judgePeakRss({ build: null, find: null, context: null, hook: null, loadProbe: null }, 500, 'linux').verdict, VERDICT.NOT_MEASURED);
+  // Zero is a number: a build that read 0 is not "missing".
+  assert.equal(skala.judgePeakRss({ build: 0, ...others }, 500, 'linux').buildMeasured, true);
 });
 
 test('skala refuses a rung above the container limit instead of building it, and says so', { timeout: 120000 }, async () => {
