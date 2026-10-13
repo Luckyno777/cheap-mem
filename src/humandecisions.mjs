@@ -28,6 +28,7 @@ import * as cardstore from './cardstore.mjs';
 import * as decisioncard from './decisioncard.mjs';
 import * as question from './question.mjs';
 import * as addressee from './addressee.mjs';
+import { safeText } from './deadlines.mjs';
 
 /** The shelf as the callers want it: handed in, else read here; not readable gives an empty one (every item gets its fallback card). */
 function shelfOf(root, cards) {
@@ -35,12 +36,34 @@ function shelfOf(root, cards) {
   try { return cardstore.latestCards(root); } catch { return new Map(); }
 }
 
+/** A decision's title is shown up to this many characters (after the mask). */
+const TITLE_SHOWN = 200;
+
+/** The moment a due value is overdue from, in ms; null when it cannot be read (the core says so, nothing is guessed here). */
+function dueAtOf(value, zone) {
+  const p = dueCore.parseDue(value, { zone });
+  return p.ok ? p.overdueFromMs : null;
+}
+
+/** The duty fold, read: `memory.openDuties()`. THROWS when the drawers cannot be read. */
+function readFold(root) { return memory.openDuties(root); }
+
+/** A fold handed in by the caller (it read the drawers ONCE for the whole day result): `{ open }`, or `{ error }` when that read failed. */
+function foldOrThrow(fold) {
+  if (fold?.error) throw fold.error instanceof Error ? fold.error : new Error(String(fold.error));
+  if (!Array.isArray(fold?.open)) throw new Error('no duty fold handed in');
+  return fold;
+}
+
 /**
  * Open duties addressed to the human, oldest first, each `{id, title, due, since, card}`. `human` names him (else the configured
- * one). `cards`: the shelf (Map target_id -> card), handed in to be read once per result.
+ * one). `cards`: the shelf (Map target_id -> card), handed in to be read once per result. `fold`: the open duties
+ * (`memory.openDuties()`, or `{ error }` when that read failed) that the caller already read, so one day result passes over the
+ * duty drawer ONCE (`today.today`); without it the drawer is read here. `now` and `zone`: with both, each decision carries
+ * `dueState` (the core's verdict on its due date); without them it is null.
  * @returns {{readable: boolean, reason: string|null, who?: string, list: object[]}}
  */
-export function forHuman(root, { human = null, cards = undefined } = {}) {
+export function forHuman(root, { human = null, cards = undefined, fold = undefined, now = undefined, zone = undefined } = {}) {
   let who = human === null ? null : addressee.nameOf(human);
   if (who === null) {
     let cfg;
@@ -52,14 +75,21 @@ export function forHuman(root, { human = null, cards = undefined } = {}) {
     who = h.name;
   }
   let open;
-  try { open = memory.openDuties(root).open; } catch (e) {
+  try { open = (fold === undefined ? readFold(root) : foldOrThrow(fold)).open; } catch (e) {
     return { readable: false, reason: `duties not readable: ${e?.message || e}`, list: [] };
   }
   const shelf = shelfOf(root, cards);
   const list = open
     .filter((p) => addressee.ofDuty(p) === who)
     .map((p) => ({
-      id: p.id, title: p.title ?? p.text ?? p.id, due: dueCore.dueText(p), since: dueCore.openSince(p),
+      // Entry text for a terminal, a page and an agent: masked, THEN cut, then bidi made visible (deadlines.safeText).
+      id: p.id, title: safeText(p.title ?? p.text ?? p.id, TITLE_SHOWN), due: dueCore.dueText(p), since: dueCore.openSince(p),
+      // The state of its due date, from the core (fresh | due | overdue | unknown), only when the caller names the clock and the
+      // zone; null for a duty without a due date. A surface shows it as a chip next to the decision.
+      dueState: zone !== undefined && now !== undefined && dueCore.dueValue(p) !== null
+        ? dueCore.state(dueCore.dueValue(p), now, { zone }) : null,
+      // The moment it is overdue from (ms), for ordering the cards by deadline; null for no due date or an unreadable one.
+      dueAt: zone !== undefined && dueCore.dueValue(p) !== null ? dueAtOf(dueCore.dueValue(p), zone) : null,
       card: decisioncard.cardOf(p, { type: 'duty', context: { cards: shelf, human: who } }),
     }))
     .sort((a, b) => String(a.since ?? '').localeCompare(String(b.since ?? '')));
