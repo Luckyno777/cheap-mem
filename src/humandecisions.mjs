@@ -77,7 +77,7 @@ export function forHuman(root, { human = null, cards = undefined, fold = undefin
       // zone; null for a duty without a due date. A surface shows it as a chip next to the decision.
       dueState: zone !== undefined && now !== undefined && dueCore.dueValue(p) !== null
         ? dueCore.state(dueCore.dueValue(p), now, { zone }) : null,
-      card: decisioncard.cardOf(p, { type: 'duty', context: { cards: shelf } }),
+      card: decisioncard.cardOf(p, { type: 'duty', context: { cards: shelf, human: who } }),
     }))
     .sort((a, b) => String(a.since ?? '').localeCompare(String(b.since ?? '')));
   return { readable: true, reason: null, who, list };
@@ -100,7 +100,7 @@ export function withQuestions(root, { human = null, cards = undefined } = {}) {
     .filter((q) => addressee.ofQuestion(q) === duties.who)
     .map((q) => ({
       kind: 'question', id: q.id, title: q.question ?? q.id, due: null, since: q.ts ?? null,
-      card: decisioncard.cardOf(q, { type: 'question', context: { cards: shelf } }),
+      card: decisioncard.cardOf(q, { type: 'question', context: { cards: shelf, human: duties.who } }),
     }));
   const list = [...duties.list.map((d) => ({ kind: 'duty', ...d })), ...asked]
     .sort((a, b) => String(a.since ?? '').localeCompare(String(b.since ?? '')));

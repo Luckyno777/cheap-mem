@@ -78,6 +78,7 @@ import * as skilleffect from '../src/skilleffect.mjs';
 import * as appointmentToday from '../src/appointment-today.mjs';
 import * as appointmentInvite from '../src/appointment-invite.mjs';
 import * as memoryModule from '../src/memory.mjs';
+import { guardResponse } from '../src/servemask.mjs';
 
 /** The package root — where `assets/` lives, whatever the memory root is. */
 const PACKAGE_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -666,6 +667,7 @@ export function buildHandler(root, cfg, env = process.env) {
   }
 
   function handler(req, res) {
+    guardResponse(res); // the second layer: every JSON answer leaves through the output guard (src/servemask.mjs)
     let url;
     try { url = new URL(req.url, 'http://x'); }
     catch { res.writeHead(400).end('bad request'); return; }

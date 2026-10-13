@@ -166,6 +166,7 @@ function countFailure(root, kind, now) {
     const where = path.join(root, ERRORS_REL);
     try { if (fs.statSync(where).size > ERRORS_MAX_BYTES) return; } catch { /* no file yet */ }
     fs.mkdirSync(path.dirname(where), { recursive: true });
+    // mask-ok: a short event kind token
     fs.appendFileSync(where, `${JSON.stringify({ ts: new Date(now).toISOString(), kind: String(kind).slice(0, 60) })}\n`);
   } catch { /* the counter itself must hold nothing up */ }
 }
@@ -211,11 +212,16 @@ export function sweep(root, { now = Date.now() } = {}) {
 
 /** Redacted, cut question — `{ question, redacted, truncated }`. */
 export function prepare(text, { env = process.env } = {}) {
+  // RAW_MAX_CHARS (8000) is a deliberate cost bound and four times the 2000 that is kept; a key crossing it
+  // lies beyond the kept part. A PEM block that begins in the kept part and ends beyond the bound has no END
+  // line in view: redaction.mjs masks such an OPEN block (header plus key material) as well.
+  // mask-ok: cost bound four times the kept length; an open PEM block is masked by its own pattern
   const raw = String(text ?? '').slice(0, RAW_MAX_CHARS);
   const a = redact(raw);
   const b = redactAgainstEnv(a.text, envSecrets(env).filter((x) => !HANDOVER.has(x.name)));
   const redacted = [...a.found, ...b.found].reduce((n, f) => n + (f.count || 0), 0);
   const truncated = b.text.length > QUESTION_MAX_CHARS;
+  // mask-ok: b.text is the REDACTED text
   return { question: truncated ? b.text.slice(0, QUESTION_MAX_CHARS) : b.text, redacted, truncated };
 }
 

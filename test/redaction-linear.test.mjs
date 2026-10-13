@@ -45,3 +45,40 @@ test('positive control: the bounded patterns still catch what they must', () => 
     assert.ok(redaction.redact(line).found.length > 0, `slipped through: ${line}`);
   }
 });
+
+// ---- the PEM patterns (mask-before-cut round, review blocker) ---------------------------------------------------
+//
+// The open-block pattern first had an ambiguous repetition (143 characters of prose took 37 s), then a second one
+// (`: ?` before a value that may start with a space: every header line read two ways, 2^n); the complete-block pattern
+// scanned to the end of the text from every BEGIN (2.8 MB took 38 s). Each probe has a time limit; the shapes are the
+// ones that blew up.
+const PEM_HEAD = ['-----BEGIN', 'RSA PRIVATE KEY-----'].join(' ');
+const PEM_LIMIT_MS = 3000;
+for (const [name, text, limit] of [
+  ['prose after a header, twelve blank lines, more prose', `-----BEGIN CERTIFICATE----- as shown:\n${'    \n'.repeat(12)}then restart`, 500],
+  ['header, thirty blank lines, then "!"', `${PEM_HEAD}\n${' \n'.repeat(30)}!`, 500],
+  ['header, ten thousand 59-space lines, then "!"', `${PEM_HEAD}${`${' '.repeat(59)}\n`.repeat(1e4)}!`, PEM_LIMIT_MS],
+  ['header, ten thousand header lines, no key', `${PEM_HEAD}\n${'Proc-Type: 4,ENCRYPTED\n'.repeat(1e4)}!`, PEM_LIMIT_MS],
+  ['header, twenty thousand name-and-colon lines', `${PEM_HEAD}\n${`${'a'.repeat(30)}:${' '.repeat(5)}\n`.repeat(2e4)}`, PEM_LIMIT_MS],
+  ['a header every 30 characters, no END line, 1 MB', `${PEM_HEAD} x\n`.repeat(1e6 / 34), 5000],
+  ['a header and 19 key characters, repeated, 1 MB', `${PEM_HEAD}\n${'A'.repeat(19)}\n`.repeat(1e6 / 52), 5000],
+  ['an open key of 5 MB', `${PEM_HEAD}${'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef'.repeat(160000)}`, PEM_LIMIT_MS],
+]) {
+  test(`linear: PEM shapes: ${name}`, { timeout: 60000 }, () => {
+    const t = performance.now();
+    redaction.redact(text);
+    const ms = performance.now() - t;
+    assert.ok(ms < limit, `${ms.toFixed(0)} ms (limit ${limit}) — a PEM pattern backtracks`);
+  });
+}
+
+test('PEM: the open block, with headers and JSON-escaped, still falls; a header alone and prose do not', () => {
+  const b64 = 'MIIEowIBAAKCAQEA0Z3VS5JJcds3xfnygWyF8PbnGy0AHB7MhgH';
+  for (const t of [`${PEM_HEAD}\n${b64}\n${b64}`, `${PEM_HEAD}\nProc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC,ABCDEF0123456789\n\n${b64}\n`,
+    `{"k":"${PEM_HEAD}\\n${b64}\\n${b64}"}`]) {
+    const r = redaction.redact(t).text;
+    assert.ok(!r.includes(b64.slice(0, 30)) && /REDACTED:pem-block/.test(r), `not masked: ${t.slice(0, 60)}`);
+  }
+  const prose = `see ${PEM_HEAD} in the doc, and -----BEGIN CERTIFICATE----- as shown:\n    \nthen restart`;
+  assert.equal(redaction.redact(prose).text, prose);
+});

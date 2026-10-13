@@ -39,6 +39,7 @@ import * as cardstore from '../../cardstore.mjs';
 import * as decisioncard from '../../decisioncard.mjs';
 import * as authority from '../../authority.mjs';
 import { zoneOf } from '../../appointments.mjs';
+import { maskText } from '../../outputguard.mjs';
 import { out, die, warn, checkFlags, numberFlag, isHelp, fieldsFrom, findRoot, requireConfig, authorityArg, textFlag, repeatedFlag } from '../shell.mjs';
 import { dateFieldOf, compactLine, countLines, retireCmd } from '../display.mjs';
 
@@ -500,7 +501,7 @@ export const COMMANDS = {
         out('');
         out(`  Class '${seen.className}': this is number ${seen.count + 1}. Most recent:`);
         for (const h of seen.latest) {
-          out(`    ${String(h.ts).slice(0, 10)}  ${String(h.id).padEnd(14)} ${String(h.title).slice(0, 70)}`);
+          out(`    ${String(h.ts).slice(0, 10)}  ${String(h.id).padEnd(14)} ${maskText(String(h.title)).slice(0, 70)}`);
         }
         if (seen.count + 1 >= 3) {
           out('    Three of a kind means the guard is missing, not the care.');

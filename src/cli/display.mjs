@@ -223,6 +223,7 @@ export function compactLine(e0, { root = null } = {}) {
   // `duty`/`steps`: a learning with a title showed as its title alone.
   parts.push(...bodyfields.restOfBody(e, OWN_FORM));
   if (e.choice) parts.push(`→ ${e.choice}`);
+  // mask-ok: `e` is a maskEntry copy (see the top of compactLine)
   if (e.text) parts.push(String(e.text).slice(0, 80).replace(/\s+/g, ' '));
   if (e.why) parts.push(`because ${String(e.why).slice(0, 60)}`);
   if (e.rule) parts.push(String(e.rule).slice(0, 120).replace(/\s+/g, ' '));

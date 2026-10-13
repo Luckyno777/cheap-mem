@@ -31,6 +31,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { appendLine } from './append.mjs';
+import { cutMasked } from './outputguard.mjs';
 
 // At the root of the memory, next to global/ and inbox/ — not in a
 // subdirectory of its own. A memory laid out by `mem init` has four
@@ -89,7 +90,7 @@ export function beat(root, agent, {
     agent: name,
     ts: t.toISOString().replace(/\.\d{3}Z$/, 'Z'),
     where: where ?? os.hostname(),
-    ...(what ? { what: String(what).slice(0, 200) } : {}),
+    ...(what ? { what: cutMasked(String(what), 200) } : {}),
   };
   fs.mkdirSync(path.dirname(file(root)), { recursive: true });
   appendLine(file(root), `${JSON.stringify(line)}\n`);

@@ -127,7 +127,18 @@ export const PATTERNS = Object.freeze([
   // json-blob 4 of 5). Now only a dot followed by token characters, the
   // JWT shape, stops it.
   ['json-blob',       /\beyJ[A-Za-z0-9_-]{40,}={0,2}(?![A-Za-z0-9_-]|\.[A-Za-z0-9_-])/g],
-  ['pem-block',       /-----BEGIN[^-]{0,40}-----[\s\S]*?-----END[^-]{0,40}-----/g],
+  // The span between BEGIN and END is bounded (8 KB; a 4096-bit RSA key is ~3.2 KB): without the bound a text with many
+  // BEGIN lines and no END scanned to its end from each of them, quadratic (2.8 MB took 38 s).
+  ['pem-block',       /-----BEGIN[^-]{0,40}-----[\s\S]{0,8192}?-----END[^-]{0,40}-----/g],
+  // The same block WITHOUT its END line: a text that was cut inside the key (a cap, a window, a truncated paste)
+  // keeps the header and a long run of key material, and the pattern above needs the END to see any of it
+  // (mask-before-cut round: ~1990 characters of a key survived `questiontext.prepare` this way). Runs after the
+  // pattern above, so a complete block has already fallen; what is left is open. Only the key MATERIAL falls:
+  // the header, then base64 runs of 20+ characters (lines, or the literal \n of a JSON string between them).
+  // A header alone ("-----BEGIN CERTIFICATE-----" in prose) is not touched.
+  // Unambiguous by construction (no two ways to read the same characters, so no backtracking blow-up): blank space; then
+  // header lines (`Proc-Type: 4,ENCRYPTED`: a letter-led name, a colon, a bounded value, a line end); then base64 runs.
+  ['pem-block',       /-----BEGIN[^-]{0,40}-----(?:\s|\\[nr])*(?:[A-Za-z][A-Za-z0-9-]{0,30}:[^\n\\]{0,61}(?:\r?\n|\\n)(?:\s|\\[nr])*)*(?:[A-Za-z0-9+/=]{20,}(?:\s|\\[nr])*)+/g],
   ['ssh-key',         /\bssh-(?:rsa|ed25519|dss)\s+[A-Za-z0-9+/=]{50,}/g],
 
   // --- Headers / URLs ------------------------------------------------
@@ -216,6 +227,15 @@ export const PATTERNS = Object.freeze([
     /(?<![A-Za-z0-9._%+-])([A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]+\.[A-Za-z]{2,})(\s*[/|:]\s*)((?=[^\s]*[0-9!#$%&*+?@^_-])[^\s"'`,;]{6,})/g],
 ]);
 
+// **A placeholder is a placeholder only as a WHOLE value** (owner decision 2026-10-13, both houses). The old rule
+// excused every value that merely STARTED with `your`, `my`, `test` ...: `password=mySecret123!` and
+// `password=test1234` went through unmasked. Now the whole value must be one of the placeholder words
+// (`your`, `my`, `dein`, `ihr`, `beispiel`, `example`, `sample`, `dummy`, `fake`, `placeholder`), alone or
+// followed by exactly one generic word (`password`, `key`, `api_key`, `token`, `secret`, `value` ...), joined by
+// `_` or `-` or not at all: `your_password`, `my-token`, `example`. `test...` is no placeholder at all.
+const PLACEHOLDER_WORD = '(?:dein|deine|deinen|deiner|ihr|ihre|ihren|your|my|beispiel|example|sample|dummy|fake|placeholder)';
+const GENERIC_WORD = '(?:password|passwort|passwd|pass|pw|passphrase|key|api[_-]?key|apikey|token|secret|geheimnis|value|wert|credential|credentials|schluessel|code|id)';
+const PLACEHOLDER_VALUE = new RegExp(`^${PLACEHOLDER_WORD}(?:[_-]?${GENERIC_WORD})?$`, 'i');
 /**
  * If a match looks like one of these, it is NOT a secret — a
  * placeholder, an example, something already redacted. Otherwise we
@@ -223,7 +243,8 @@ export const PATTERNS = Object.freeze([
  */
 const HARMLESS = [
   /^(x{3,}|\*{3,}|\.{3,}|-{3,})$/i,
-  /^(your|my|test|example|sample|dummy|fake|placeholder|redacted|changeme)/i,
+  PLACEHOLDER_VALUE,
+  /^(redacted|changeme)$/i,
   /^(<|\{|\$\{|%|\[)/,            // <TOKEN>, ${VAR}, {{secret}}, [redacted]
   /^(null|undefined|none|nil|true|false|empty)$/i,
   /^REDACTED/,
@@ -449,6 +470,9 @@ export function redact(text) {
       if (type === 'credential-pair' && real.length >= 3) {
         const [who, sep, value] = real;
         if (isHarmless(value)) return match;
+        // `git@github.com:Owner/repo.git` is an scp-style remote, not an address followed by a credential: the
+        // separator is a bare colon and the "value" is a repository path (a `.git` suffix, or `owner/repo` after the `git` user). A bare secret after `git@host:` is still masked.
+        if (sep === ':' && (/\.git$/i.test(value) || (/^git@/i.test(who) && /^[\w.-]+\/[\w./-]+$/.test(value)))) return match;
         counter.set(type, (counter.get(type) ?? 0) + 1);
         return `${who}${sep}[REDACTED:${type}]`;
       }

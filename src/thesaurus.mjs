@@ -285,6 +285,7 @@ export function buildTagGraph(entries, { minPairs = 2, maxNeighbours = 8 } = {})
 
   for (const [tag, neighbours] of graph) {
     neighbours.sort((x, y) => y[1] - x[1]);
+    // mask-ok: a list of tags
     graph.set(tag, neighbours.slice(0, maxNeighbours));
   }
   return graph;
@@ -542,6 +543,7 @@ export function buildTermGraph(docs, {
 
   for (const [term, neighbours] of graph) {
     neighbours.sort((x, y) => y[1] - x[1]);
+    // mask-ok: a list of terms
     graph.set(term, neighbours.slice(0, maxNeighbours));
   }
   return graph;

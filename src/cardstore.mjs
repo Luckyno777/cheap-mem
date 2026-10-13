@@ -32,6 +32,8 @@ import * as memory from './memory.mjs';
 import * as authority from './authority.mjs';
 import * as card from './decisioncard.mjs';
 import * as rules from './cardrules.mjs';
+import * as redaction from './redaction.mjs';
+import { costCut } from './outputguard.mjs';
 
 export const TYPE = 'card';
 
@@ -39,6 +41,22 @@ const one = (v) => (typeof v === 'string' ? rules.clean(v) : '');
 
 /** Does this input become a card? (`cardrules.checkCard`; the write core runs the same check.) */
 export const check = rules.checkCard;
+
+/**
+ * What the mask found in the fields as they were handed in, `[{ type, count }]`. The card is written through `rules.clean`, which
+ * already masks, so the write core finds nothing left to redact; without this the caller would never be told that a secret was
+ * taken out ("redacted: github-token x2"). Counted on the same bounded text `clean` keeps.
+ */
+function maskedInFields(fields) {
+  const counts = new Map();
+  const walk = (v) => {
+    if (typeof v === 'string') {
+      for (const f of redaction.redact(costCut(v, rules.MAX_IN)).found) counts.set(f.type, (counts.get(f.type) ?? 0) + f.count);
+    } else if (Array.isArray(v)) v.slice(0, 200).forEach(walk);
+  };
+  for (const k of ['target_id', 'question', 'context', 'options', 'advice', 'evidence', 'kind', 'target_type']) walk(fields?.[k]);
+  return [...counts].map(([type, count]) => ({ type, count }));
+}
 
 /**
  * Write a card (append-only, only into `cards.jsonl`). Throws with the reason when `check` finds errors — then nothing was
@@ -68,8 +86,11 @@ export function write(root, fields, { project = null, agent = undefined, authori
   if (one(fields.target_type)) data.target_type = one(fields.target_type);
   if (agent) data.agent = agent;
   if (tier) data.authority = tier;
-  const { path: p, entry, findings } = memory.logCheckedEntry(root, TYPE, data, { project, now });
-  return { path: p, entry, findings, warnings: c.warnings };
+  const { path: p, entry, findings: found } = memory.logCheckedEntry(root, TYPE, data, { project, now });
+  // the write core's own findings (the env layer, anything `clean` left) and what the mask took out before it
+  const merged = new Map();
+  for (const f of [...maskedInFields(fields), ...(found ?? [])]) merged.set(f.type, (merged.get(f.type) ?? 0) + f.count);
+  return { path: p, entry, findings: [...merged].map(([type, count]) => ({ type, count })), warnings: c.warnings };
 }
 
 /** A line read from the shelf as a card for `cardOf` (`context.cards`): without the `card_` prefix. */

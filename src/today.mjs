@@ -61,6 +61,7 @@ import * as injection from './injection.mjs';
 import * as projectnew from './projectnew.mjs';
 import * as decisioncard from './decisioncard.mjs';
 import * as cardstore from './cardstore.mjs';
+import * as cardfeed from './cardfeed.mjs';
 import * as humandecisions from './humandecisions.mjs';
 import * as deadlines from './deadlines.mjs';
 import * as dayline from './dayline.mjs';
@@ -245,6 +246,7 @@ export function pickDaily(candidates, { max = GOLD_MAX, now = new Date() } = {})
   const seed = seedNumber(dayKey(now));
   const gaps = candidates.filter((c) => c.kind === 'gap').sort((a, b) => String(a.source).localeCompare(String(b.source)));
   const rest0 = candidates.filter((c) => c.kind !== 'gap');
+  // mask-ok: a list of gaps
   const picked0 = gaps.slice(0, max);
   if (picked0.length >= max) return picked0;
   return picked0.concat(pickDailyDrawn(rest0, { max: max - picked0.length, now, seed }));
@@ -411,10 +413,11 @@ export function projectsAwaiting(root, { cards = undefined } = {}) {
     const list = projectnew.awaiting(root);
     // H11: title and reason as far as they are on record, and the card "Take over project <name>?".
     const shelf = cards === undefined ? (() => { try { return cardstore.latestCards(root); } catch { return new Map(); } })() : cards;
+    const human = cardfeed.humanOf(root);
     for (const p of list) {
       const pr = projectnew.profile(root, p.name);
       p.title = pr.title; p.reason = pr.reason;
-      p.card = decisioncard.cardOf(p, { type: 'project', context: { cards: shelf } });
+      p.card = decisioncard.cardOf(p, { type: 'project', context: { cards: shelf, human } });
     }
     return { readable: true, reason: null, list };
   } catch (e) {

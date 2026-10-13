@@ -39,6 +39,7 @@ import * as skillregistry from '../../skillregistry.mjs';
 import * as skilleffect from '../../skilleffect.mjs';
 import * as experience from '../../experience.mjs';
 import { sinceOf } from '../display.mjs';
+import { maskText } from '../../outputguard.mjs';
 import { out, die, warn, checkFlags, numberFlag, isHelp, findRoot, requireConfig } from '../shell.mjs';
 
 /** 13 commands. */
@@ -383,7 +384,7 @@ export const COMMANDS = {
     if (broken) out('Unreadable lines are kept, not dropped -- silence here would hide the corruption this log exists to catch.');
     out('');
     for (const e of good.slice(-n)) {
-      const q = e.query ? ` "${String(e.query).slice(0, 48)}"` : '';
+      const q = e.query ? ` "${maskText(String(e.query)).slice(0, 48)}"` : '';
       out(`  ${e.ts ?? '?'}  ${String(e.lane ?? '?').padEnd(10)} ${(e.ids ?? []).length} hit(s)${q}`);
     }
   },

@@ -76,6 +76,7 @@ import * as capability from './capability.mjs';
 import { LEVEL } from './doctor.mjs';
 import { appendLine } from './append.mjs';
 import { withLock } from './filelock.mjs';
+import { cutMasked } from './outputguard.mjs';
 
 /** Four states, never two — reusing this house's own vocabulary. */
 export const PASS = LEVEL.GOOD;
@@ -100,7 +101,7 @@ export function readManifest(root) {
   const out = [];
   for (const line of fs.readFileSync(p, 'utf8').split('\n')) {
     if (!line.trim()) continue;
-    try { out.push(JSON.parse(line)); } catch { out.push({ __broken: true, raw: line.slice(0, 120) }); }
+    try { out.push(JSON.parse(line)); } catch { out.push({ __broken: true, raw: cutMasked(line, 120) }); }
   }
   return out;
 }
@@ -345,7 +346,7 @@ export function resolveEntry(root, id) {
   }
 
   const parsed = memory.parseLine(raw);
-  const entry = parsed?.__broken ? { ...parsed, raw: raw.slice(0, 200) } : parsed;
+  const entry = parsed?.__broken ? { ...parsed, raw: cutMasked(raw, 200) } : parsed;
   return {
     state: PASS,
     source: 'archive',
@@ -430,7 +431,7 @@ export function findWithArchiveNotice(root, pattern, opts = {}) {
         const raw = readArchivedBytes(cfg, row);
         if (raw.toLowerCase().includes(needle)) {
           const parsed = memory.parseLine(raw);
-          const entry = parsed?.__broken ? { ...parsed, raw: raw.slice(0, 200) } : parsed;
+          const entry = parsed?.__broken ? { ...parsed, raw: cutMasked(raw, 200) } : parsed;
           archiveHits.push({
             ...entry, _archived: true, _shard: row.shard,
             _source: `${row.type}${row.project ? `/${row.project}` : ''}`,

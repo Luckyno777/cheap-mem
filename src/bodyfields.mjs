@@ -21,11 +21,14 @@
  * a weight), test/o2-body-fields-display.test.mjs (every surface shows
  * the main text).
  *
- * A leaf module on purpose: no imports. `search.mjs` needs this list and
+ * A leaf module on purpose: its only import is `outputguard.mjs`, itself a leaf over
+ * `redaction.mjs` (which imports nothing), so no cycle can form. `search.mjs` needs this list and
  * `retrieval.mjs` imports `search.mjs`, so the list cannot live in
  * `retrieval.mjs` without a cycle (`retrieval.mjs` re-exports it, so
  * `retrieval.BODY_FIELDS` keeps working).
  */
+
+import { maskText } from './outputguard.mjs';
 
 export const BODY_FIELDS_BY_TYPE = Object.freeze({
   decision: Object.freeze(['title', 'choice', 'why', 'text', 'rejected']),
@@ -142,7 +145,8 @@ export function restOfBody(e, handled, { type = null, max = 120 } = {}) {
   const skip = new Set(handled);
   for (const f of bodyFieldsFor(type ?? e._type ?? null)) {
     if (skip.has(f)) continue;
-    const t = bodyAsText(e[f]).replace(/\s+/g, ' ').trim();
+    // Mask before the cut, whatever the caller handed in (today's callers pass masked entries).
+    const t = maskText(bodyAsText(e[f])).replace(/\s+/g, ' ').trim();
     if (!t) continue;
     const cut = t.length > max ? `${t.slice(0, max - 1)}…` : t;
     out.push(f === 'rejected' ? `rejected: ${cut}` : cut);

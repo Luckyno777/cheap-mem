@@ -22,6 +22,8 @@
  * the false-positive class this exists to reject.
  */
 
+import { maskText } from './outputguard.mjs';
+
 const SIGNATURES = Object.freeze([
   /^\s*not ok\b(?!.*#\s*(?:TODO|SKIP)\b)/, // TAP, unless marked TODO/SKIP
   /^\s*(?:#|ℹ)\s*fail\s+0*[1-9]\d*\s*$/, // TAP/spec summary line, N > 0 (# fail 0 is not a failure)
@@ -40,7 +42,7 @@ export function errorSignature(text, { max = 8, width = 300 } = {}) {
   const lines = [];
   for (const line of String(text ?? '').split(/\r?\n/)) {
     if (SIGNATURES.some((re) => re.test(line))) {
-      lines.push(line.trim().slice(0, width));
+      lines.push(maskText(line).trim().slice(0, width));
       if (lines.length >= max) break;
     }
   }

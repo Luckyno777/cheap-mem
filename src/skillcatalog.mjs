@@ -16,6 +16,7 @@ import path from 'node:path';
 import * as memory from './memory.mjs';
 import * as reg from './skillregistry.mjs';
 import * as procedure from './procedure.mjs';
+import { maskText, maskEntry, cutMasked } from './outputguard.mjs';
 
 const TYPE_NAMES = Object.freeze({ skill: 'Skills', workflow: 'Workflows', snippet: 'Snippets', procedure: 'Procedures' });
 const MAX_DEPTH = 5;
@@ -39,12 +40,12 @@ function whenOf(it) {
   const e = it.entry ?? {};
   const raw = (typeof e.when === 'string' && e.when.trim()) ? e.when
     : (it.triggers[0] ?? (typeof e.scope === 'string' && e.scope.trim() ? `applies to: ${e.scope}` : it.label.what));
-  const t = String(raw).replace(/\s+/g, ' ').trim();
+  const t = maskText(String(raw)).replace(/\s+/g, ' ').trim();
   return t.length > 220 ? `${t.slice(0, 219)}…` : t;
 }
 
 function shortTitle(e, fallback) {
-  const t = String(e.title ?? e.rule ?? fallback ?? '').split(/:\s|\s[—–]\s/)[0].replace(/\s+/g, ' ').trim();
+  const t = maskText(String(e.title ?? e.rule ?? fallback ?? '')).split(/:\s|\s[—–]\s/)[0].replace(/\s+/g, ' ').trim();
   return t.length > 90 ? `${t.slice(0, 89)}…` : (t || String(fallback ?? ''));
 }
 
@@ -72,7 +73,7 @@ function historyOf(it, rows) {
   for (const e of rows) {
     if (!procedure.isStatusLine(e) || !ids.has(e.status_of)) continue;
     ev.push({ ts: String(e.ts ?? ''), kind: 'status', id: e.id, status: String(e.status), by: e.issued_by ?? null,
-      agent: e.agent ?? null, why: typeof e.why === 'string' ? e.why.slice(0, 400) : null,
+      agent: e.agent ?? null, why: typeof e.why === 'string' ? cutMasked(e.why, 400) : null,
       counts: procedure.isHuman(e.issued_by) && procedure.STATUSES.includes(e.status) });
   }
   return ev.sort((a, b) => a.ts.localeCompare(b.ts));
@@ -145,7 +146,7 @@ export function installed(root, env = process.env) {
         }
         files.push({
           place: o.place, path: `${o.shown}/${path.relative(o.base, dir).split(path.sep).join('/') || '.'}`, name: fm.name || path.basename(dir),
-          description: (fm.description || '').slice(0, 300),
+          description: cutMasked(fm.description || '', 300),
           memExport: marker ? { id: typeof marker.id === 'string' ? marker.id : null, type: marker.type ?? null } : null,
           _text: text,
         });
@@ -220,11 +221,11 @@ export function catalogue(root, { env = process.env, effect = null, canSetStatus
     const next = transitionsOf(it.status);
     return {
       id: it.id, name: it.name, type: it.type, typeName: TYPE_NAMES[it.type], group: groupOf(it),
-      title: shortTitle(e, it.id), titleFull: String(e.title ?? e.rule ?? it.id), when: whenOf(it),
+      title: shortTitle(e, it.id), titleFull: maskText(String(e.title ?? e.rule ?? it.id)), when: whenOf(it),
       status: it.status, legacy: it.legacy, mark: it.mark,
       author: procedure.isHuman(e.issued_by) ? e.issued_by : String(e.agent ?? 'unknown'),
       project: it.project, created: it.ts, changed: history.reduce((m, x) => (x.ts > m ? x.ts : m), it.ts),
-      label: it.label, triggers: it.triggers, fullText: reg.fullText(it), history,
+      label: maskEntry(it.label), triggers: maskEntry(it.triggers), fullText: maskText(reg.fullText(it)), history,
       effect: effectFor(effect, it.id), installedAs: there.map((x) => ({ place: x.place, path: x.path })), drift: d,
       transitions: next, commands: Object.fromEntries(next.map((s) => [s, statusCommand(it, s)])),
     };

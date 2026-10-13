@@ -113,5 +113,6 @@ export function rank(root, { now = new Date() } = {}) {
 /** The top `n` gaps (`null` = all). */
 export function top(root, n = 20, opts = {}) {
   const r = rank(root, opts);
+  // mask-ok: a list of gaps
   return { ...r, gaps: n === null ? r.gaps : r.gaps.slice(0, n) };
 }

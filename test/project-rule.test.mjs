@@ -169,7 +169,9 @@ test('a session (not an unattended run) creates a project directly: status new, 
 test('the dashboard card lists them with the confirm button, and nothing when none waits', () => {
   const js = fs.readFileSync(path.join(REPO, 'assets', 'dashboard', 'dashboard.js'), 'utf8');
   assert.match(js, /function todayProjectsPart\(list\)/);
-  assert.match(js, /if \(!list\.length\) return '';\n {2}return `<div class="label" style="margin:16px 0 6px">Projects awaiting confirmation/);
+  // card-view-cm: the waiting project is a card (cardHtml) in the group "For you"; the label and the empty case stay.
+  assert.match(js, /if \(!list\.length\) return '';\n {2}return `<section class="dgroup" data-card-group="you"><div class="label" style="margin:16px 0 6px">Projects awaiting confirmation/);
+  assert.match(js, /cardHtml\(p\.card, \{ foot: projectConfirmFoot\(p\.name\) \}\)/);
   assert.match(js, /btn\('Confirm project', 'project-confirm'/);
   assert.match(js, /!gold\.length && !projects\.length/);
 });

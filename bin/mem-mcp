@@ -105,6 +105,7 @@ import * as errorfixes from '../src/errorfixes.mjs';
 import * as bridgefields from '../src/bridgefields.mjs';
 import * as cardrule from '../src/cardrule.mjs';
 import * as shred from '../src/shred.mjs';
+import { maskText } from '../src/outputguard.mjs';
 import * as dueCore from '../src/due.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -1154,7 +1155,8 @@ async function handleCall(name, args) {
   // name still calls it. Unknown counts as writing — see
   // src/mcpprofile.mjs for why that is the only safe direction.
   if (!mcpprofile.allowed(name, PROFILE)) {
-    return { content: [{ type: 'text', text: mcpprofile.refusal(name) }], isError: true };
+    // the refusal names the tool the CALLER asked for: masked like every other error text
+    return { content: [{ type: 'text', text: maskText(mcpprofile.refusal(name)) }], isError: true };
   }
 
   switch (name) {
@@ -1236,6 +1238,7 @@ async function handleCall(name, args) {
         }, { project: args.project && args.project !== 'global' ? String(args.project) : null, agent: resolveAgent() });
         return textResult([
           `Card ${r.entry.id} for ${args.target_id} written (by ${r.entry.agent}, tier ${r.entry.authority}).`,
+          ...(r.findings?.length ? [`redacted: ${r.findings.map((f) => `${f.type}x${f.count}`).join(', ')} (nothing secret was written in the clear)`] : []),
           ...r.warnings.map((w) => `note: ${w}`),
           'The target was not touched; the card of the higher tier counts, then the youngest.',
         ].join('\n'));
@@ -1611,10 +1614,11 @@ async function handleCall(name, args) {
       const lines = r.claims.length
         ? r.claims.map((c) => `${c.id}  [${c.authority}${c.author ? '/' + c.author : ''}]  `
             + `${c.scope}  ${c.ts ?? '?'}  ${c.score.toFixed(2)}\n  `
-            + `${c.body.replace(/\s+/g, ' ').slice(0, 300)}`)
+            + `${maskText(c.body).replace(/\s+/g, ' ').slice(0, 300)}`)
         : [`No claims for '${r.query}' within ${r.scopes.join(' ') || '(no scope)'}.`];
       if (r.excluded.length) {
         lines.push('', `excluded: ${r.excluded.length}`);
+        // mask-ok: a list slice of exclusion records, not a text cut
         for (const e of r.excluded.slice(0, 10)) lines.push(`  ${e.id ?? '-'}: ${e.why}`);
       }
       // **The coverage line goes to the bridge too, in the READABLE
@@ -1737,7 +1741,7 @@ async function handleCall(name, args) {
           ? (userhabits.userSnippet(root, h.source, q) || '(raw capture: no user line matches the query)')
           : shortLine(h.entry);
         return `${h.source}:${h.line}  [${h.entry.ts ?? '?'}]  ${h.score.toFixed(2)}${mark}\n`
-          + `  ${String(preview).replace(/\s+/g, ' ').slice(0, 200)}`;
+          + `  ${maskText(String(preview)).replace(/\s+/g, ' ').slice(0, 200)}`;
       }).join('\n'));
     }
 
@@ -2184,7 +2188,8 @@ function createServer(pkg) {
       return await handleCall(req.params.name, req.params.arguments ?? {});
     } catch (e) {
       return {
-        content: [{ type: 'text', text: `Error: ${e.message}` }],
+        // An error message can carry entry text (an id or a title the caller named, a parse error with a snippet): masked.
+        content: [{ type: 'text', text: maskText(`Error: ${e.message}`) }],
         isError: true,
       };
     }
@@ -2216,7 +2221,7 @@ function jsonError(res, status, message) {
     'content-type': 'application/json; charset=utf-8',
     'x-content-type-options': 'nosniff',
   }).end(JSON.stringify({
-    jsonrpc: '2.0', error: { code: -32000, message }, id: null,
+    jsonrpc: '2.0', error: { code: -32000, message: maskText(String(message)) }, id: null,
   }));
 }
 

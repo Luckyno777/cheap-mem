@@ -10,6 +10,7 @@
 import path from 'node:path';
 import { find } from './memory.mjs';
 import * as raw from './raw.mjs';
+import { maskText } from './outputguard.mjs';
 
 // Words that are time/filler, not subject keywords. If anything survives the
 // cut, the window is narrowed to entries mentioning it.
@@ -100,7 +101,8 @@ function shortContent(o) {
   let c = o.content ?? o.message?.content ?? '';
   if (Array.isArray(c)) c = c.map((x) => (typeof x === 'string' ? x : x?.text || '')).join(' ');
   if (typeof c !== 'string') c = JSON.stringify(c);
-  c = c.replace(/\s+/g, ' ').trim();
+  // Mask BEFORE the cut (a key over the 240 boundary would leave a stump).
+  c = maskText(c).replace(/\s+/g, ' ').trim();
   return c.length > 240 ? `${c.slice(0, 240)}…` : c;
 }
 

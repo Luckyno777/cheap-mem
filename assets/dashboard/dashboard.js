@@ -470,6 +470,9 @@ function prepare(d) {
   D._dutyWho = new Map((d.openDuties || []).map((p) => [p.id, p.who]));
   D._openQuestion = new Set((d.openQuestions || []).map((f) => f.id));
   D._waitingQuestion = new Set((d.waitingQuestions || []).map((f) => f.id));
+  // H11: the card of every open duty / open question / waiting question that has one (agent work has none: src/cardfeed.mjs).
+  D._card = new Map();
+  for (const list of [d.openDuties, d.openQuestions, d.waitingQuestions]) for (const p of list || []) if (p?.card) D._card.set(p.id, p.card);
   // board-tempo-cm: for a large store the first answer carries only the
   // newest entries (`d.parts.entries`); the rest comes page by page
   // (loadEntriesPart). A list that is already complete stays until the one of
@@ -933,6 +936,78 @@ function openWork(es) {
   return es.filter((e) => ['duty', 'question'].includes(e.type) && ['open', 'waiting'].includes(statusOf(e.id)));
 }
 
+// --- Decision cards (H11, card-view-cm) ----------------------------------------
+// Everything a person is meant to decide or release is shown as ONE card: the question in one sentence, what it is about,
+// the options with their effects (a No / not-now option always among them), the recommendation WITH its author, the evidence
+// as links, the identifier only small. Plus where the card comes from (author, tier, date, stage). ONE function for every
+// surface (Today, "Your next look", the duties list, the waiting projects, the entry drawer).
+// Every text arrives masked from the server (src/decisioncard.mjs) and is escaped here AGAIN with `esc`: this function never
+// puts an entry text into markup unescaped and never joins texts back together before escaping them.
+const CARD_KIND = { decide: 'Decision', approve: 'Release', 'do-it': 'Task' };
+const CARD_STAGE = { written: 'written on the entry', addendum: 'added later from the card shelf', fallback: 'replacement card' };
+// A text that comes from the entry LIST (not from the card, which the server cleaned): control and format characters (bidi
+// overrides, zero-width marks) are dropped BEFORE it is escaped. ONE helper for every card text.
+const plain = (v) => String(v ?? '').replace(/[\p{Cc}\p{Cf}]/gu, '');
+const ce = (v) => esc(plain(v));
+const cardForYou = (c) => Boolean(c) && c.kind !== 'do-it';
+function cardEvidenceItem(raw) {
+  const s = String(raw ?? '');
+  if (/^https?:\/\/[^\s<>"']+$/i.test(s)) return `<a href="${ce(s)}" target="_blank" rel="noopener noreferrer">${ce(s)}</a>`;
+  const e = byId(s);
+  if (e) return `<button class="textlink" data-entry="${ce(s)}">${ce(e.title)}</button> <span class="mono small quiet">${ce(s)}</span>`;
+  return `<code class="mono small">${ce(s)}</code>`;
+}
+function cardOriginHtml(c) {
+  const o = c.origin || {};
+  const stage = CARD_STAGE[o.stage] || 'unknown stage';
+  if (o.stage === 'fallback') {
+    return `<p class="dcard-origin small quiet" data-card-origin="fallback"><b>Replacement card.</b> Nobody wrote a card for this entry; it is made by rule from the title and the first sentence. No author, no tier.</p>`;
+  }
+  const who = o.author ? ce(o.author) : 'an unknown author';
+  // No hint for a card a person wrote: `origin.by_human` comes from the server (the configured human participant), no name here.
+  const note = o.rank === 'user' || o.by_human ? '' : `<p class="dcard-agent small" data-card-agent>Written by an agent, not checked by you.</p>`;
+  const replaced = c.replaced ? ` · replaced a card by ${ce(c.replaced.author || 'an unknown author')}${c.replaced.rank ? ` (tier ${ce(c.replaced.rank)})` : ''}` : '';
+  return `<p class="dcard-origin small quiet" data-card-origin="${ce(o.stage)}">Written by ${who} · tier ${ce(o.rank || 'unknown')} · ${ce(o.ts ? when(o.ts) : 'date unknown')} · ${esc(stage)}${replaced}</p>${note}`;
+}
+/**
+ * @param c     a card of src/decisioncard.mjs (`{kind, question, context, options, advice, evidence, origin, replaced, identifier, supplemented}`)
+ * @param foot  markup the CALLER built (already escaped): buttons and meta below the card
+ */
+function cardHtml(c, { foot = '' } = {}) {
+  if (!c || typeof c !== 'object') return '';
+  const opts = (c.options || []).map((o) => `<li${o.decline ? ' data-decline="1"' : ''}><strong>${ce(o.choice)}</strong>${o.effect ? `<span class="muted"> — ${ce(o.effect)}</span>` : ''}${o.supplemented ? ' <span class="small quiet">(added by rule)</span>' : ''}</li>`).join('');
+  const ev = (c.evidence || []).map(cardEvidenceItem);
+  const idText = c.identifier && !(c.evidence || []).includes(c.identifier) ? `<span class="dcard-id mono small quiet" title="Identifier">${ce(c.identifier)}</span>` : '';
+  const filled = (c.supplemented || []).length ? `<p class="small quiet">Gaps filled by rule: ${(c.supplemented || []).map(ce).join(', ')}.</p>` : '';
+  return `<article class="dcard" data-card-kind="${esc(c.kind || '')}" data-card-stage="${esc(c.origin?.stage || '')}">`
+    + `<span class="label">${esc(CARD_KIND[c.kind] || 'Open item')}</span>`
+    + `<h3 class="dcard-q">${ce(c.question)}</h3>`
+    + (c.context ? `<p class="dcard-ctx">${ce(c.context)}</p>` : '')
+    + (opts ? `<ul class="dcard-opts" aria-label="Options">${opts}</ul>` : '')
+    + (c.advice ? `<p class="dcard-advice" data-card-advice><b>Recommendation from ${ce(c.advice.author || 'an unknown author')}:</b> ${ce(c.advice.text)}</p>` : '')
+    + (ev.length || idText ? `<p class="dcard-evidence small"><span class="quiet">Evidence:</span> ${ev.join(' · ')}${ev.length && idText ? ' · ' : ''}${idText}</p>` : '')
+    + cardOriginHtml(c) + filled
+    + (foot ? `<div class="dcard-foot">${foot}</div>` : '')
+    + `</article>`;
+}
+// "For you" against "Agent work": a card of kind decide / approve goes to the person; a task (kind do-it) and every item
+// without a card (owed to an agent, src/cardfeed.mjs) is agent work. `render(e, card)` makes one item; `limit` cuts the total.
+function workGroupsHtml(es, { limit = Infinity, render }) {
+  const mine = []; const rest = [];
+  for (const e of es) (cardForYou(D._card?.get(e.id)) ? mine : rest).push(e);
+  let left = limit;
+  const part = (name, list, hint) => {
+    const shown = list.slice(0, Math.max(0, left));
+    left -= shown.length;
+    if (!shown.length) return '';
+    return `<section class="dgroup" data-card-group="${name}"><div class="label" style="margin:16px 0 6px">${name === 'you' ? 'For you' : 'Agent work'} (${num(list.length)})</div>${hint ? `<p class="small quiet" style="margin-bottom:8px">${hint}</p>` : ''}${shown.map((e) => render(e, D._card?.get(e.id) || null)).join('')}</section>`;
+  };
+  return part('you', mine, '') + part('agent', rest, 'Tasks and agent postings: nothing for you to decide.');
+}
+const confirmAnswerBtn = (id) => (catMayClick()
+  ? btn('Confirm answer', 'question-confirm', `data-id="${esc(id)}" ${state.readonly ? 'disabled' : ''}`, 'small ghost')
+  : btn('Confirm answer', 'question-confirm', `data-id="${esc(id)}" disabled title="Needs a password session. On the command line: mem questions confirm ${esc(id)} --authority user"`, 'small ghost'));
+
 // --- Today (N8/N21 parity: one source, three surfaces — src/today.mjs) -------
 function todayOperationsPart(notable) {
   if (!notable.length) return '';
@@ -952,9 +1027,13 @@ function dueChip(state) {
 }
 function todayDecisionsPart(list) {
   if (!list.length) return '';
-  return `<div class="label" style="margin:16px 0 6px">Decisions for you</div>${list
-    .map((dt) => `<button class="attention" data-entry="${esc(dt.id)}"><span class="sym">↗</span><div><strong>${esc(dt.title)}</strong><p>Duty${dt.due ? ' · due ' + esc(dueShown(dt.due)) : ''} ${dueChip(dt.dueState)}</p></div><span class="arrow">↗</span></button>`)
-    .join('')}`;
+  const row = (dt) => (dt.card
+    ? cardHtml(dt.card, { foot: `${dt.due ? `<span class="small quiet">Due ${esc(dueShown(dt.due))}</span> ${dueChip(dt.dueState)}` : ''}${open(dt.id, 'Open entry ↗', 'btn small ghost')}` })
+    : `<button class="attention" data-entry="${esc(dt.id)}"><span class="sym">↗</span><div><strong>${esc(dt.title)}</strong><p>Duty${dt.due ? ' · due ' + esc(dueShown(dt.due)) : ''} ${dueChip(dt.dueState)}</p></div><span class="arrow">↗</span></button>`);
+  const mine = list.filter((dt) => cardForYou(dt.card)); const rest = list.filter((dt) => !cardForYou(dt.card));
+  const group = (name, label, items, hint) => (items.length
+    ? `<section class="dgroup" data-card-group="${name}"><div class="label" style="margin:16px 0 6px">${label} (${num(items.length)})</div>${hint ? `<p class="small quiet" style="margin-bottom:8px">${hint}</p>` : ''}${items.map(row).join('')}</section>` : '');
+  return group('you', 'For you', mine) + group('agent', 'Agent work', rest, 'Tasks and agent postings: nothing for you to decide.');
 }
 // Q7 (src/deadlines.mjs): the due dates of the open duties. The human's duties one by one (the server sends at most eight, the
 // rest counted), everybody else's only as a number. Not readable: said, never an empty card. The key is absent in a build that
@@ -1041,10 +1120,15 @@ function todayGoldPart(gold) {
 }
 // Projects that wait for a person (src/today.mjs part f): made with `mem project new` (status new) or past
 // the command. The same button and task as in the Projects tab. Nothing open = nothing shown.
+function projectConfirmFoot(name) {
+  return state.readonly ? `<span class="small mono quiet">mem project confirm ${esc(name)}</span>` : btn('Confirm project', 'project-confirm', `data-value="${esc(name)}"`, 'small ghost');
+}
 function todayProjectsPart(list) {
   if (!list.length) return '';
-  return `<div class="label" style="margin:16px 0 6px">Projects awaiting confirmation (${num(list.length)})</div>${list
-    .map((p) => `<div class="row"><div><strong>${esc(p.name)}</strong><p class="small quiet">${p.kind === 'hand' ? 'Made by hand, not through the command' : 'Newly created'}${p.createdOn ? ' · ' + esc(p.createdOn) : ''}${p.createdBy ? ' · ' + esc(p.createdBy) : ''}</p></div>${state.readonly ? `<span class="small mono quiet">mem project confirm ${esc(p.name)}</span>` : btn('Confirm project', 'project-confirm', `data-value="${esc(p.name)}"`, 'small ghost')}</div>`).join('')}`;
+  return `<section class="dgroup" data-card-group="you"><div class="label" style="margin:16px 0 6px">Projects awaiting confirmation (${num(list.length)})</div>${list
+    .map((p) => (p.card
+      ? cardHtml(p.card, { foot: projectConfirmFoot(p.name) })
+      : `<div class="row"><div><strong>${esc(p.name)}</strong><p class="small quiet">${p.kind === 'hand' ? 'Made by hand, not through the command' : 'Newly created'}${p.createdOn ? ' · ' + esc(p.createdOn) : ''}${p.createdBy ? ' · ' + esc(p.createdBy) : ''}</p></div>${projectConfirmFoot(p.name)}</div>`)).join('')}</section>`;
 }
 function todayCard() {
   const t = D.today;
@@ -1105,13 +1189,13 @@ function home() {
       ['Data coverage', coverage, z.count ? `${num(readable)} of ${num(z.count)} entries readable` : 'no entry written yet'],
     ]) +
     `<div class="home-layout"><div class="graph-block">${brainBlock()}</div><article class="panel pad"><div class="panelhead"><h2>Your next look</h2><span class="badge warn">${num(todo.length)} open</span></div>${
-      todo
-        .slice(0, 3)
-        .map(
-          (e) =>
-            `<button class="attention" data-entry="${esc(e.id)}"><span class="sym">${e.type === 'question' ? '?' : '↗'}</span><div><strong>${esc(e.title)}</strong><p>${esc(e.text.slice(0, 110))}</p><span class="label">${esc(e.project)}${D._dutyWho.get(e.id) ? ' · ' + esc(D._dutyWho.get(e.id)) : ''}</span></div><span class="arrow">↗</span></button>`,
-        )
-        .join('') || empty(es.length ? 'No duty and no question is open right now.' : 'Nothing is open — this memory holds no entry yet. <code class="mono">mem log duty "…"</code> records the first duty.')
+      workGroupsHtml(todo, {
+        limit: 3,
+        render: (e, c) => (c
+          ? cardHtml(c, { foot: open(e.id, 'Open entry ↗', 'btn small ghost') })
+          : `<button class="attention" data-entry="${esc(e.id)}"><span class="sym">${e.type === 'question' ? '?' : '↗'}</span><div><strong>${ce(e.title)}</strong><span class="label">${ce(e.project)}${D._dutyWho.get(e.id) ? ' · owed by ' + ce(D._dutyWho.get(e.id)) : ''}</span></div><span class="arrow">↗</span></button>`),
+      })
+        || empty(es.length ? 'No duty and no question is open right now.' : 'Nothing is open — this memory holds no entry yet. <code class="mono">mem log duty "…"</code> records the first duty.')
     }<div class="smallstats"><span>Originals stay intact</span><span class="green">Append-only</span></div></article></div><div class="overview-today">${todayCard()}</div><div class="sectionline"><h2>Recently connected</h2>${link('See all', 'knowledge/entries')}</div><div class="grid two">${panel('Memories with origin', entryRows(es.slice(0, 3), 'Your first entries will appear here. <code class="mono">mem log learning "…"</code> writes one.'))}${panel(
       'From occasion to memory',
       `<div class="flow"><span>Question</span><i>→</i><span>Fitting context</span><i>→</i><span>Evidence</span></div><p class="muted small">See what an agent last really received before a change – and what can be observed from it.</p><div style="margin-top:22px">${btn('Explore agent context ↗', 'goto-context', '', 'ghost')}</div>`,
@@ -1561,8 +1645,11 @@ const pages = {
     const es = scoped().filter((e) => ['duty', 'question'].includes(e.type));
     const openOnes = es.filter((e) => ['open', 'waiting'].includes(statusOf(e.id))), closed = es.filter((e) => !['open', 'waiting'].includes(statusOf(e.id)));
     const row = (e) =>
-      `<div class="row"><div><div class="small quiet">${esc(types[e.type])} · ${esc(e.project)}</div><h3 style="margin:6px 0">${esc(e.title)}</h3><p>${e.type === 'duty' ? 'Owed by: ' + esc(D._dutyWho.get(e.id) || (statusOf(e.id) === 'open' ? 'not named' : '—')) : 'Link an answer through a concrete entry'}</p></div><div>${statusBadge(e.id)}<div style="margin-top:8px">${open(e.id, 'Open ↗')}</div></div></div>`;
-    return panel('Open and finished work', (openOnes.map(row).join('') || empty(es.length ? 'Nothing open.' : 'No duty and no question recorded yet.')) + (closed.length ? `<details class="accordion"><summary>${num(closed.length)} finished</summary>${closed.slice(0, 60).map(row).join('')}${limitNote(Math.min(60, closed.length), closed.length, 'knowledge/entries')}</details>` : ''), `${num(openOnes.length)} open · decided by memory.openDuties and question.open`);
+      `<div class="row"><div><div class="small quiet">${esc(types[e.type])} · ${ce(e.project)}</div><h3 style="margin:6px 0">${ce(e.title)}</h3><p>${e.type === 'duty' ? 'Owed by: ' + ce(D._dutyWho.get(e.id) || (statusOf(e.id) === 'open' ? 'not named' : '—')) : 'Link an answer through a concrete entry'}</p></div><div>${statusBadge(e.id)}<div style="margin-top:8px">${open(e.id, 'Open ↗')}</div></div></div>`;
+    const openRow = (e, c) => (c
+      ? cardHtml(c, { foot: `<span class="small quiet">${esc(types[e.type])} · ${ce(e.project)}${e.type === 'duty' ? ' · owed by ' + ce(D._dutyWho.get(e.id) || 'not named') : ''}</span>${statusBadge(e.id)}${open(e.id, 'Open ↗', 'btn small ghost')}${D._waitingQuestion.has(e.id) ? confirmAnswerBtn(e.id) : ''}` })
+      : row(e));
+    return panel('Open and finished work', (workGroupsHtml(openOnes, { render: openRow }) || empty(es.length ? 'Nothing open.' : 'No duty and no question recorded yet.')) + (closed.length ? `<details class="accordion"><summary>${num(closed.length)} finished</summary>${closed.slice(0, 60).map(row).join('')}${limitNote(Math.min(60, closed.length), closed.length, 'knowledge/entries')}</details>` : ''), `${num(openOnes.length)} open · decided by memory.openDuties and question.open`);
   },
   calendar: () => `<div id="calendarView">${calCache ? calendarHtml() : '<p class="small quiet">Reading the calendar …</p>'}</div>`,
   agents: () => {
@@ -1614,12 +1701,15 @@ const pages = {
   projects: () => {
     const ps = (D.projects || []).filter((p) => state.project === 'all' || p.name === state.project);
     const shelf = new Map((D.projectShelf?.projects || []).map((p) => [p.name, p]));
+    // H11: the card of a waiting project comes with the Today part (the same card as on the overview).
+    const waitingCards = new Map(((D.today?.projects?.list) || []).filter((x) => x.card).map((x) => [x.name, x.card]));
+    const waitingCard = (name) => waitingCards.get(name) || null;
     return `<div class="grid three">${ps
       .map((p) => {
         const r = shelf.get(p.name);
         return panel(
           esc(p.name) + (r?.isNew ? ' ' + badge('warning', 'new · unconfirmed') : ''),
-          `${r?.isNew ? `<p class="small muted" style="margin-bottom:8px">Newly created${r.createdOn ? ' on ' + esc(r.createdOn) : ''}${r.createdBy ? ' by ' + esc(r.createdBy) : ''} — awaits confirmation.</p><div class="drawer-actions" style="margin-bottom:12px">${btn('Confirm project', 'project-confirm', `data-value="${esc(p.name)}" ${state.readonly ? 'disabled' : ''}`, 'small ghost')}</div><div class="small quiet" data-confirm-status="${esc(p.name)}" role="status" aria-live="polite"></div><details class="cmd-fallback"><summary class="small quiet">Details · command to copy</summary>${skCopy('node bin/mem project confirm ' + p.name)}</details>` : ''}<div class="number">${num(p.entries)}</div><p class="small muted" style="margin:5px 0 20px">entries · ${p.drawers.length} filled types${p.retired ? ` · ${num(p.retired)} retired` : ''}${p.openQuestions ? ` · ${num(p.openQuestions)} open questions` : ''}${p.waitingQuestions ? ` · ${num(p.waitingQuestions)} waiting for you` : ''}</p>${p.drawers.map((t) => `<span class="tag">${esc(types[t] || t)}</span>`).join('')}${r ? `<div class="stats-list" style="margin-top:14px"><div class="row"><span class="small">Shelf</span><span class="small">${num(r.filled)} filled · ${num(r.empty)} empty · ${num(r.missing)} missing of ${num(r.drawersTotal)}</span></div>${(r.files || []).map((f) => `<div class="row"><span class="small mono">${esc(f.name)}</span>${badge(f.where)}</div>`).join('')}</div>` : ''}${p.agents?.length ? `<p class="small quiet" style="margin-top:12px">Agents: ${p.agents.map((a) => esc(a.name) + ' (' + num(a.entries) + ')').join(', ')}</p>` : ''}<div class="drawer-actions">${btn('Open project', 'project', `data-value="${esc(p.name)}"`, 'ghost')}${btn('Export', 'export-project', `data-value="${esc(p.name)}"`, 'ghost')}</div>`,
+          `${r?.isNew ? `${waitingCard(p.name) ? cardHtml(waitingCard(p.name)) : `<p class="small muted" style="margin-bottom:8px">Newly created${r.createdOn ? ' on ' + esc(r.createdOn) : ''}${r.createdBy ? ' by ' + esc(r.createdBy) : ''} — awaits confirmation.</p>`}<div class="drawer-actions" style="margin-bottom:12px">${btn('Confirm project', 'project-confirm', `data-value="${esc(p.name)}" ${state.readonly ? 'disabled' : ''}`, 'small ghost')}</div><div class="small quiet" data-confirm-status="${esc(p.name)}" role="status" aria-live="polite"></div><details class="cmd-fallback"><summary class="small quiet">Details · command to copy</summary>${skCopy('node bin/mem project confirm ' + p.name)}</details>` : ''}<div class="number">${num(p.entries)}</div><p class="small muted" style="margin:5px 0 20px">entries · ${p.drawers.length} filled types${p.retired ? ` · ${num(p.retired)} retired` : ''}${p.openQuestions ? ` · ${num(p.openQuestions)} open questions` : ''}${p.waitingQuestions ? ` · ${num(p.waitingQuestions)} waiting for you` : ''}</p>${p.drawers.map((t) => `<span class="tag">${esc(types[t] || t)}</span>`).join('')}${r ? `<div class="stats-list" style="margin-top:14px"><div class="row"><span class="small">Shelf</span><span class="small">${num(r.filled)} filled · ${num(r.empty)} empty · ${num(r.missing)} missing of ${num(r.drawersTotal)}</span></div>${(r.files || []).map((f) => `<div class="row"><span class="small mono">${esc(f.name)}</span>${badge(f.where)}</div>`).join('')}</div>` : ''}${p.agents?.length ? `<p class="small quiet" style="margin-top:12px">Agents: ${p.agents.map((a) => esc(a.name) + ' (' + num(a.entries) + ')').join(', ')}</p>` : ''}<div class="drawer-actions">${btn('Open project', 'project', `data-value="${esc(p.name)}"`, 'ghost')}${btn('Export', 'export-project', `data-value="${esc(p.name)}"`, 'ghost')}</div>`,
           p.last ? 'Newest entry ' + when(p.last) : '',
           '', ['projects'],
         );
@@ -5071,7 +5161,7 @@ async function showDetail(id, tab = 'content') {
   const may = !state.readonly;
   let body = '';
   if (tab === 'content')
-    body = `${statusBadge(id)}${e.why ? `<p class="small muted" style="margin-top:8px">${esc(e.why)}</p>` : ''}<div class="detailtext">${esc(text || '(no text)')}</div>${e.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}<div class="metadata"><div><span>Author</span><b>${esc(e.agent)}</b></div><div><span>Time</span><b>${esc(e.ts)}</b></div><div><span>Memory / project</span><b>${esc(e.memory)} / ${esc(e.project)}</b></div><div><span>Drawer</span><b>${esc(drawerOf(e))}</b></div><div><span>Injected</span><b>${e.recall ? (e.recall.sessions ? num(e.recall.sessions) + ' sessions' : 'never') : 'not measurable'}</b></div><div><span>Place</span><b>${esc(e.source)}</b></div><div><span>Basis / authority</span><b>${esc(e.basis || 'not declared')} / ${esc(e.authority || '—')}</b></div><div><span>Scope / built on</span><b>${esc(e.scope || '—')} / ${e.derivedFrom.length ? e.derivedFrom.map(esc).join(', ') : 'nothing declared'}</b></div></div><div class="drawer-actions">${btn('Write a correction', 'correct', `data-id="${esc(id)}"`, 'primary')}${e.type === 'question' ? btn('Link an answer', 'answer', `data-id="${esc(id)}" ${!isOpen && !isWaiting ? 'disabled' : ''}`, 'ghost') + (isWaiting ? (catMayClick() ? btn('Confirm answer', 'question-confirm', `data-id="${esc(id)}" ${may ? '' : 'disabled'}`, 'primary') : btn('Confirm answer', 'question-confirm', `data-id="${esc(id)}" disabled title="Needs a password session. On the command line: mem questions confirm ${esc(id)} --authority user"`, 'primary')) : '') : btn('Mark done', 'done', `data-id="${esc(id)}" ${may && isOpen ? '' : 'disabled'}`, 'ghost')}${btn('Discard', 'retire', `data-id="${esc(id)}" ${!isOpen ? 'disabled' : ''}`, 'ghost danger')}${e.state !== 'active' ? btn('Restore', 'restore', `data-id="${esc(id)}"`, 'ghost') : ''}${btn('Merge …', 'merge', `data-id="${esc(id)}"`, 'ghost')}${btn('Show in the network', 'show-in-graph', `data-id="${esc(id)}"`, 'ghost')}</div>`;
+    body = `${statusBadge(id)}${D._card?.get(id) ? `<div style="margin-top:12px">${cardHtml(D._card.get(id))}</div>` : ''}${e.why ? `<p class="small muted" style="margin-top:8px">${esc(e.why)}</p>` : ''}<div class="detailtext">${esc(text || '(no text)')}</div>${e.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}<div class="metadata"><div><span>Author</span><b>${esc(e.agent)}</b></div><div><span>Time</span><b>${esc(e.ts)}</b></div><div><span>Memory / project</span><b>${esc(e.memory)} / ${esc(e.project)}</b></div><div><span>Drawer</span><b>${esc(drawerOf(e))}</b></div><div><span>Injected</span><b>${e.recall ? (e.recall.sessions ? num(e.recall.sessions) + ' sessions' : 'never') : 'not measurable'}</b></div><div><span>Place</span><b>${esc(e.source)}</b></div><div><span>Basis / authority</span><b>${esc(e.basis || 'not declared')} / ${esc(e.authority || '—')}</b></div><div><span>Scope / built on</span><b>${esc(e.scope || '—')} / ${e.derivedFrom.length ? e.derivedFrom.map(esc).join(', ') : 'nothing declared'}</b></div></div><div class="drawer-actions">${btn('Write a correction', 'correct', `data-id="${esc(id)}"`, 'primary')}${e.type === 'question' ? btn('Link an answer', 'answer', `data-id="${esc(id)}" ${!isOpen && !isWaiting ? 'disabled' : ''}`, 'ghost') + (isWaiting ? (catMayClick() ? btn('Confirm answer', 'question-confirm', `data-id="${esc(id)}" ${may ? '' : 'disabled'}`, 'primary') : btn('Confirm answer', 'question-confirm', `data-id="${esc(id)}" disabled title="Needs a password session. On the command line: mem questions confirm ${esc(id)} --authority user"`, 'primary')) : '') : btn('Mark done', 'done', `data-id="${esc(id)}" ${may && isOpen ? '' : 'disabled'}`, 'ghost')}${btn('Discard', 'retire', `data-id="${esc(id)}" ${!isOpen ? 'disabled' : ''}`, 'ghost danger')}${e.state !== 'active' ? btn('Restore', 'restore', `data-id="${esc(id)}"`, 'ghost') : ''}${btn('Merge …', 'merge', `data-id="${esc(id)}"`, 'ghost')}${btn('Show in the network', 'show-in-graph', `data-id="${esc(id)}"`, 'ghost')}</div>`;
   else if (tab === 'evidence') {
     const bi = k.entry ? { state: k.state, reason: k.reason, sources: k.entry.backlinks || [] } : null;
     const rows = (list) =>

@@ -73,6 +73,7 @@ import * as raw from './raw.mjs';
 import * as modelcost from './modelcost.mjs';
 import * as effect from './effect.mjs';
 import * as today from './today.mjs';
+import { maskText, maskEntry } from './outputguard.mjs';
 import * as decisioncard from './decisioncard.mjs';
 import * as cardstore from './cardstore.mjs';
 import * as cardfeed from './cardfeed.mjs';
@@ -138,7 +139,8 @@ export const NOT_AVAILABLE = Object.freeze({
 });
 
 function excerpt(s, max = EXCERPT_MAX) {
-  const t = String(s ?? '').replace(/\s+/g, ' ').trim();
+  // Mask BEFORE the cut: a key over the boundary would leave a stump.
+  const t = maskText(String(s ?? '')).replace(/\s+/g, ' ').trim();
   return t.length > max ? `${t.slice(0, max - 1)}…` : t;
 }
 
@@ -862,7 +864,7 @@ export function collectDashboard(root, {
   const shelf = cardstore.readCards(root);
   const shelfState = cardstore.stateOf(shelf);
   reasons.push(...cardstore.reasonsOf(shelfState));
-  const cardContext = { cards: shelf.cards };
+  const cardContext = { cards: shelf.cards, human: cardfeed.humanOf(root) };
   const alloc = cardfeed.allocation(root);
   const openDuties = [];
   const openQuestions = [];
@@ -896,6 +898,7 @@ export function collectDashboard(root, {
   } catch (e) { reasons.push(`waiting questions not readable: ${e?.message || e}`); }
 
   // --- 4. the raw capture: the old desk's four-state review + topics ------
+  // mask-ok: a list slice of topic names
   const rawOut = rawSection(d.raw, (path) => [...(topicsByCapture.get(path) ?? [])].slice(0, 12), (path) => entriesByCapture.get(path) ?? []);
 
   // --- 5. the doctor, cached --------------------------------------------
@@ -1138,7 +1141,8 @@ export function entryWhole(root, id, { getCard = dashboard.getEntryFast } = {}) 
   if (card.state === 'unknown' || card.state === 'error') return card;
   let rawLine = null;
   try { rawLine = memory.getEntry(root, id) ?? null; } catch { rawLine = null; }
-  return { ...card, raw: rawLine, text: rawLine ? textOf(rawLine, card.type ?? null) : null };
+  // The raw line is shown whole, so the mask is the only guard: the line on disk stays as it is.
+  return { ...card, raw: rawLine ? maskEntry(rawLine) : rawLine, text: rawLine ? maskText(textOf(rawLine, card.type ?? null)) : null };
 }
 
 // ---------------------------------------------------------------------
@@ -1212,7 +1216,7 @@ export function factsAt(root, { known, valid } = {}, { readAll = null } = {}) {
       id: e.id ?? null,
       key: freshness.subjectKey(e) ?? null,
       title: excerpt(e.title || `${e.key ?? ''}${e.key ? ' = ' : ''}${e.value ?? e.fact ?? textOf(e, 'timeline')}`, 160) || e.id,
-      value: e.value ?? e.fact ?? null,
+      value: maskEntry(e.value ?? e.fact ?? null),
       validFrom: e.valid_from ?? null,
       ts: e.ts ?? null,
       source: e._source ?? null,

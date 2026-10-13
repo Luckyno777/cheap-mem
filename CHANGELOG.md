@@ -146,6 +146,73 @@ Reproduced in a real Chromium on the previous tip first (red), then fixed (green
   the whole entry stock (done, restore, merge) stay with the rebuild. New probe switch
   `CHEAP_MEM_SERVE_BUILD_PAUSE_TEST_MS`.
 
+### Security - mask before cut: a key that crosses a cut boundary is no longer left as a stump (cm error 2tjgr4psniuh)
+
+Found by counting, on `acff04e`, with probes that build a key-shaped bait at run time: a text was shortened first and masked
+afterwards, so a key that crossed the cut left a rest under its pattern's minimum length (a github token needs 30 characters
+after `ghp_`) and the rest was no longer recognised. The window cut of `raw.snippet` also cut at the FRONT, so a tail without
+its prefix came out. Probes: `test/mask-before-cut.test.mjs` (every site, seven key families, red on `acff04e`);
+the ratchet `test/mask-before-cut-ratchet.test.mjs`.
+
+- **One order, in one place.** `src/outputguard.mjs` gains `cutMasked(text, n)` and `windowMasked(text, from, to)`: mask first,
+  cut the masked text, drop a marker the cut tore in half. The sites below call them, or call `maskText` in front of their own
+  cutter (word boundary, ellipsis) so their output for plain text stays byte for byte what it was.
+- **Cut before the mask (output):** the raw search hit (`mem find --json`, the bridge), `raw.snippet` (both window edges),
+  `retrieve` body (`mem retrieve`, `mem_retrieve`, the dashboard probe), `mem when --raw`, `mem questions` and the question
+  tile of `mem board`, the command-guard booklet titles (on disk too), `mem log error` "most recent", error history lines,
+  neighbour and learning notes, the Stop-hook closing report, the day list (`mem appointment today`, the session line, the
+  letters), the dashboard (probe, facts, skill catalogue), `mem net --derived`, `mem observations`, the doctor's entry-form
+  finding, the repetition hint, the answer check excerpt, `mem teach`, the skill registry (SKILL.md export, `mem skills list
+  --json`), `bodyfields.restOfBody`.
+- **Written path (the rest stays on disk for good):** `source.excerpt` redacts the whole text, then caps it; the unreadable
+  line of a raw capture, the commit subject in a `resolves` link, the broadcast title, the rule-draft quote, the heartbeat
+  `what` (which had no redaction at all), the shrink baseline `why` and the rewrites lock `reason` are masked before they are cut.
+- **Output that went past the guarded `out()`:** `mem context`, `mem core` and `mem raw show` write to stdout directly and now
+  mask there; `freshness.formatFact` masks (it fed the session-start block with the full value); the dashboard entry drawer
+  (`entryWhole`) masks `raw` and `text`; `mem inbox all|new` masks the subject.
+- **The CLI output guard is ON for every command** (it was an allow-list, `READ_COMMANDS`, and every command missing from it
+  printed entry text in the clear: `inbox`, `skills`, `teach`, `net`, `observations`, `appointment`, `suggest`). The exception
+  list `UNGUARDED` in `src/cli/shell.mjs` holds `serve` only (its setup code is what it exists to show).
+- **`mem inbox show`** printed the message byte for byte past `out()` (and `bin/mem-handle-post` hands that to a model); it masks
+  now. `mem suggest procedure` masks the error title in the draft command.
+- **`mem serve`: one exit for all JSON.** `src/servemask.mjs` masks every JSON answer at the request handler (gzip aware, byte for
+  byte unchanged when nothing needs masking): inbox subjects, message bodies and replies, fact values and experience titles left the
+  server in the clear. The field masks in the routes stay as the first layer; a route added later is covered anyway.
+- **Helpers that cut to a length they are handed** (`short(s, n)`, `clip`, `squash`, `cutAtBoundary`, `capBytes` ...) mask inside the
+  helper, whatever their callers do; the new rule 3 of the ratchet judges every such helper in `src/` and `bin/`. The MCP bridge masks
+  the text of a failed call (`Error: ...`) and the JSON-RPC error of its HTTP form. The static exports (`mem viewer`, the project
+  package JSON and its offline HTML view) were checked and are green controls.
+- **`mem serve` guard, second pass:** `text/plain` bodies (the 500 texts that carry `e.message`) are masked as well; the answer is
+  held until the body is checked, and a body that cannot be read (a broken gzip) becomes a bare 500 instead of going out; what is
+  asked for again and again (the packed dashboard body) is masked once. The MCP refusal of the read-only profile masks the tool name.
+- **The PEM patterns are linear** (review blocker): the open-block pattern read every header line two ways (2^n, 37 s for 143
+  characters of prose in its first form), the complete-block pattern scanned to the end of the text from every BEGIN line (2.8 MB:
+  38 s); now unambiguous, and the span between BEGIN and END is capped at 8 KB. Probes with time limits in `test/redaction-linear.test.mjs`.
+- **`git@github.com:Owner/repo.git`** is no credential pair any more (an scp-style remote); a bare secret after `git@host:` still is.
+- **Card text, cost bounds before the fold** (review of the merge): `cardrules.clean` cut to `MAX_IN` BEFORE it squeezed white space,
+  so with a long white-space lead and a token over the edge the cut-through rest of the token ended up at the END of the folded text,
+  where no pattern knows it (and `mem card add` wrote it to the shelf). New `outputguard.costCut(text, n)`: a cost bound that drops
+  the run the edge broke, used in `clean`, `plainText`, `partsOf` and `maskedCopy`. `cardstore.write` now says what the mask took
+  out (`redacted: github-token x2`; it said nothing since `clean` masks before the write core sees the fields), on the CLI and in the
+  bridge. Probes run against this tree and against mutant copies of it (`test/mask-before-cut.test.mjs`).
+  Trade-off, known: a field longer than `MAX_IN` (8192) with no white space at all (a long URL, a long run of Chinese or Japanese
+  text) now loses the broken run whole instead of being shortened, so such a card field can come back empty. Card fields show at
+  most 320 characters, so only inputs far beyond that are touched.
+- **An open PEM block** (header and key material, no END line: a text cut inside the key) is masked by `redaction.mjs` too; before,
+  ~1990 characters of a key survived `questiontext.prepare` (cut at 8000 before it redacts, a cost bound), and any window that
+  ended inside a block. A header alone in prose is not touched.
+
+### Security - a placeholder is a placeholder only as a whole value (both houses, owner decision 2026-10-13)
+
+The exception list of `src/redaction.mjs` excused every value that merely STARTED with `your`, `my`, `test`, `example`, `sample`,
+`dummy`, `fake` or `placeholder`: a value such as `my` + `Secret123!` or `test` + `1234` after a `password` key went through unmasked. Now the whole value must be
+a placeholder word (`your`, `my`, `dein`, `ihr`, `beispiel`, `example`, `sample`, `dummy`, `fake`, `placeholder`), alone or with exactly
+one generic word behind it (`password`, `key`, `api_key`, `token`, `secret`, `value` ...), joined by `_`, `-` or nothing:
+`your_password`, `my-token`, `example` stay; `test...` is no placeholder at all. The commit scan runs the same `redact()`; it keeps
+no list of its own. One fixture value in bench/value-report.mjs (an exported API token that read `your-token-here`) became `your-token`. A random test value that
+started with a placeholder word made `test/headline-rule.test.mjs` flake; its value now starts with `Q7`.
+`test/redaction-placeholder.test.mjs` (red on acff04e).
+
 ### Security - a person's question closes only on the person's confirmation; a headless run never writes tier `user` (2026-10-12)
 
 Port of lucky-mem `fragen-rang-lm` (owner decision, variant A). Reproduced on the previous tip first (red), then fixed

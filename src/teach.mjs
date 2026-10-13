@@ -34,6 +34,9 @@
  * compute.
  */
 
+// A pure function of text, not a derivation: the mask comes BEFORE the cut in `short`.
+import { maskText } from './outputguard.mjs';
+
 /** The five sections. Closed list, fixed order. */
 export const SECTIONS = Object.freeze([
   'established', 'tentative', 'contested', 'deadends', 'corrections',
@@ -49,7 +52,7 @@ const HEADING = {
 
 /** A short line from an entry. Title before text, never both. */
 export function short(e, max = 110) {
-  const t = String(e?.title ?? e?.choice ?? e?.text ?? e?.fact ?? e?.id ?? '').trim()
+  const t = maskText(String(e?.title ?? e?.choice ?? e?.text ?? e?.fact ?? e?.id ?? '')).trim()
     .replace(/\s+/g, ' ');
   return t.length > max ? `${t.slice(0, max - 1)}…` : t;
 }

@@ -44,6 +44,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { appendLine } from './append.mjs';
+import { cutMasked } from './outputguard.mjs';
 
 export const FILE = path.join('.mem', 'rewrites.jsonl');
 
@@ -195,7 +196,7 @@ export function append(root, line) {
 /** Lock a pair — a new line, never a rewrite. */
 export function lock(root, from, to, reason, { now = new Date() } = {}) {
   if (!folded(root).has(keyOf(from, to))) return { written: false, reason: 'unknown-pair' };
-  append(root, { kind: 'lock', ts: now.toISOString(), from, to, reason: String(reason ?? '').slice(0, 200) });
+  append(root, { kind: 'lock', ts: now.toISOString(), from, to, reason: cutMasked(String(reason ?? ''), 200) });
   return { written: true };
 }
 
