@@ -18,7 +18,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { tempDir } from './temp-dir.mjs';
 import {
   loadChildSource, startLoadChildren, cpuTimeMs, isAlive, startTime, MAX_LIFETIME_MS, CHECK_EVERY_MAX,
@@ -199,7 +199,7 @@ test('d) stop() cleans up (the finally path); a child the probe started itself i
   const dir = tempDir('cm-loadchild-', t);
   const pidFile = path.join(dir, 'pids.json');
   const script = path.join(dir, 'parent.mjs');
-  fs.writeFileSync(script, `import { loadChildSource, watch } from ${JSON.stringify(path.join(HERE, 'fixture', 'loadchild.mjs'))};
+  fs.writeFileSync(script, `import { loadChildSource, watch } from ${JSON.stringify(pathToFileURL(path.join(HERE, 'fixture', 'loadchild.mjs')).href)};
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 const text = loadChildSource({ maxLifetimeMs: 15000 }).split('\\n').filter((l) => !/^\\s*(if \\(process\\.ppid|try \\{ process\\.kill\\(PARENT)/.test(l)).join('\\n');
