@@ -34,15 +34,20 @@ function root(t) {
 const journal = (r) => path.join(r, vis.LOG);
 const put = (r, text) => fs.writeFileSync(journal(r), text);
 
-test('POSITIVE CONTROL: one readable row is state "good" and is the newest sighting of its tool', (t) => {
+test('POSITIVE CONTROL (old API only, so it is green at f4a3540 too): one readable row is read and is the newest sighting', (t) => {
+  const r = root(t);
+  put(r, `${JSON.stringify(ROW)}\n`);
+  assert.equal(vis.read(r).rows.length, 1);
+  assert.equal(vis.latestPerTool(r).get('mem_find').client, 'probe', 'latestPerTool keeps its Map');
+});
+
+test('a readable row is state "good" and sightings() carries the Map next to it', (t) => {
   const r = root(t);
   put(r, `${JSON.stringify(ROW)}\n`);
   assert.equal(vis.read(r).state, 'good');
-  assert.equal(vis.read(r).rows.length, 1);
   const s = vis.sightings(r);
   assert.equal(s.state, 'good');
   assert.equal(s.map.get('mem_find').client, 'probe');
-  assert.equal(vis.latestPerTool(r).get('mem_find').client, 'probe', 'latestPerTool keeps its Map');
 });
 
 test('missing, empty and broken are three states, each on its own', (t) => {
