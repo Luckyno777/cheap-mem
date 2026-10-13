@@ -130,7 +130,11 @@ async function panelView(base, { oldScript } = {}) {
 }
 // The row title reads "<title> — Procedure, issued by <who> on <date>" (the name first, the mark behind it); compare the head.
 const short = (t) => t.split(' — ')[0];
-const titles = (v) => v.rows.map((z) => short(z.title)).sort();
+// The mark must stay behind the name (the head alone would pass even if the mark were lost).
+const titles = (v) => v.rows.map((z) => {
+  assert.match(z.title, /\u2014 (\[\w+\] )?Procedure, issued by/, `the row keeps its procedure mark: ${z.title}`);
+  return short(z.title);
+}).sort();
 
 test('RED on the fixed old state: a proposed rule stands in the panel (positive control)', NEEDS, async (t) => {
   let old;
