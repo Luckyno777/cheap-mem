@@ -738,6 +738,7 @@ export function start(root, kind, params = {}, context = {}) {
     if (stdout.length < CAP) stdout += chunk;
   });
   child.stderr.on('data', (chunk) => {
+    // mask-ok: a rolling buffer; a key cut at its FRONT lies far outside the 2000 characters that are shown, and the shown tail is masked first (below)
     stderrTail = (stderrTail + chunk).slice(-8000);
     if (!spec.progressPattern) return;
     for (const line of String(chunk).split('\n')) {

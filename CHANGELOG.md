@@ -60,6 +60,38 @@ Reproduced in a real Chromium on the previous tip first (red), then fixed (green
   the whole entry stock (done, restore, merge) stay with the rebuild. New probe switch
   `CHEAP_MEM_SERVE_BUILD_PAUSE_TEST_MS`.
 
+### Security - mask before cut: a key that crosses a cut boundary is no longer left as a stump (cm error 2tjgr4psniuh)
+
+Found by counting, on `acff04e`, with probes that build a key-shaped bait at run time: a text was shortened first and masked
+afterwards, so a key that crossed the cut left a rest under its pattern's minimum length (a github token needs 30 characters
+after `ghp_`) and the rest was no longer recognised. The window cut of `raw.snippet` also cut at the FRONT, so a tail without
+its prefix came out. Probes: `test/mask-before-cut.test.mjs` (every site, seven key families, red on `acff04e`);
+the ratchet `test/mask-before-cut-ratchet.test.mjs`.
+
+- **One order, in one place.** `src/outputguard.mjs` gains `cutMasked(text, n)` and `windowMasked(text, from, to)`: mask first,
+  cut the masked text, drop a marker the cut tore in half. The sites below call them, or call `maskText` in front of their own
+  cutter (word boundary, ellipsis) so their output for plain text stays byte for byte what it was.
+- **Cut before the mask (output):** the raw search hit (`mem find --json`, the bridge), `raw.snippet` (both window edges),
+  `retrieve` body (`mem retrieve`, `mem_retrieve`, the dashboard probe), `mem when --raw`, `mem questions` and the question
+  tile of `mem board`, the command-guard booklet titles (on disk too), `mem log error` "most recent", error history lines,
+  neighbour and learning notes, the Stop-hook closing report, the day list (`mem appointment today`, the session line, the
+  letters), the dashboard (probe, facts, skill catalogue), `mem net --derived`, `mem observations`, the doctor's entry-form
+  finding, the repetition hint, the answer check excerpt, `mem teach`, the skill registry (SKILL.md export, `mem skills list
+  --json`), `bodyfields.restOfBody`.
+- **Written path (the rest stays on disk for good):** `source.excerpt` redacts the whole text, then caps it; the unreadable
+  line of a raw capture, the commit subject in a `resolves` link, the broadcast title, the rule-draft quote, the heartbeat
+  `what` (which had no redaction at all), the shrink baseline `why` and the rewrites lock `reason` are masked before they are cut.
+- **Output that went past the guarded `out()`:** `mem context`, `mem core` and `mem raw show` write to stdout directly and now
+  mask there; `freshness.formatFact` masks (it fed the session-start block with the full value); the dashboard entry drawer
+  (`entryWhole`) masks `raw` and `text`; `mem inbox all|new` masks the subject.
+- **`READ_COMMANDS`** now also holds `inbox`, `skills`, `teach`, `net`, `observations` and `appointment`: they print entry text
+  and ran without the output guard.
+- **Embedding text.** `embed()` masks the text before it is capped and sent (`textForProvider`, one seam). A text that carries a
+  key now gets a different vector than before. Open owner question: whether a local provider (ollama) should skip the mask, and
+  whether the mask should be widened or switched off per provider, is not decided here.
+- Known edge, named: `questiontext.prepare` still cuts at 8000 characters before it redacts (a cost bound, four times the
+  2000 it keeps); a PEM block that begins in the kept part and ends beyond 8000 is not matched.
+
 ### Security - a person's question closes only on the person's confirmation; a headless run never writes tier `user` (2026-10-12)
 
 Port of lucky-mem `fragen-rang-lm` (owner decision, variant A). Reproduced on the previous tip first (red), then fixed

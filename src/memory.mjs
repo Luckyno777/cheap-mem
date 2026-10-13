@@ -2837,6 +2837,7 @@ function shortText(e0) {
   if (e.title) parts.push(e.title);
   if (e.topic) parts.push(`[${e.topic}]`);
   if (e.class) parts.push(`[${e.class}]`);
+  // mask-ok: `e` is a maskEntry copy (see the top of shortText)
   if (e.text) parts.push(String(e.text).slice(0, 120).replace(/\s+/g, ' '));
   if (e.choice) parts.push(`→ ${e.choice}`);
   if (e.why) parts.push(`because ${String(e.why).slice(0, 80)}`);

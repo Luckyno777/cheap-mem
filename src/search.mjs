@@ -750,6 +750,7 @@ function* rawDocuments(root, lexicons, only = null) {
     }
     if (pieces.length === 0) continue;
 
+    // mask-ok: the indexing window (RAW_CAP), not shown; the excerpt shown goes through cutMasked below
     const text = pieces.join('\n').slice(0, RAW_CAP);
     // A capture is a transcript — it carries the same silent-mis-stem
     // risk a typed entry does, and a raw German session is common

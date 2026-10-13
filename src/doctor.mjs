@@ -294,12 +294,14 @@ export function checkRunningCodeFor(root, service) {
     return { level: LEVEL.UNKNOWN, text: `'${service}': ${marker.code_path} is not a readable git checkout — cannot compare` };
   }
   if (currentCommit === marker.commit) {
+    // mask-ok: a commit hash prefix
     return { level: LEVEL.GOOD, text: `'${service}': runs the code it started with (${marker.commit.slice(0, 12)})` };
   }
   const changed = release.changedPaths(marker.code_path, marker.commit, currentCommit);
   if (changed == null) {
     return {
       level: LEVEL.UNKNOWN,
+      // mask-ok: commit hash prefixes
       text: `'${service}': cannot resolve the diff ${marker.commit.slice(0, 12)}..${currentCommit.slice(0, 12)} at ${marker.code_path}`,
     };
   }
@@ -580,6 +582,7 @@ function checkDigestYield(root) {
   if (digested.length >= 3 && ratio > ratioThreshold) {
     return finding('digest-yield', LEVEL.WARN, core,
       'Many digested captures produced no entry — the digest may be dropping '
+      // mask-ok: a list slice of gap ids
       + `content (or it was just tool noise). Spot-check: ${gaps.slice(0, 2).join(', ')}`);
   }
   return finding('digest-yield', LEVEL.GOOD, core);
@@ -883,6 +886,7 @@ export function checkWorkflowWithoutTrigger(root) {
     return finding('workflow-without-trigger', LEVEL.GOOD,
       `${all.length} workflow(s) in force, each with at least one trigger, path or tool pattern`);
   }
+  // mask-ok: a list slice; the titles are not cut
   const names = unreachable.slice(0, 5).map((w) => `${w.id} (${w.title ?? '(no title)'})`);
   return finding('workflow-without-trigger', LEVEL.WARN,
     `${unreachable.length} of ${all.length} workflow(s) without triggers/path_patterns/tool_patterns: `
@@ -2030,6 +2034,7 @@ function checkGitState(root) {
     `${branch.trim()}, ${content.length} uncommitted memory files`,
     'Memory that is not committed does not travel and does not survive a '
     + 'rebuilt container. Commit and push them: git add -A && git commit && git push. '
+    // mask-ok: a list slice of finding lines
     + `First: ${content.slice(0, 2).map((l) => l.slice(3)).join(', ')}`);
 }
 
@@ -2067,6 +2072,7 @@ export function alarm({ findings }, { limit = 6, width = 120 } = {}) {
     const first = maskText(String(t ?? '')).split('\n')[0];
     return first.length > width ? `${first.slice(0, width - 1)}…` : first;
   };
+  // mask-ok: a list slice; short() masks before it cuts
   const lines = red.slice(0, limit).map((f) => `FAIL  ${f.name}  ${short(f.text)}`);
   if (red.length > limit) {
     lines.push(`…and ${red.length - limit} more — details with: node bin/mem doctor --quiet`);

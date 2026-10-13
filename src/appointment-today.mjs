@@ -29,7 +29,7 @@ import * as cfgmod from './config.mjs';
 import * as A from './appointments.mjs';
 import * as tm from './appointment-time.mjs';
 import * as dueCore from './due.mjs';
-import { cutMasked } from './outputguard.mjs';
+import { cutMasked, maskText } from './outputguard.mjs';
 
 const NO_RESPONSE_MS = 2 * 3600000;
 /** The session-start line may carry at most this many bytes (a hook budget: one short line). */
@@ -240,9 +240,10 @@ export function sessionLine(root, { now = Date.now() } = {}) {
   else if (!next) line = `Today: ${n} ${noun}, all past`;
   else {
     const head = `Today: ${n} ${noun}, next ${clock.hhmm(next.ms)} `;
-    let title = next.title.replace(/\s+/g, ' ');
+    let title = maskText(String(next.title ?? '')).replace(/\s+/g, ' ');
     // Bytes, not characters: a multi-byte letter counts more.
     if (Buffer.byteLength(head + title, 'utf8') > LINE_MAX_BYTES) {
+      // mask-ok: `title` was masked where it was read, above
       while (Buffer.byteLength(`${head}${title}...`, 'utf8') > LINE_MAX_BYTES && title.length > 1) title = title.slice(0, -1);
       title = `${title.trimEnd()}...`;
     }

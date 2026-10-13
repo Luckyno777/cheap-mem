@@ -932,6 +932,7 @@ export function canonicalBody(text) {
 }
 
 export function bodyHash(text) {
+  // mask-ok: a digest prefix
   return crypto.createHash('sha256').update(canonicalBody(text), 'utf8').digest('hex').slice(0, 16);
 }
 

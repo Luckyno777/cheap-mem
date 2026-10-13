@@ -874,6 +874,7 @@ export function collectDashboard(root, {
   } catch (e) { reasons.push(`waiting questions not readable: ${e?.message || e}`); }
 
   // --- 4. the raw capture: the old desk's four-state review + topics ------
+  // mask-ok: a list slice of topic names
   const rawOut = rawSection(d.raw, (path) => [...(topicsByCapture.get(path) ?? [])].slice(0, 12), (path) => entriesByCapture.get(path) ?? []);
 
   // --- 5. the doctor, cached --------------------------------------------

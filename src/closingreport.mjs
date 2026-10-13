@@ -95,6 +95,7 @@ export function dutiesOfSession(root, startMs) {
 
 /** The report text, capped. */
 export function reportText(list) {
+  // mask-ok: a list slice; every title goes through short(), which masks first
   const names = list.slice(0, NAMES_MAX).map((p) => `${p.id} ${short(p.title, 60)}`).join('; ');
   const rest = list.length - Math.min(list.length, NAMES_MAX);
   const head = `Open duties from this session (${list.length}): ${names}${rest > 0 ? ` (+${rest} more)` : ''}`;

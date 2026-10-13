@@ -124,6 +124,7 @@ export function normalise(command) {
 }
 
 function atCommandStart(text, pos) {
+  // mask-ok: a cut of the checked COMMAND at a match position, not entry text
   let before = text.slice(0, pos).replace(/ +$/, '');
   for (let i = 0; i < 6; i += 1) {
     const m = before.match(LEAD_WORD);

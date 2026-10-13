@@ -402,6 +402,7 @@ export function noteForError(root, errorEntry, { max = NOTE_MAX } = {}) {
   if (!learn.length && !proc.length && !fixes.length) return [];
   const where = [cls && `class ${cls}`, files[0] && `file ${files[0]}`].filter(Boolean).join(', ');
   const lines = ['', `  Already there for this (${where}; a note, nothing injected, nothing written):`];
+  // mask-ok: a list slice; short() masks before it cuts
   for (const x of learn.slice(0, max)) lines.push(`    learning  ${short(x.e)}`);
   for (const x of proc.slice(0, max)) lines.push(`    procedure ${short(x.e)}`);
   for (const l of fixes.slice(0, max)) {

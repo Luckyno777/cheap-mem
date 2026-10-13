@@ -1528,6 +1528,7 @@ async function handleCall(name, args) {
         : [`No claims for '${r.query}' within ${r.scopes.join(' ') || '(no scope)'}.`];
       if (r.excluded.length) {
         lines.push('', `excluded: ${r.excluded.length}`);
+        // mask-ok: a list slice of exclusion records, not a text cut
         for (const e of r.excluded.slice(0, 10)) lines.push(`  ${e.id ?? '-'}: ${e.why}`);
       }
       // **The coverage line goes to the bridge too, in the READABLE
