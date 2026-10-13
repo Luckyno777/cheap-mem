@@ -266,7 +266,7 @@ test('A8/F14: the bridge answers 413 above 1 MiB and passes exactly 1 MiB on to 
     if (/ 200 /.test(await wire(port, 'GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n'))) break;
     await new Promise((r) => setTimeout(r, 50));
   }
-  const post = (body, headers = {}) => new Promise((resolve, reject) => {
+  const post = (body, headers = {}) => new Promise((resolve) => {
     const q = http.request({
       host: '127.0.0.1', port, path: '/mcp', method: 'POST',
       headers: { host: '127.0.0.1', accept: 'application/json, text/event-stream', 'content-type': 'application/json', ...headers },
