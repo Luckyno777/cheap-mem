@@ -83,8 +83,17 @@ test('a failed read (a directory where the journal should be: EISDIR, also as ro
 
 test('the reason carries an error code, never a path of this machine', (t) => {
   const r = root(t);
-  fs.mkdirSync(journal(r));
-  assert.ok(!String(vis.read(r).reason).includes(r), 'the reason names the memory path');
+  // ENOTDIR (a file where the journal's folder should be): unlike EISDIR, its message names the path,
+  // so a reason built from e.message would turn this red
+  const folder = path.join(r, path.dirname(vis.LOG));
+  fs.rmSync(folder, { recursive: true, force: true });
+  fs.writeFileSync(folder, 'not a folder');
+  let message = '';
+  try { fs.readFileSync(journal(r)); } catch (e) { message = String(e.message); }
+  assert.ok(message.includes(r), 'positive control: the raw error message does name the path');
+  const g = vis.read(r);
+  assert.equal(g.state, 'unreadable');
+  assert.ok(!String(g.reason).includes(r), 'the reason names the memory path');
 });
 
 test('RED PROOF at f4a3540: the old module answers the same for an unreadable and a missing journal (positive control: it reads a row)', async (t) => {

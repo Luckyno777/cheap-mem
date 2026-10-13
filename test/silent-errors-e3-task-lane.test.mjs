@@ -109,8 +109,7 @@ test('the time cap: the hits are dropped and the block says the lookup did not f
   const root = world(t);
   const real = Date.now; let n = 0;
   Date.now = () => { n += 5000; return n; };
-  let text;
-  try { text = await run(root); } finally { Date.now = real; }
+  const text = await run(root).finally(() => { Date.now = real; });
   assert.match(text, /\(The lookup for your assignment did not finish - it was NOT fully searched; "nothing shown" does not mean "nothing known"\.\)/);
   assert.doesNotMatch(text, /\[error [a-z0-9]+\]/, 'a lookup that ran out of time shows no half result');
 });
