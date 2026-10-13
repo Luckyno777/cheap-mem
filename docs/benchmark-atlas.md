@@ -426,10 +426,13 @@ which `bench/atlas/inject-search-failure.mjs` makes one search lane throw in a
 child process. Missing and empty may share an answer; an unreadable log must be
 an error that names the file (`degraded` when it is an error that does not);
 a broken line that is skipped without a word makes the answer `degraded`.
-Measured on 2026-10-11: E1 is `fail` (an unreadable journal reads as "no tool
-was ever seen", `src/mcpvisibility.mjs` `read()`), E3 is `fail` (a failed
-lane returns `null`, the same as an assignment nothing matches,
-`src/subagenttask.mjs`, the catch after lane 1). Both are recorded, not fixed.
+Measured on 2026-10-11: E1 was `fail` (an unreadable journal read as "no tool
+was ever seen", `src/mcpvisibility.mjs` `read()`), E3 was `fail` (a failed
+lane returned `null`, the same as an assignment nothing matches,
+`src/subagenttask.mjs`, the catch after lane 1). Both were recorded first and
+ported afterwards (change `silent-errors-cm`): `read()` now answers with a state
+(`missing`, `empty`, `good`, `broken`, `unreadable`) and the task block carries
+one sentence for a lane that failed or ran out of time. Both read `pass`.
 E2 and E4 of the sister house's list are named as blind spots.
 
 `test/atlas-phase-parity.json` now lists, besides the mapping

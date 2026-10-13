@@ -621,7 +621,7 @@ return, so a flood cannot become a denial of service or a context bill.
 | `Stop` | after a turn | captures the transcript (model-free) and persists it; checks the last answer against patterns tied to a logged error (see `docs/answer-check.md`) |
 | `PostToolUse` (Bash only) | after a Bash call that exited 0 | when the call's own output carries a failure signature (`# fail 3`, `npm test \| tail`), recalls matching memory — the failure the exit code hid |
 | `PostToolUseFailure` (Bash, Edit, Write) | after a tool call that really failed | recalls earlier errors and learnings of the same class, once per failure per session |
-| `SubagentStart` | a subagent begins | shows the procedures tagged `subagent-start`, a context recap and — read from the subagent's own transcript — the errors, learnings, duties, procedures and skills that fit ITS TASK (4 hits, 1,500 bytes, nothing personal; `MEM_SUBAGENT_TASK_OFF=1`) — a subagent gets neither `SessionStart` nor `UserPromptSubmit` |
+| `SubagentStart` | a subagent begins | shows the procedures tagged `subagent-start`, a context recap and — read from the subagent's own transcript — the errors, learnings, duties, procedures and skills that fit ITS TASK (4 hits, 1,500 bytes, nothing personal; `MEM_SUBAGENT_TASK_OFF=1`); a lane of that lookup that fails or runs out of time is said in one sentence, never read as "nothing known" — a subagent gets neither `SessionStart` nor `UserPromptSubmit` |
 
 **Why the PreToolUse hook exists**, measured 2026-09-08: recall used to
 hang only on `UserPromptSubmit`, so it fired when the person typed and

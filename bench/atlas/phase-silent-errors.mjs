@@ -49,7 +49,9 @@
 // change to src/, not in the change that added this phase). The phase records
 // them as `fail` with the evidence: the line in the source that turns the
 // failure into an empty answer. When the port lands, the records turn green
-// with no change here.
+// with no change here. They did: E1 (src/mcpvisibility.mjs `read()`/`sightings()`)
+// and E3 (src/subagenttask.mjs `failureNotice()`) were ported in change
+// silent-errors-cm, and read `pass` since.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -335,7 +337,7 @@ export async function run(atlas, { quick = false } = {}) {
   visibilityGroup(atlas);
   taskGroup(atlas);
 
-  phase.note = 'Counters, not clocks: per state, the answer each surface gave (error or not, entry shown or not, file named or not, skipped line mentioned or not). E1 (visibility journal) and E3 (task lane) are recorded as measured; they are not fixed by the change that added this phase.';
+  phase.note = 'Counters, not clocks: per state, the answer each surface gave (error or not, entry shown or not, file named or not, skipped line mentioned or not). E1 (visibility journal) and E3 (task lane) are recorded as measured; both were red when the phase was added and were fixed by the port that followed (silent-errors-cm).';
   atlas.blind('E2: other catch blocks that return an empty value in critical paths',
     'the sister house found its E2 by searching the code for `catch` that returns empty; this phase asks the surfaces above, not the whole code base, so an empty catch elsewhere is invisible to it');
   atlas.blind('E4: dismissed suggestions on the daily summary',

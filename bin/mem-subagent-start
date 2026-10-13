@@ -76,8 +76,11 @@ esac
 # (MEM_SUBAGENT_TASK_SECONDS, default 2, never above what a start may take). If it
 # overruns (rc 124) or the run fails, the old block (procedures, recap, hint) comes
 # once more WITHOUT the assignment lookup: the extra must never cost the start that
-# existed before it. `env` carries the variables because `timeout` runs a program,
-# not an assignment. MEM_SUBAGENT_TASK_OFF=1 switches only the extra off.
+# existed before it. That second pass says so (E3): MEM_SUBAGENT_TASK_FELL_BACK=1 makes
+# src/subagenttask.mjs add one sentence ("the lookup did not finish ... nothing shown
+# does not mean nothing known") instead of leaving the gap silent. `env` carries the
+# variables because `timeout` runs a program, not an assignment.
+# MEM_SUBAGENT_TASK_OFF=1 (the user's own switch) still switches only the extra off, silently.
 # (The script text stands twice, once per pass, so that each call keeps the shape
 # `node -e '...' "$..._URL"` that test/before-edit.test.mjs holds every hook to.)
 TASK_SECS="${MEM_SUBAGENT_TASK_SECONDS:-2}"
@@ -93,7 +96,7 @@ OUT="$(printf '%s' "$IN" | capped "$TASK_SECS" env CHEAP_MEM_ROOT="$ROOT" node -
 ' "$MODULE_URL" 2>/dev/null)"
 RC=$?
 if [ "$RC" -ne 0 ]; then
-  OUT="$(printf '%s' "$IN" | env CHEAP_MEM_ROOT="$ROOT" MEM_SUBAGENT_TASK_OFF=1 node -e '
+  OUT="$(printf '%s' "$IN" | env CHEAP_MEM_ROOT="$ROOT" MEM_SUBAGENT_TASK_FELL_BACK=1 node -e '
   let d = "";
   process.stdin.on("data", (c) => { d += c; }).on("end", () => {
     import(process.argv[1]).then(async (m) => {
