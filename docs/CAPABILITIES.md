@@ -196,6 +196,7 @@ directory. The section number in brackets is where it is explained.
 | `runningmark.mjs` | W1 parity: an atomic start marker (`.pipeline/running/<service>.json`) so `doctor.checkRunningCode` can tell whether `mem serve`/`mem-mcp --http` still run the code they started with (Bauplan W1) |
 | `search.mjs` | BM25, thesaurus, tag graph, the index |
 | `semantics.mjs` | which rules produced this state (4) |
+| `servemask.mjs` | the output guard at the one exit of `mem serve`: every JSON answer is masked (gzip aware, byte for byte unchanged when nothing needs masking) before it leaves, so a route that forgets its own field mask is covered anyway |
 | `setup.mjs` | the five steps between installed and working (10.12) |
 | `shardarchive.mjs` | P17: splits the raw-capture body across shards so git never has to carry one multi-GB blob |
 | `shortline.mjs` | the one-line entry summary of the MCP tools (`mem_component`, `mem_links`, `mem_facts`, ...), procedure mark and bidi latch included, body fields from `bodyfields.mjs` |
