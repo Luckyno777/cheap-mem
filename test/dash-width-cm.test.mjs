@@ -20,7 +20,7 @@
 // Positive control: the stylesheet of the FIXED old commit 0bf3ae5 (never merge-base) is played into the same page
 // through page.route; there the measuring probe (2) is red (main 1700 at 2560, inputs wider than 720) while the
 // 390 px probe (3) stays green (it says what stays the same).
-/* global document, getComputedStyle */
+/* global document, getComputedStyle, localStorage, innerWidth -- these run inside the page (browser), not in Node */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
