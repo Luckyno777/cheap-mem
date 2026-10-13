@@ -52,6 +52,7 @@ import * as injection from './injection.mjs';
 import * as projectnew from './projectnew.mjs';
 import * as decisioncard from './decisioncard.mjs';
 import * as cardstore from './cardstore.mjs';
+import * as cardfeed from './cardfeed.mjs';
 import * as humandecisions from './humandecisions.mjs';
 import { isoWeek } from './measurements.mjs';
 
@@ -375,10 +376,11 @@ export function projectsAwaiting(root, { cards = undefined } = {}) {
     list.sort((a, b) => String(a.createdOn ?? '').localeCompare(String(b.createdOn ?? '')) || a.name.localeCompare(b.name));
     // H11: title and reason as far as they are on record, and the card "Take over project <name>?".
     const shelf = cards === undefined ? (() => { try { return cardstore.latestCards(root); } catch { return new Map(); } })() : cards;
+    const human = cardfeed.humanOf(root);
     for (const p of list) {
       const pr = projectnew.profile(root, p.name);
       p.title = pr.title; p.reason = pr.reason;
-      p.card = decisioncard.cardOf(p, { type: 'project', context: { cards: shelf } });
+      p.card = decisioncard.cardOf(p, { type: 'project', context: { cards: shelf, human } });
     }
     return { readable: true, reason: null, list };
   } catch (e) {

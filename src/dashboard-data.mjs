@@ -862,7 +862,7 @@ export function collectDashboard(root, {
   const shelf = cardstore.readCards(root);
   const shelfState = cardstore.stateOf(shelf);
   reasons.push(...cardstore.reasonsOf(shelfState));
-  const cardContext = { cards: shelf.cards };
+  const cardContext = { cards: shelf.cards, human: cardfeed.humanOf(root) };
   const alloc = cardfeed.allocation(root);
   const openDuties = [];
   const openQuestions = [];

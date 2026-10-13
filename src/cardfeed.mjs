@@ -48,6 +48,11 @@ export function participantsOf(root) {
   return { human, known };
 }
 
+/** The configured human participant's name, or null (no configuration, none or several marked). Never throws. */
+export function humanOf(root) {
+  try { return cfgmod.humanParticipant(cfgmod.readConfig(root).participants).name ?? null; } catch { return null; }
+}
+
 /**
  * The allocator of one build. `card(list, who, make)` returns `make()` for an item that gets a card and `null` otherwise;
  * `omitted` counts what the cap left out, per list.

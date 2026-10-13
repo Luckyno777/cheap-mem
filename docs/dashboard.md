@@ -105,6 +105,25 @@ The measurements (`bench/board-tempo.mjs`, synthetic stores of
 
 - **Overview**: state, attention, the board's tiles (the same as
   `mem board`, which stays on the CLI), and the 3D network.
+- **Decision cards.** Whatever a person is meant to decide or release is a
+  readable card, not an identifier or the first words of a text: on the
+  overview ("Today" and "Your next look"), in the duties list, in the card of
+  a project that waits, and at the top of the entry drawer. One function
+  (`cardHtml` in `assets/dashboard/dashboard.js`) draws all of them, from the
+  `card` that `src/decisioncard.mjs` puts on each item of `/dashboard.json`:
+  the question as a heading, what it is about, the options as a list with their
+  effects (a No / not-now option is always among them, nothing is preselected),
+  the recommendation as "Recommendation from <author>", the evidence as links
+  (the identifier only small), and an origin line with author, tier, date and
+  stage (`written` on the entry, `added later` from the card shelf, or a
+  `replacement card` made by rule, which says that nobody wrote it and has no
+  recommendation). A card written by an agent says "Written by an agent, not
+  checked by you" unless it carries the tier `user`. Items are grouped into
+  **For you** (cards of kind decision or release) and **Agent work** (tasks, and
+  every posting owed to an agent, which gets no card, `src/cardfeed.mjs`). A
+  card draws every text through `esc`; the texts arrive already masked from
+  the server. After a write the freshly computed part (`projects`) carries the
+  cards of what is left. Probe: `test/card-view-cm-browser.test.mjs`.
 - **Knowledge**: entries, network, topics, facts, learnings, skills.
 - **Work**: duties and questions, agents, inbox, a calendar (today, the next
   days, proposals waiting for you, fired reminders, scheduled agent actions
