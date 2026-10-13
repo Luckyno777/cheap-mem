@@ -73,6 +73,8 @@ import * as raw from './raw.mjs';
 import * as modelcost from './modelcost.mjs';
 import * as effect from './effect.mjs';
 import * as today from './today.mjs';
+import * as humandecisions from './humandecisions.mjs';
+import { zoneOf } from './appointments.mjs';
 import { maskText, maskEntry } from './outputguard.mjs';
 import * as decisioncard from './decisioncard.mjs';
 import * as cardstore from './cardstore.mjs';
@@ -869,6 +871,10 @@ export function collectDashboard(root, {
   const alloc = cardfeed.allocation(root);
   const openDuties = [];
   const openQuestions = [];
+  // The house zone, read once (config.timezone, CHEAP_MEM_TZ, system) - the same reading as the day part's. Not readable: no
+  // `dueAt` anywhere (unknown, never a guessed UTC day), the page keeps the list order.
+  let dueZone;
+  try { dueZone = zoneOf(root, env); } catch { dueZone = undefined; }
   // Q7: the duty drawers ONCE for the whole build — the list below, the card "Today" and the part "Deadlines" read this one fold.
   let dutiesFold;
   try { dutiesFold = dutiesOpen(root); } catch (e) { dutiesFold = { error: e }; }
@@ -881,6 +887,9 @@ export function collectDashboard(root, {
         // `owner`: whom the duty is owed to (human | agent | unassigned), named by the configuration - the page groups by it,
         // not by the kind of the card (a replacement card of the human's duty is kind do-it and is still for the human).
         id: p.id, who, owner: alloc.ownerOf(addressee.ofDuty(p)), due: dueCore.dueText(p),
+        // The moment it is overdue from (ms), from the core (humandecisions.dueAtOf -> due.parseDue), for ordering by deadline;
+        // null: no due date, an unreadable one, or no readable zone. The page never reads the due field itself.
+        dueAt: dueZone !== undefined && dueCore.dueValue(p) !== null ? humandecisions.dueAtOf(dueCore.dueValue(p), dueZone) : null,
         card: alloc.card('openDuties', who, () => decisioncard.cardOf(p, { type: 'duty', context: cardContext })),
       });
     }

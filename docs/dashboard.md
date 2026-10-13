@@ -124,7 +124,10 @@ The measurements (`bench/board-tempo.mjs`, synthetic stores of
   whatever the kind of its card; **Agent work** is what is owed to an agent (no
   card, `src/cardfeed.mjs`). An item owed to nobody goes by its card: a decision
   or release is for you, a task is agent work. The Today card lists what is owed
-  to the human only. A card draws every text through `esc`; the texts arrive
+  to the human only. Inside "For you" the items go by their deadline (overdue
+  first, then due today, later, then none or an unreadable one in list order; the
+  server sends `dueAt` from the due core), so the overview's three items are the
+  most urgent ones; "Agent work" keeps the list order. A card draws every text through `esc`; the texts arrive
   already masked from the server. After a write the freshly computed part (`projects`) carries the
   cards of what is left. Probe: `test/card-view-cm-browser.test.mjs`.
 - **Knowledge**: entries, network, topics, facts, learnings, skills.
