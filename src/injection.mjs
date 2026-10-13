@@ -33,6 +33,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { appendLine } from './append.mjs';
 import { originFrom, originNormal } from './origin.mjs';
+import * as questiontext from './questiontext.mjs';
 
 /** Where the journal lives, relative to the memory root. */
 export const JOURNAL_FILE = path.join('.pipeline', 'injections.jsonl');
@@ -268,7 +269,8 @@ export function buildLine({
 /**
  * Append one line. Never fails outward: the journal is a measurement,
  * and a measurement must not stop what it measures. Returns `true` if
- * something was written.
+ * something was written. `fields.questionText` is NOT a journal field
+ * ({@link buildLine} drops it); it goes to src/questiontext.mjs.
  */
 export function book(root, fields = {}) {
   if (!root) return false;
@@ -277,10 +279,15 @@ export function book(root, fields = {}) {
   try {
     fs.mkdirSync(path.dirname(where), { recursive: true });
     appendLine(where, JSON.stringify(line) + '\n');
-    return true;
   } catch {
     return false;
   }
+  // The wording of the question never goes into the line above (only
+  // `question_bytes`). A caller that has it may hand it over as `questionText`:
+  // it is redacted and kept in its own local, git-ignored, 30-day file
+  // (src/questiontext.mjs), tied to this line by a key. Never throws.
+  if (typeof fields.questionText === 'string' && fields.questionText) questiontext.keep(root, line, fields.questionText, { hits: fields.questionHits });
+  return true;
 }
 
 /**

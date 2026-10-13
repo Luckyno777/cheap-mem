@@ -59,6 +59,7 @@ import * as docimages from './docimages-state.mjs';
 import * as release from './release.mjs';
 import * as latencybudget from './latencybudget.mjs';
 import * as injection from './injection.mjs';
+import * as questiontext from './questiontext.mjs';
 import * as contract from './integrationcontract.mjs';
 import * as workflowdetect from './workflowdetect.mjs';
 import * as appendonly from './appendonly.mjs';
@@ -474,6 +475,7 @@ function checkAllCore(root) {
   f.push(guarded('checkDocsImagesFresh', () => checkDocsImagesFresh()));
   f.push(guarded('checkIntegrationContract', () => checkIntegrationContract(root)));
   f.push(guarded('checkHookLatency', () => checkHookLatency(root)));
+  f.push(guarded('checkQuestionText', () => checkQuestionText(root)));
 
   // UNKNOWN ranks BELOW good. Some checks are permanently unmeasurable
   // where they run — a timer on the host is invisible from inside a
@@ -486,6 +488,20 @@ function checkAllCore(root) {
   const count = { good: 0, warn: 0, error: 0, unknown: 0 };
   for (const x of f) count[x.level] += 1;
   return { findings: f, worst, summary: count };
+}
+
+/**
+ * Question text, kept locally: is keeping working, and does the place lie where git never looks?
+ *
+ * **Why it exists (Lucky gjwsnbisurbs, 2026-10-12).** The wording of recall questions is kept,
+ * redacted and for 30 days, in `.mem/local/question-text/` (`src/questiontext.mjs`) for the
+ * reverse test and the search guard G7. Keeping is fire-and-forget: a failure there must never
+ * hold the hook up, and exactly for that reason it must not stay silent. This finding is where
+ * it shows; the reading itself is `questiontext.assess`. Never question text in the output.
+ */
+function checkQuestionText(root) {
+  const a = questiontext.assess(root);
+  return finding('question-text', a.level, a.text, a.advice);
 }
 
 /**
