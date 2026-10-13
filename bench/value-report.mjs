@@ -352,6 +352,8 @@ function childWriter(root, tag) {
   const world = loadWorld();
   fs.mkdirSync(path.join(root, '.mem'), { recursive: true });
   fs.writeFileSync(path.join(root, '.mem', 'config.json'), JSON.stringify(world.config ?? {}));
+  // loadchild-ok: not a CPU eater and not an orphan risk: stdout is a pipe to the parent, so once the parent is gone the next
+  // fs.writeSync(1) throws EPIPE and ends this child (measured with a SIGKILLed parent); the parent also SIGKILLs it after <= 0.3 s
   for (let i = 0; ; i += 1) {
     const id = `${tag}-${i}`;
     memory.logCheckedEntry(root, 'learning', { id, title: `note ${i}`, text: `body of note ${i} `.repeat(8), agent: 'human:alex' }, { now: new Date() });
