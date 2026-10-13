@@ -204,6 +204,37 @@ the ratchet `test/mask-before-cut-ratchet.test.mjs`.
   ~1990 characters of a key survived `questiontext.prepare` (cut at 8000 before it redacts, a cost bound), and any window that
   ended inside a block. A header alone in prose is not touched.
 
+### Security - a secret that is a phrase, or that a marker cut in two, falls whole (torn-marker finding, 2026-10-13)
+
+Measured on the previous tip (7a46a3a), all open: `{"password": "correct horse battery staple"}` and `{"api_key": "Ab3x Ab3xK9mQAb3xK9mQ"}`
+(`json-secret` took a value without blanks only), `{"api_key": "T [REDACTED:x] T"}`, `api_key=[REDACTED:x]T`,
+`x-api-key: [REDACTED:x]T`, `X-Amz-Signature=[REDACTED:x]T` (a value that BEGINS with a marker counted as a placeholder, the stump
+behind it stayed), `PASSWORD='two words'` (only the first word fell: `[REDACTED:env-secret] words`).
+
+- **JSON string values.** Under a secret key (the `json-secret` key list, now with `passphrase` and `api-key`/`x-api-key`) the WHOLE string
+  value falls, from the opening quote to the closing quote of the same kind that is not escaped: blanks, `\"` and markers
+  inside it included. Found by a scan in code (`redactJsonStrings`), not a pattern, because "not escaped" is a count of
+  backslashes; a JSON object carried as a string inside a JSON line (`\"password\": \"...\"`) is read at its own nesting level.
+  No cap on a string that ends (a cap would leave the tail of a long value behind). If no closing quote follows (cut text), the
+  next 4096 characters fall. Single-quoted values count too (`'password': '...'`, `PASSWORD='...'`). Linear: forward only,
+  a failed search for a closing quote is remembered per quote kind (`test/redaction-linear.test.mjs`, 1 MB shapes).
+- **`key=value`.** A value that begins with a marker is no longer harmless while a stump follows it (`api_key=[REDACTED:x]T`); the
+  same in the `x-api-key` rule (the value runs through markers) and in the signed-URL rule. A value of markers alone stays as it is
+  (idempotent), as do markers followed only by closing punctuation or by a delimiter the value rules do not stop at themselves
+  (a backslash, `%26`).
+- **Not widened, on purpose.** An unquoted `key=value` with blanks in the value (`password=correct horse`) still ends at the blank:
+  there the blank is the end of the value in prose and in shell (`export TOKEN=abc run it`), and widening would eat the sentence.
+  `api_key=T [REDACTED:x] T` keeps its `T` (a single character is below every minimum). Quoted values are delimited, so they are
+  taken whole.
+- **False-alarm guards**, each measured on the corpus (docs, tests, src, bin, bench, README, 244,000 lines): a code literal that ends
+  with the equals sign (`indexOf('FOO_TOKEN=')`), a key that continues for more than 12 characters behind the keyword with a prose
+  value (`"token_system_is_a_facade": "<paragraph>"`), a bare key with a sentence of twelve words (`secrets: '...'`), a quote on
+  a later line behind a bare key, a whole placeholder (`your password`, `<your password here>`), a pagination cursor. The gaps these
+  leave: a passphrase of twelve plain words behind a bare key; a phrase behind a key with a long suffix; a kebab key (`secret-value`)
+  needs a credential-shaped value, as before.
+- Corpus before/after: two lines changed, both fixtures that hold a plaintext word behind `secret` (the old rule had masked only
+  the first word). `test/redaction-json-string.test.mjs` (red on 7a46a3a); Parity: lm=open.
+
 ### Security - a placeholder is a placeholder only as a whole value (both houses, owner decision 2026-10-13)
 
 The exception list of `src/redaction.mjs` excused every value that merely STARTED with `your`, `my`, `test`, `example`, `sample`,

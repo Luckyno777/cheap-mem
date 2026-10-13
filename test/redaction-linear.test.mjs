@@ -82,3 +82,42 @@ test('PEM: the open block, with headers and JSON-escaped, still falls; a header 
   const prose = `see ${PEM_HEAD} in the doc, and -----BEGIN CERTIFICATE----- as shown:\n    \nthen restart`;
   assert.equal(redaction.redact(prose).text, prose);
 });
+
+// ---- the whole-string pass of json-secret (finding 2026-10-13, torn-marker round) ---------------------------------
+//
+// The pass scans from an opening quote to its closing quote in code. Each shape below tries to make it scan the same
+// stretch again and again: heads that each find a closer far away, heads of different quote kinds that never find
+// theirs, backslash runs in front of every quote, a head per line with no closer. One megabyte each, under the
+// ceiling. The old state does not have the pass, so no red proof is possible here; the control is that the shapes
+// are real: the first one IS masked.
+const MB = 1e6;
+const repeatTo = (unit, n = MB) => unit.repeat(Math.ceil(n / unit.length)).slice(0, n);
+const JSON_STRING_LIMIT_MS = 3000;
+for (const [name, text] of [
+  ['a head every ten characters', repeatTo('"token": "')],
+  ['valid values with blanks, 1 MB', repeatTo('{"password": "a b c d", "u": 1} ')],
+  ['no closing quote, 1 MB of words', `{"password": "${'a '.repeat(MB / 2)}`],
+  ['one backslash run of 1 MB, then a quote', `{"password": "${'\\'.repeat(MB)}"`],
+  ['backslashes in front of every quote', `{"password": "${repeatTo('\\\\\\"')}`],
+  ['four quote kinds, heads that close each other', repeatTo('"token":"x y" \'token\':\'x y\' \\"token\\":\\"x y\\" \\\\\\"token\\\\\\":\\\\\\"x y ')],
+  ['single-quote heads, no closer', repeatTo("token:'a ")],
+  ['kinds interleaved, none closes', repeatTo('token: "a token: \'b token: \\"c token: \\\\\\"d ')],
+  ['a head per line, no closer', repeatTo('token: "a\n')],
+  ['a quote run of 1 MB behind a head', `token: ${'"'.repeat(MB)}`],
+  ['apostrophes in prose with the keyword', repeatTo("it's a token: don't ")],
+  ['markers behind a header name', repeatTo('x-api-key: [REDACTED:x][REDACTED:y] ')],
+  ['one value of markers and stumps', `api_key=${repeatTo('Ab3xK9mQAb3xK9mQ[REDACTED:x]')}`],
+]) {
+  test(`linear: whole-string pass: ${name}, under ${JSON_STRING_LIMIT_MS} ms`, { timeout: 60000 }, () => {
+    const t = performance.now();
+    redaction.redact(text);
+    const ms = performance.now() - t;
+    assert.ok(ms < JSON_STRING_LIMIT_MS, `${ms.toFixed(0)} ms (limit ${JSON_STRING_LIMIT_MS}) - the scan repeats itself`);
+  });
+}
+
+test('whole-string pass: the control: the shapes above are real (a head with a value IS masked, at 1 MB too)', () => {
+  assert.match(redaction.redact(`{"password": "${'a '.repeat(MB / 2)}"}`).text, /REDACTED:json-secret/);
+  assert.match(redaction.redact(`{"password": "${'\\'.repeat(MB)}"`).text, /REDACTED:json-secret/);
+  assert.match(redaction.redact(`api_key=${repeatTo('Ab3xK9mQAb3xK9mQ[REDACTED:x]')}`).text, /REDACTED/);
+});

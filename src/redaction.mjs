@@ -52,6 +52,15 @@
 export const SEP = '[:=\\uFF1D\\uFF1A\\u2236\\u02D0\\u205D]';
 export const SP = '[\\s\\u00A0\\u1680\\u2000-\\u200D\\u202F\\u205F\\u2060\\u3000\\uFEFF]';
 
+/**
+ * A marker this module has already put in the text: `[REDACTED]`, `[REDACTED:type]`, `[REDACTED:env:NAME]`. Bounded name,
+ * so the repetitions around it stay linear.
+ */
+const MARKER = '\\[REDACTED(?::[A-Za-z0-9_.:-]{0,64})?\\]';
+
+/** The words that make a key a secret's key, for the two json-secret rules below (one list, no second copy). */
+const JSON_KEY_WORDS = 'password|passwd|passphrase|secret|token|api[_-]?key|apikey|private_key|access_key|client_secret|refresh_token';
+
 export const PATTERNS = Object.freeze([
   // --- Signed URLs (presigned upload/download links) -----------------
   // A presigned URL carries its credential in the query string:
@@ -148,7 +157,9 @@ export const PATTERNS = Object.freeze([
   // boundary of a long run like 'a.b-c+d...' and went quadratic (lucky-mem
   // measured 64,000 chars in 1718 ms). Real schemes are short.
   ['url-credentials', /\b([a-z][a-z0-9+.-]{0,31}):\/\/[^\s:@/]+:[^\s@/]+@/gi],
-  ['x-api-key',       new RegExp(`\\b(x-api-key|api[_-]?key|apikey)${SP}*${SEP}${SP}*["']?[A-Za-z0-9._-]{16,}["']?`, 'gi')],
+  // The value may run THROUGH a marker an earlier rule left in it (`Ab3x...K9mQ[REDACTED:x]Z`, `[REDACTED:x]Z`): a marker
+  // does not end the value, or the stump after it stays in the clear (torn-marker finding, 2026-10-13).
+  ['x-api-key',       new RegExp(`\\b(x-api-key|api[_-]?key|apikey)${SP}*${SEP}${SP}*["']?(?:[A-Za-z0-9._-]{16,}(?:${MARKER}[A-Za-z0-9._-]*)*|(?:${MARKER})+[A-Za-z0-9_-][A-Za-z0-9._-]*)["']?`, 'gi')],
 
   // --- Environment variables -----------------------------------------
   // Covers `export FOO_TOKEN=...`, `FOO_SECRET: ...`, `"password": "..."`
@@ -207,7 +218,7 @@ export const PATTERNS = Object.freeze([
   // the closing escaped quote; otherwise it would swallow the `\` and the
   // redaction would break the escape sequence.
   ['json-secret',
-    new RegExp(`(?<![A-Za-z0-9_])(["']?[A-Za-z0-9_]{0,64}(?:password|passwd|secret|token|api_key|apikey|private_key|access_key|client_secret|refresh_token)[A-Za-z0-9_-]{0,64}\\\\{0,3}["']?${SP}*${SEP}${SP}*)\\\\{0,3}["']((?:[^"'\\s\\\\]|\\\\(?!\\\\{0,2}["'])){6,})\\\\{0,3}["']`, 'gi')],
+    new RegExp(`(?<![A-Za-z0-9_])(["']?[A-Za-z0-9_]{0,64}(?:${JSON_KEY_WORDS})[A-Za-z0-9_-]{0,64}\\\\{0,3}["']?${SP}*${SEP}${SP}*)\\\\{0,3}["']((?:[^"'\\s\\\\]|\\\\(?!\\\\{0,2}["'])){6,})\\\\{0,3}["']`, 'gi')],
 
   // --- The keyword-free pair: address, then a credential ------------
   //
@@ -365,8 +376,21 @@ function looksLikeCredential(s) {
 const PROSE_ABOUT_SECRETS =
   /(token|secret|password|passwd|passphrase|apikey|api_key|private_key|credential|session_key)\s*[:=]/i;
 
+// A value that BEGINS with a marker is harmless only while nothing but closing punctuation follows it. `[REDACTED:x]T` is
+// the front of a value an earlier rule tore in half: the marker stands for the part that fell, `T` is the part that did
+// not (torn-marker finding, 2026-10-13). A value of markers alone stays as it is (idempotence).
+const MARKER_LED = new RegExp(`^(?:${MARKER})+`);
+const MARKER_ONLY = new RegExp(`^(?:${MARKER}|\\s)*$`);
+function markerLedWithTail(t) {
+  const m = MARKER_LED.exec(t);
+  // What may follow without being a stump: closing punctuation, or a delimiter the value patterns do not stop at on their
+  // own (a backslash, as in the JSON-escaped `\u0026` between URL parameters; the encoded `&`, `;`, `,` and quotes).
+  return m !== null && !/^(?:[)\]}>.]*$|\\|%(?:26|3B|2C|22|27))/i.test(t.slice(m[0].length));
+}
+
 function isHarmless(s) {
   const t = String(s).trim();
+  if (markerLedWithTail(t)) return false;
   // Six characters count when the value carries a digit or a special
   // character (the German-style and pair patterns already match at six);
   // a plain short word stays at eight. Audit finding B#2.
@@ -382,6 +406,145 @@ function isHarmless(s) {
   // itself carries nothing credential-shaped. Same gate as the prose rule.
   if (IS_REFERENCE.some((r) => r.test(t)) && !looksLikeCredential(t)) return true;
   return HARMLESS.some((r) => r.test(t));
+}
+
+// --- A string value under a secret's key: the WHOLE string -------------------------------------------------------
+//
+// `json-secret` above masks a value without blanks. A password is often a phrase, and a value an earlier rule has already
+// cut holds a marker and a stump: `{"password": "correct horse battery staple"}` stayed in the clear, and so did
+// `{"api_key": "T [REDACTED:x] T"}` (measured 2026-10-13, torn-marker finding). So the string is taken as a string:
+// from the opening quote to the closing quote of the same kind that is not escaped, blanks, escaped quotes and markers
+// inside it included. This is a scan in code, not a pattern, because "not escaped" is a count (the backslashes in front
+// of the quote), and the end must be found without backtracking.
+//
+// - **Nesting.** A JSON object carried as a string inside a JSON log line has `\"` where the inner one has `"` (up to
+//   three backslashes in front of the opening quote, as `json-secret` allows). The closing quote has the same
+//   backslashes in front of it, and an inner escaped quote has more; the run is compared modulo 2, 4 or 8.
+// - **No cap on the string, a cap on the missing end.** A string that ends is masked to its end, however long (a cap would
+//   leave the tail of a long value behind). If no closing quote follows (cut text), the next JSON_STRING_CAP characters
+//   fall; what lies beyond is no longer taken for the value.
+// - **Linear.** The head is the bounded pattern `json-secret` uses. The scan moves forward only; a search that found no
+//   closing quote of a kind is not repeated for that kind (`failedFrom`), and a masked value is not scanned again.
+// - **Quotes.** A double-quoted value under any key; a single-quoted value too (shell and Python spelling). The value has to
+//   be worth masking: the same exceptions as `json-secret` (harmless key, harmless value, kebab key needs a credential
+//   shape), where a value with blanks is harmless only as a whole bracketed placeholder, a whole placeholder phrase, a
+//   reference, a short word, or markers alone.
+const JSON_STRING_CAP = 4096;
+const JSON_SUFFIX_MAX = 12;
+const JSON_HEAD = new RegExp(`(?<![A-Za-z0-9_])((["']?)[A-Za-z0-9_]{0,64}(?:${JSON_KEY_WORDS})([A-Za-z0-9_-]{0,64})(\\\\{0,3}["']?)${SP}*${SEP}${SP}*)(\\\\{0,3})(["'])`, 'gi');
+const BRACKET_WHOLE = /^(?:<[^<>]{0,200}>|\{\{[^{}]{0,200}\}\}|\$\{[^{}]{0,200}\}|\[[^[\]]{0,200}\])$/;
+const PLACEHOLDER_PHRASE = new RegExp(`^${PLACEHOLDER_WORD}[ _-]${GENERIC_WORD.replace('api[_-]?key', 'api[ _-]?key')}$`, 'i');
+
+const PROSE_WORDS = 12;
+function isProse(value) {
+  let words = 0;
+  for (const _ of value.matchAll(/\S+/g)) { // eslint-disable-line no-unused-vars
+    words += 1;
+    if (words >= PROSE_WORDS) return !looksLikeCredential(value);
+  }
+  return false;
+}
+
+/**
+ * Is this key a kebab-case slug (`secret-leak`)? The hyphen INSIDE the keyword (`api-key`, `x-api-key`) does not make it
+ * one: a header name is a key, not a vocabulary entry.
+ */
+function isKebabKey(key) {
+  return /[A-Za-z0-9]-[A-Za-z0-9]/.test(key.replace(/[\\"'\s:=]+$/, '').replace(/(?:x-)?api-key/gi, 'apikey'));
+}
+
+function harmlessString(value) {
+  const t = value.trim();
+  if (!/\s/.test(t)) return isHarmless(t);
+  if (t.length < 8 || MARKER_ONLY.test(t) || BRACKET_WHOLE.test(t) || PLACEHOLDER_PHRASE.test(t)) return true;
+  return IS_REFERENCE.some((r) => r.test(t)) && !looksLikeCredential(t);
+}
+
+/**
+ * Where the string opened at `from` ends. Returns `{close, to}`: `close` is the index of the closing quote (one of the
+ * same kind, with `r0` backslashes in front of it, or more by a multiple of the modulus), or -1; `to` is how far the
+ * search got (the text end, or the line end where it stopped: a raw line break cannot occur inside a JSON string, so a
+ * quote on a later line closes some other string).
+ */
+function findClosingQuote(text, from, quote, r0) {
+  const mod = r0 === 0 ? 2 : r0 <= 2 ? 4 : 8;
+  let i = from;
+  for (;;) {
+    const q = text.indexOf(quote, i);
+    // The nearest line break before the quote (or before the end): searched only up to the quote found.
+    const stop = q < 0 ? text.length : q;
+    const nl = findLineBreak(text, i, stop);
+    if (nl >= 0) return { close: -1, to: nl, lineEnd: true };
+    if (q < 0) return { close: -1, to: text.length, lineEnd: false };
+    let run = 0;
+    while (q - 1 - run >= from && text.charCodeAt(q - 1 - run) === 92) run += 1;
+    if (run % mod === r0) return { close: q, to: q, lineEnd: false };
+    i = q + 1;
+  }
+}
+
+function findLineBreak(text, from, to) {
+  for (let i = from; i < to; i += 1) {
+    const c = text.charCodeAt(i);
+    if (c === 10 || c === 13) return i;
+  }
+  return -1;
+}
+
+function redactJsonStrings(text, counter) {
+  if (text.indexOf('"') < 0 && text.indexOf("'") < 0) return text;
+  const re = new RegExp(JSON_HEAD.source, JSON_HEAD.flags);
+  const failedFrom = new Map();
+  let out = '';
+  let copied = 0;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const head = m[1];
+    const suffix = m[3];
+    const keyClose = m[4];
+    const r0 = m[5].length;
+    const quote = m[6];
+    const start = m.index + m[0].length;
+    // `indexOf('FOO_TOKEN=')`: a key that no quote closes, with a quote of the same kind in front of it (its own opening
+    // one, or the one before an unquoted key), sits INSIDE a string literal, and the quote after the `=` closes it. That is
+    // code, not a value.
+    if (!/["']/.test(keyClose) && (m[2] || text[m.index - 1]) === quote) continue;
+    const kind = `${quote}${r0}`;
+    let found = failedFrom.get(kind);
+    if (found === undefined || start >= found.to) {
+      found = findClosingQuote(text, start, quote, r0);
+      if (found.close < 0) failedFrom.set(kind, found);
+    }
+    // The line ended before the string did. Behind a key that a quote closes (`"password": "abc def`) that is a cut or broken
+    // JSON line, and the rest of the line is the value. Behind a key that no quote closes it is code (`'FOO_PASSWORD=', x`):
+    // not a string value, it stays with `json-secret` above.
+    if (found.close < 0 && found.lineEnd && !/["']/.test(keyClose)) continue;
+    const close = found.close;
+    const end = close >= 0 ? close - r0 : Math.min(found.to, start + JSON_STRING_CAP);
+    if (end <= start) continue;
+    const value = text.slice(start, end);
+    if (isHarmlessKey(head)) continue;
+    // A value past the cap is no placeholder; the exceptions look at short values only.
+    if (value.length <= JSON_STRING_CAP && harmlessString(value)) continue;
+    // A value with blanks may be a sentence instead of a secret. Behind a key that a quote closes (`"password": "..."`, JSON
+    // and its relatives) it is taken, unless the key goes on long after the keyword AND the value reads as prose:
+    // `"token_system_is_a_facade": "<a paragraph>"`. Behind a bare key (`secrets: '...'` in code, `PASSWORD='...'` in an env
+    // file) the key must end with the keyword (give or take a short suffix: `passwordHash`, `token_value`) and the value
+    // must not read as prose (twelve words, no credential-shaped run). The gaps, named: a passphrase of twelve plain words
+    // behind a bare key; a key with a long suffix behind which a phrase stands. The value without blanks is taken under every key.
+    if (/\s/.test(value)) {
+      const quotedKey = /["']/.test(keyClose);
+      const longKey = suffix.length > JSON_SUFFIX_MAX;
+      const prose = value.length <= JSON_STRING_CAP && isProse(value);
+      if (quotedKey ? (longKey && prose) : (longKey || prose)) continue;
+    }
+    if (isKebabKey(head) && !looksLikeCredential(value)) continue;
+    counter.set('json-secret', (counter.get('json-secret') ?? 0) + 1);
+    out += `${text.slice(copied, start)}[REDACTED:json-secret]`;
+    copied = end;
+    re.lastIndex = end;
+  }
+  return copied === 0 ? text : out + text.slice(copied);
 }
 
 /**
@@ -449,7 +612,7 @@ export function redact(text) {
         // The gap this leaves, named: a diceware-style passphrase
         // (`"secret-value": "correct-horse-battery"`) under a kebab key.
         // camelCase and bare keys are untouched.
-        if (/[A-Za-z0-9]-[A-Za-z0-9]/.test(key.replace(/[\\"'\s:=]+$/, '')) && !looksLikeCredential(value)) return match;
+        if (isKebabKey(key) && !looksLikeCredential(value)) return match;
         counter.set(type, (counter.get(type) ?? 0) + 1);
         return replaceValue(match, value, `[REDACTED:${type}]`);
       }
@@ -481,6 +644,8 @@ export function redact(text) {
       counter.set(type, (counter.get(type) ?? 0) + 1);
       return `[REDACTED:${type}]`;
     });
+    // The whole-string pass follows the pattern of the same name (see redactJsonStrings).
+    if (type === 'json-secret') out = redactJsonStrings(out, counter);
   }
 
   return {
