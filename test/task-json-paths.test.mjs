@@ -37,7 +37,9 @@ async function ended(root, id) {
   return tasks.read(root, id);
 }
 const slashes = (text) => text.replace(/\\/g, '/');
-const absolute = (text, root) => [path.resolve(root), path.resolve(REPO)].filter((p) => text.includes(p));
+// The path as written and as JSON writes it (on Windows every backslash comes escaped in JSON text).
+const absolute = (text, root) => [path.resolve(root), path.resolve(REPO)]
+  .filter((p) => text.includes(p) || text.includes(JSON.stringify(p).slice(1, -1)));
 
 test('tasks.read: the command, result and reason name <root> and <code>, not the server paths', async () => {
   const r = world();
@@ -54,8 +56,9 @@ test('tasks.read: the command, result and reason name <root> and <code>, not the
     assert.deepEqual(exp.command.slice(0, 4).map(slashes), ['<code>/bin/mem', 'raw', 'export', '--into']);
     assert.match(exp.command[4], /^<root>[\\/]\.mem[\\/]tasks[\\/].+[\\/]export$/);
     // the journal on disk keeps the full command: a restart and a bug hunt need it
+    // JSON lines: on Windows every backslash of the path is written escaped, so look for the path as JSON spells it
     const journal = fs.readFileSync(tasks.statePath(r, b.id), 'utf8');
-    assert.ok(journal.includes(path.resolve(r)), 'the state file itself is unchanged');
+    assert.ok(journal.includes(JSON.stringify(path.resolve(r)).slice(1, -1)), 'the state file itself is unchanged');
     // the overview goes through the same reader
     assert.deepEqual(absolute(JSON.stringify(tasks.overview(r)), r), []);
   } finally { gone(r); }
