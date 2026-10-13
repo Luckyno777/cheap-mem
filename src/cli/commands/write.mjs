@@ -34,6 +34,7 @@ import * as skillregistry from '../../skillregistry.mjs';
 import * as categories from '../../categories.mjs';
 import * as expand from '../../expand.mjs';
 import * as dueCore from '../../due.mjs';
+import * as cardrule from '../../cardrule.mjs';
 import * as cardstore from '../../cardstore.mjs';
 import * as decisioncard from '../../decisioncard.mjs';
 import * as authority from '../../authority.mjs';
@@ -41,6 +42,9 @@ import { zoneOf } from '../../appointments.mjs';
 import { maskText } from '../../outputguard.mjs';
 import { out, die, warn, checkFlags, numberFlag, isHelp, fieldsFrom, findRoot, requireConfig, authorityArg, textFlag, repeatedFlag } from '../shell.mjs';
 import { dateFieldOf, compactLine, countLines, retireCmd } from '../display.mjs';
+
+/** The types whose card list fields (`card_options`, `card_evidence`) may stand several times on the command line. */
+const CARD_LIST_TYPES = Object.freeze(['card', 'duty', 'question']);
 
 /** 15 commands. */
 export const COMMANDS = {
@@ -67,6 +71,11 @@ export const COMMANDS = {
         "             zone. Anything else is refused. Read it with `mem deadlines`.",
         "  card (the card shelf, see `mem card --help`): --target_id <id> --card_question .. --card_context ..",
         "             --card_options \"choice — effect\" (twice or more, or one per line in one value) [--card_evidence ..]",
+        "  A DECISION FOR A PERSON = A CARD: a duty with --who <the human> (or --owner / --to) and a question with --who <the",
+        "             human> bring their explanation: --card_question \"...?\" --card_context \"...\" --card_options \"Yes — effect\"",
+        "             (twice or more, one of them No / not now) [--card_advice ..] [--card_evidence ..] [--card_kind decide|approve|do-it].",
+        "             Without a card the entry is taken in but flagged \"explanation missing\" (a loud warning; the person sees a",
+        "             fallback card); CHEAP_MEM_CARD_REJECT=yes refuses it instead. Add one later: mem card add <id> ...",
         "  --valid_from / --valid_until  when the content HOLDS (not when it was",
         "             written — that is --ts). --valid_until is refused if it is",
         "             not a readable date. State it only when you know a real end",
@@ -91,7 +100,7 @@ export const COMMANDS = {
     // together. They used to be written out here and again below.
     Object.assign(data, fieldsFrom('log', args, ['category', 'category-new']));
     // The list fields of a card may stand several times (`--card_options a --card_options b`); the parser keeps only the last value.
-    if (type === 'card') {
+    if (CARD_LIST_TYPES.includes(type)) {
       for (const name of ['card_options', 'card_evidence']) {
         const all = repeatedFlag(name);
         if (all.length > 1) data[name] = all;
@@ -391,9 +400,19 @@ export const COMMANDS = {
     // function, the same one mem_log over the bridge uses. Until then
     // this path wrote a secret pattern to disk unredacted and leaned on
     // the commit scan.
-    const { path: p, entry, findings, askedAsDropped } = memory.logCheckedEntry(root, type, data, { project: args.project ?? null });
+    // H11: the route `cli` puts a duty / question to the person under the card rule (src/cardrule.mjs): stage 1 warns below,
+    // stage 2 (CHEAP_MEM_CARD_REJECT) refuses here, before anything is written.
+    let written;
+    try {
+      written = memory.logCheckedEntry(root, type, data, { project: args.project ?? null, route: 'cli' });
+    } catch (e) {
+      if (e?.code === 'CARD_MISSING') die(`log: ${e.message}\n  Nothing was written.`);
+      throw e;
+    }
+    const { path: p, entry, findings, askedAsDropped } = written;
     out(`Appended: ${memory.asSource(root, p)}:${countLines(p)}`);
     if (findings.length) warn(memory.findingsLine(findings));
+    for (const l of cardrule.messages(written.card, { id: entry.id })) warn(l);
     { const w = expand.droppedLine(askedAsDropped); if (w) warn(w); }
     out(`  id: ${entry.id}`);
     out(`  ts: ${entry.ts}`);
@@ -828,10 +847,26 @@ export const COMMANDS = {
       data.valid_until = dateFieldOf(data.valid_until, 'valid_until', 'correction');
     }
     if (Object.keys(data).length === 0 && without.length === 0) die("correction: no fields");
-    const { path: p, entry, old, closing, findings, encrypted } = memory.correctionEntry(
-      root, type, oldId, data, { project: args.project ?? null, without });
+    // The card list fields may stand several times here too (see `log`).
+    if (CARD_LIST_TYPES.includes(type)) {
+      for (const name of ['card_options', 'card_evidence']) {
+        const all = repeatedFlag(name);
+        if (all.length > 1) data[name] = all;
+      }
+    }
+    // H11: a correction that sets or changes the addressee to the person is a new duty / question to him: the card rule applies on
+    // the route `cli` (a card inherited from the predecessor counts; an addressee that stood there already is old stock).
+    let corrected;
+    try {
+      corrected = memory.correctionEntry(root, type, oldId, data, { project: args.project ?? null, without, route: 'cli' });
+    } catch (e) {
+      if (e?.code === 'CARD_MISSING') die(`correction: ${e.message}\n  Nothing was written.`);
+      throw e;
+    }
+    const { path: p, entry, old, closing, findings, encrypted } = corrected;
     out(`Correction: ${memory.asSource(root, p)}`);
     if (findings?.length) warn(memory.findingsLine(findings));
+    for (const l of cardrule.messages(corrected.card, { id: entry.id })) warn(l);
     if (encrypted) out('  encrypted:  yes (the corrected entry is crypto-shredding-encrypted)');
     out(`  new id:     ${entry.id}`);
     out(`  replaces:   ${entry.replaces_id}`);
@@ -923,9 +958,11 @@ export const COMMANDS = {
     requireConfig(root);
     if (!rest[0]) die('restore: which id? Example: mem restore a1b2c3 --why "still needed"');
     try {
-      const r = entryops.restore(root, rest[0], { why: textFlag(args, 'why', 'restore') });
+      const r = entryops.restore(root, rest[0], { why: textFlag(args, 'why', 'restore'), route: 'cli' });
       out(`restored: ${r.id} -> ${r.created} (${r.type}${r.project ? `/${r.project}` : ''}, was ${r.was})`);
-    } catch (e) { die(`restore: ${e.message}`); }
+      // H11, stage 1: a reopened duty / question to the person without a card is taken in, loudly.
+      for (const l of cardrule.messages(r.card, { id: r.created })) warn(l);
+    } catch (e) { die(`restore: ${e.message}${e?.code === 'CARD_MISSING' ? '\n  Nothing was written.' : ''}`); }
   },
   merge: async ({ rest, args }) => {
     if (isHelp(args)) {

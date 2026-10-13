@@ -931,6 +931,33 @@ test('an open PEM block: header and key material fall, a header alone in prose d
   assert.ok(lines.some((l) => old.redact(`note ${head}\n${lines.join('\n')}`).text.includes(l)), 'red proof: the old tree leaves the open block');
 });
 
+// ---- the card rule (H11): warnings and refusals echo the card text, cut --------------------------------------------
+
+test('card rule: warning and refusal texts mask a key that stands over their cut (40, 80, 160 characters, the question)', async () => {
+  const cardrule = await import('../src/cardrule.mjs');
+  for (const kind of KIND_NAMES) {
+    for (const cut of [40, 80, 160]) {
+      const b = bait(kind, cut);
+      const cases = [
+        // an option without an effect: the warning echoes its first 40 characters
+        { card_question: 'Which?', card_options: [b.text, 'No — b'] },
+        // an option that is too long: the error names its first 30
+        { card_question: 'Which?', card_options: [`${b.text}${'x'.repeat(100)} — fine`, 'No — b'] },
+        // the question itself (the fallback line quotes it)
+        { card_question: b.text, card_options: ['Yes — a', 'No — b'] },
+      ];
+      for (const extra of cases) {
+        for (const env of [{}, { CHEAP_MEM_CARD_REJECT: 'yes' }]) {
+          const v = cardrule.judge('duty', { title: 'Pick a licence', who: 'user', ...extra }, { route: 'cli', human: 'user', env });
+          assert.ok(v.applies, 'positive control: the rule applies');
+          const text = [...cardrule.messages(v), ...v.gaps, ...v.warnings, v.fallbackQuestion ?? ''].join('\n');
+          assert.ok(!leaks(text, b.key), `${kind}@${cut}: a fragment of the key is echoed: ${text.slice(0, 160)}`);
+        }
+      }
+    }
+  }
+});
+
 // ---- the runner -----------------------------------------------------------------------------------------------------
 
 function inputFor(c, kind) {

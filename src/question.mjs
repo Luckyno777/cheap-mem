@@ -36,6 +36,7 @@
 import * as memory from './memory.mjs';
 import * as authority from './authority.mjs';
 import { maskText } from './outputguard.mjs';
+import * as addressee from './addressee.mjs';
 
 export const TYPE = 'question';
 
@@ -88,8 +89,7 @@ const WHO_FORM = /^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,63}$/;
  * The addressee of a question: its `who`, else null. Only a text counts (a legacy line with a list there is no addressee). Pure.
  */
 export function whoOf(q) {
-  const w = q?.who;
-  return typeof w === 'string' && w.trim() ? w.trim() : null;
+  return addressee.ofQuestion(q) || null;
 }
 
 /**
@@ -113,11 +113,13 @@ export function stateFrom(questionTier, edgeTiers) {
  * of tier `user` stays `waiting` until an edge of tier `user` confirms
  * it. `open` stays "no edge at all"; `waiting` is its own flag.
  *
+ * `who` narrows to the questions addressed to one name.
+ *
  * The GRAPH is read, not a field on the question — otherwise there
  * would be two truths about one state, and one of them would eventually
  * disagree with the other.
  */
-export function all(root, { project = undefined } = {}) {
+export function all(root, { project = undefined, who = undefined } = {}) {
   const projects = project === undefined ? [null, ...memory.listProjects(root)] : [project];
   const questions = [];
   for (const p of projects) {
@@ -127,6 +129,9 @@ export function all(root, { project = undefined } = {}) {
     for (const e of res.entries) {
       if (e.__broken || !e.question || !e.id) continue;
       if (!memory.holds(e, retired)) continue;
+      // `who`: only the questions addressed to that name (trimmed, `addressee.ofQuestion`) - filtered BEFORE the graph is read, so
+      // the doctor does not pay for the link graph of every question when none is addressed to the human.
+      if (who !== undefined && addressee.ofQuestion(e) !== who) continue;
       questions.push({ e, p });
     }
   }

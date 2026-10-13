@@ -29,7 +29,7 @@ the verification commands at the end.
 | **Automation** | 7 Claude Code hooks (session start, recall per message, recall per file edit, recall after a failed or failure-printing tool call, subagent start, answer check and capture at stop), one model call per few hours, watcher, git as sync | [6](#6-automation) |
 | **Surfaces** | 87 CLI commands, 45 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 4604 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 4618 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -98,6 +98,10 @@ directory. The section number in brackets is where it is explained.
 | `cardrules.mjs` | the rules a card is written under (lengths, at least two options, a No option, the form of the target) and the linear text tools; a leaf with no imports (10.31) |
 | `cardstore.mjs` | the card shelf `cards.jsonl`: write, read with three states, the card that counts per target (10.31) |
 | `cardfeed.mjs` | which items of a dashboard list get a card (the human's and the unassigned, never agent work) and the cap of 200 per list, the rest counted (10.31) |
+| `cardrule.mjs` | the write rule of the decision card: a NEW duty or question addressed to the human brings its card; stage 1 takes it in and says "explanation missing", stage 2 (`CHEAP_MEM_CARD_REJECT=yes`) refuses; only on a stated route (`cli`, `mcp`, `task`), never by agent name; pure (10.31) |
+| `addressee.mjs` | to whom an entry is addressed, read TRIMMED in one place: a duty's `who`, else `owner`, else `to`; a question's `who`; a leaf with no imports (10.31) |
+| `humandecisions.mjs` | the one source for what waits on the human (duties for him, plus open questions addressed to him); `today.decisionsForHuman` and the doctor finding `decision-without-explanation` count with it (10.31) |
+| `yesno.mjs` | the one reading of a yes / no switch value: yes / true / 1, no / false / 0, anything else is null; a leaf with no imports (10.31) |
 | `dashboard-live.mjs` | after a write of the person's own, the parts of `/dashboard.json` that write made stale, computed fresh with the same read functions the full build uses and laid over the cached answer until a build started after the write is done; a part that cannot be computed is named (`live_errors`), never silently old (7.5) |
 | `dashboard-pass.mjs` | ONE pass over the drawers for a store the full build cannot handle: line total, overview, net, open questions, agents, projects, the newest entries and the condensed 3D atlas (the 240 largest topics, drawers, pair counts, the newest 60 entries of each as the first page); fingerprint table of about 14 bytes an entry, no entry list in memory; `/dashboard/part.json?part=atlas` pages it 60 at a time |
 | `dashboard-compact.mjs` | the compact build above the full-build line (replaces the light head): the pass plus the same `collectDashboard()` as the full build; modules that read the whole store themselves (integrity, duties, facts, topics, learnings) run up to 128 MB of drawers, above they are unknown with a reason; the doctor and today never run there |
@@ -2172,3 +2176,20 @@ value with one option per line.
 
 A question can name who it goes to: `mem questions new "..." --who <participant>`, `mem log question --who`.
 Open questions with an addressee are not counted as "decisions for the human" yet; that is the owner's call.
+
+**The write rule (owner decision 2026-10-13, 36b3ub1nht9f).** A NEW duty (`who`, else `owner`, else `to`) or question (`who`)
+addressed to the human participant of `.mem/config.json` brings its card on the entry: `card_question`, at least two
+`card_options` (one of them No / not now), `card_context` (a missing context only warns; the fallback card fills it).
+*Stage 1, the default:* the entry is taken in, the writer gets a loud warning (CLI: stderr; bridge: lines in the answer), and
+the entry reads as "explanation missing" — derived, not stored: `decisioncard.lacksExplanation` is true for a fallback card
+and for a written card whose options or No option had to be filled in. `mem today` names it. *Stage 2, the switch
+`CHEAP_MEM_CARD_REJECT=yes`:* the same case is refused before anything is written, with the whole reason and an example.
+The rule sits in `memory.logCheckedEntry` and applies only where the writer states a route: `cli` (`mem log`, `mem correction`,
+`mem restore`, `mem questions new`), `mcp` (`mem_log`), `task` (reserved: this house has no order that carries a `log`). An internal writer states
+none and is exempt (the guard duties, the error-context duties, the card shelf), and nobody is exempt by agent name — the capture
+and digest writers go through the CLI like anyone. A correction that sets or changes `who` to the human is a new duty to him (a
+card inherited from the predecessor counts; an addressee that already stood there is old stock; a closing correction is no new duty);
+a restored duty is a new one (it copies the card of the original entry; a card on the shelf is not copied, and under stage 2 the message says to write a new duty with its card). A line written with a `replaces_id` over `mem log` / `mem_log` inherits nothing and is judged as new. The doctor finding `decision-without-explanation` counts the open decisions for the human (the same
+source as `mem today`, plus the open questions addressed to him): a warning from one decision without a card of its own after a
+grace period of one day from its `ts`, never an error, unreadable is `unknown`. The duties `mem guard run --duty` raises have
+their own fallback card ("Should the error ... be fixed that a red latch shows?" / "... the broken latch ... be repaired?").

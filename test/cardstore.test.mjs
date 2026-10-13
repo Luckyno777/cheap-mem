@@ -356,8 +356,14 @@ test('the type `card` is a drawer like the others: `mem doctor` names no finding
   const after = cli(w, ['doctor']).stdout;
   assert.ok(!/cards/i.test(after), after.split('\n').filter((l) => /cards/i.test(l)).join('\n'));
   // same levels before and after (a finding that appears only with the shelf would be named here)
+  // ONE finding is allowed to move, and it is no finding ABOUT the shelf: `decision-without-explanation` (card-rule-doctor-cm) counts
+  // the human's decisions that have only the fallback card, and the card just written IS the explanation of its target `pl0001abc`
+  // (the human's old open task). It warns before and is gone after - asserted below, not just filtered out.
   const levels = (out) => out.split('\n').filter((l) => /^(WARN|FAIL|ERR)/.test(l)).map((l) => l.split(/\s+/).slice(0, 2).join(' ')).sort();
-  assert.deepEqual(levels(after), levels(before));
+  const without = (xs) => xs.filter((l) => l !== 'WARN decision-without-explanation');
+  assert.deepEqual(without(levels(after)), without(levels(before)));
+  assert.ok(levels(before).includes('WARN decision-without-explanation'), 'positive control: the task had only the fallback card');
+  assert.ok(!levels(after).includes('WARN decision-without-explanation'), 'the card explains it');
 });
 
 test('S3: the pre-edit lookup of a file (`mem component --table`) names the entry, not the card that repeats its path', (t) => {

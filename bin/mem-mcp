@@ -103,6 +103,7 @@ import * as injection from '../src/injection.mjs';
 import * as levers from '../src/searchlevers.mjs';
 import * as errorfixes from '../src/errorfixes.mjs';
 import * as bridgefields from '../src/bridgefields.mjs';
+import * as cardrule from '../src/cardrule.mjs';
 import * as shred from '../src/shred.mjs';
 import { maskText } from '../src/outputguard.mjs';
 import * as dueCore from '../src/due.mjs';
@@ -488,7 +489,17 @@ const TOOLS = [
       // turn where the model weighs what to do next.
       'Call it ON YOUR OWN, unasked, and DURING the work rather than after: ' +
       'the moment a decision gets a reason, an error shows its cause, or something ' +
-      'surprises you. At the end you only remember the fix, not the cause.',
+      'surprises you. At the end you only remember the fix, not the cause. ' +
+      // H11: what is meant for a PERSON to decide carries its explanation, the decision card (src/cardrule.mjs).
+      'A DUTY or QUESTION FOR A PERSON (`who` = the human of this memory; for a duty `owner` / `to` count too) brings its card: ' +
+      '`card_question` (the decision question in ONE sentence, at most 160 characters, ending in "?"), `card_context` (one or ' +
+      'two sentences: what is it about, why now; at most 320), `card_options` (a list, at least TWO, each "choice — effect", one ' +
+      'of them always a No / not-now option), optional `card_advice` (at most 200; shown with your name, never preselected), ' +
+      '`card_evidence` (ids, paths, URLs). Without a card the entry is taken in but answered with "Explanation missing", and the ' +
+      'person only sees a fallback card; with CHEAP_MEM_CARD_REJECT=yes it is refused and nothing is written. A duty for an agent ' +
+      'needs no card. Example: {type: "duty", title: "Which licence?", who: "<the human>", card_question: "Which licence ' +
+      'should the package carry?", card_context: "Two files disagree.", card_options: ["MIT — as in LICENSE", "Not now — ' +
+      'nothing changes"]}.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -507,6 +518,12 @@ const TOOLS = [
         state: { type: 'string', description: 'Only together with retires_id or replaces_id; refused alone. Closing a duty is mem_duty_close, not this' },
         by_id: { type: 'string', description: 'The successor for state "superseded"; only together with retires_id or replaces_id' },
         from: { type: 'string', description: 'Type learning: the error id(s) this lesson is drawn from (comma-separated) — written as generalizes links, not as a field. Type link: the source id. No other type takes it.' },
+        who: { type: 'string', description: 'Types duty and question: to whom it is addressed (a participant of this memory). A duty or question to the human brings a card (see the description).' },
+        card_question: { type: 'string', description: 'Types duty, question (and card): the decision question in ONE sentence, at most 160 characters, ending in "?"' },
+        card_context: { type: 'string', description: 'One or two sentences: what is it about, why now (at most 320)' },
+        card_options: { type: 'array', items: { type: 'string' }, description: 'At least two lines "choice — effect", one of them a No / not-now option, e.g. ["Yes — the move runs", "No — it stays"]' },
+        card_advice: { type: 'string', description: 'Optional: your advice (at most 200); shown with your name, never preselected' },
+        card_evidence: { type: 'array', items: { type: 'string' }, description: 'Optional: ids, paths or URLs (at most 8)' },
       },
       required: ['type'],
     },
@@ -1436,12 +1453,22 @@ async function handleCall(name, args) {
       // prints (O1: CLI = bridge). Read BEFORE the write, as at the CLI.
       const around = neighbours.neighbours(root, type, data, { project });
       const alike = neighbours.similarDecisions(root, type, data, { project });
-      const { path: p, entry, findings, askedAsDropped } = memory.logCheckedEntry(root, type, data, { project });
+      // H11: the route `mcp` puts a duty / question to the person under the card rule (src/cardrule.mjs): stage 1 says so in the
+      // answer below, stage 2 (CHEAP_MEM_CARD_REJECT) refuses here with the whole reason, before anything is written.
+      let written;
+      try {
+        written = memory.logCheckedEntry(root, type, data, { project, route: 'mcp' });
+      } catch (e) {
+        if (e?.code === 'CARD_MISSING') throw new Error(`${e.message}\n  Nothing was written.`);
+        throw e;
+      }
+      const { path: p, entry, findings, askedAsDropped } = written;
       const lines = [
         `Appended: ${memory.asSource(root, p)}`,
         `  id: ${entry.id}   agent: ${entry.agent}`,
       ];
       if (findings.length) lines.push(`  ${memory.findingsLine(findings)}`);
+      lines.push(...cardrule.messages(written.card, { id: entry.id }).map((l) => (l.startsWith(' ') ? l : `  ${l}`)));
       { const w = expand.droppedLine(askedAsDropped); if (w) lines.push(`  ${w}`); }
       lines.push(...neighbours.hint(around));
       lines.push(...neighbours.similarHint(alike, { newId: entry.id }));

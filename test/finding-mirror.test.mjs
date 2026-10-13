@@ -305,13 +305,16 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
   // lucky-mem side, paired here with this house's own 'question-text' —
   // refreshed as its own reviewed change, per the instructions above (the
   // other names were not re-captured: only this one was added).
+  // Decision cards (2026-10-13, H11): 'entscheidung-ohne-erklaerung' added on the
+  // lucky-mem side (branch agent/karte-schreibregel-lm), paired here with this
+  // house's own 'decision-without-explanation' - again only this one name added.
   names: Object.freeze([
     'abrufquote', 'agent-modell', 'altlast', 'anhang', 'anmeldung', 'ansicht',
     'archiv-haltbar', 'archiv-heil', 'archiv-rueckstau', 'auffindbar', 'auftragslage',
     'auto-pflichten-alter', 'baustein-ohne-redaktion', 'bauweise',
     'befund-gleichstand', 'behauptung-ohne-beleg', 'bestand', 'bestritten',
     'briefkasten', 'bruecke', 'cloud-zustellung', 'dispatcher', 'doku-bilder-frische', 'dubletten',
-    'eintragsform', 'erledigt-ohne-beleg', 'faecher', 'faecher-jsonl',
+    'eintragsform', 'entscheidung-ohne-erklaerung', 'erledigt-ohne-beleg', 'faecher', 'faecher-jsonl',
     'fakt-konflikte', 'fang-doppelt', 'fasser', 'fasser-ausbeute', 'fasser-timer',
     'fehler-verknuepft', 'fragetext-lokal', 'frageworte', 'geheimnis-altfaenge', 'git', 'git-hook',
     'haken-fehlen', 'haken-stumm', 'haken-wurzel-stau', 'hook-doppelt', 'hook-kopie', 'hook-stand',

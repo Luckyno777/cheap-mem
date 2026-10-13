@@ -45,15 +45,14 @@
  */
 
 import * as memory from './memory.mjs';
-import * as dueCore from './due.mjs';
 import * as doctorMod from './doctor.mjs';
-import * as cfgmod from './config.mjs';
 import * as verifylog from './verifylog.mjs';
 import * as goldlog from './goldlog.mjs';
 import * as injection from './injection.mjs';
 import * as projectnew from './projectnew.mjs';
 import * as decisioncard from './decisioncard.mjs';
 import * as cardstore from './cardstore.mjs';
+import * as humandecisions from './humandecisions.mjs';
 import { isoWeek } from './measurements.mjs';
 
 /** At most this many verify candidates shown at once (N9 parity: "up to 3"). */
@@ -106,31 +105,9 @@ export function operations(root, { check = doctorMod.checkAll, doctorResult = nu
  * has: open duties whose `who` names the configured human participant.
  */
 export function decisionsForHuman(root, { human = null, cards = undefined } = {}) {
-  let who = human;
-  if (who === null) {
-    let cfg;
-    try { cfg = cfgmod.readConfig(root); } catch (e) {
-      return { readable: false, reason: `config not readable: ${e?.message || e}`, list: [] };
-    }
-    const h = cfgmod.humanParticipant(cfg.participants);
-    if (!h.name) return { readable: false, reason: h.reason, list: [] };
-    who = h.name;
-  }
-  let open;
-  try { open = memory.openDuties(root).open; } catch (e) {
-    return { readable: false, reason: `duties not readable: ${e?.message || e}`, list: [] };
-  }
-  // The card shelf: read here when the caller did not hand it in. Not readable -> the fallback card for every item (the caller
-  // that read it says so in its reasons).
-  const shelf = cards === undefined ? (() => { try { return cardstore.latestCards(root); } catch { return new Map(); } })() : cards;
-  const list = open
-    .filter((p) => (p.who ?? p.owner ?? p.to ?? null) === who)
-    .map((p) => ({
-      id: p.id, title: p.title ?? p.text ?? p.id, due: dueCore.dueText(p), since: dueCore.openSince(p),
-      card: decisioncard.cardOf(p, { type: 'duty', context: { cards: shelf } }),
-    }))
-    .sort((a, b) => String(a.since ?? '').localeCompare(String(b.since ?? '')));
-  return { readable: true, reason: null, who, list };
+  // The calculation lives in src/humandecisions.mjs: the doctor finding `decision-without-explanation` counts with the SAME
+  // function (a ring if it lived here: this file imports the doctor).
+  return humandecisions.forHuman(root, { human, cards });
 }
 
 // =========================================================================
@@ -554,11 +531,14 @@ export function line(result) {
 /** Where the card comes from, for the text line: a fallback card says so (nobody wrote it). */
 function cardMark(card) {
   if (!card?.origin) return '';
-  if (card.origin.stage === 'fallback') return '  (fallback card)';
+  // H11, stage 1 of the write rule: an entry whose explanation is missing says so (derived, `decisioncard.lacksExplanation`).
+  if (card.origin.stage === 'fallback') return '  (fallback card)  [explanation missing]';
   const by = `card${card.origin.stage === 'addendum' ? ' added later' : ''} by ${card.origin.author ?? 'unknown'}, tier ${card.origin.rank ?? 'unknown'}`;
   // A card that beat another (higher tier, or younger) names it.
   const replaced = card.replaced ? `; replaced a card by ${card.replaced.author ?? 'unknown'}${card.replaced.rank ? `, tier ${card.replaced.rank}` : ''}` : '';
-  return `  (${by}${replaced})`;
+  // A half card (a question without ways and effects) has an author but explains nothing: it says so too.
+  const gap = decisioncard.lacksExplanation(card) ? '  [explanation missing: the options are filled in]' : '';
+  return `  (${by}${replaced})${gap}`;
 }
 
 export function asText(result) {

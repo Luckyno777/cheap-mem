@@ -80,6 +80,7 @@ const MASK_CLIP = 2 * rules.MAX_IN;
  * (a PEM block longer than the limit) survives as clear text. Masking each finished field afterwards is the second layer.
  */
 function maskedCopy(v, depth = 0) {
+  // mask-ok: a cost bound (MASK_CLIP); what is kept is masked next
   if (typeof v === 'string') return maskText(v.length > MASK_CLIP ? v.slice(0, MASK_CLIP) : v);
   if (v === null || typeof v !== 'object' || depth >= 6) return depth >= 6 && typeof v === 'object' ? null : v;
   if (Array.isArray(v)) return v.slice(0, 200).map((x) => maskedCopy(x, depth + 1));
@@ -144,6 +145,9 @@ export function identifierOf(e, type = null, { shown = false } = {}) {
 // --- fallback cards -----------------------------------------------------------------------------
 
 const GUARD_TITLE = /^Guard for (.+?) at (.+)$/;
+/** `mem guard run --duty` (src/cli/commands/setup.mjs): "Latch red: <class>" / "Latch broken: <class>"; the text names the entry. */
+const LATCH_TITLE = /^Latch (red|broken): (.+)$/;
+const BELONGS_TO = /Belongs to entry ([A-Za-z0-9_-]{1,64})\./;
 const REPORT_PREFIX = /^Open from agent report [^:]+:\s*/;
 const REPORT_REVIEW = /^Review report (\S+)(?::\s*(\d+) open)?/;
 const DUTY_TITLE_FIELDS = Object.freeze(['title', 'duty', 'text']);
@@ -165,6 +169,7 @@ function withoutEllipsis(t) {
     else if (end >= 3 && t.startsWith('...', end - 3)) end -= 3;
     else break;
   }
+  // mask-ok: callers hand in clean() output, which is masked
   return t.slice(0, end);
 }
 // Question marks of other scripts count as the end mark too (full-width, Arabic, interrobang and the double forms): the card
@@ -191,11 +196,13 @@ function repeats(sentence, title) {
  * runs are disjoint.
  */
 function textWithoutSource(t) {
+  // mask-ok: a cost bound; clean() masks and cuts again at MAX_IN, past this stump
   const raw = String(t ?? '').slice(0, 2 * rules.MAX_IN);
   let from = raw.indexOf('Source:');
   while (from !== -1) {
     let start = from; let breaks = 0;
     while (start > 0 && /\s/.test(raw[start - 1])) { start -= 1; if (raw[start] === '\n') breaks += 1; }
+    // mask-ok: cut at the blank space before `Source:`, never inside a key; clean() masks
     if (breaks >= 2) return clean(raw.slice(0, start));
     from = raw.indexOf('Source:', from + 1);
   }
@@ -217,6 +224,7 @@ function evidenceList(...parts) {
     const s = text(t, L.evidence);
     if (s && !out.includes(s)) out.push(s);
   }
+  // mask-ok: a list of evidence lines
   return out.slice(0, L.evidenceMax);
 }
 
@@ -244,6 +252,31 @@ function fallbackDuty(p) {
         evidence: evidenceList(id, file, ids),
       };
     }
+  }
+
+  // Duty from `mem guard run --duty` (setup.mjs): a latch that went red (the error is back) or broken (it checks nothing). The
+  // addressee comes from the command, not from a decision; the card says what is to be done.
+  const lm = LATCH_TITLE.exec(title);
+  if (lm) {
+    const red = lm[1] === 'red';
+    const className = lm[2];
+    const entryId = BELONGS_TO.exec(clean(p.text))?.[1] ?? '';
+    const why = sentencesOf(clean(p.text).replace(BELONGS_TO, ''), 2).join(' ');
+    return {
+      kind: 'do-it',
+      question: red
+        ? `${shorten(`Should the error “${className}” be fixed that a red latch shows`, L.question - 1)}?`
+        : `${shorten(`Should the broken latch for “${className}” be repaired`, L.question - 1)}?`,
+      context: why || (red ? 'A latch that was made for a logged error trips again: the error is back.' : 'A latch for a logged error checks nothing any more.'),
+      options: [
+        opt(red ? 'Fix the error' : 'Repair the latch', red
+          ? 'An agent removes the cause; the latch turns green again.'
+          : 'An agent corrects the path or the pattern of the latch so that it checks again.'),
+        opt('Discard', `The duty is closed with a reason (mem discard ${id}); nothing changes about the latch.`, true),
+        NOT_NOW(),
+      ],
+      evidence: evidenceList(id, entryId),
+    };
   }
 
   // Report duty (an agent report booked as a duty): the sentence of the report is the context, the question is always the same.
@@ -506,6 +539,21 @@ export function highest(a, b) {
 function asQuestion(t) {
   const s = withoutEnd(shorten(withoutEnd(t), L.question - 1));
   return s ? `${s}?` : '';
+}
+
+/**
+ * Is the explanation missing from this card? (H11, stage 1 of the write rule.) Yes when nobody wrote the card (stage `fallback`),
+ * when there is no readable card at all (not measurable is no explanation), and when a written card (entry or addendum) had its
+ * OPTIONS or its No option filled in from the fallback card (`supplemented`): a question without ways and effects explains
+ * nothing. A missing CONTEXT does not count: the decision then still stands there with its ways and effects.
+ *
+ * THE one derivation of "explanation missing": the write rule (`cardrule`) marks with it, `mem today` names it, and the doctor
+ * finding `decision-without-explanation` counts with it. There is no field on the entry for it (a second field would be a second
+ * truth next to the stage of the card).
+ */
+export function lacksExplanation(c) {
+  if (!(c && c.origin && (c.origin.stage === 'written' || c.origin.stage === 'addendum'))) return true;
+  return Array.isArray(c.supplemented) && (c.supplemented.includes('options') || c.supplemented.includes('decline-option'));
 }
 
 /**

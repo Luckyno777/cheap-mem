@@ -59,6 +59,7 @@ const SEPARATOR = /\s+[—–]\s+|\s+--?\s+/;
 /** An option "choice — effect" as `{choice, effect}` (effect empty when none is named). */
 export function splitOption(o) {
   const m = SEPARATOR.exec(o);
+  // mask-ok: `o` is an option from listOf(), which masks (clean)
   return { choice: m ? o.slice(0, m.index) : o, effect: m ? o.slice(m.index + m[0].length) : '' };
 }
 
@@ -91,7 +92,8 @@ const ABBREVIATIONS = new Set(['e', 'g', 'i', 'eg', 'ie', 'etc', 'vs', 'cf', 'ap
 
 /** Markdown out, whitespace folded: bounded patterns only (at most a few hundred characters per link). */
 function plainText(text) {
-  return String(text ?? '').slice(0, SENTENCE_SOURCE_MAX)
+  // mask-ok: SENTENCE_SOURCE_MAX is a cost bound; the mask runs on what is kept, before any sentence is cut
+  return maskText(String(text ?? '').slice(0, SENTENCE_SOURCE_MAX))
     .replace(/!?\[([^\]\n]{0,200})\]\([^)\n]{0,300}\)/g, '$1')
     .replace(/`+/g, '')
     .replace(/\*\*|__/g, '')
@@ -110,6 +112,7 @@ function sentenceEnd(t) {
       // the word before the dot: at most 8 letters back
       let j = i;
       while (j > 0 && i - j < 9 && /\p{L}/u.test(t[j - 1])) j -= 1;
+      // mask-ok: a lookup of the (at most 8) letters before a dot, never shown
       if (ABBREVIATIONS.has(t.slice(j, i).toLowerCase())) continue;
     }
     return i;
@@ -127,6 +130,7 @@ export function sentencesOf(text, n = 2) {
   while (t && out.length < n) {
     const e = sentenceEnd(t);
     if (e < 0) { out.push(t); t = ''; break; }
+    // mask-ok: `t` is plainText(), which masks before the sentence is cut
     const s = t.slice(0, e + 1).trim();
     if (s) out.push(s);
     t = t.slice(e + 1).trim();
@@ -157,14 +161,14 @@ export const projectOfTarget = (target) => TARGET_PROJECT.exec(target ?? '')?.[1
 export const targetIsEntry = (target) => TARGET_ID.test(target ?? '');
 
 /**
- * Check whether these fields may become a card. Pure. `errors` stop the write, `warnings` do not. The lengths are STRICTER
- * than on display (which only cuts): whoever writes a card should write it so it is read in one piece.
+ * The content of a card (without the target): question, context, options, advice, evidence, kind. ONE check for the card on the
+ * shelf (`checkCard`) and for the card an entry carries itself (`cardrule`, the write rule for a duty or question to a person).
+ * `contextRequired: false` turns a missing context into a warning: on the entry the fallback card fills it, on the shelf the card
+ * IS what the person reads. Pure.
  */
-export function checkCard({ target_id: target, question, context, options, advice, evidence, kind } = {}) {
+export function checkCardContent({ question, context, options, advice, evidence, kind } = {}, { contextRequired = true } = {}) {
   const errors = []; const warnings = [];
   const L = LIMITS;
-  const tp = targetFormProblem(target);
-  if (tp) errors.push(tp);
   const q = clean(question);
   if (!q) errors.push('card_question missing — the decision question in one sentence');
   else {
@@ -172,8 +176,10 @@ export function checkCard({ target_id: target, question, context, options, advic
     if (!q.endsWith('?')) warnings.push('the question does not end in "?" — sure it is a decision question?');
   }
   const c = clean(context);
-  if (!c) errors.push('card_context missing — one or two sentences: what is it about, why now');
-  else if (c.length > L.context) errors.push(`card_context is ${c.length} characters long, ${L.context} are allowed`);
+  if (!c) {
+    if (contextRequired) errors.push('card_context missing — one or two sentences: what is it about, why now');
+    else warnings.push('card_context missing — one or two sentences: what is it about, why now (the fallback card fills it in)');
+  } else if (c.length > L.context) errors.push(`card_context is ${c.length} characters long, ${L.context} are allowed`);
   const opt = listOf(options);
   if (opt.length < 2) errors.push(`at least two options are needed (one "choice — effect" each; \`mem card add\`: --option twice, \`mem log card\`: --card_options twice or one per line), given: ${opt.length}`);
   if (opt.length > L.optionsMax) errors.push(`at most ${L.optionsMax} options, given: ${opt.length}`);
@@ -194,4 +200,15 @@ export function checkCard({ target_id: target, question, context, options, advic
     errors.push(`card_kind '${clean(kind)}' does not exist; allowed: ${KINDS.join(', ')}`);
   }
   return { ok: errors.length === 0, errors, warnings };
+}
+
+/**
+ * Check whether these fields may become a card on the shelf. Pure. `errors` stop the write, `warnings` do not. The lengths are
+ * STRICTER than on display (which only cuts): whoever writes a card should write it so it is read in one piece.
+ */
+export function checkCard({ target_id: target, ...content } = {}) {
+  const tp = targetFormProblem(target);
+  const c = checkCardContent(content);
+  const errors = tp ? [tp, ...c.errors] : c.errors;
+  return { ok: errors.length === 0, errors, warnings: c.warnings };
 }

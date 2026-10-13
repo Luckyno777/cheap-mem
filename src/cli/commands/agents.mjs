@@ -25,6 +25,7 @@ import * as heartbeat from '../../heartbeat.mjs';
 import * as broadcast from '../../broadcast.mjs';
 import * as procedure from '../../procedure.mjs';
 import * as question from '../../question.mjs';
+import * as cardrule from '../../cardrule.mjs';
 import * as onboarding from '../../onboarding.mjs';
 import * as errorclass from '../../errorclass.mjs';
 import * as repetitionhint from '../../repetitionhint.mjs';
@@ -32,7 +33,7 @@ import * as board from '../../board.mjs';
 import * as appointmentCli from '../appointments.mjs';
 import * as authority from '../../authority.mjs';
 import { maskText } from '../../outputguard.mjs';
-import { out, die, warn, checkFlags, numberFlag, isHelp, findRoot, readStdin, requireConfig, whoAmIOrDie, receiptHint, showOnboarding, authorityArg } from '../shell.mjs';
+import { out, die, warn, checkFlags, numberFlag, isHelp, findRoot, readStdin, requireConfig, whoAmIOrDie, receiptHint, showOnboarding, authorityArg, repeatedFlag } from '../shell.mjs';
 
 /** Duplicates are shown, never dropped: same id sent twice, folded into the older message. */
 function duplicateLines(duplicates) {
@@ -550,6 +551,7 @@ export const COMMANDS = {
       out([
         'mem questions                    [--all] [--project <name>]',
         'mem questions new "<text>"       [--why "..."] [--topic ...] [--who <name>] [--authority user]',
+        '                                 [--card_question "...?" --card_context "..." --card_options "Yes — effect" --card_options "No — effect"]',
         'mem questions confirm <id>       --authority user [--with <answer-id>] [--why "..."] [--json]',
         '',
         '  What we do NOT know. Without a subcommand: the open ones, and the',
@@ -573,6 +575,9 @@ export const COMMANDS = {
         '  confirms (owner decision 2026-10-12):',
         '    mem questions confirm <question-id> --authority user',
         '  A question an agent asked stays the agents\' to close.',
+        '  A question for the human (--who <the human>) brings its decision card: --card_question, --card_context,',
+        '  --card_options (twice or more, one of them No / not now). Without one it is taken in as "explanation',
+        '  missing"; CHEAP_MEM_CARD_REJECT=yes refuses it (mem log --help).',
         '  `--authority user` is refused for an unattended run (MEM_HEADLESS)',
         '  and under a lower ceiling (CHEAP_MEM_MAX_AUTHORITY).',
       ].join('\n'));
@@ -582,7 +587,8 @@ export const COMMANDS = {
     requireConfig(root);
 
     if (rest[0] === 'new') {
-      checkFlags(args, ['why', 'topic', 'project', 'tags', 'root', 'authority', 'who'], 'questions new');
+      checkFlags(args, ['why', 'topic', 'project', 'tags', 'root', 'authority', 'who',
+        'card_question', 'card_context', 'card_options', 'card_advice', 'card_evidence', 'card_kind'], 'questions new');
       const text = rest.slice(1).join(' ').trim();
       const qr = question.check({ question: text, ...(args.who !== undefined ? { who: args.who === true ? '' : String(args.who) } : {}) });
       if (!qr.ok) die(`questions new:\n  ${qr.errors.join('\n  ')}`);
@@ -591,12 +597,27 @@ export const COMMANDS = {
       // A question of tier user is the person's question: only a person writes it (not headless, not capped).
       const tier = userClaim('questions new', args);
       if (tier) data.authority = tier;
-      for (const k of ['why', 'topic', 'who']) if (args[k] && args[k] !== true) data[k] = String(args[k]);
+      for (const k of ['why', 'topic', 'who', 'card_question', 'card_context', 'card_advice', 'card_kind']) if (args[k] && args[k] !== true) data[k] = String(args[k]);
+      // The list fields of the card may stand several times; the parser keeps only the last value.
+      for (const k of ['card_options', 'card_evidence']) {
+        const all = repeatedFlag(k);
+        if (all.length) data[k] = all;
+      }
       if (args.tags && args.tags !== true) {
         data.tags = String(args.tags).split(',').map((x) => x.trim()).filter(Boolean);
       }
-      const { path: p, entry } = memory.logEntry(root, question.TYPE, data,
-        { project: args.project ?? null });
+      // H11: a question for the human brings its card. The write core checks it on the route `cli` (src/cardrule.mjs): stage 1
+      // warns below, stage 2 (CHEAP_MEM_CARD_REJECT) refuses before anything is written. The checked write path also redacts.
+      let written;
+      try {
+        written = memory.logCheckedEntry(root, question.TYPE, data, { project: args.project ?? null, route: 'cli' });
+      } catch (e) {
+        if (e?.code === 'CARD_MISSING') die(`questions new: ${e.message}\n  Nothing was written.`);
+        throw e;
+      }
+      const { path: p, entry } = written;
+      if (written.findings.length) warn(memory.findingsLine(written.findings));
+      for (const l of cardrule.messages(written.card, { id: entry.id })) warn(l);
       out(`Appended: ${memory.asSource(root, p)}:${countLines(p)}`);
       out(`  id: ${entry.id}`);
       out(tier === 'user'

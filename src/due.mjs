@@ -57,6 +57,7 @@
  */
 
 import { clockFor, systemZone } from './appointment-time.mjs';
+import * as addressee from './addressee.mjs';
 
 /** The states of a due date. A closed list: a fifth state is entered here and shows in the diff. */
 export const STATE = Object.freeze({
@@ -203,7 +204,7 @@ export function situationFromOpen(open, { now = Date.now(), zone = systemZone(),
     list.push({
       id: d.id ?? null,
       title: title(d),
-      who: [d.who, d.owner, d.to].find((x) => typeof x === 'string' && x.trim())?.trim() ?? null,
+      who: addressee.ofDuty(d) || null,
       project: d._project ?? null,
       due: typeof value === 'string' ? value : null,
       day: read.ok ? read.day : null,

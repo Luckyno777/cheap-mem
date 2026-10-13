@@ -61,6 +61,9 @@ export const WATCHED = Object.freeze([
   'src/freshness.mjs', 'src/dashboard-head.mjs', 'src/probescaffold.mjs', 'src/errorsignature.mjs', 'src/dashboard-pass.mjs',
   'src/questiontext.mjs', 'src/cli/commands/search.mjs', 'src/cli/commands/capture.mjs',
   'src/cli/display.mjs', 'src/shortline.mjs',
+  // the card work (H11) and the card rule: new text surfaces
+  'src/cardrule.mjs', 'src/cardrules.mjs', 'src/cardstore.mjs', 'src/cardfeed.mjs', 'src/decisioncard.mjs', 'src/addressee.mjs',
+  'src/humandecisions.mjs',
 ]);
 
 export { unguardedCuts };

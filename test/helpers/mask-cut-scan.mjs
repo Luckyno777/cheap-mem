@@ -8,7 +8,8 @@
 // `x.substr(..)` or a tail cut `x.slice(-n)`. It is GUARDED when one of these holds:
 //   1. the receiver expression itself calls a mask (`maskText(s).replace(..).slice(0, n)`),
 //   2. the receiver is a variable that is DECLARED or ASSIGNED, in the same function, from an expression that calls a
-//      mask (`const t = maskText(x).trim(); ... t.slice(0, n)`; one such assignment is enough),
+//      mask (`const t = maskText(x).trim(); ... t.slice(0, n)`; one such assignment is enough), or from another such
+//      variable (`s = t.slice(0, n - 1); ... s.slice(0, i)`),
 //   3. the receiver is plainly not entry text: a date or hash (`ts`, `id`, `hash`, `commit` ...), or an ARRAY cut
 //      (`list.slice(0, 8).map(..)`, `for (const x of list.slice(0, n))`, a spread),
 //   4. a comment `mask-ok: <reason>` stands on the line of the cut or in the four lines above it.
@@ -74,10 +75,19 @@ const ARRAYISH_PARENT = (call, parent) => (parent
 /** Names assigned or declared inside `fn` from an expression that calls a mask. */
 function maskedNames(fn) {
   const names = new Set();
+  const pairs = [];
   walk(fn, null, (n) => {
-    if (n.type === 'VariableDeclarator' && n.id.type === 'Identifier' && n.init && callsMask(n.init)) names.add(n.id.name);
-    if (n.type === 'AssignmentExpression' && n.left.type === 'Identifier' && callsMask(n.right)) names.add(n.left.name);
+    if (n.type === 'VariableDeclarator' && n.id.type === 'Identifier' && n.init) pairs.push([n.id.name, n.init]);
+    if (n.type === 'AssignmentExpression' && n.left.type === 'Identifier') pairs.push([n.left.name, n.right]);
   });
+  const mentions = (expr) => { let hit = false; walk(expr, null, (x) => { if (x.type === 'Identifier' && names.has(x.name)) hit = true; }); return hit; };
+  // To a fixed point: a variable made from a mask, or from another such variable (`s = t.slice(..)` where `t` is masked)
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const [name, expr] of pairs) {
+      if (!names.has(name) && (callsMask(expr) || mentions(expr))) { names.add(name); changed = true; }
+    }
+  }
   return names;
 }
 
