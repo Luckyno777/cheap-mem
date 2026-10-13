@@ -95,7 +95,9 @@ test('b) maximum lifetime bites: the child ends by itself although the parent li
   await sleep(300);
   assert.ok(isAlive(pids[0]), 'the child was gone 300 ms after the start -- the 1500 ms lifetime cannot have ended it');
   const hold = setInterval(() => {}, 100); // the helper unref()s its children; this keeps the event loop alive meanwhile
-  const code = await new Promise((r) => { children[0].on('exit', (c, s) => r(c ?? s)); });
+  const exited = new Promise((r) => { children[0].on('exit', (c, sig) => r(c ?? sig)); });
+  // A deadline, so that a broken lifetime turns this red instead of hanging (the helper's own 1500 ms is far below 10 s).
+  const code = await Promise.race([exited, sleep(10000).then(() => 'still running after 10 s')]);
   clearInterval(hold);
   assert.equal(code, 0, `the child did not end cleanly: ${code}`);
   assert.ok(isAlive(process.pid), 'the parent lives (so the parent leash cannot be the cause)');
@@ -115,8 +117,21 @@ test('b2) the lifetime is capped (60 s) and runs on the monotonic clock; checkEv
     assert.match(loadChildSource({ checkEvery: big }), /i < 1000000;/, `checkEvery=${big} not capped`);
   }
   assert.match(loadChildSource({ checkEvery: 500 }), /i < 500;/, 'small values stay');
+  // One rule for both tunables: Infinity and too large -> the cap; 0, negative, NaN, text, fractions below 1 -> the default;
+  // numeric text is read as a number; fractions are floored.
+  const life = (v) => loadChildSource({ maxLifetimeMs: v }).match(/hrtime\.bigint\(\) \+ (\d+)000000n;/)[1];
+  const every = (v) => loadChildSource({ checkEvery: v }).match(/i < (\d+);/)[1];
+  for (const [v, want] of [[0, '60000'], [-5, '60000'], [NaN, '60000'], [Infinity, '60000'], [-Infinity, '60000'], ['x', '60000'],
+    [null, '60000'], [0.5, '60000'], ['5000', '5000'], [1234.9, '1234'], [1, '1']]) {
+    assert.equal(life(v), want, `maxLifetimeMs=${String(v)}`);
+  }
+  for (const [v, want] of [[0, '20000'], [-5, '20000'], [NaN, '20000'], [Infinity, '1000000'], [-Infinity, '20000'], ['x', '20000'],
+    [null, '20000'], [0.5, '20000'], ['700', '700'], [1e12, '1000000'], [1, '1']]) {
+    assert.equal(every(v), want, `checkEvery=${String(v)}`);
+  }
 });
 
+// b3 proves only that both lines are in the source text; b4 and b5 below drive each check ALONE (the behaviour).
 test('b3) the parent leash is in the loop and checks both ppid and kill(parent, 0)', () => {
   const src = loadChildSource({ parent: 4242 });
   assert.match(src, /const PARENT = 4242;/);
@@ -124,6 +139,37 @@ test('b3) the parent leash is in the loop and checks both ppid and kill(parent, 
   assert.match(src, /process\.kill\(PARENT, 0\)/);
   assert.match(loadChildSource({}), /const PARENT = process\.ppid;/);
   assert.match(loadChildSource({ checkEvery: 20000 }), /i < 20000;/);
+});
+
+// The two leash checks, each driven alone (a regex on the source text proves only that the lines exist).
+const without = (source, pattern) => source.split('\n').filter((l) => !pattern.test(l)).join('\n');
+
+test('b4) kill(parent, 0) alone ends the child: with the ppid check struck, a dead parent PID still ends it', async () => {
+  const dead = own(spawn(process.execPath, ['-e', '0'], { stdio: 'ignore' }));
+  await new Promise((r) => dead.on('exit', r));
+  const source = without(loadChildSource({ parent: dead.pid, maxLifetimeMs: 30000 }), /process\.ppid !== PARENT/);
+  assert.ok(!/ppid/.test(source) && /process\.kill\(PARENT, 0\)/.test(source));
+  const k = own(spawn(process.execPath, ['-e', source], { stdio: 'ignore' }));
+  const code = await Promise.race([new Promise((r) => { k.on('exit', (c, sig) => r(c ?? sig)); }), sleep(15000).then(() => 'still running')]);
+  assert.equal(code, 0, 'the second leash (kill) did not end the child');
+});
+
+test('b5) the ppid check alone ends the child: with kill struck, a PARENT that is not the real parent still ends it', async () => {
+  // PARENT is a live process (this one) that is NOT the child's parent (a detached relay process spawns it, so its ppid is the relay
+  // helper): ppid !== PARENT at the first check. kill(PARENT, 0) would succeed, so only the ppid line can end it.
+  const source = without(loadChildSource({ parent: process.pid, maxLifetimeMs: 30000 }), /process\.kill\(PARENT, 0\)/);
+  assert.ok(/process\.ppid !== PARENT/.test(source) && !/kill\(PARENT/.test(source));
+  const relay = own(spawn(process.execPath, ['-e', `
+    const { spawn } = require('node:child_process');
+    const k = spawn(process.execPath, ['-e', ${JSON.stringify(source)}], { stdio: 'ignore', detached: true });
+    process.stdout.write(String(k.pid)); k.unref();`], { stdio: ['ignore', 'pipe', 'ignore'] }));
+  let out = '';
+  relay.stdout.on('data', (d) => { out += d; });
+  await new Promise((r) => relay.on('exit', r));
+  const pid = Number(out);
+  assert.ok(pid > 0, 'the relay reported no PID');
+  note(pid);
+  assert.ok(await waitUntil(() => !sameProcess(pid), 15000), 'the ppid check did not end the child (it lives on with a foreign PARENT)');
 });
 
 test('c) positive control: the load child really produces load while it runs (its CPU time grows)', async (t) => {

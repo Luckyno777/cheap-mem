@@ -53,17 +53,28 @@ export const CHECK_EVERY = 20000;
 export const CHECK_EVERY_MAX = 1000000;
 
 /**
+ * One rule for both tunables: a number (or numeric string) of at least 1 is floored and capped at `max` -- Infinity
+ * and anything above `max` become `max`; NaN, non-numeric input, 0, negatives and fractions below 1 become `fallback`.
+ * No input can switch a leash off or make it nonsensical.
+ */
+function clampPositive(value, fallback, max) {
+  const n = Number(value);
+  if (Number.isNaN(n) || n < 1) return fallback;
+  return Math.min(Math.floor(n), max);
+}
+
+/**
  * Source text for `node -e` or a module file: computes until a leash snaps,
  * then exits 0.
  *
  * @param {object} [o]
- * @param {number} [o.maxLifetimeMs] default and upper bound: MAX_LIFETIME_MS
+ * @param {number} [o.maxLifetimeMs] default and upper bound: MAX_LIFETIME_MS (0, negative, NaN, text: the default)
  * @param {number} [o.parent] parent PID; without it the ppid seen at start
- * @param {number} [o.checkEvery] iterations per check (at most CHECK_EVERY_MAX)
+ * @param {number} [o.checkEvery] iterations per check (default CHECK_EVERY, at most CHECK_EVERY_MAX; 0, negative, NaN: the default)
  */
 export function loadChildSource({ maxLifetimeMs = MAX_LIFETIME_MS, parent, checkEvery = CHECK_EVERY } = {}) {
-  const lifetime = Math.max(1, Math.min(Math.floor(Number(maxLifetimeMs)) || MAX_LIFETIME_MS, MAX_LIFETIME_MS));
-  const every = Math.max(1, Math.min(Math.floor(Number(checkEvery)) || CHECK_EVERY, CHECK_EVERY_MAX));
+  const lifetime = clampPositive(maxLifetimeMs, MAX_LIFETIME_MS, MAX_LIFETIME_MS);
+  const every = clampPositive(checkEvery, CHECK_EVERY, CHECK_EVERY_MAX);
   const parentText = Number.isInteger(parent) && parent > 0 ? String(parent) : 'process.ppid';
   return [
     `const PARENT = ${parentText};`,
