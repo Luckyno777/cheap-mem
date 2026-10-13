@@ -18,7 +18,7 @@
 // invariant: eine-regel-eine-stelle
 
 /** The fields that name the addressee of a duty, in the order they count (the first one that is present wins). */
-export const DUTY_FIELDS = Object.freeze(['who', 'owner', 'to']);
+const DUTY_FIELDS = Object.freeze(['who', 'owner', 'to']);
 
 /** A name, trimmed; '' for anything that is not a text (or only blanks). */
 export function nameOf(v) {

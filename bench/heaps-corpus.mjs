@@ -276,7 +276,10 @@ function tagCountFor(rand) {
   return Math.min(n, 6);
 }
 
-const TYPE_FILES = Object.entries(TYPES).filter(([t]) => t !== 'link' && t !== 'timeline');
+// `card` is the card shelf (card-core-cm): a card repeats the words of its target and is no drawer of entries a corpus is made of. It
+// also sat in this list unnoticed and made the 'heaps' form of test/doctor-memo.test.mjs red against the exported old state (which does
+// not know the type: `cards.jsonl` read as an orphan drawer there).
+const TYPE_FILES = Object.entries(TYPES).filter(([t]) => t !== 'link' && t !== 'timeline' && t !== 'card');
 
 /**
  * Generate `targetCount` synthetic entries whose vocabulary grows at

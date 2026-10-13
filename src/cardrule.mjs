@@ -50,7 +50,7 @@ import { yesNoValue } from './yesno.mjs';
 import { maskText } from './outputguard.mjs';
 
 /** The switch of stage 2. Default: off (stage 1, warn and mark). */
-export const ENV_REJECT = 'CHEAP_MEM_CARD_REJECT';
+const ENV_REJECT = 'CHEAP_MEM_CARD_REJECT';
 /** The routes on which the rule applies (see above). */
 export const ROUTES = Object.freeze(['cli', 'mcp', 'task']);
 /** The entry types the rule is about. */
@@ -88,7 +88,7 @@ function partsOf(data) {
 }
 
 /** The error of stage 2: nothing was written. */
-export class CardMissing extends Error {
+class CardMissing extends Error {
   constructor(text, details = {}) {
     super(text);
     this.name = 'CardMissing';
