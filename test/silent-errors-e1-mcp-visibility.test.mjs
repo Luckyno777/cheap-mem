@@ -89,6 +89,8 @@ test('the reason carries an error code, never a path of this machine', (t) => {
     fs.mkdirSync(journal(r));
     const w = vis.read(r);
     assert.equal(w.state, 'unreadable');
+    // EISDIR's message names no path, so only the shape keeps this sharp: a bare error code, never a message
+    assert.match(String(w.reason), /^E[A-Z]+$/, 'the reason is an error code, not a message');
     assert.ok(!String(w.reason).includes(r), 'the reason names the memory path');
     return;
   }
