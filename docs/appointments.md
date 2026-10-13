@@ -155,6 +155,15 @@ calendar outlet is on. The folder is deliberately not under `global/` or
   on the overview. Read only: `GET /dashboard/appointments.json`. Appointments are
   written with the CLI and the MCP tools, never from the page.
 - **Doctor**: finding `appointment-invite` (see below).
+- **The briefing and due dates** (Q7): the letter opens with the line of the day, `Day line: 2 deadlines overdue · 1 due today · 1 project
+  awaiting confirmation` (the same parts and words as the session-start line of `mem today`; the subject carries it too). Quiet
+  says nothing; deadlines that could not be read say `deadlines not measurable`, never 0. These are the human's duties only. On a
+  **Monday** the briefing ends with a **week review**: the deadlines of last week (done, dropped, still open), what is overdue now,
+  what falls due this week, the projects awaiting confirmation. It comes only if a deadline of the human fell due last week or
+  falls due this week; a quiet week has no block, and the block alone keeps a day from being "empty" for a morning routine
+  (`mem appointment today --json`: `empty`, `week_review`, `day_line`). No new timer and no model: it is the same briefing, built by
+  code. The week runs Monday 00:00 to Monday 00:00 in the **house zone** (`config.timezone`, then `CHEAP_MEM_TZ`, then the system),
+  never UTC.
 
 The state of a fired action comes from the inbox, nothing new: `delivered`, `taken`
 (a claim), `done` (claim done or the letter answered), `no-response` (untouched

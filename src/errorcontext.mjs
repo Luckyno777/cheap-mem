@@ -44,6 +44,8 @@ import * as memory from './memory.mjs';
 import * as errorfile from './errorfile.mjs';
 import * as repetition from './repetition.mjs';
 import * as procedure from './procedure.mjs';
+import * as dueCore from './due.mjs';
+import { zoneOf } from './appointments.mjs';
 import { maskText } from './outputguard.mjs';
 
 /** Marker on a duty: created automatically by this path. */
@@ -93,6 +95,26 @@ export function openDutiesFor(root, { files = [], errorIds = [], project = null 
 }
 
 /**
+ * Order for the before-edit list: an overdue duty first, the longest overdue first; `0` for two duties that are both not
+ * overdue (the caller's own order then decides). The state and the moment come from the due-date core; the zone is the house
+ * zone (an unusable one falls back to the system zone rather than hiding the duties).
+ */
+function lateFirst(a, b, z, now) {
+  const overdueFrom = (d) => {
+    const v = dueCore.dueValue(d);
+    if (dueCore.state(v, now, z) !== dueCore.STATE.OVERDUE) return null;
+    const p = dueCore.parseDue(v, z);
+    return p.ok ? p.overdueFromMs : null;
+  };
+  const x = overdueFrom(a);
+  const y = overdueFrom(b);
+  if (x === null && y === null) return 0;
+  if (x === null) return 1;
+  if (y === null) return -1;
+  return x - y;
+}
+
+/**
  * Before-edit: the open duties and the procedures in force that concern
  * the file about to be changed.
  *
@@ -112,10 +134,13 @@ export function openDutiesFor(root, { files = [], errorIds = [], project = null 
  * holds (not retired, not replaced by a correction) and its status is
  * `released` — a proposed, trial or withdrawn rule stays out.
  *
- * Capped per kind (`cap`), newest first. Never throws: a store it
+ * Capped per kind (`cap`), newest first — except that an OVERDUE duty (the due-date core, `src/due.mjs`, says so in the house
+ * zone) comes before the others, the longest overdue first (Q7): what is late is what the editor should hear first, and with
+ * a cap of two the order decides what is heard at all. ONLY the order: nothing is added, nothing is boosted, and the retrieval
+ * ranking is untouched (a boost waits for K8). Never throws: a store it
  * cannot read gives empty lists, the hook then says what it said before.
  */
-export function beforeEditDuties(root, queryPath, hits = [], { cap = 2, project = undefined } = {}) {
+export function beforeEditDuties(root, queryPath, hits = [], { cap = 2, project = undefined, now = Date.now() } = {}) {
   const res = { duties: [], procedures: [] };
   const parts = String(queryPath ?? '').split(/[\\/]/).filter(Boolean);
   if (!parts.length) return res;
@@ -137,11 +162,13 @@ export function beforeEditDuties(root, queryPath, hits = [], { cap = 2, project 
 
   let open = [];
   try { ({ open } = memory.openDuties(root, { project })); } catch { open = []; }
+  let zoneArg;
+  try { zoneArg = { zone: zoneOf(root) }; } catch { zoneArg = undefined; }
   res.duties = open
     .filter((d) => namesFile(d.file)
       || hitIds.has(d.id) || (d.replaces_id && hitIds.has(d.replaces_id))
       || (Array.isArray(d.error_ids) && d.error_ids.some((id) => errorIds.has(id))))
-    .sort((a, b) => String(b.ts ?? '').localeCompare(String(a.ts ?? '')))
+    .sort((a, b) => lateFirst(a, b, zoneArg, now) || String(b.ts ?? '').localeCompare(String(a.ts ?? '')))
     .slice(0, cap);
 
   const candidates = hits.filter((h) => h && h.id && /(^|\/)procedures\.jsonl$/.test(laneOf(h))

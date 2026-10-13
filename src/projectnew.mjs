@@ -366,6 +366,25 @@ export function handmade(root) {
   return out;
 }
 
+/**
+ * The projects that wait for a person, as `[{ name, kind, createdOn, createdBy }]`, oldest first: status `new` (`kind: 'new'`,
+ * made with `mem project new`) and those made past the command (`kind: 'hand'`, {@link handmade}). THE one list: the day part
+ * (`today.projectsAwaiting`, which adds the card) and the briefing's day line count with it, so the two numbers cannot drift
+ * apart. Read only; THROWS when the projects cannot be read (the callers say "not measurable", never 0).
+ */
+export function awaiting(root) {
+  const list = [];
+  for (const name of memory.listProjects(root)) {
+    const st = projectStatus(root, name);
+    if (st.isNew) list.push({ name, kind: 'new', createdOn: st.created_on, createdBy: st.created_by });
+  }
+  for (const h of handmade(root)) {
+    list.push({ name: h.name, kind: 'hand', createdOn: String(h.firstEntry ?? '').slice(0, 10) || null, createdBy: null });
+  }
+  list.sort((a, b) => String(a.createdOn ?? '').localeCompare(String(b.createdOn ?? '')) || a.name.localeCompare(b.name));
+  return list;
+}
+
 /** The capture paths of an entry (`origin.raw`: a path or a list; `unknown` does not count). */
 function capturesOf(e) {
   const r = e?.origin?.raw;

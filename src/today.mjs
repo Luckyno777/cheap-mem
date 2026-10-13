@@ -6,7 +6,7 @@
  * dashboard's "Today" card, the session-start line) reading the SAME
  * answer instead of each computing its own.
  *
- * Six parts, `a`-`f`, matching the sibling's own lettering:
+ * Six parts, `a`-`f`, matching the sibling's own lettering, and one of this house's own on top (`deadlines`, below):
  *
  *   (a) operations   `doctor.checkAll()` — only the findings at WARN or
  *                     ERROR (a `good`/`unknown` finding has nothing
@@ -30,6 +30,15 @@
  *                     `mem project new`) and those made past the command
  *                     (`projectnew.handmade`). Read only; nothing open =
  *                     an empty list and the card takes no room.
+ *   deadlines         the due dates of the open duties ({@link deadlinesPart},
+ *                     Q7 of the build plan): the human's duties one by one
+ *                     (at most 8, the rest counted), everyone else's only as a
+ *                     number. The state of a due date is decided in ONE place,
+ *                     `src/due.mjs`; this file never reads the field.
+ *
+ * **One pass over the duties.** `today()` reads the duty drawers ONCE (`memory.openDuties()`) and hands that one fold to
+ * the decisions (b) and to the deadlines; the dashboard hands in the fold it read itself (`duties`), so a full dashboard build
+ * passes over the drawer once as well (test/today-due.test.mjs counts the passes).
  *
  * **The card (H11, 2026-10-13).** Every item a person is meant to decide or release (a duty, a project) carries a field `card`
  * (`decisioncard.cardOf`): question, context, options with their effects, advice with its author, evidence — and the stage it
@@ -54,6 +63,10 @@ import * as decisioncard from './decisioncard.mjs';
 import * as cardstore from './cardstore.mjs';
 import * as cardfeed from './cardfeed.mjs';
 import * as humandecisions from './humandecisions.mjs';
+import * as deadlines from './deadlines.mjs';
+import * as dayline from './dayline.mjs';
+import * as cfgmod from './config.mjs';
+import { zoneOf } from './appointments.mjs';
 import { isoWeek } from './measurements.mjs';
 
 /** At most this many verify candidates shown at once (N9 parity: "up to 3"). */
@@ -105,10 +118,41 @@ export function operations(root, { check = doctorMod.checkAll, doctorResult = nu
  * decision), so this function stays to the ONE real source cheap-mem
  * has: open duties whose `who` names the configured human participant.
  */
-export function decisionsForHuman(root, { human = null, cards = undefined } = {}) {
+export function decisionsForHuman(root, { human = null, cards = undefined, fold = undefined, now = undefined, zone = undefined } = {}) {
   // The calculation lives in src/humandecisions.mjs: the doctor finding `decision-without-explanation` counts with the SAME
   // function (a ring if it lived here: this file imports the doctor).
-  return humandecisions.forHuman(root, { human, cards });
+  return humandecisions.forHuman(root, { human, cards, fold, now, zone });
+}
+
+// =========================================================================
+// Deadlines — the due dates of the open duties (Q7)
+// =========================================================================
+
+/** The open duties, read once: `memory.openDuties()` (`{ open, done, refused }`), or `{ error }` when the drawers cannot be read. */
+export function dutyFold(root) {
+  try { return memory.openDuties(root); } catch (e) { return { error: e }; }
+}
+
+/**
+ * The part "Deadlines" of the day. `fold` is what {@link dutyFold} returns (read once by the caller and shared with the
+ * decisions); without it the drawer is read here. The human comes from the configuration, the zone from the house settings
+ * (`config.timezone`, then `CHEAP_MEM_TZ`, then the system), never UTC. What cannot be read is `readable: false` with its
+ * reason, not 0. The work is `src/deadlines.mjs`; the state of each due date is `src/due.mjs`.
+ */
+export function deadlinesPart(root, { fold = undefined, now = new Date(), env = process.env, zone: given = undefined } = {}) {
+  let zone = given;
+  if (zone === undefined) {
+    try { zone = zoneOf(root, env); } catch (e) {
+      return { readable: false, reason: `not measurable: house zone not usable (${e?.message || e})`, list: [] };
+    }
+  }
+  let human = null;
+  let humanReason = null;
+  try {
+    const h = cfgmod.humanParticipant(cfgmod.readConfig(root).participants);
+    human = h.name; humanReason = h.reason;
+  } catch (e) { humanReason = `config not readable: ${e?.message || e}`; }
+  return deadlines.part(fold === undefined ? dutyFold(root) : fold, { human, humanReason, now, zone });
 }
 
 // =========================================================================
@@ -366,15 +410,7 @@ export function wordPairSuggestions() {
  */
 export function projectsAwaiting(root, { cards = undefined } = {}) {
   try {
-    const list = [];
-    for (const name of memory.listProjects(root)) {
-      const st = projectnew.projectStatus(root, name);
-      if (st.isNew) list.push({ name, kind: 'new', createdOn: st.created_on, createdBy: st.created_by });
-    }
-    for (const h of projectnew.handmade(root)) {
-      list.push({ name: h.name, kind: 'hand', createdOn: String(h.firstEntry ?? '').slice(0, 10) || null, createdBy: null });
-    }
-    list.sort((a, b) => String(a.createdOn ?? '').localeCompare(String(b.createdOn ?? '')) || a.name.localeCompare(b.name));
+    const list = projectnew.awaiting(root);
     // H11: title and reason as far as they are on record, and the card "Take over project <name>?".
     const shelf = cards === undefined ? (() => { try { return cardstore.latestCards(root); } catch { return new Map(); } })() : cards;
     const human = cardfeed.humanOf(root);
@@ -414,28 +450,38 @@ export function counts(result) {
     review: null,
     wordPairs: null,
     projectsAwaiting: result.projects?.readable ? result.projects.list.length : null,
+    // Q7: the human's deadlines, by the state the due core gives them. null = not measurable, never 0.
+    deadlinesOverdue: deadlines.lineCounts(result.deadlines).overdue,
+    deadlinesDue: deadlines.lineCounts(result.deadlines).dueToday,
   };
 }
 
-export function today(root, { env = process.env, now = new Date(), doctorResult = null } = {}) {
+export function today(root, { env = process.env, now = new Date(), doctorResult = null, duties = undefined } = {}) {
   const ops = operations(root, { doctorResult });
   // H11: the card shelf ONCE for the whole result; not readable -> fallback cards, and `reasons` says so.
   const shelf = cardstore.readCards(root);
-  const decisions = decisionsForHuman(root, { cards: shelf.cards });
+  // Q7: the duty drawers ONCE for the whole result (a caller that read them already hands the fold in as `duties`).
+  const fold = duties ?? dutyFold(root);
+  let zone; // the house zone (config.timezone, CHEAP_MEM_TZ, system) — one reading for the decisions' chips and the deadlines
+  try { zone = zoneOf(root, env); } catch { zone = undefined; }
+  const decisions = decisionsForHuman(root, { cards: shelf.cards, fold, now: now.getTime(), zone });
+  const deadlinesNow = deadlinesPart(root, { fold, now, env, zone });
   const verify = verifyCandidates(root, { now });
   const review = reviewSuggestions();
   const wordPairs = wordPairSuggestions();
   const gold = goldQuestions(root, { env, now });
   const projects = projectsAwaiting(root, { cards: shelf.cards });
-  return assemble({ ops, decisions, verify, review, wordPairs, gold, projects, cards: cardstore.stateOf(shelf) }, { env, now });
+  return assemble({ ops, decisions, deadlines: deadlinesNow, verify, review, wordPairs, gold, projects, cards: cardstore.stateOf(shelf) }, { env, now });
 }
 
 /** The parts of a day result put together: reasons, state, counts, line — one place for `today()` and `refresh()`. */
-function assemble({ ops, decisions, verify, review, wordPairs, gold, projects, cards }, { env, now }) {
+function assemble({ ops, decisions, deadlines: deadlinesNow, verify, review, wordPairs, gold, projects, cards }, { env, now }) {
   const shelf = cards ?? { readable: false, reason: 'card shelf not read', cards: null, broken: null, unusable: null };
   const reasons = [
     ...(ops.readable ? [] : [ops.reason]),
     ...(decisions.readable ? [] : [decisions.reason]),
+    // A stored result from before the deadlines part existed has none: it is "not read", said once, not a quiet 0.
+    ...(deadlinesNow === undefined ? ['deadlines not read: the stored day result predates the part'] : deadlinesNow.readable ? [] : [deadlinesNow.reason]),
     ...(verify.readable ? [] : [verify.reason]),
     ...(gold.drawn.readable ? [] : [gold.drawn.reason]),
     ...(projects.readable ? [] : [projects.reason]),
@@ -452,6 +498,7 @@ function assemble({ ops, decisions, verify, review, wordPairs, gold, projects, c
     login: { readable: false, reason: 'unknown — no login-state source in this house' },
     operations: ops,
     decisions,
+    deadlines: deadlinesNow ?? { readable: false, reason: 'not read: the stored day result predates the part', list: [] },
     verify,
     gold,
     review,
@@ -475,7 +522,7 @@ function assemble({ ops, decisions, verify, review, wordPairs, gold, projects, c
 export function refresh(stored, root, names, { env = process.env, now = new Date() } = {}) {
   if (!stored || typeof stored !== 'object' || !stored.operations || !stored.gold || !stored.projects) throw new Error('no stored day result to refresh');
   const parts = {
-    ops: stored.operations, decisions: stored.decisions, verify: stored.verify, review: stored.review, wordPairs: stored.wordPairs,
+    ops: stored.operations, decisions: stored.decisions, deadlines: stored.deadlines, verify: stored.verify, review: stored.review, wordPairs: stored.wordPairs,
     gold: stored.gold, projects: stored.projects, cards: stored.cards,
   };
   // A part with cards is read against the CURRENT shelf (once): a freshly added card shows, one that is there stays an
@@ -500,32 +547,38 @@ export function refresh(stored, root, names, { env = process.env, now = new Date
 export const LINE_MAX = 120;
 
 /**
- * "Today: 2 decisions open · operations warn · 1 to verify" — ONE line
- * from {@link counts}, counts only (never entry content). What could not
- * be measured says "unknown", never 0. `null` only when everything is
- * measured AND calm. Capped at {@link LINE_MAX}.
+ * "Today: 1 deadline overdue · 2 decisions open · operations warn" — ONE line from {@link counts}, counts only (never entry
+ * content). What could not be measured says "unknown" (or "not measurable"), never 0. `null` only when everything is
+ * measured AND calm.
+ *
+ * Too long for {@link LINE_MAX}? Then whole PARTS fall away, the least important first (`dayline.RANK`: overdue deadlines, due
+ * today, decisions, operations, projects, verify, gold questions) — never a cut inside a word or a number.
  */
 export function line(result) {
   const c = result.counts ?? counts(result);
   const parts = [];
-  let notable = false;
-  if (c.decisions === null) { parts.push('decisions unknown'); notable = true; }
-  else if (c.decisions > 0) { parts.push(`${c.decisions} decision${c.decisions === 1 ? '' : 's'} open`); notable = true; }
+  const add = (text, rank) => { if (text) parts.push({ text, rank }); };
 
-  if (c.operationsWorst === null) { parts.push('operations unknown'); notable = true; }
-  else if (c.operationsWorst === 'error' || c.operationsWorst === 'warn') { parts.push(`operations ${c.operationsWorst}`); notable = true; }
+  // Q7: the human's deadlines come first — they are what is late.
+  const od = c.deadlinesOverdue ?? null;
+  add(dayline.overdueText(od), dayline.RANK.overdue);
+  if (od !== null) add(dayline.dueTodayText(c.deadlinesDue), dayline.RANK.dueToday);
 
-  if (c.verify === null) { parts.push('verify unknown'); notable = true; }
-  else if (c.verify > 0) { parts.push(`${c.verify} to verify`); notable = true; }
+  if (c.decisions === null) add('decisions unknown', dayline.RANK.decisions);
+  else if (c.decisions > 0) add(`${c.decisions} decision${c.decisions === 1 ? '' : 's'} open`, dayline.RANK.decisions);
 
-  if (c.goldQuestions === null) { parts.push('gold questions unknown'); notable = true; }
-  else if (c.goldQuestions > 0) { parts.push(`${c.goldQuestions} gold question${c.goldQuestions === 1 ? '' : 's'}`); notable = true; }
+  if (c.operationsWorst === null) add('operations unknown', dayline.RANK.operations);
+  else if (c.operationsWorst === 'error' || c.operationsWorst === 'warn') add(`operations ${c.operationsWorst}`, dayline.RANK.operations);
 
-  if (c.projectsAwaiting > 0) { parts.push(`${c.projectsAwaiting} project${c.projectsAwaiting === 1 ? '' : 's'} awaiting confirmation`); notable = true; }
+  if (c.verify === null) add('verify unknown', dayline.RANK.verify);
+  else if (c.verify > 0) add(`${c.verify} to verify`, dayline.RANK.verify);
 
-  if (!notable || !parts.length) return null;
-  const text = `Today: ${parts.join(' · ')}`;
-  return text.length > LINE_MAX ? `${text.slice(0, LINE_MAX - 1)}…` : text;
+  if (c.goldQuestions === null) add('gold questions unknown', dayline.RANK.gold);
+  else if (c.goldQuestions > 0) add(`${c.goldQuestions} gold question${c.goldQuestions === 1 ? '' : 's'}`, dayline.RANK.gold);
+
+  add(dayline.projectsText(c.projectsAwaiting), dayline.RANK.projects);
+
+  return dayline.fit(parts, { max: LINE_MAX });
 }
 
 // --- CLI text -----------------------------------------------------------
@@ -541,6 +594,24 @@ function cardMark(card) {
   // A half card (a question without ways and effects) has an author but explains nothing: it says so too.
   const gap = decisioncard.lacksExplanation(card) ? '  [explanation missing: the options are filled in]' : '';
   return `  (${by}${replaced})${gap}`;
+}
+
+/** The part "Deadlines" as text lines: the human's duties one by one, everyone else's as one number. */
+function deadlinesText(d) {
+  if (!d?.readable) return [`DEADLINES: not measurable — ${d?.reason ?? 'no deadlines part in this result'}`];
+  const m = d.mine;
+  const lines = [`DEADLINES FOR THE HUMAN: ${m.withDue} with a due date (${m.overdue} overdue, ${m.dueToday} due today, ${m.fresh} later`
+    + `${m.unknown ? `, ${m.unknown} unreadable` : ''})`];
+  for (const { state, due: value, id, title } of m.list) {
+    lines.push(`  ${state.padEnd(7)}  ${value ?? '(unreadable)'}  [${id}]  ${title}`);
+  }
+  if (m.more > 0) lines.push(`  … and ${m.more} more: mem deadlines`);
+  const o = d.others;
+  if (o.withDue > 0) {
+    lines.push(`  Not addressed to the human (agents, nobody): ${o.withDue} with a due date (${o.overdue} overdue, ${o.dueToday} due today`
+      + `${o.unknown ? `, ${o.unknown} unreadable` : ''})`);
+  }
+  return lines;
 }
 
 export function asText(result) {
@@ -564,6 +635,9 @@ export function asText(result) {
     lines.push(`  [duty] ${id}  ${card?.question ?? title}${cardMark(card)}${dueText ? `  (due ${dueText})` : ''}`);
     if (card?.options?.length) lines.push(`      Options: ${card.options.map((o) => o.choice).join(' | ')}`);
   }
+  lines.push('');
+
+  lines.push(...deadlinesText(result.deadlines));
   lines.push('');
 
   lines.push(`TO VERIFY: ${result.verify.readable ? result.verify.list.length : 'unknown'} (of ${result.verify.totalUncertain ?? 0} uncertain)`);

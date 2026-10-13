@@ -429,8 +429,8 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-numbers.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **87 CLI commands, 45 MCP tools, 208 modules, 4680
-tests**; as of 2026-09-20, about 86644 lines in `bin/` and `src/`, at
+As of 2026-09-26: **87 CLI commands, 45 MCP tools, 210 modules, 4706
+tests**; as of 2026-09-20, about 87209 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 
 ### Reading it with a model, or evaluating it properly
@@ -696,7 +696,7 @@ mem agents / mem agent new|show    who is registered, an address per agent
 mem onboarding <agent>             five checks, each evidenced by an entry
 mem broadcast <error-id>           tell the agents who touched the same file
 mem heartbeat                      this agent was running and could write
-mem today                          operations, decisions and facts to verify
+mem today                          operations, decisions, deadlines and facts to verify
 mem guard run|quote|gaps           every latch: is the error back, which has none
 mem gaps [rate]                    open and closed knowledge gaps
 mem suggest procedure <class>      draft a procedure for a repeated error class

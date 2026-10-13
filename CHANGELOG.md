@@ -70,6 +70,38 @@ inside the numbering; and the output guard masks the raw field text BEFORE the l
 the 90/160 cut would otherwise stay behind as a fragment). An envelope opened in memory (`__body.state` ok) reads like any entry; an
 unreadable one carries its own label once; a rule of markdown characters only falls on to question/fact and keeps its mark.
 
+### Added — the due dates in the day brief (build plan Q7, step 6b, branch B; 2026-10-13)
+
+The due-date core was there and nothing in the day brief used it. Now `mem today`, the session-start line, the briefing, the
+dashboard card, the doctor and the before-edit hook ask the core (`src/due.mjs`) and say what is late.
+
+- **The line of the day** (`mem today --line`, the briefing's subject and first line): `n deadlines overdue`, `n due today`, then
+  the old parts. Quiet is nothing; deadlines that cannot be read say `deadlines not measurable` (three states, never a quiet 0).
+  Too long for the cap: whole parts fall away, the least important first (`src/dayline.mjs`) - the old line was cut at the limit
+  with an ellipsis, in the middle of a word. The wording of the projects part stays `awaiting confirmation`.
+- **`mem today`, part DEADLINES** (`src/deadlines.mjs`): the human's duties with a due date one by one, earliest first, at most 8
+  and the rest counted (`… and 192 more: mem deadlines`); the duties of agents and unaddressed ones only as a number. The title is
+  masked, then cut, and a right-to-left override is made visible (also in the briefing's list and in the decisions of `mem today --json`); an encrypted duty shows `[locked]`, its date stays readable.
+  `--json` carries the same (`deadlines`, `counts.deadlinesOverdue`, `counts.deadlinesDue`; each decision for the human has
+  `dueState`). The human comes from `.mem/config.json`.
+- **One pass over the duties.** `today()` reads the duty drawers once and hands the fold to the decisions and the deadlines; the
+  dashboard build hands in the fold it read (`todayOf(root, { duties })`). A counter over the drawer file pins it
+  (`test/today-due.test.mjs`).
+- **The Monday briefing carries a week review**, no new timer, no model: last week's deadlines (done, dropped, still open), overdue
+  now, due this week, projects awaiting confirmation - only if a deadline of the human fell due last week or falls due this week;
+  then it alone keeps the day from being "empty" (`mem appointment today --json`). The week is Monday to Monday in the HOUSE zone,
+  never UTC (pinned across midnight and both clock changes).
+- **Dashboard**: the Today card has a part "Deadlines" (counters: overdue, due today, later, unreadable; agents' duties as one number;
+  no second list of the same duties) and a chip (overdue / due today / unreadable) on each decision card; the cards of the human
+  stand by deadline, overdue first, duties without a due date after them in the old order;
+  the data (`deadlines`) is in the full AND the compact build (the compact one above its module limit says "not computed", not 0).
+  A due DAY is shown as written, not moved by the browser's zone.
+- **Doctor**: finding `deadlines` (WARN only): a duty overdue for more than a day with no newer line, an unreadable value, an old
+  field name (`due_date`, `until`, `deadline`, `by`: still read, only `due` is written). No open duty, or none with a due date, is
+  UNKNOWN, not good. In `shared/finding-map.jsonl` as `nur-deadlines` until lucky-mem has its counterpart.
+- **Before an edit**: the open duties for the file come overdue-first (the longest overdue first). Only the order; the retrieval
+  ranking is untouched.
+
 ### Added — the due-date core (build plan Q1, step 6b, branch A)
 
 A due date on a duty was read by three readers with guessed names (`today.mjs` and the dashboard `due ?? by`, the day list

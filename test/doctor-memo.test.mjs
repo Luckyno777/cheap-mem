@@ -153,7 +153,8 @@ const CODE_TREE_FINDINGS = new Set(['docs-images-fresh', 'integration-contract']
 // the old state cannot have it. Its own probes are in test/question-text.test.mjs.
 // Likewise `decision-without-explanation` (H11, card-rule-doctor-cm): it counts the human's open decisions through the card source.
 // Its own probes are in test/decision-without-explanation.test.mjs.
-const NEWER_FINDINGS = new Set(['question-text', 'decision-without-explanation']);
+// And `deadlines` (Q7, today-due-cm): the open duties through the duty fold, its probes are in test/today-due.test.mjs.
+const NEWER_FINDINGS = new Set(['question-text', 'decision-without-explanation', 'deadlines']);
 // The O_APPEND probe races worker threads against a deadline: under load it answers "could not
 // measure" for a reason that is the machine's, so its text is not compared.
 const TIMING_PROBE = /concurrent (O_APPEND writes|writers)/;

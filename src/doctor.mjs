@@ -72,6 +72,8 @@ import * as mailpermit from './mailpermit.mjs';
 import * as appointmentInvite from './appointment-invite.mjs';
 import { maskText } from './outputguard.mjs';
 import * as humandecisions from './humandecisions.mjs';
+import * as dueCore from './due.mjs';
+import { zoneOf } from './appointments.mjs';
 import * as cardstore from './cardstore.mjs';
 import * as decisioncard from './decisioncard.mjs';
 
@@ -448,6 +450,7 @@ function checkAllCore(root) {
   f.push(guarded('checkClosedWithoutEvidence', () => checkClosedWithoutEvidence(root)));
   f.push(guarded('checkAutoDutyAge', () => checkAutoDutyAge(root)));
   f.push(guarded('checkDecisionWithoutExplanation', () => checkDecisionWithoutExplanation(root)));
+  f.push(guarded('checkDeadlines', () => checkDeadlines(root)));
   f.push(guarded('checkErrorLinked', () => checkErrorLinked(root)));
   f.push(guarded('checkSkillSharpen', () => checkSkillSharpen(root)));
   f.push(guarded('checkGuardSuspicion', () => checkGuardSuspicion(root)));
@@ -1104,6 +1107,69 @@ export function checkAutoDutyAge(root, now = new Date()) {
       + 'or switched off. That is a decision for a session/human; this finding only counts.');
   }
   return finding('auto-duty-age', LEVEL.GOOD, core);
+}
+
+/** How long an overdue duty may stand with no movement (no newer line) before the doctor says so: from the moment it became overdue. */
+export const DEADLINE_GRACE_DAYS = 1;
+
+/**
+ * Finding `deadlines` (Q7, build plan step 6b): the due dates of the open duties. Counted over ALL open duties, whoever they
+ * are addressed to; the state of each due date is decided in ONE place, `src/due.mjs` (this function never reads the field).
+ *
+ *   warn     at least one of: a duty that has been overdue for more than {@link DEADLINE_GRACE_DAYS} day and has not moved since
+ *            (no line of its chain is newer than the moment it became overdue: nobody touched, moved or answered it); a due
+ *            value that cannot be read (state `unknown`: the duty stays open, but nothing can be said about it); a duty that
+ *            carries its date under an OLD field name (`due_date`, `until`, `deadline`, `by` — still read, but only `due` is
+ *            written; owner decision, Q1, 2)
+ *   good     open duties carry due dates and none of that
+ *   unknown  the duties could not be read, the house zone is not usable, or there is nothing to judge: no open duty at all, or
+ *            none that carries a due date. "Good" would say something was checked and found fine; nothing was checked.
+ *
+ * Never `error`: a late duty is a debt, not an outage. Reads only.
+ */
+export function checkDeadlines(root, now = new Date()) {
+  const at = now instanceof Date ? now.getTime() : new Date(now).getTime();
+  let open;
+  try { ({ open } = memory.openDuties(root)); } catch (e) {
+    return finding('deadlines', LEVEL.UNKNOWN, `duties unreadable: ${e?.message || e} — the due dates are unknown, not zero`);
+  }
+  let zone;
+  try { zone = zoneOf(root); } catch (e) {
+    return finding('deadlines', LEVEL.UNKNOWN, `house zone not usable: ${e?.message || e} — which duty is overdue is unknown, not zero`);
+  }
+  if (!open.length) return finding('deadlines', LEVEL.UNKNOWN, 'no open duties at all — deadlines are not measurable here');
+  const s = dueCore.situationFromOpen(open, { now: at, zone, title: () => '' });
+  if (!s.withDue) {
+    return finding('deadlines', LEVEL.UNKNOWN, `none of the ${open.length} open duties carries a due date — nothing to judge, not "good"`);
+  }
+  const byId = new Map(open.map((d) => [d.id, d]));
+  const grace = DEADLINE_GRACE_DAYS * 24 * 60 * 60 * 1000;
+  const stale = s.list.filter((r) => {
+    if (r.state !== dueCore.STATE.OVERDUE || !Number.isFinite(r.overdueFromMs) || at - r.overdueFromMs < grace) return false;
+    // Movement = a line of the chain written AFTER the due date passed. A `ts` that cannot be read is no movement.
+    const newest = Date.parse(byId.get(r.id)?.ts);
+    return !(Number.isFinite(newest) && newest >= r.overdueFromMs);
+  });
+  const unreadable = s.list.filter((r) => r.state === dueCore.STATE.UNKNOWN);
+  const aliased = open.filter((d) => dueCore.aliasUsed(d) !== null);
+  const core = `${s.withDue} of ${open.length} open duties carry a due date: ${stale.length} overdue by more than ${DEADLINE_GRACE_DAYS} day without `
+    + `movement, ${unreadable.length} with an unreadable value, ${aliased.length} under an old field name`;
+  if (!stale.length && !unreadable.length && !aliased.length) return finding('deadlines', LEVEL.GOOD, core);
+  const hints = [];
+  if (stale.length) {
+    const { id, due: value } = stale[0]; // the core's row, not a read of a duty's field
+    hints.push(`the longest overdue: ${id} (due ${value}) — do it and close it (mem duties close ${id}), or move the date `
+      + `(mem correction duty ${id} --due YYYY-MM-DD; only the author or a higher tier may)`);
+  }
+  if (unreadable.length) {
+    hints.push(`unreadable value: ${unreadable[0].id} — write a date in one of the two allowed forms `
+      + `(mem correction duty ${unreadable[0].id} --due YYYY-MM-DD) or remove it (--without due)`);
+  }
+  if (aliased.length) {
+    hints.push(`old field name ${dueCore.aliasUsed(aliased[0])} on ${aliased[0].id}: still read, but only 'due' is written — `
+      + `mem correction duty ${aliased[0].id} --due <the same date>`);
+  }
+  return finding('deadlines', LEVEL.WARN, core, hints.join('; '));
 }
 
 /** How long a NEW decision for the human may stand without a card of its own before it counts as a debt (from its `ts`). */
