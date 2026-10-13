@@ -257,12 +257,9 @@ const agentOf = (e) => {
 };
 
 /** The headline of a RAW line — a locked envelope is never opened. */
-function headlineOf(e) {
-  if (e && e.body_enc) {
-    const t = typeof e.title === 'string' ? e.title.trim() : '';
-    return t ? `${t} [locked]` : '[locked]';
-  }
-  return headline(e);
+function headlineOf(e, type = null) {
+  // `headline` itself keeps an envelope locked: its clear title and the word.
+  return headline(e, { type });
 }
 
 /**
@@ -274,7 +271,7 @@ function rowOf(e, { id, type, project, source, line, tags, count, drawer }) {
   const ts = e.ts ? String(e.ts) : '';
   return {
     id, ts, day: ts.slice(0, 10), type, typeLabel: TYPE_LABEL[type] || type, project,
-    tags: tags.slice(0, 12), headline: cutMasked(headlineOf(e), 240), source, line,
+    tags: tags.slice(0, 12), headline: cutMasked(headlineOf(e, type), 240), source, line,
     readable: true,
     basis: basis.markOf(e), authority: authority.tierOf(e), author: authority.authorOf(e) || null,
     scope: capability.scopeOf(e), derivedFrom: declaredDerivedFrom(e),

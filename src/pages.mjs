@@ -225,7 +225,7 @@ function card(candidate, root = null) {
     type: candidate.type,
     typeLabel: viewer.TYPE_LABEL[candidate.type] || candidate.type,
     project: candidate.project || 'global',
-    headline: viewer.headline(e),
+    headline: viewer.headline(e, { type: candidate.type }),
     agent: e.agent || null,
     basis: basis.markOf(e),
     tags: Array.isArray(e.tags) ? e.tags : [],
