@@ -14,6 +14,8 @@ import { pathToFileURL, fileURLToPath } from 'node:url';
 import * as tasks from '../src/tasks.mjs';
 import { personCookie } from './person-session.mjs';
 
+const { scrubServerPaths } = tasks;
+
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SERVE = path.join(REPO, 'bin', 'mem-serve');
 const DOOR = ['probe', 'paths', String(process.pid)].join('-');
@@ -34,6 +36,7 @@ async function ended(root, id) {
   }
   return tasks.read(root, id);
 }
+const slashes = (text) => text.replace(/\\/g, '/');
 const absolute = (text, root) => [path.resolve(root), path.resolve(REPO)].filter((p) => text.includes(p));
 
 test('tasks.read: the command, result and reason name <root> and <code>, not the server paths', async () => {
@@ -43,11 +46,12 @@ test('tasks.read: the command, result and reason name <root> and <code>, not the
     const done = await ended(r, a.id);
     const text = JSON.stringify(done);
     assert.deepEqual(absolute(text, r), [], `absolute paths left in: ${text.slice(0, 500)}`);
-    assert.deepEqual(done.command, ['<code>/bin/mem', 'chain', '--json']);
+    // The part after the mark keeps the host's own separator (`<code>\\bin\\mem` on Windows): compare it as written with `/`.
+    assert.deepEqual(done.command.map(slashes), ['<code>/bin/mem', 'chain', '--json']);
     const b = tasks.start(r, 'export', {}, { user: true });
     const exp = await ended(r, b.id);
     assert.deepEqual(absolute(JSON.stringify(exp), r), []);
-    assert.deepEqual(exp.command.slice(0, 4), ['<code>/bin/mem', 'raw', 'export', '--into']);
+    assert.deepEqual(exp.command.slice(0, 4).map(slashes), ['<code>/bin/mem', 'raw', 'export', '--into']);
     assert.match(exp.command[4], /^<root>[\\/]\.mem[\\/]tasks[\\/].+[\\/]export$/);
     // the journal on disk keeps the full command: a restart and a bug hunt need it
     const journal = fs.readFileSync(tasks.statePath(r, b.id), 'utf8');
@@ -128,4 +132,39 @@ test('tasks.read: a symlinked root (the child reports the real path) and both se
     fs.rmSync(real, { recursive: true, force: true });
     fs.rmSync(linkBase, { recursive: true, force: true });
   }
+});
+
+// --- Windows spellings, proven on every host with path.win32 (CI run 888: the tasks.read test failed on Windows only) ----------------
+
+test('scrubServerPaths: a Windows root and code folder in every spelling the child may report', () => {
+  const root = 'C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\cm-taskpaths-abc';
+  const longRoot = 'C:\\Users\\runneradmin\\AppData\\Local\\Temp\\cm-taskpaths-abc';
+  const code = 'D:\\a\\cheap-mem\\cheap-mem';
+  const realpaths = (dir) => (dir === root ? [root, longRoot] : [dir]);
+  const folders = [[root, '<root>'], [code, '<code>']];
+  const opt = { pathApi: path.win32, realpaths, caseless: true };
+  const value = {
+    command: [`${code}\\bin\\mem`, 'raw', 'export', '--into', `${root}\\.mem\\tasks\\t1\\export`],
+    result: { a: longRoot, b: longRoot.replace(/\\/g, '/'), c: 'd:\\a\\CHEAP-MEM\\cheap-mem\\src', d: root.toLowerCase(), n: 3, nested: [`${longRoot}\\x`] },
+    reason: `could not write ${longRoot}\\z and ${code.replace(/\\/g, '/')}/bin`,
+  };
+  const out = scrubServerPaths(value, folders, opt);
+  const text = JSON.stringify(out);
+  for (const leak of ['RUNNER~1', 'runneradmin', 'cheap-mem\\\\cheap-mem', 'a/cheap-mem', 'C:', 'D:', 'd:']) {
+    assert.ok(!text.toLowerCase().includes(leak.toLowerCase()), `${leak} is still in: ${text}`);
+  }
+  assert.equal(out.command[0], '<code>\\bin\\mem');
+  assert.equal(out.command[4], '<root>\\.mem\\tasks\\t1\\export');
+  assert.equal(out.result.n, 3, 'a number passes unchanged');
+  assert.equal(out.result.c, '<code>\\src');
+  // The bare drive root is never a path to swap: that would eat every separator of every path on the drive.
+  assert.deepEqual(scrubServerPaths('C:\\keep\\this', [['C:\\', '<x>']], opt), 'C:\\keep\\this');
+  // Positive control: with the case-insensitive match off (a POSIX host), the lower-case spelling is NOT swapped, so the
+  // case above is what the match is doing.
+  assert.equal(scrubServerPaths(root.toLowerCase(), folders, { ...opt, caseless: false }), root.toLowerCase());
+});
+
+test('scrubServerPaths: POSIX hosts keep their case-sensitive match', () => {
+  const out = scrubServerPaths('/srv/Mem/x and /srv/mem/x', [['/srv/Mem', '<root>']], { pathApi: path.posix, realpaths: () => [], caseless: false });
+  assert.equal(out, '<root>/x and /srv/mem/x');
 });
