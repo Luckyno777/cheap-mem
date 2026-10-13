@@ -6,17 +6,29 @@
 // load probe ran for 9.5 days (PPID 1, 2.7 GB each), because only the test's `finally` cleaned up. The helper gives
 // the child a hard maximum lifetime and a parent leash.
 //
-// What counts as a "load child": a STRING or template literal in test/ or bench/ (source text for another process:
-// `node -e`, a module file that gets written) that contains an unbounded loop: `while (true)`, `while (1)`,
-// `while (!0)`, `for (;;)`. Loops in the probe's own code (polling loops with return/break/deadline) are not
-// literals and stay untouched.
+// What the ratchet reports (every .mjs/.cjs/.js under test/ and bench/, except the helper and this ratchet):
+//   (1) LITERALS: a string or template literal (source text for another program: `node -e`, a module file that
+//       gets written) that contains an unbounded loop. Every finding counts, also one with `break` -- the child is
+//       foreign code the ratchet does not evaluate. False alarm? Then the exemption (below) with the reason why
+//       the child ends safely.
+//   (2) CODE: a bare endless loop in the file's own code (child module files, fixtures) whose body contains none of
+//       `break`, `return`, `throw`, `yield`, or an `exit`/`kill`.
+// Unbounded means: `while (true|1|2...|!0|!![])`, `for (;;)`, `for (...; true|1; ...)` -- comments inside the
+// parentheses do not count. Polling loops of the probe itself (with return/break/deadline) stay untouched.
 //
-// An exemption only with a reason: `loadchild-ok: <reason>` on the literal's line or on one of the two lines
-// before it; an empty reason does not count. A reason says what safely ends the child (heap cap plus time cap,
-// its own deadline, ...).
+// Exemption only with a reason: `loadchild-ok: <reason>` on the finding's line or on one of the two lines before
+// it; an empty reason does not count. The reason names what ends the child safely (heap cap plus deadline, ...).
+//
+// LIMITS (honest): the ratchet reads source text, it runs nothing. It does NOT see: assembled loops
+// (`'wh' + 'ile (true)'`, strings from variables or files, eval), loops in other languages or shell
+// (`while true`, `yes >/dev/null`, pipelines without `timeout` in test/*.sh), endlessness without a loop word
+// (recursion, `setInterval` with heavy work, workers), `for (init-with-parenthesis; 1;)`, and loops whose condition
+// only stays true at run time (`while (!done)` without an end). Nor does it look outside test/ and bench/. Whoever
+// needs load takes the helper -- the ratchet catches the careless raw build, not the intent.
 //
 // Red proof: the old state of test/atlas-foreign-load.test.mjs (fixed commit acff04e) is reported; plus positive
-// controls on sample texts (one-line literal, multi-line template, comment, exemption).
+// controls on sample texts (see below), among them regex literals with quotes, which must not shift the
+// assignment of the literals.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -27,57 +39,156 @@ import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.dirname(HERE);
 const BEFORE = 'acff04e'; // fixed commit: the state BEFORE the helper (never merge-base)
-const LOOP = /while\s*\(\s*(true|1|!0)\s*\)|for\s*\(\s*;\s*;\s*\)/;
+const K = '(?:\\s|/\\*[\\s\\S]*?\\*/)*'; // whitespace and comments
+const WHILE = new RegExp(`\\bwhile${K}\\(${K}(?:true|[1-9]\\d*|!0|!!\\[\\])${K}\\)`);
+const FOR = new RegExp(`\\bfor${K}\\((?:[^;)]|/\\*[\\s\\S]*?\\*/)*;${K}(?:true|[1-9]\\d*)?${K};`);
 const EXEMPT = /loadchild-ok:\s*\S/;
+const EXITS = /\b(?:break|return|throw|yield)\b|\.exit\(|process\.abort|\.kill\(/;
 // The helper builds the child's source text itself; this ratchet names the patterns as text.
 const OWN = new Set(['fixture/loadchild.mjs', 'loadchild-ratchet.test.mjs']);
 
+const REGEX_AFTER = new Set(['return', 'typeof', 'case', 'do', 'else', 'in', 'of', 'void', 'delete', 'throw', 'new', 'yield', 'await']);
+
+const hasLoop = (t) => WHILE.test(t) || FOR.test(t);
+
 /**
- * Line numbers (1-based) of the literals in `text` that contain an unbounded loop and carry no exemption.
- * A small character reader: comments are skipped, ' " ` and ${ } are honoured.
+ * Splits JS source into literals (line number + content; template expressions `${}` count as code) and `code`:
+ * the source with comments blanked and literals emptied, line count unchanged. Regex literals are recognised
+ * (otherwise a `/'/` would shift the assignment of every following literal).
  */
-export function unleashedLoadChildren(text) {
-  const lines = text.split('\n');
-  const found = [];
+export function splitSource(text) {
+  const n = text.length;
   let i = 0;
   let line = 1;
-  const n = text.length;
-  const literal = (quote) => {
-    const start = line;
+  let code = '';
+  let prev = ''; // last token: a word or a single character
+  const literals = [];
+  const regexAllowed = () => prev === '' || /^[(,=:[!&|?{};+\-*%<>~^]$/.test(prev) || REGEX_AFTER.has(prev);
+  const stringLit = (q) => {
+    const begin = line;
+    let content = '';
+    i += 1;
+    while (i < n && text[i] !== '\n') {
+      if (text[i] === '\\') { content += text.slice(i, i + 2); if (text[i + 1] === '\n') { line += 1; code += '\n'; } i += 2; continue; }
+      if (text[i] === q) { i += 1; break; }
+      content += text[i]; i += 1;
+    }
+    literals.push({ line: begin, content });
+    code += q + q;
+  };
+  const regex = () => {
+    let j = i + 1;
+    let inClass = false;
+    while (j < n && text[j] !== '\n') {
+      if (text[j] === '\\') { j += 2; continue; }
+      if (text[j] === '[') inClass = true;
+      else if (text[j] === ']') inClass = false;
+      else if (text[j] === '/' && !inClass) { j += 1; while (/[a-z]/i.test(text[j] ?? '')) j += 1; i = j; code += '/r/'; return true; }
+      j += 1;
+    }
+    return false; // not a regex literal (end of line reached): treat as a division sign
+  };
+  const template = () => {
+    const begin = line;
     let content = '';
     i += 1;
     while (i < n) {
       const c = text[i];
       if (c === '\\') { content += text.slice(i, i + 2); if (text[i + 1] === '\n') line += 1; i += 2; continue; }
-      if (c === '\n') { line += 1; if (quote !== '`') break; }
-      if (c === quote) { i += 1; break; }
-      if (quote === '`' && c === '$' && text[i + 1] === '{') { // embedded expression: skip to the matching brace
-        let depth = 0;
-        while (i < n) {
-          if (text[i] === '{') depth += 1;
-          else if (text[i] === '}') { depth -= 1; if (depth === 0) { i += 1; break; } } else if (text[i] === '\n') line += 1;
-          i += 1;
-        }
-        continue;
-      }
+      if (c === '`') { i += 1; break; }
+      if (c === '$' && text[i + 1] === '{') { i += 2; code += '${'; walk(true); code += '}'; i += 1; continue; }
+      if (c === '\n') { line += 1; code += '\n'; }
       content += c; i += 1;
     }
-    if (LOOP.test(content)) {
-      const exempt = [start, start - 1, start - 2].some((l) => EXEMPT.test(lines[l - 1] ?? ''));
-      if (!exempt) found.push(`${start}: ${(lines[start - 1] ?? '').trim().slice(0, 140)}`);
+    literals.push({ line: begin, content });
+    code += '``';
+  };
+  const walk = (inExpr) => {
+    let depth = 0;
+    while (i < n) {
+      const c = text[i];
+      if (c === '\n') { line += 1; code += '\n'; i += 1; continue; }
+      if (c === '/' && text[i + 1] === '/') { while (i < n && text[i] !== '\n') { code += ' '; i += 1; } continue; }
+      if (c === '/' && text[i + 1] === '*') {
+        code += '  '; i += 2;
+        while (i < n && !(text[i] === '*' && text[i + 1] === '/')) { if (text[i] === '\n') { line += 1; code += '\n'; } else code += ' '; i += 1; }
+        code += '  '; i += 2; continue;
+      }
+      if (c === "'" || c === '"') { stringLit(c); prev = '"'; continue; }
+      if (c === '`') { template(); prev = '"'; continue; }
+      if (c === '/' && regexAllowed() && regex()) { prev = '"'; continue; }
+      if (inExpr) {
+        if (c === '{') depth += 1;
+        else if (c === '}') { if (depth === 0) return; depth -= 1; }
+      }
+      if (/[\w$]/.test(c)) prev = /[\w$]/.test(text[i - 1] ?? '') && /[\w$]$/.test(prev) ? prev + c : c;
+      else if (!/\s/.test(c)) prev = c;
+      code += c; i += 1;
     }
   };
-  while (i < n) {
-    const c = text[i];
-    if (c === '\n') { line += 1; i += 1; } else if (c === '/' && text[i + 1] === '/') { while (i < n && text[i] !== '\n') i += 1; } else if (c === '/' && text[i + 1] === '*') {
-      i += 2;
-      while (i < n && !(text[i] === '*' && text[i + 1] === '/')) { if (text[i] === '\n') line += 1; i += 1; }
-      i += 2;
-    } else if (c === "'" || c === '"' || c === '`') literal(c);
-    else i += 1;
+  walk(false);
+  return { literals, code };
+}
+
+/** Body of the loop that starts in `code` at `end` (index behind the loop head); for `for`, first up to the closing parenthesis. */
+function body(code, end, isFor) {
+  let i = end;
+  if (isFor) {
+    let depth = 1;
+    while (i < code.length && depth > 0) { if (code[i] === '(') depth += 1; else if (code[i] === ')') depth -= 1; i += 1; }
+  }
+  while (/\s/.test(code[i] ?? '')) i += 1;
+  if (code[i] === '{') {
+    let depth = 0;
+    const from = i;
+    for (; i < code.length; i += 1) {
+      if (code[i] === '{') depth += 1;
+      else if (code[i] === '}') { depth -= 1; if (depth === 0) return code.slice(from, i + 1); }
+    }
+    return code.slice(from);
+  }
+  const until = code.indexOf(';', i);
+  return code.slice(i, until < 0 ? code.length : until + 1);
+}
+
+/** Body of a do block whose `}` stands right before `pos` (do { ... } while (...)), else null. */
+function doBody(code, pos) {
+  let i = pos - 1;
+  while (i >= 0 && /\s/.test(code[i])) i -= 1;
+  if (code[i] !== '}') return null;
+  let depth = 0;
+  for (let j = i; j >= 0; j -= 1) {
+    if (code[j] === '}') depth += 1;
+    else if (code[j] === '{') { depth -= 1; if (depth === 0) return /\bdo\s*$/.test(code.slice(0, j)) ? code.slice(j, i + 1) : null; }
+  }
+  return null;
+}
+
+/**
+ * Findings ("line: text") in `text`: endless loops in literals (1) and bare endless loops in code (2),
+ * without a reasoned exemption.
+ */
+export function unleashedLoadChildren(text) {
+  const lines = text.split('\n');
+  const { literals, code } = splitSource(text);
+  const found = [];
+  const report = (z) => {
+    if ([z, z - 1, z - 2].some((k) => EXEMPT.test(lines[k - 1] ?? ''))) return;
+    found.push(`${z}: ${(lines[z - 1] ?? '').trim().slice(0, 140)}`);
+  };
+  for (const l of literals) if (hasLoop(l.content)) report(l.line);
+  for (const [re, isFor] of [[new RegExp(WHILE.source, 'g'), false], [new RegExp(FOR.source, 'g'), true]]) {
+    for (const m of code.matchAll(re)) {
+      const end = m.index + m[0].length;
+      let r = body(code, end, isFor);
+      if (!isFor && /^\s*;/.test(code.slice(end))) r = doBody(code, m.index) ?? r; // do { ... } while (true);
+      if (EXITS.test(r)) continue;
+      report(code.slice(0, m.index).split('\n').length);
+    }
   }
   return found;
 }
+
 
 function sourceFiles(root, sub) {
   const out = [];
@@ -91,7 +202,7 @@ function sourceFiles(root, sub) {
   return out;
 }
 
-test('real tree: no literal in test/ or bench/ starts an endless-loop child without the helper', () => {
+test('real tree: nothing in test/ or bench/ starts an endless-loop child without the helper', () => {
   const bad = [];
   for (const sub of ['test', 'bench']) {
     for (const f of sourceFiles(ROOT, sub)) {
@@ -116,15 +227,53 @@ test('red proof: the old state of test/atlas-foreign-load.test.mjs is reported (
   assert.match(r[0], /Math\.sqrt/);
 });
 
-test('positive controls on sample texts: literals are reported; comments, probe code and a reasoned exemption are not', () => {
-  const raw = "spawn(process.execPath, ['-e', 'let x = 0; while (true) { x += 1; }']);\n";
-  assert.equal(unleashedLoadChildren(raw).length, 1, 'one-line literal');
-  assert.equal(unleashedLoadChildren("const k = `\nlet x = 0;\nfor (;;) { x += 1; }\n`;\n").length, 1, 'multi-line template');
-  assert.equal(unleashedLoadChildren('fs.writeFileSync(f, "while (1) {}\\n");\n').length, 1, 'while (1) in module text');
-  assert.equal(unleashedLoadChildren("const a = 'x'; const k = `${a}\nwhile(!0){}`;\n").length, 1, 'template with an embedded expression');
-  assert.equal(unleashedLoadChildren('// "while (true)" in a comment\n/* \'for (;;)\' */\nconst x = 1;\n').length, 0, 'comment');
-  assert.equal(unleashedLoadChildren('async function f() {\n  for (;;) {\n    if (await ok()) return;\n  }\n}\nwhile (true) { if (x) break; }\n').length, 0, 'loops in probe code');
-  assert.equal(unleashedLoadChildren("// loadchild-ok: heap cap 100 MiB and the phase deadline of 30 s end it\nrun('for(;;) a.push(1)');\n").length, 0, 'reasoned exemption before');
-  assert.equal(unleashedLoadChildren("run('for(;;) a.push(1)'); // loadchild-ok:\n").length, 1, 'an empty reason does not count');
-  assert.equal(unleashedLoadChildren("run('for(;;) a.push(1)');\n").length, 1, 'no exemption');
+const count = (t) => unleashedLoadChildren(t).length;
+
+test('positive control literals: one line, multi-line template, embedding, while (1), comments inside the parentheses', () => {
+  assert.equal(count("spawn(process.execPath, ['-e', 'let x = 0; while (true) { x += 1; }']);\n"), 1, 'one line');
+  assert.equal(count("const k = `\nlet x = 0;\nfor (;;) { x += 1; }\n`;\n"), 1, 'multi-line template');
+  assert.equal(count('fs.writeFileSync(f, "while (1) {}\\n");\n'), 1, 'while (1) in module text');
+  assert.equal(count("const a = 'x'; const k = `${a}\nwhile(!0){}`;\n"), 1, 'template with an embedding');
+  for (const k of ['while (2) {}', 'while (!![]) {}', 'while (/* ) */ true) {}', 'while (true /* x */) {}',
+    'for (;;) {}', 'for (/* ) */;;) {}', 'for (;true;) {}', 'for (;1;) {}', 'for (let i = 0;; i += 1) {}', 'do {} while (true);']) {
+    assert.equal(count(`run('${k}');\n`), 1, `not recognised: ${k}`);
+  }
+  for (const k of ['for (let i = 0; i < 3; i += 1) {}', 'while (n > 0) {}', 'while (x) {}', 'for (const a of b) {}', 'while (0) {}']) {
+    assert.equal(count(`run('${k}');\n`), 0, `false alarm: ${k}`);
+  }
+});
+
+test('positive control assignment: regex literals with quotes do not shift the literals (no slip-through)', () => {
+  const after = (before) => `${before}\nconst k = 'while (true) {}';\n`;
+  for (const before of ["const r = /'/;", 'const r = /"/.test(a);', "if (/[']/.test(s)) f();", "const r = /\\//; const t = /'x/g;", "x = a / b; y = c / 'd'.length;"]) {
+    const f = unleashedLoadChildren(after(before));
+    assert.equal(f.length, 1, `slip-through after: ${before} -> ${JSON.stringify(f)}`);
+    assert.match(f[0], /^2: /, `wrong line after: ${before} -> ${f[0]}`);
+  }
+  // the case that slipped through before: a regex with a backtick opened a template up to the end of the file
+  assert.equal(count("const r = /`/;\nrun('for (;;) {}');\n"), 1, 'regex with a backtick');
+});
+
+test('positive control comments, probe code, exemption, and the false-alarm case', () => {
+  assert.equal(count('// "while (true)" in a comment\n/* \'for (;;)\' */\nconst x = 1;\n'), 0, 'comment');
+  assert.equal(count("async function f() {\n  for (;;) {\n    if (await ok()) return;\n  }\n}\nwhile (true) { if (x) break; }\n"), 0, 'loops in probe code with an exit');
+  assert.equal(count("// loadchild-ok: heap cap 100 MiB and the phase deadline of 30 s end it\nrun('for(;;) a.push(1)');\n"), 0, 'reasoned exemption before');
+  assert.equal(count("run('for(;;) a.push(1)'); // loadchild-ok:\n"), 1, 'an empty reason does not count');
+  assert.equal(count("run('for(;;) a.push(1)');\n"), 1, 'no exemption');
+  // False alarm: a child that ends itself is reported all the same (the ratchet does not evaluate foreign code) ...
+  const safe = "run('for (;;) { if (Date.now() > end) process.exit(0); }');\n";
+  assert.equal(count(safe), 1, 'false-alarm case: a literal with its own exit is reported');
+  // ... and with a reasoned exemption there is peace.
+  assert.equal(count(`// loadchild-ok: ends by itself after 5 s (Date.now() deadline in the child)\n${safe}`), 0, 'false alarm with exemption');
+});
+
+test('positive control code: a bare endless loop in code (child module file) is reported, one with an exit is not', () => {
+  assert.equal(count('let x = 0;\nwhile (true) { x += 1; }\n'), 1, 'while (true) without an exit');
+  assert.equal(count('for (;;) work();\n'), 1, 'for (;;) without braces');
+  assert.equal(count('do { x += 1; } while (true);\n'), 1, 'do-while without an exit');
+  assert.equal(count('do { if (a) break; } while (true);\n'), 0, 'do-while with break');
+  assert.equal(count('while (true) {\n  if (x) { process.exit(0); }\n}\n'), 0, 'process.exit in the body');
+  assert.equal(count('while (true) {\n  const x = await next();\n  if (!x) return;\n}\n'), 0, 'return in the body');
+  assert.equal(count('while (true) { x += 1; } // loadchild-ok: the driver ends the child with SIGKILL\n'), 0, 'exemption at the end of the line');
+  assert.equal(count("const s = 'while (true) { x }';\nfor (let i = 0; i < 2; i += 1) {}\n"), 1, 'only the literal, not the counting loop');
 });
