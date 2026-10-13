@@ -20,6 +20,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { maskText } from '../src/outputguard.mjs';
 import * as viewer from '../src/viewer.mjs';
 import * as dashboard from '../src/dashboard.mjs';
 import * as pass from '../src/dashboard-pass.mjs';
@@ -29,6 +30,8 @@ import { oldModuleCopy } from './helpers/old-source-copy.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OLD_STATE = '0bf3ae5b6317411fa93badcfcc2b20ee50dcc250';
+/** The first build of this rule (cut before masking) - the red proof of the key-over-the-cut fix. */
+const CUT_BEFORE_MASK = '3f7aca9';
 const NOW = new Date('2026-10-13T08:00:00Z');
 
 /** A github-token-shaped plant, built at run time (no key shape in this source). */
@@ -167,4 +170,93 @@ test('RED on the fixed old commit: class first, text start appended, markdown le
   assert.notEqual(old.headline({ text: LONG }), LONG_WANT, 'old: the whole text, no cut');
   assert.match(old.headline({ text: 'x', steps: ['a'] }), / — |x/);
   assert.match(old.headline({ id: 'o1', odd: { a: [1, 2] } }), /\{"a":\[1,2\]\}/, 'old: JSON cloud');
+});
+
+// ---- the key over the cut boundary -------------------------------------------
+
+/** Key shapes, built at run time (no key shape stands in this source). */
+const rnd = (n) => { let o = ''; while (o.length < n) o += Math.random().toString(36).slice(2).replace(/[^a-z0-9]/g, (c) => c); return o.slice(0, n); };
+const KEYS = {
+  github: () => ['gh', 'p_'].join('') + rnd(36),
+  anthropic: () => ['sk', 'ant', 'api03'].join('-') + '-' + rnd(90),
+  openai: () => ['s', 'k-'].join('') + rnd(48),
+  aws: () => ['AK', 'IA'].join('') + rnd(16).toUpperCase(),
+  jwt: () => ['ey', 'J'].join('') + rnd(30) + '.' + ['ey', 'J'].join('') + rnd(40) + '.' + rnd(43),
+  assignment: () => ['pass', 'word='].join('') + rnd(30),
+};
+/** A piece of the key body (not its prefix) that is still readable in `out`, or null. */
+const fragment = (key, out) => {
+  const body = key.slice(6);
+  for (let i = 0; i + 8 <= body.length; i += 1) if (out.includes(body.slice(i, i + 8))) return body.slice(i, i + 8);
+  return null;
+};
+/** Entries whose key starts before the cut (90 for text, 160 for a rule) and runs over it, "=" without a space. */
+const overTheCut = (make) => {
+  const out = [];
+  for (const [kind, f] of Object.entries(KEYS)) {
+    for (const lead of [60, 80, 85, 88, 140, 150, 158]) {
+      const key = f();
+      const run = `${'x'.repeat(lead)}=${key} the end.`;
+      out.push({ kind, lead, key, entry: make(run) });
+    }
+  }
+  return out;
+};
+const asText = (run) => ({ text: run });
+const asRule = (run) => ({ rule: run, issued_by: 'lucky', ts: '2026-09-28T09:00:00Z' });
+
+test('a key that runs over the cut is masked first: no fragment of it stays in a text or rule headline', () => {
+  for (const [label, make] of [['text', asText], ['rule', asRule]]) {
+    for (const { kind, lead, key, entry } of overTheCut(make)) {
+      assert.ok(!maskText(`x=${key}`).includes(key), `${kind}: the guard knows this shape (positive control)`);
+      const out = viewer.headline(entry);
+      assert.equal(fragment(key, out), null, `${label}/${kind}/${lead}: a fragment of the key stays in "${out}"`);
+      assert.ok(!out.includes(key));
+    }
+  }
+});
+
+test('RED on the first build (cut before masking): the same entries leave a fragment of the key behind', async (t) => {
+  let source;
+  try {
+    source = execFileSync('git', ['-C', REPO, 'show', `${CUT_BEFORE_MASK}:src/viewer.mjs`], { encoding: 'utf8', maxBuffer: 1 << 26, stdio: ['ignore', 'pipe', 'ignore'] });
+  } catch {
+    t.skip(`commit ${CUT_BEFORE_MASK} not reachable (shallow clone?) - red proof unknown, not green`);
+    return;
+  }
+  const copy = oldModuleCopy(path.join(REPO, 'src'), 'viewer.mjs', source);
+  t.after(() => fs.rmSync(copy.dir, { recursive: true, force: true }));
+  const old = await import(pathToFileURL(copy.file).href);
+  let leaked = 0;
+  for (const make of [asText, asRule]) {
+    for (const { key, entry } of overTheCut(make)) {
+      if (fragment(key, old.headline(entry))) leaked += 1;
+      assert.equal(fragment(key, viewer.headline(entry)), null, 'green now');
+    }
+  }
+  assert.ok(leaked > 0, 'the first build leaves fragments behind - otherwise the probe above measures nothing');
+});
+
+// ---- the label of an opened or unreadable envelope ---------------------------
+
+test('an envelope opened in memory reads as its entry; an unreadable one carries its label once; a raw one is [locked]', () => {
+  const opened = { id: 'k1', title: 'Vault title', text: 'Opened content. Second.', body_enc: { v: 1 }, __body: { state: 'ok' } };
+  assert.equal(viewer.headline(opened), 'Vault title');
+  assert.equal(viewer.headline({ ...opened, title: undefined }), 'Opened content.');
+  const label = '[encrypted entry: not readable - key destroyed (shredded) or never recorded]';
+  const bad = { id: 'k2', title: label, body_enc: { v: 1 }, __body: { state: 'unreadable', reason: 'no-key' } };
+  assert.equal(viewer.headline(bad), label, 'once, not "<label> [locked]"');
+  assert.equal(viewer.headline({ id: 'k3', title: 'Vault title', body_enc: { v: 1 } }), 'Vault title [locked]');
+  assert.equal(viewer.headline({ id: 'k4', body_enc: { v: 1 }, text: 'Hidden.' }), '[locked]');
+});
+
+// ---- a rule of markdown characters only --------------------------------------
+
+test('a rule that is only markdown characters falls on to question and fact, and keeps its mark', () => {
+  const base = { issued_by: 'lucky', ts: '2026-09-28T09:00:00Z' };
+  const mark = 'Procedure, issued by lucky on 2026-09-28';
+  assert.equal(viewer.headline({ ...base, rule: '***', question: 'Does it still hold?' }), `Does it still hold? \u2014 ${mark}`);
+  assert.equal(viewer.headline({ ...base, rule: '***', fact: 'The fact stands' }), `The fact stands \u2014 ${mark}`);
+  assert.equal(viewer.headline({ ...base, rule: '***' }), mark, 'nothing else to name it: the mark alone, never lost');
+  assert.equal(viewer.headline({ ...base, rule: '***', text: 'A sentence of its own. More.' }), `A sentence of its own. \u2014 ${mark}`);
 });

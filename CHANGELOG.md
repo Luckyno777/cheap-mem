@@ -24,6 +24,11 @@ are never printed as JSON. The output guard still masks first, a procedure keeps
 stays `[locked]`. `headline(e, { type })` takes the drawer where the caller knows it (viewer, dashboard, pages, compact pass,
 light head, project package). The class is no longer part of the line.
 
+Deliberate deviations from lucky-mem: a list field (`steps`) reads as its FIRST item, where lucky-mem reads "1. a 2. b" and cuts
+inside the numbering; and the output guard masks the raw field text BEFORE the line is split or cut (a key shape that reaches over
+the 90/160 cut would otherwise stay behind as a fragment). An envelope opened in memory (`__body.state` ok) reads like any entry; an
+unreadable one carries its own label once; a rule of markdown characters only falls on to question/fact and keeps its mark.
+
 ### Added — the due-date core (build plan Q1, step 6b, branch A)
 
 A due date on a duty was read by three readers with guessed names (`today.mjs` and the dashboard `due ?? by`, the day list

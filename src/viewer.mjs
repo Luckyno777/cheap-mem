@@ -139,9 +139,11 @@ export function headline(e, opt = {}) {
 /** The text of one field as one line (arrays and objects never as a JSON cloud). */
 function fieldText(v) {
   if (v == null) return '';
-  if (typeof v === 'string') return v.replace(/\s+/g, ' ').trim();
+  // Masked BEFORE anything is cut or split: a key shape that reaches over a
+  // cut boundary would otherwise stay behind as a fragment no mask matches.
+  if (typeof v === 'string') return maskText(v).replace(/\s+/g, ' ').trim();
   if (typeof v === 'number' || typeof v === 'boolean') return String(v);
-  return Array.isArray(v) ? arrayText(v).replace(/\s+/g, ' ').trim() : '';
+  return Array.isArray(v) ? maskText(arrayText(v)).replace(/\s+/g, ' ').trim() : '';
 }
 
 /** A list of steps as numbered text in one line. */
@@ -159,7 +161,12 @@ function arrayText(v) {
 export function firstSentence(raw, max = HEADLINE_MAX) {
   if (raw == null) return '';
   // A list (steps) reads as its first item: "1. first 2. second" would be cut at "2.".
+  // This is a DELIBERATE deviation from lucky-mem, whose list reads "1. a 2. b" (and is cut
+  // inside the numbering); noted in CHANGELOG.md.
   let t = typeof raw === 'string' ? raw : (Array.isArray(raw) ? (raw.find((x) => typeof x === 'string' && x.trim()) ?? '') : '');
+  // Output guard first, on the RAW text, before the line is chosen, split or cut (the outer
+  // `maskText` in `headline` is the second belt, not the only one).
+  t = maskText(t);
   // First non-empty line: a paragraph is a boundary, even without a full stop.
   t = t.split(/\r?\n/).map((z) => z.trim()).find((z) => z && !/^[-*#>`\s]*$/.test(z)) ?? '';
   t = t.replace(/^#+\s*/, '').replace(/^[-*>]\s+/, '').replace(/[*`]/g, '').replace(/\s+/g, ' ').trim();
@@ -192,9 +199,12 @@ function naming(e, type = null) {
   const title = fieldText(e.title);
   if (title) return title;
   // A rule, a question, a fact name themselves.
+  // A rule made only of markdown characters has no sentence: fall on to question and fact.
   for (const f of ['rule', 'question', 'fact']) {
     const s = fieldText(e[f]);
-    if (s) return f === 'rule' ? firstSentence(e.rule, RULE_MAX) : s;
+    if (!s) continue;
+    const named = f === 'rule' ? firstSentence(e.rule, RULE_MAX) : s;
+    if (named) return named;
   }
   // A decision without a title is named by what was decided: the first
   // whole sentence of its choice; only without a choice by its topic.
@@ -211,24 +221,26 @@ function buildHeadline(e, { type = null } = {}) {
   if (!e || typeof e !== 'object') return '(empty entry)';
   // A locked envelope is never opened: its clear title if it has one, and
   // the word. Never a field from inside, never the envelope as JSON.
+  // Not so for an entry the display layer has opened in memory
+  // (`shred.makeReveal`: `__body.state` 'ok' - it reads like any other), and
+  // not twice for one it could not open ('unreadable': its title already IS
+  // the label, "[encrypted entry: not readable - ...]").
   if (e.body_enc) {
-    const clear = fieldText(e.title);
-    return clear ? `${clear} [locked]` : '[locked]';
+    const state = e.__body?.state;
+    if (state === 'unreadable') return fieldText(e.title) || '[locked]';
+    if (state !== 'ok') {
+      const clear = fieldText(e.title);
+      return clear ? `${clear} [locked]` : '[locked]';
+    }
   }
-  const name = naming(e, type);
-  if (name) {
-    // **A procedure does not come out of the viewer without its author
-    // either.** The viewer is the third display path next to CLI and
-    // bridge; a latch that hangs on two of three is not one. The name
-    // stands first and the mark behind it, so twenty rules in a list do
-    // not all begin the same way.
-    if (e.rule) return `${name} — ${procedure.mark(e)}`;
-    return name;
-  }
-  const sentence = sentenceFrom(e, SENTENCE_FIELDS);
-  if (sentence) return sentence;
-  const reason = sentenceFrom(e, REASON_FIELDS);
-  if (reason) return reason;
+  const name = naming(e, type) || sentenceFrom(e, SENTENCE_FIELDS) || sentenceFrom(e, REASON_FIELDS);
+  // **A procedure does not come out of the viewer without its author
+  // either.** The viewer is the third display path next to CLI and
+  // bridge; a latch that hangs on two of three is not one. The name
+  // stands first and the mark behind it, so twenty rules in a list do
+  // not all begin the same way. Whatever the rule's text, the mark stays.
+  if (fieldText(e.rule)) return name ? `${name} — ${procedure.mark(e)}` : procedure.mark(e);
+  if (name) return name;
   // Nothing named and no sentence: show what content the entry has, so an
   // unfamiliar shape still reads as something, not "[object]" — as ONE
   // short sentence, not a chain of all fields.
