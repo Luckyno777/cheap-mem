@@ -98,6 +98,42 @@ test('finding: a date that cannot be read does NOT count as fresh', (t) => {
   assert.match(f.text, /1 without a readable date/);
 });
 
+test('finding: a ts in the FUTURE is a debt, not a grace period for ever', (t) => {
+  const root = world(t);
+  put(root, 'duties', [duty('fu0001', { ts: '2027-01-01T00:00:00Z' })]);
+  const f = doctor.checkDecisionWithoutExplanation(root, NOW_LATER);
+  assert.equal(f.level, 'warn');
+  assert.match(f.text, /1 without a readable date/);
+  // positive control: the same entry with a past ts is inside the grace period
+  const root2 = world(t);
+  put(root2, 'duties', [duty('fu0001', { ts: new Date(NOW_LATER.getTime() - 3600000).toISOString() })]);
+  assert.equal(doctor.checkDecisionWithoutExplanation(root2, NOW_LATER).level, 'good');
+});
+
+test('finding: a ts without a zone is read as UTC in every time zone (TZ=Pacific/Auckland and America/Los_Angeles)', (t) => {
+  const root = world(t);
+  put(root, 'duties', [duty('nz0001', { ts: '2026-10-01T00:00:00' })]);
+  const script = `import(${JSON.stringify(new URL('../src/doctor.mjs', import.meta.url).href)}).then((m) => {
+    const f = m.checkDecisionWithoutExplanation(process.argv[1], new Date(process.argv[2]));
+    console.log(f.level + '|' + f.text); });`;
+  // 2026-10-01T12:00Z: twelve hours old in UTC -> inside the grace period. Local-zone reading in Auckland (UTC+13) would make it
+  // -1h..-25h off in either direction, and in Los Angeles (UTC-7) seven hours off the other way.
+  const at = '2026-10-01T12:00:00Z';
+  const levels = {};
+  for (const tz of ['UTC', 'Pacific/Auckland', 'America/Los_Angeles']) {
+    const r = spawnSync(process.execPath, ['-e', script, root, at], { encoding: 'utf8', env: { ...process.env, TZ: tz } });
+    assert.equal(r.status, 0, r.stderr);
+    levels[tz] = r.stdout.trim().split('|')[0];
+  }
+  assert.deepEqual(levels, { UTC: 'good', 'Pacific/Auckland': 'good', 'America/Los_Angeles': 'good' });
+  // 2026-10-02T00:30Z: 24.5 hours old in UTC -> a debt everywhere (a local reading in Auckland would say 11.5 hours, in Los Angeles 31.5)
+  const later = '2026-10-02T00:30:00Z';
+  for (const tz of ['UTC', 'Pacific/Auckland', 'America/Los_Angeles']) {
+    const r = spawnSync(process.execPath, ['-e', script, root, later], { encoding: 'utf8', env: { ...process.env, TZ: tz } });
+    assert.equal(r.stdout.trim().split('|')[0], 'warn', tz);
+  }
+});
+
 test('finding: a card added later on the shelf clears the debt and counts as "added later"', (t) => {
   const root = world(t);
   put(root, 'duties', [duty('nc0001')]);

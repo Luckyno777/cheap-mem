@@ -73,11 +73,18 @@ export function rejectOn(env = process.env) {
   return switchState(env).on;
 }
 
-/** The card fields of an entry or request as the parts `checkCardContent` takes, MASKED first (a string clipped to the input limit). */
+/**
+ * Control and format characters (ESC, the bidi switches, zero-width ones) out of a text, but NOT the line breaks and tabs that
+ * separate options in one value. They go FIRST: a key split by an ESC is whole again after `clean` in the checks and in the echo, so
+ * masking before this strip would let it through (review of 2f1c578, finding 2). Order everywhere: strip, mask, cut.
+ */
+const scrub = (t) => t.replace(/(?![\n\r\t])[\p{Cc}\p{Cf}]/gu, '');
+
+/** The card fields of an entry or request as the parts `checkCardContent` takes: stripped, MASKED, and only then checked and cut. */
 function partsOf(data) {
   const F = card.CARD_FIELDS;
   const mask = (v) => {
-    if (typeof v === 'string') return maskText(v.length > 2 * rules.MAX_IN ? v.slice(0, 2 * rules.MAX_IN) : v);
+    if (typeof v === 'string') return maskText(scrub(v.length > 2 * rules.MAX_IN ? v.slice(0, 2 * rules.MAX_IN) : v));
     if (Array.isArray(v)) return v.slice(0, 200).map(mask);
     return v;
   };
@@ -97,18 +104,24 @@ class CardMissing extends Error {
   }
 }
 
-/** Where the writer puts the card, per route (an example to copy). `who` is the configured human's name. */
-function example(route, type, who) {
+/** Where the writer puts the card, per route and action (an example to copy). `who` is the configured human's name. */
+function example(v) {
+  const { route, type, who, action } = v;
+  const card_ = `--card_question "Should ...?" --card_context "..." --card_options "Yes — effect" --card_options "No — effect"`;
   const head = type === 'question' ? 'mem log question --question "..."' : 'mem log duty --title "..."';
+  if (action === 'restore') {
+    return `a restore copies the card of the ORIGINAL entry, and this one had none (a card on the shelf is not copied). `
+      + `Write a new ${type} with its card instead: ${head} --who ${who} ${card_}`;
+  }
   if (route === 'cli') {
-    return `${head} --who ${who} --card_question "Should ...?" --card_context "..." `
-      + '--card_options "Yes — effect" --card_options "No — effect"';
+    if (action === 'correction') return `mem correction ${type} <id> --who ${who} ${card_}`;
+    return `${head} --who ${who} ${card_}`;
   }
   return 'fields: { "card_question": "Should ...?", "card_context": "...", "card_options": ["Yes — effect", "No — effect"] }';
 }
 
 const NOT_APPLICABLE = Object.freeze({
-  applies: false, type: null, who: null, has: true, lacks: false, gaps: [], warnings: [], reject: false,
+  applies: false, type: null, who: null, action: null, has: true, lacks: false, gaps: [], warnings: [], reject: false,
   fallbackQuestion: null, route: null, unrecognised: null, why: null,
 });
 
@@ -119,12 +132,13 @@ const NOT_APPLICABLE = Object.freeze({
  * @param opt.route the route (`ROUTES`); without it (or an unknown one) the rule does NOT apply: an internal writer
  * @param opt.human the configured human participant's name (`config.humanParticipant(...).name`), or null
  * @param opt.closing   true for a closing line (`memory.isClosingCorrection`): no new duty, no card
+ * @param opt.action    `correction` | `restore` | null: only words the hint of the message (the example fits the road)
  * @param opt.previous  only for a correction: the line that is replaced. If it already had the same addressee the entry is NOT
  *                      new to the person (old stock) and the rule does not apply. Without it: a new entry.
  * @returns {{applies, type, who, has, lacks, gaps, warnings, reject, fallbackQuestion, route, unrecognised, why}}
  *   `has`: the entry carries a card that passes the rules; `lacks`: its explanation is missing as `lacksExplanation` derives it.
  */
-export function judge(type, data, { route = null, human = null, env = process.env, closing = false, previous = undefined } = {}) {
+export function judge(type, data, { route = null, human = null, env = process.env, closing = false, previous = undefined, action = null } = {}) {
   const none = (why) => ({ ...NOT_APPLICABLE, route, why });
   if (!ROUTES.includes(route)) return none('no route stated: an internal writer');
   if (!TYPES.includes(type)) return none('not a duty or question');
@@ -141,7 +155,7 @@ export function judge(type, data, { route = null, human = null, env = process.en
   const sw = switchState(env);
   const shown = card.cardOf(data, { type, context: {} });
   return {
-    applies: true, type, who, has, lacks: card.lacksExplanation(shown), gaps: checked.errors, warnings: checked.warnings,
+    applies: true, type, who, action, has, lacks: card.lacksExplanation(shown), gaps: checked.errors, warnings: checked.warnings,
     reject: !has && sw.on, fallbackQuestion: has ? null : shown.question, route, unrecognised: sw.unrecognised, why: null,
   };
 }
@@ -162,13 +176,13 @@ export function messages(v, { id = null } = {}) {
   // A value of the switch that does not exist is reported ONCE per process and value - only where the rule would have bitten.
   if (v.unrecognised && !REPORTED.has(v.unrecognised)) {
     REPORTED.add(v.unrecognised);
-    z.push(`${ENV_REJECT}='${rules.clean(maskText(v.unrecognised)).slice(0, 40)}': value not recognised (yes/true/1 or no/false/0), stage 1 applies (warn and mark).`);
+    z.push(`${ENV_REJECT}='${maskText(scrub(v.unrecognised)).slice(0, 40)}': value not recognised (yes/true/1 or no/false/0), stage 1 applies (warn and mark).`);
   }
   if (v.has) return [...z, ...v.warnings.map((w) => `Card: ${w}`)];
   if (v.reject) {
     z.push(`Card missing: ${what} goes to ${v.who}, but carries no complete decision card — NOT written (${ENV_REJECT} is on).`);
     for (const g of v.gaps) z.push(`  - ${g}`);
-    z.push(`  How it looks right: ${example(v.route, v.type, v.who)}`);
+    z.push(`  How it looks right: ${example(v)}`);
     z.push('  At least: card_question and two options, one of them No / not now. card_context is one or two sentences.');
     return z;
   }
@@ -182,7 +196,7 @@ export function messages(v, { id = null } = {}) {
     for (const g of v.gaps) z.push(`  - ${g}`);
     z.push('  Taken in. The card is shown as it stands (cut where it is too long).');
   }
-  z.push(`  Better right away: ${example(v.route, v.type, v.who)}`);
+  z.push(`  Better right away: ${example(v)}`);
   if (id) z.push(`  Adding it later works too: mem card add ${id} --question "..." --context "..." --option "Yes — ..." --option "No — ..."`);
   z.push(`  With ${ENV_REJECT}=yes the write core refuses such an entry.`);
   return z;

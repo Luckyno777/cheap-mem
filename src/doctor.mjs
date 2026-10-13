@@ -1104,6 +1104,17 @@ export function checkAutoDutyAge(root, now = new Date()) {
 export const EXPLANATION_GRACE_DAYS = 1;
 
 /**
+ * A `ts` as milliseconds, or NaN when it cannot be told: not a text, not a date, or a point in the FUTURE (a clock that went wrong, or
+ * a typo, must not buy a decision a grace period for ever). A time without a zone is read as UTC, as every `ts` this house writes
+ * ends in Z: `Date.parse` would take the local zone, and the same entry would be one day old in Auckland and fresh in Berlin.
+ */
+function readTs(v, at) {
+  if (typeof v !== 'string') return NaN;
+  const t = Date.parse(/^\d{4}-\d{2}-\d{2}T[\d:.]+$/.test(v.trim()) ? `${v.trim()}Z` : v);
+  return Number.isFinite(t) && t <= at ? t : NaN;
+}
+
+/**
  * Finding `decision-without-explanation` (H11, owner decision 2026-10-13, 36b3ub1nht9f): what a person is meant to decide must be
  * readable by a person. Counted are the OPEN decisions for the human - the SAME source as `mem today`
  * (`humandecisions`, the function behind `today.decisionsForHuman`, plus the open questions addressed to him), no second
@@ -1112,7 +1123,7 @@ export const EXPLANATION_GRACE_DAYS = 1;
  *
  *   good     nothing is open, or every decision has a card of its own, or those without one are still within the grace period
  *   warn     at least one decision without a card of its own that is older than the grace period (one day from its `ts`; a date
- *            that cannot be read does NOT count as fresh). The old stock is a debt until it is added later.
+ *            that cannot be read, or lies in the future, does NOT count as fresh; a time without a zone is read as UTC). The old stock is a debt until it is added later.
  *   unknown  the source or the card shelf could not be read, or no human is configured: never 0, never good
  *
  * Never `error`: a missing explanation is a debt, not an outage. Reads only.
@@ -1136,10 +1147,10 @@ export function checkDecisionWithoutExplanation(root, now = new Date()) {
   const grace = EXPLANATION_GRACE_DAYS * 24 * 60 * 60 * 1000;
   let undated = 0;
   const debt = lacking.filter((d) => {
-    const t = Date.parse(d.since ?? '');
+    const t = readTs(d.since, at);
     if (!Number.isFinite(t)) { undated += 1; return true; }
     return at - t >= grace;
-  }).sort((a, b) => (Date.parse(a.since ?? '') || 0) - (Date.parse(b.since ?? '') || 0));
+  }).sort((a, b) => (readTs(a.since, at) || 0) - (readTs(b.since, at) || 0));
   const core = `${list.length} open decision${list.length === 1 ? '' : 's'} for the human: ${own} with a card of their own `
     + `(${written} written, ${own - written} added later), ${lacking.length} with the fallback card only`;
   if (!debt.length) {

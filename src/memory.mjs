@@ -1372,19 +1372,14 @@ function humanOf(root) {
 
 /**
  * The verdict of the card rule for one write (H11, `cardrule.judge`). Cheap when the rule cannot apply (no route, other type):
- * then neither the config nor the predecessor is read. A line that replaces another (`replaces_id`, the bridge for a question)
- * is judged against that predecessor: an addressee that stood there already is old stock.
+ * then the config is not read. `previous` is handed in ONLY by `correctionEntry`, which builds the new line from the predecessor
+ * (a card inherited from it counts, an addressee that stood there already is old stock). It is NEVER derived from a `replaces_id`
+ * in the data: a line written over `mem log` / `mem_log` with a `replaces_id` inherits nothing, so naming an old id would be a way
+ * round the rule (review of 2f1c578, finding 1). `action` (`correction` | `restore`) only words the hint of the message.
  */
-export function judgeCard(root, type, data, { route = null, closing = false, previous = undefined } = {}) {
+export function judgeCard(root, type, data, { route = null, closing = false, previous = undefined, action = null } = {}) {
   if (!cardrule.ROUTES.includes(route) || !cardrule.TYPES.includes(type)) return cardrule.judge(type, data, { route });
-  const human = humanOf(root);
-  let v = cardrule.judge(type, data, { route, human, closing, previous });
-  if (v.applies && previous === undefined && typeof data?.replaces_id === 'string' && data.replaces_id) {
-    let before = null;
-    try { before = entriesById(root).get(data.replaces_id) ?? null; } catch { before = null; }
-    if (before) v = cardrule.judge(type, data, { route, human, closing, previous: before });
-  }
-  return v;
+  return cardrule.judge(type, data, { route, human: humanOf(root), closing, previous, action });
 }
 
 /** A redaction's findings as one line, the same for the CLI and the bridge. */
@@ -3221,7 +3216,7 @@ export function correctionEntry(root, type, oldId, newData, { project = null, wi
   // H11: a correction that SETS or CHANGES the addressee to the person is a new duty / question to him - the same rule as `mem log`
   // (card named in the correction, or inherited from the predecessor). An addressee that stood there already is old stock. Only on a
   // road that states its route; a closing correction is no new duty.
-  const cardVerdict = judgeCard(root, type, newData, { route, closing, previous: old });
+  const cardVerdict = judgeCard(root, type, newData, { route, closing, previous: old, action: 'correction' });
   cardrule.refuseIfNeeded(cardVerdict);
   const written = logEntry(root, type, { ...newData, replaces_id: oldId }, { project });
   // Y4b: the same early warning `retireEntry`/`closeDuty` give — a

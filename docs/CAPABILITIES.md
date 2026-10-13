@@ -2184,11 +2184,11 @@ the entry reads as "explanation missing" — derived, not stored: `decisioncard.
 and for a written card whose options or No option had to be filled in. `mem today` names it. *Stage 2, the switch
 `CHEAP_MEM_CARD_REJECT=yes`:* the same case is refused before anything is written, with the whole reason and an example.
 The rule sits in `memory.logCheckedEntry` and applies only where the writer states a route: `cli` (`mem log`, `mem correction`,
-`mem restore`), `mcp` (`mem_log`), `task` (reserved: this house has no order that carries a `log`). An internal writer states
+`mem restore`, `mem questions new`), `mcp` (`mem_log`), `task` (reserved: this house has no order that carries a `log`). An internal writer states
 none and is exempt (the guard duties, the error-context duties, the card shelf), and nobody is exempt by agent name — the capture
 and digest writers go through the CLI like anyone. A correction that sets or changes `who` to the human is a new duty to him (a
 card inherited from the predecessor counts; an addressee that already stood there is old stock; a closing correction is no new duty);
-a restored duty is a new one. The doctor finding `decision-without-explanation` counts the open decisions for the human (the same
+a restored duty is a new one (it copies the card of the original entry; a card on the shelf is not copied, and under stage 2 the message says to write a new duty with its card). A line written with a `replaces_id` over `mem log` / `mem_log` inherits nothing and is judged as new. The doctor finding `decision-without-explanation` counts the open decisions for the human (the same
 source as `mem today`, plus the open questions addressed to him): a warning from one decision without a card of its own after a
 grace period of one day from its `ts`, never an error, unreadable is `unknown`. The duties `mem guard run --duty` raises have
 their own fallback card ("Should the error ... be fixed that a red latch shows?" / "... the broken latch ... be repaired?").

@@ -314,6 +314,56 @@ test('the routes are pinned: only the CLI `log` / `correction` / `restore` / `qu
   }, 'a new free input road must state its route on purpose; an internal writer must not');
 });
 
+test('every caller of the write functions is classified: a road that writes a duty or question must state a route or be named as internal', () => {
+  // Review of 2f1c578, finding 5: the test above pins who STATES a route; this one pins who CAN write at all. A new file (or a new
+  // call in a known one) that writes entries through `logEntry`, `logCheckedEntry` or `correctionEntry` turns this red until it is put
+  // on one of the two lists below on purpose. A road for FREE text goes on ROUTED and states its route; an internal writer goes on
+  // INTERNAL with its reason and states none.
+  const ROUTED = {
+    'bin/mem-mcp': 1,                       // mem_log (route mcp)
+    'src/cli/commands/agents.mjs': 1,       // mem questions new (route cli)
+    'src/cli/commands/write.mjs': 2,        // mem log, mem correction (route cli); mem restore reaches entryops.restore with its route
+  };
+  const INTERNAL = {
+    'src/askedlearn.mjs': 1,                // the digest's asked-as correction of a learning
+    'src/cardstore.mjs': 1,                 // the card shelf itself (type card)
+    'src/cli/commands/search.mjs': 2,       // workflow / snippet registry commands (other types)
+    'src/cli/commands/setup.mjs': 1,        // mem guard run --duty: a machine duty, its own fallback card
+    'src/commandguard.mjs': 1,              // error entries
+    'src/doctor.mjs': 1,                    // probe writes
+    'src/entryops.mjs': 2,                  // restore (judged by the rule through memory.judgeCard) and merge (inherits the first who)
+    'src/errorcontext.mjs': 2,              // automatic repetition duties
+    'src/errorfixes.mjs': 2,                // learnings / links
+    'src/experience.mjs': 1,                // experience entries
+    'src/memory.mjs': 6,                    // the write core, its helpers and internal journals
+    'src/procedure.mjs': 1,
+    'src/projectnew.mjs': 2,                // events of mem project new
+    'src/question.mjs': 1,                  // link (the answer edge)
+    'src/ruledraft.mjs': 1,                 // thoughts
+    'src/skillregistry.mjs': 1,
+    'src/source.mjs': 2,
+  };
+  const files = execFileSync('git', ['ls-files', '-z', 'src', 'bin'], { cwd: REPO, encoding: 'utf8' }).split('\0')
+    .filter((f) => /\.mjs$/.test(f) || /^bin\/[^.]+$/.test(f));
+  const found = {};
+  for (const f of files) {
+    const n = fs.readFileSync(path.join(REPO, f), 'utf8').split('\n')
+      .filter((l) => /\b(logEntry|logCheckedEntry|correctionEntry)\(/.test(l) && !/^\s*(\/\/|\*|\/\*)/.test(l) && !/^(export )?function /.test(l.trim())).length;
+    if (n) found[f] = n;
+  }
+  assert.deepEqual(found, { ...ROUTED, ...INTERNAL }, 'a new writer: put it on ROUTED (and state its route) or on INTERNAL (and say why)');
+  // positive control: the lists bite - a route stated in an INTERNAL file would be seen by the pin above, and none is there
+  for (const f of Object.keys(INTERNAL)) {
+    const text = fs.readFileSync(path.join(REPO, f), 'utf8');
+    const stated = [...text.matchAll(/route:\s*'([a-z]+)'/g)].filter((m) => cardrule.ROUTES.includes(m[1]));
+    assert.equal(stated.length, 0, `${f} is internal and states a route`);
+  }
+  for (const f of Object.keys(ROUTED)) {
+    const text = fs.readFileSync(path.join(REPO, f), 'utf8');
+    assert.ok(/route:\s*'(cli|mcp|task)'/.test(text), `${f} is a free input road and states no route`);
+  }
+});
+
 // --- correction and restore ---------------------------------------------------------------------------------------
 
 test('correction: SETTING who to the human is a new duty to him (rule applies); an inherited complete card passes; an addressee that stood there is old stock', (t) => {
@@ -365,6 +415,72 @@ test('restore: a reopened duty to the human is a new one - the card copied with 
   memory.retireEntry(root, 'duty', carded.id, { state: 'discarded', why: 'not needed' });
   const r = withSwitch('yes', () => entryops.restore(root, carded.id, { route: 'cli' }));
   assert.equal(r.card.has, true);
+});
+
+test('a replaces_id in the data is no way round the rule: only correctionEntry (which inherits) may call an addressee "old stock"', (t) => {
+  const root = world(t);
+  const old = memory.logEntry(root, 'duty', duty({ who: 'user', title: 'Old stock' })).entry;
+  const oldQ = memory.logEntry(root, 'question', { question: 'An old one?', who: 'user' }).entry;
+  // the core: a line that NAMES the old id but is written over a free road is a new duty to the human
+  const before = rows(root, 'duty').length;
+  assert.throws(() => withSwitch('yes', () => memory.logCheckedEntry(root, 'duty', duty({ who: 'user', replaces_id: old.id }), { route: 'cli' })),
+    (e) => e.code === 'CARD_MISSING');
+  assert.equal(rows(root, 'duty').length, before);
+  const soft = withSwitch(undefined, () => memory.logCheckedEntry(root, 'duty', duty({ who: 'user', replaces_id: old.id }), { route: 'cli' }));
+  assert.equal(soft.card.applies, true);
+  assert.equal(soft.card.lacks, true);
+  // CLI
+  const cliHard = cli(root, ['log', 'duty', '--title', 'Replacement', '--who', 'user', '--replaces_id', old.id], { CHEAP_MEM_CARD_REJECT: 'yes' });
+  assert.notEqual(cliHard.status, 0);
+  assert.match(cliHard.stderr, /Card missing/);
+  const cliSoft = cli(root, ['log', 'duty', '--title', 'Replacement', '--who', 'user', '--replaces_id', old.id]);
+  assert.match(cliSoft.stderr, /Explanation missing/);
+  // bridge (a duty may not replace over the bridge at all; a question may)
+  const [hard] = bridge(root, [['mem_log', { type: 'question', question: 'Replaced?', who: 'user', replaces_id: oldQ.id }]], { CHEAP_MEM_CARD_REJECT: 'yes' });
+  assert.equal(hard.isError, true, textOf(hard));
+  assert.match(textOf(hard), /Card missing/);
+  const [soft2] = bridge(root, [['mem_log', { type: 'question', question: 'Replaced again?', who: 'user', replaces_id: oldQ.id }]]);
+  assert.match(textOf(soft2), /Explanation missing/);
+  // positive control: the same replacement WITH a card passes, and a correction of the unchanged addressee is still old stock
+  withSwitch('yes', () => memory.logCheckedEntry(root, 'duty', duty({ who: 'user', replaces_id: old.id, ...CARD }), { route: 'cli' }));
+  assert.equal(withSwitch('yes', () => memory.correctionEntry(root, 'duty', old.id, { text: 'More.' }, { route: 'cli' })).card.applies, false);
+});
+
+test('output guard order: control characters out FIRST, then the mask - a key split by an ESC does not come out whole', () => {
+  const key = `sk-ant-api03-${'A1b2C3d4'.repeat(6)}`;
+  const split = `${key.slice(0, 20)}\u001b${key.slice(20, 40)}\u200b${key.slice(40)}`;
+  const j = (extra, env = {}) => cardrule.judge('duty', duty({ who: 'user', ...extra }), { route: 'cli', human: 'user', env });
+  const outputs = [
+    j({ card_question: 'Which?', card_options: ['Yes — a', 'No — b'], card_kind: split }),
+    j({ card_question: split, card_options: ['Yes — a', 'No — b'] }),
+    j({ card_question: 'Which?', card_options: [`${split} — x`, `No — ${split}`], card_context: split, card_advice: split, card_evidence: [split] }),
+    j({}, { CHEAP_MEM_CARD_REJECT: split }),
+  ].map((v) => [...cardrule.messages(v), ...v.gaps, ...v.warnings, v.fallbackQuestion ?? ''].join('\n'));
+  for (const text of outputs) {
+    assert.ok(!text.includes(key), 'the joined key must not be echoed');
+    assert.ok(!text.includes(key.slice(0, 30)), 'nor most of it');
+    assert.ok(!/[\u001b\u202e]/.test(text));
+  }
+  // positive control: the card_kind echo exists (a wrong kind is named) - with the key in its place as a mask
+  assert.match(outputs[0], /card_kind .*does not exist/);
+  assert.match(outputs[0], /REDACTED/);
+});
+
+test('the hint fits the road: a restore says a new duty with its card, a correction names mem correction', (t) => {
+  const root = world(t);
+  const old = memory.logEntry(root, 'duty', duty({ who: 'user', title: 'Old stock' })).entry;
+  memory.retireEntry(root, 'duty', old.id, { state: 'discarded', why: 'not needed' });
+  let err;
+  try { withSwitch('yes', () => entryops.restore(root, old.id, { route: 'cli' })); } catch (e) { err = e; }
+  assert.match(err.message, /a restore copies the card of the ORIGINAL entry/);
+  assert.match(err.message, /Write a new duty with its card instead: mem log duty/);
+  assert.doesNotMatch(err.message, /How it looks right: mem log duty/);
+  const agent = memory.logEntry(root, 'duty', duty({ who: 'session', title: 'Agent task' })).entry;
+  try { withSwitch('yes', () => memory.correctionEntry(root, 'duty', agent.id, { who: 'user' }, { route: 'cli' })); } catch (e) { err = e; }
+  assert.match(err.message, new RegExp(`How it looks right: mem correction duty <id> --who user --card_question`));
+  // positive control: a plain log keeps the mem log example
+  try { withSwitch('yes', () => memory.logCheckedEntry(root, 'duty', duty({ who: 'user' }), { route: 'cli' })); } catch (e) { err = e; }
+  assert.match(err.message, /How it looks right: mem log duty --title/);
 });
 
 // --- the real roads (CLI and bridge) -------------------------------------------------------------------------------
