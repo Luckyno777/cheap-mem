@@ -276,7 +276,10 @@ function tagCountFor(rand) {
   return Math.min(n, 6);
 }
 
-const TYPE_FILES = Object.entries(TYPES).filter(([t]) => t !== 'link' && t !== 'timeline');
+// `card` is a side shelf (cards.jsonl): every line points at a target entry and is refused
+// without one, so random corpus lines there would be invalid cards, not vocabulary — and a
+// fixed old state the doctor probes compare against does not know the drawer at all.
+const TYPE_FILES = Object.entries(TYPES).filter(([t]) => t !== 'link' && t !== 'timeline' && t !== 'card');
 
 /**
  * Generate `targetCount` synthetic entries whose vocabulary grows at
