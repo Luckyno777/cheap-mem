@@ -25,8 +25,8 @@ import { checkEndpoint } from './loopback.mjs';
 
 export function name() { return 'ollama'; }
 
-export const DEFAULT_ENDPOINT = 'http://localhost:11434';
-export const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
+const DEFAULT_ENDPOINT = 'http://localhost:11434';
+const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
 
 /** The configured endpoint, as text (OLLAMA_HOST or the default). */
 export function configuredEndpoint(env = process.env) {

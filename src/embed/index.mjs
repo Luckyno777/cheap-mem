@@ -38,7 +38,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { checkEndpoint } from './loopback.mjs';
 
-export const CONFIG_PATH = path.join('.mem', 'embed.json');
+const CONFIG_PATH = path.join('.mem', 'embed.json');
 
 /** The providers that may run. A provider belongs here only if no entry text leaves the machine. */
 export const LOCAL_PROVIDERS = Object.freeze(['ollama']);

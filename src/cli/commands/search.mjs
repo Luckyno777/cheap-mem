@@ -81,7 +81,6 @@ function workflowFieldsFrom(args) {
   return f;
 }
 
-/** 15 commands. */
 /**
  * The mode a hybrid-style search actually ran in, as the words that go
  * in the first output line. Three states, never blurred:
@@ -133,6 +132,7 @@ async function printHybrid({ root, memCfg, query, args, plan }) {
   }
 }
 
+/** 15 commands. */
 export const COMMANDS = {
   find: async ({ rest, args }) => {
     if (isHelp(args)) {
