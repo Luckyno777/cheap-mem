@@ -635,11 +635,14 @@ export function buildHandler(root, cfg, env = process.env) {
           mcpNew.liveReason = 'not checked yet';
           mcplive.kickProbe({ env });
         }
-        const seen = mcpvisibility.latestPerTool(root);
+        const seen = mcpvisibility.sightings(root);
         mcpNew.clientVisible = Object.fromEntries(defined.map((n) => {
-          const x = seen.get(n);
+          const x = seen.map.get(n);
           return [n, x ? { client: x.client, ts: x.ts } : null];
         }));
+        // E1: `null` per tool only says "no sighting READ". Whether that is "never seen" (missing, empty) or
+        // "the journal could not be read" (broken, unreadable) is this field's job.
+        mcpNew.clientVisibleState = { state: seen.state, reason: seen.reason, broken: seen.broken };
       }
     } catch (e) {
       if (data.catalog?.mcp) mcpNew = { ...data.catalog.mcp, liveReason: e?.message || String(e) };
@@ -648,7 +651,7 @@ export function buildHandler(root, cfg, env = process.env) {
     // trails a click until the next build). The stamp is a stat on five files.
     const catStamp = dashboardData.categoriesStamp(root);
     const key = JSON.stringify([st.id, mcpNew && {
-      live: mcpNew.live, at: mcpNew.liveCheckedAt, reason: mcpNew.liveReason, seen: mcpNew.clientVisible,
+      live: mcpNew.live, at: mcpNew.liveCheckedAt, reason: mcpNew.liveReason, seen: mcpNew.clientVisible, seenState: mcpNew.clientVisibleState,
     }, st.meta, catStamp, st.live?.key ?? '']);
     if (dashText?.key === key) return dashText;
     const whole = mcpNew ? { ...data, catalog: { ...data.catalog, mcp: mcpNew } } : { ...data };
