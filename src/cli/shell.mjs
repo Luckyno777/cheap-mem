@@ -54,6 +54,17 @@ export function parseArgs(argv) {
       } else {
         args[key] = true;
       }
+    } else if (a === '-h') {
+      // **`-h` where a switch would stand is `--help`.** Until 2026-10-13 only
+      // bin/mem's first-argument check knew `-h`; anywhere else it was just a
+      // positional word, so `mem init -h` built a whole memory and `mem serve
+      // -h` started the server. It is handled HERE, once, so no handler needs
+      // its own copy: it becomes `args.help`, the very thing `isHelp()` reads.
+      // A `-h` that a preceding `--key` took as its VALUE never gets here (the
+      // branch above consumed it): `mem log learning --text -h` still writes
+      // the text "-h". The parser cannot tell a boolean switch from a
+      // value-taking one, so `--json -h` also reads `-h` as the value of --json.
+      markHelp(args);
     } else {
       rest.push(a);
     }
@@ -138,6 +149,9 @@ export function checkFlags(args, known, sub) {
 }
 
 export function isHelp(args) { return args.help === true; }
+/** The one writer of the flag `isHelp()` reads: parseArgs, for a bare `-h`. (The parameter is not called `args` so
+ * that test/f5-handler-flags.test.mjs, which keeps handlers from touching the flag directly, stays meaningful.) */
+function markHelp(parsed) { parsed.help = true; }
 
 /**
  * A text from a switch -- or a loud refusal. `mem done <id> --why` (no value) arrives as `true`; written as it stood it made a
