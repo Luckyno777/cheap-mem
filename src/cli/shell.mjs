@@ -81,27 +81,21 @@ export async function captureOutput(fn) {
   return buffer.join('');
 }
 
-// **Output guard (src/outputguard.mjs).** The commands that show entry
-// content turn this on once, before the handler runs; everything they print
-// then passes the mask for known key shapes. Commands that show no entry
-// content (help, doctor, counts) pay nothing.
-let guardOutput = false;
+// **Output guard (src/outputguard.mjs).** ON for every command, switched off only for the ones in `UNGUARDED`
+// (since the mask-before-cut round, 2026-10-13: it used to be an allow-list, `READ_COMMANDS`, and every command
+// that was forgotten there printed entry text in the clear: `inbox`, `skills`, `teach`, `net`, `observations`,
+// `appointment`, `suggest` were found that way). Everything the commands print through `out()` passes the mask for
+// known key shapes; a command that shows no entry content pays almost nothing (one pass over short lines).
+let guardOutput = true;
 /**
- * The commands that print entry content. They run with the output guard on:
- * known key shapes come out as `[REDACTED:type]`, even when the entry sits
- * in a drawer past the write path. A new read command that prints entry
- * content belongs in this list.
+ * The commands whose output is NOT masked, each with its reason. Keep this list short and argued; a command is
+ * added here only when masking would break what it is for.
+ *   serve  `mem serve setup-code` prints the one-time code the owner types into the dashboard (and the local
+ *          link); a mask on it would hide exactly what the command exists to show.
  */
-const READ_COMMANDS = new Set([
-  'find', 'find-embed', 'find-hybrid', 'retrieve', 'explain', 'when', 'show', 'browse', 'topics', 'topic',
-  'context', 'digest', 'core', 'workflow', 'snippet', 'links', 'facts', 'experiences', 'duties', 'deadlines',
-  'procedures', 'today', 'board', 'questions', 'error-fixes', 'component', 'viewer', 'raw', 'user',
-  // Added with the mask-before-cut round: these print entry text (mail subjects, skill cards, the teach
-  // block, the derived net, the observation ledger, the day list) and were outside the guard.
-  'inbox', 'skills', 'teach', 'net', 'observations', 'appointment',
-]);
-/** Switch the output guard on for a read command (bin/mem calls this once, before the handler). */
-export function guardOutputFor(command) { guardOutput = READ_COMMANDS.has(command); }
+const UNGUARDED = Object.freeze(new Set(['serve']));
+/** Set once, before the handler (bin/mem calls this). */
+export function guardOutputFor(command) { guardOutput = !UNGUARDED.has(command); }
 
 export function out(t) {
   const text = guardOutput ? maskOutput(t) : t;

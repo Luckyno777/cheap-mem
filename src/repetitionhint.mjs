@@ -123,7 +123,7 @@ export function suggestProcedure(root, rawClass) {
   const latest = newest(hits);
   const q = (v) => String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/[\r\n]+/g, ' ');
   const rule = q(correctPathText(latest));
-  const title = q(latest.title ?? cls);
+  const title = q(maskText(String(latest.title ?? cls)));
   const command = `mem log procedure --title "${q(cls)}: ${title}" --rule "${rule}" `
     + `--on-class ${cls} --issued-by owner`;
   return { ok: true, command, source: latest.id, count: hits.length };

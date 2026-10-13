@@ -209,9 +209,9 @@ export function sweep(root, { now = Date.now() } = {}) {
 /** Redacted, cut question — `{ question, redacted, truncated }`. */
 export function prepare(text, { env = process.env } = {}) {
   // RAW_MAX_CHARS (8000) is a deliberate cost bound and four times the 2000 that is kept; a key crossing it
-  // lies beyond the kept part. Known edge: a PEM block that begins in the kept part and ends beyond 8000 is
-  // not matched (no END line in view).
-  // mask-ok: cost bound four times the kept length, see above
+  // lies beyond the kept part. A PEM block that begins in the kept part and ends beyond the bound has no END
+  // line in view: redaction.mjs masks such an OPEN block (header plus key material) as well.
+  // mask-ok: cost bound four times the kept length; an open PEM block is masked by its own pattern
   const raw = String(text ?? '').slice(0, RAW_MAX_CHARS);
   const a = redact(raw);
   const b = redactAgainstEnv(a.text, envSecrets(env).filter((x) => !HANDOVER.has(x.name)));

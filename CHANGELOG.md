@@ -101,8 +101,9 @@ the ratchet `test/mask-before-cut-ratchet.test.mjs`.
   (`entryWhole`) masks `raw` and `text`; `mem inbox all|new` masks the subject.
 - **`READ_COMMANDS`** now also holds `inbox`, `skills`, `teach`, `net`, `observations` and `appointment`: they print entry text
   and ran without the output guard.
-- Known edge, named: `questiontext.prepare` still cuts at 8000 characters before it redacts (a cost bound, four times the
-  2000 it keeps); a PEM block that begins in the kept part and ends beyond 8000 is not matched.
+- **An open PEM block** (header and key material, no END line: a text cut inside the key) is masked by `redaction.mjs` too; before,
+  ~1990 characters of a key survived `questiontext.prepare` (cut at 8000 before it redacts, a cost bound), and any window that
+  ended inside a block. A header alone in prose is not touched.
 
 ### Security - a person's question closes only on the person's confirmation; a headless run never writes tier `user` (2026-10-12)
 

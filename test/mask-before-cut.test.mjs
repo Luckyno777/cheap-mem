@@ -20,12 +20,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import zlib from 'node:zlib';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { exportCommit } from './helpers/export-commit.mjs';
 import { KIND_NAMES, bait, baitTail, leaks } from './helpers/mask-before-cut-bait.mjs';
+import http from 'node:http';
+import zlib from 'node:zlib';
 import { maskText, cutMasked, windowMasked } from '../src/outputguard.mjs';
+import { guardResponse, maskBody } from '../src/servemask.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 /** The state before the fix (cheap-mem acff04e). Pinned, never a merge-base. */
@@ -649,15 +651,39 @@ add({ id: 'B setup.mjs mem net --derived: listed titles (50)', cut: 50, kinds: [
     return r.stdout;
   } });
 
-test('the read commands added to READ_COMMANDS run with the output guard on', () => {
+test('the output guard is ON for every command; the exception list is short and argued', () => {
   const shell = fs.readFileSync(path.join(REPO, 'src', 'cli', 'shell.mjs'), 'utf8');
-  const m = /const READ_COMMANDS = new Set\(\[([\s\S]*?)\]\);/.exec(shell);
-  assert.ok(m, 'READ_COMMANDS found');
-  for (const c of ['inbox', 'skills', 'teach', 'net', 'observations', 'appointment']) assert.match(m[1], new RegExp(`'${c}'`), c);
-  assert.match(m[1], /'questions'/, 'positive control: the same slice knows its neighbours');
+  const m = /const UNGUARDED = Object\.freeze\(new Set\(\[([\s\S]*?)\]\)\);/.exec(shell);
+  assert.ok(m, 'UNGUARDED found');
+  assert.deepEqual([...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]), ['serve'], 'only `serve` (its setup code is what it exists to show)');
+  assert.match(shell, /guardOutput = !UNGUARDED\.has\(command\)/, 'the switch is the exception list, not an allow-list');
+  assert.match(shell, /let guardOutput = true;/, 'on from the start');
   const old = fs.readFileSync(path.join(oldDir(), 'src', 'cli', 'shell.mjs'), 'utf8');
-  assert.doesNotMatch(/const READ_COMMANDS = new Set\(\[([\s\S]*?)\]\);/.exec(old)[1], /'inbox'/, 'red proof: the old list did not have it');
+  assert.doesNotMatch(/const READ_COMMANDS = new Set\(\[([\s\S]*?)\]\);/.exec(old)[1], /'suggest'|'inbox'|'teach'/, 'red proof: the old allow-list did not have them');
 });
+
+add({ id: 'E mem inbox show: the message printed byte for byte (stdout)', mode: 'whole', kinds: ['github', 'jwt', 'password'],
+  async run({ tree, t }, b) {
+    const root = await mkroot(tree, t);
+    const inbox = await imp(tree, 'src/inbox.mjs');
+    const cfg = await imp(tree, 'src/config.mjs');
+    const w = inbox.write(root, cfg.readConfig(root).participants, { from: 'session', to: 'user', subject: 'SUBJPLACE', text: 'TEXTPLACE' });
+    fs.writeFileSync(w.path, fs.readFileSync(w.path, 'utf8').replace('SUBJPLACE', () => b.text).replace('TEXTPLACE', () => b.text));
+    const r = await mem(tree, root, 'inbox', 'show', w.name, '--as', 'user');
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /From: session/, 'positive control: the message is printed');
+    return r.stdout;
+  } });
+
+add({ id: 'E mem suggest procedure: the title in the draft command (stdout)', mode: 'whole', kinds: ['github', 'jwt', 'password'],
+  async run({ tree, t }, b) {
+    const root = await mkroot(tree, t);
+    await plant(tree, root, 'error', { class: 'mishandling', title: b.text, text: 'x' });
+    const r = await mem(tree, root, 'suggest', 'procedure', 'mishandling');
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /mem log procedure/, 'positive control: the draft is printed');
+    return r.stdout;
+  } });
 
 add({ id: 'C rewrites.lock: reason (200)', cut: 200,
   async run({ tree, t }, b) {
@@ -670,6 +696,136 @@ add({ id: 'C rewrites.lock: reason (200)', cut: 200,
     assert.equal(r.written, true, `positive control: the lock was written: ${J(r)}`);
     return fs.readFileSync(p, 'utf8');
   } });
+
+// ---- E. mem serve: every JSON answer leaves through the output guard ------------------------------------------------
+
+/** GET `route` from a running server: `{ status, text }` (gunzipped when the answer is gzip). */
+function httpGet(base, route) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(route, base);
+    const q = http.request({ hostname: u.hostname, port: u.port, path: u.pathname + u.search, method: 'GET', headers: { 'accept-encoding': 'gzip' } }, (r) => {
+      const parts = [];
+      r.on('data', (c) => parts.push(c));
+      r.on('end', () => {
+        let buf = Buffer.concat(parts);
+        if (/gzip/.test(String(r.headers['content-encoding']))) buf = zlib.gunzipSync(buf);
+        resolve({ status: r.statusCode, type: String(r.headers['content-type'] ?? ''), text: buf.toString('utf8') });
+      });
+    });
+    q.on('error', reject); q.end();
+  });
+}
+
+/** The routes a browser reads, with the parameters that make them answer about the planted entries. */
+function serveRoutes(messageName, entryId) {
+  return ['/console.json', '/desk.json', '/dashboard.json', '/dashboard/part.json?part=inbox', '/dashboard/part.json?part=experiences',
+    '/dashboard/part.json?part=entries', `/dashboard/message.json?name=${encodeURIComponent(messageName)}`, `/dashboard/entry.json?id=${entryId}`,
+    `/entry.json?id=${entryId}`, '/dashboard/probe.json?question=zebra', '/dashboard/facts-at.json?known=2099-01-01&valid=2099-01-01',
+    '/entries.json?q=zebra', '/dashboard/skills.json', '/dashboard/appointments.json'];
+}
+
+add({ id: 'E mem serve: inbox subject/text/replies, facts, experiences (all JSON routes)', mode: 'whole', kinds: ['github', 'jwt', 'password'], serial: true,
+  async run({ tree, t }, b) {
+    const root = await mkroot(tree, t);
+    const inbox = await imp(tree, 'src/inbox.mjs');
+    const cfg = await imp(tree, 'src/config.mjs');
+    const parts = cfg.readConfig(root).participants;
+    const w = inbox.write(root, parts, { from: 'session', to: 'user', subject: 'SUBJPLACE', text: 'TEXTPLACE' });
+    fs.writeFileSync(w.path, fs.readFileSync(w.path, 'utf8').replace('SUBJPLACE', () => b.text).replace('TEXTPLACE', () => b.text));
+    const r2 = inbox.write(root, parts, { from: 'user', to: 'session', subject: 'REPLYSUBJ', text: 'REPLYTEXT', inReplyTo: w.name });
+    fs.writeFileSync(r2.path, fs.readFileSync(r2.path, 'utf8').replace('REPLYSUBJ', () => b.text).replace('REPLYTEXT', () => b.text));
+    await plant(tree, root, 'timeline', { key: 'mbc.k', value: b.text, valid_from: '2026-01-01' });
+    await plant(tree, root, 'learning', { id: 'servelrn1', title: b.text, text: `zebra ${b.text}` });
+    await plant(tree, root, 'learning', { id: 'servelrn2', title: 'zebra cited', learning: b.text });
+    const serve = await imp(tree, 'bin/mem-serve');
+    const s = await serve.serve(root, { ...process.env, CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '' }, { allowWrites: false });
+    try {
+      const base = `http://127.0.0.1:${s.server.address().port}`;
+      const got = [];
+      for (const route of serveRoutes(w.name, 'servelrn1')) {
+        const r = await httpGet(base, route);
+        got.push({ route, ...r });
+      }
+      assert.ok(got.some((g) => g.status === 200 && g.text.includes('mbc.k') ), 'positive control: the planted fact is served somewhere');
+      assert.ok(got.filter((g) => g.status === 200 && /json/.test(g.type)).length >= 8, `positive control: most routes answered: ${got.map((g) => `${g.route}=${g.status}`).join(' ')}`);
+      return got.map((g) => g.text).join('\n');
+    } finally { await new Promise((r) => { s.server.close(r); s.server.closeAllConnections?.(); }); }
+  } });
+
+test('servemask: JSON is masked, an answer without a key is byte for byte unchanged, gzip stays gzip, other types pass', async () => {
+  const b = bait('github', 200);
+  const plain = JSON.stringify({ a: 1, list: ['x', 'y'], note: 'no key here' }, null, 2);
+  assert.equal(maskBody(plain, false), plain, 'an unchanged string comes back as the very same string');
+  const buf = zlib.gzipSync(plain);
+  assert.equal(maskBody(buf, true), buf, 'an unchanged gzip body comes back as the very same buffer');
+  const dirty = JSON.stringify({ subject: b.text, n: 2 });
+  const clean = maskBody(dirty, false);
+  assert.ok(leaks(dirty, b.key), 'positive control: the document carries the key');
+  assert.ok(!leaks(clean, b.key) && JSON.parse(clean).n === 2, 'masked, still valid JSON');
+  const gz = maskBody(zlib.gzipSync(dirty), true);
+  assert.ok(!leaks(zlib.gunzipSync(gz).toString(), b.key), 'a gzip body is unpacked, masked, packed again');
+  // through a real response object
+  const server = http.createServer((req, res) => {
+    guardResponse(res);
+    if (req.url === '/json') res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'content-length': Buffer.byteLength(dirty) }).end(dirty);
+    else res.writeHead(200, { 'content-type': 'text/plain' }).end(b.text);
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  try {
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const j = await httpGet(base, '/json');
+    assert.ok(!leaks(j.text, b.key), 'JSON route: masked, and a fixed content-length did not break the answer');
+    const p = await httpGet(base, '/plain');
+    assert.ok(leaks(p.text, b.key), 'control: a non-JSON answer is not touched by this guard');
+  } finally { await new Promise((r) => { server.close(r); server.closeAllConnections?.(); }); }
+});
+
+test('mem-serve: every request runs through guardResponse before any route can answer', () => {
+  const src = fs.readFileSync(path.join(REPO, 'bin', 'mem-serve'), 'utf8');
+  const m = /function handler\(req, res\) \{\n\s*guardResponse\(res\);/.exec(src);
+  assert.ok(m, 'guardResponse(res) is the first statement of the one request handler');
+  assert.equal((src.match(/http\.createServer\(/g) ?? []).length, 1, 'one server, one handler');
+  assert.match(src, /http\.createServer\(handler\)/, 'the server is created with that handler');
+  const old = fs.readFileSync(path.join(oldDir(), 'bin', 'mem-serve'), 'utf8');
+  assert.ok(!/guardResponse/.test(old), 'red proof: the old server had no such exit');
+});
+
+// ---- an open PEM block (no END line in view) -------------------------------------------------------------------------
+
+const pemLines = (n) => Array.from({ length: n }, (_, i) => Buffer.from(`pem-probe-line-${String(i).padStart(4, '0')}-${'AbCdEfGhIjKlMnOpQrStUvWxYz'.repeat(2)}`).toString('base64'));
+
+/** How many of the first key lines survive `questiontext.prepare` on a PEM block whose END lies beyond the 8000 bound. */
+async function pemLinesKept(tree) {
+  const lines = pemLines(200);
+  const text = `Why does this fail? ${['-----BEGIN', 'RSA PRIVATE KEY-----'].join(' ')}\n${lines.join('\n')}\n${['-----END', 'RSA PRIVATE KEY-----'].join(' ')}\nthanks`;
+  assert.ok(text.indexOf('-----END') > 8000, 'the END line lies beyond the 8000 bound');
+  const m = await imp(tree, 'src/questiontext.mjs');
+  const out = m.prepare(text, { env: {} }).question;
+  return lines.slice(0, 20).filter((l) => out.includes(l)).length;
+}
+test('new tree: C questiontext.prepare: an open PEM block cut by the 8000 bound keeps no key line', async () => {
+  assert.equal(await pemLinesKept(REPO), 0);
+});
+test('old acff04e (red proof): C questiontext.prepare: the open PEM block survives (positive control)', async () => {
+  assert.ok(await pemLinesKept(oldDir()) >= 10, 'about 2000 characters of key material stay in the old question');
+});
+
+test('an open PEM block: header and key material fall, a header alone in prose does not, a complete block still falls whole', async () => {
+  const { redact } = await import('../src/redaction.mjs');
+  const lines = pemLines(4);
+  const head = ['-----BEGIN', 'PRIVATE KEY-----'].join(' ');
+  const open = redact(`note ${head}\n${lines.join('\n')}`).text;
+  assert.ok(!lines.some((l) => open.includes(l)) && /REDACTED:pem-block/.test(open), `open block masked: ${open}`);
+  const esc = redact(`{"text":"${head}\\n${lines.join('\\n')}\\n"}`).text;
+  assert.ok(!lines.some((l) => esc.includes(l)), 'the JSON-escaped form too');
+  assert.ok(esc.endsWith('"}'), `and the string around it survives: ${esc}`);
+  const prose = `a ${['-----BEGIN', 'CERTIFICATE-----'].join(' ')} line starts the block, then words follow.`;
+  assert.equal(redact(prose).text, prose, 'a header alone in prose is not touched');
+  const whole = redact(`${head}\n${lines[0]}\n${['-----END', 'PRIVATE KEY-----'].join(' ')} after`).text;
+  assert.equal(whole, '[REDACTED:pem-block] after', 'a complete block falls whole, as before');
+  const old = await imp(oldDir(), 'src/redaction.mjs');
+  assert.ok(lines.some((l) => old.redact(`note ${head}\n${lines.join('\n')}`).text.includes(l)), 'red proof: the old tree leaves the open block');
+});
 
 // ---- the runner -----------------------------------------------------------------------------------------------------
 
@@ -684,8 +840,11 @@ async function outcome(which, c, kind, t) {
   return { out: String(out), leaked: leaks(out, b.key), b };
 }
 
-/** Run `fn` for every kind, side by side. */
-const forKinds = (c, fn) => Promise.all(c.kinds.map(fn));
+/** Run `fn` for every kind, side by side; a case that opens a server or patches process state is `serial`. */
+async function forKinds(c, fn) {
+  if (c.serial) { const out = []; for (const k of c.kinds) out.push(await fn(k)); return out; }
+  return Promise.all(c.kinds.map(fn));
+}
 
 for (const c of CASES) {
   test(`new tree: ${c.id}: no key fragment shows (${c.kinds.join(', ')})`, async (t) => {

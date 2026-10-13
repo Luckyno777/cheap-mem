@@ -272,7 +272,9 @@ export const COMMANDS = {
         if (e.state !== m.state) out(`(State now: ${e.state} — from ${e.stateSource}; the header below is the start state)`);
         if (e.stateConflicts?.length) out(`(Warning: ${e.stateConflicts.length} state line(s) do not count: ${e.stateConflicts.map((c) => c.why).join('; ')})`);
       } catch { /* the message itself was readable; the projection is extra */ }
-      process.stdout.write(content);
+      // Past out() on purpose (the message is printed byte for byte, no added newline), so the mask is applied here.
+      // bin/mem-handle-post hands this output to a model.
+      process.stdout.write(maskText(content));
       return;
     }
 

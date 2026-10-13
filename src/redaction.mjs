@@ -128,6 +128,13 @@ export const PATTERNS = Object.freeze([
   // JWT shape, stops it.
   ['json-blob',       /\beyJ[A-Za-z0-9_-]{40,}={0,2}(?![A-Za-z0-9_-]|\.[A-Za-z0-9_-])/g],
   ['pem-block',       /-----BEGIN[^-]{0,40}-----[\s\S]*?-----END[^-]{0,40}-----/g],
+  // The same block WITHOUT its END line: a text that was cut inside the key (a cap, a window, a truncated paste)
+  // keeps the header and a long run of key material, and the pattern above needs the END to see any of it
+  // (mask-before-cut round: ~1990 characters of a key survived `questiontext.prepare` this way). Runs after the
+  // pattern above, so a complete block has already fallen; what is left is open. Only the key MATERIAL falls:
+  // the header, then base64 runs of 20+ characters (lines, or the literal \n of a JSON string between them).
+  // A header alone ("-----BEGIN CERTIFICATE-----" in prose) is not touched.
+  ['pem-block',       /-----BEGIN[^-]{0,40}-----(?:\s|\\[nr]|[A-Za-z0-9 ,:.-]{1,60}(?:\r?\n|\\n))*(?:[A-Za-z0-9+/=]{20,}(?:\s|\\[nr])*)+/g],
   ['ssh-key',         /\bssh-(?:rsa|ed25519|dss)\s+[A-Za-z0-9+/=]{50,}/g],
 
   // --- Headers / URLs ------------------------------------------------
