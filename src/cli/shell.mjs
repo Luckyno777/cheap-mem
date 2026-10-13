@@ -24,6 +24,7 @@ import * as switches from '../switches.mjs';
 import * as authority from '../authority.mjs';
 import * as onboarding from '../onboarding.mjs';
 import { maskOutput } from '../outputguard.mjs';
+import { frozenSet } from '../frozenset.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 /** The root of the PACKAGE (not of the memory): src/cli -> .. -> .. */
@@ -93,7 +94,7 @@ let guardOutput = true;
  *   serve  `mem serve setup-code` prints the one-time code the owner types into the dashboard (and the local
  *          link); a mask on it would hide exactly what the command exists to show.
  */
-const UNGUARDED = Object.freeze(new Set(['serve']));
+const UNGUARDED = frozenSet(['serve']);
 /** Set once, before the handler (bin/mem calls this). */
 export function guardOutputFor(command) { guardOutput = !UNGUARDED.has(command); }
 
