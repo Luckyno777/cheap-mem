@@ -116,7 +116,7 @@ test('S1: a card the person wrote (tier user) stays even if an agent adds one la
   const k = card.cardOf(INLINE({ authority: 'user', agent: 'human:alex' }), withCards(ADD()));
   assert.equal(k.origin.stage, 'written');
   assert.equal(k.question, 'Inline question?');
-  assert.deepEqual(k.origin, { stage: 'written', author: 'human:alex', rank: 'user', ts: '2026-10-10T00:00:00Z' });
+  assert.deepEqual(k.origin, { stage: 'written', author: 'human:alex', rank: 'user', ts: '2026-10-10T00:00:00Z', by_human: true });
   assert.deepEqual(k.replaced, { author: 'orch', rank: 'agent', ts: '2026-10-15T00:00:00Z' });
 });
 
@@ -288,4 +288,16 @@ test('targetFormProblem: ids and the three prefixes pass; shell characters, blan
   for (const bad of ['letter:$(id)"; echo X; "', 'letter:a b', 'project:../x', 'word-pair:a;b|c', 'abc123; rm -rf', 'a`id`', "letter:'x", 'letter:', 'x'.repeat(200), 'abc', '', null]) {
     assert.ok(rules.targetFormProblem(bad), String(bad));
   }
+});
+
+test('origin.by_human: the author is the configured human participant (from the context) or a person by the one rule; never a name in the code', () => {
+  const entry = { id: 'e1', title: 'T', card_question: 'Which one?', card_options: ['A — a', 'Not now — b'] };
+  const by = (agent, human) => card.cardOf({ ...entry, agent }, { type: 'duty', context: human === undefined ? {} : { human } }).origin.by_human;
+  assert.equal(by('anna', 'anna'), true, 'the configured human');
+  assert.equal(by('anna', 'bob'), false, 'another participant');
+  assert.equal(by('anna'), false, 'no human configured: nobody is guessed');
+  assert.equal(by('human:anna'), true, 'a person by the one rule (authority.isHumanName)');
+  assert.equal(by('owner'), true);
+  assert.equal(by('anna', null), false);
+  assert.equal(card.cardOf({ id: 'e2', title: 'T' }, { type: 'duty', context: { human: 'anna' } }).origin.by_human, undefined, 'a replacement card has no author, so no flag');
 });

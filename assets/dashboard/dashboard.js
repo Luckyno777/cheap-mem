@@ -945,14 +945,17 @@ function openWork(es) {
 // puts an entry text into markup unescaped and never joins texts back together before escaping them.
 const CARD_KIND = { decide: 'Decision', approve: 'Release', 'do-it': 'Task' };
 const CARD_STAGE = { written: 'written on the entry', addendum: 'added later from the card shelf', fallback: 'replacement card' };
-const isPersonName = (n) => /^(owner|human:\S+)$/.test(String(n ?? ''));
+// A text that comes from the entry LIST (not from the card, which the server cleaned): control and format characters (bidi
+// overrides, zero-width marks) are dropped BEFORE it is escaped. ONE helper for every card text.
+const plain = (v) => String(v ?? '').replace(/[\p{Cc}\p{Cf}]/gu, '');
+const ce = (v) => esc(plain(v));
 const cardForYou = (c) => Boolean(c) && c.kind !== 'do-it';
 function cardEvidenceItem(raw) {
   const s = String(raw ?? '');
-  if (/^https?:\/\/[^\s<>"']+$/i.test(s)) return `<a href="${esc(s)}" target="_blank" rel="noopener noreferrer">${esc(s)}</a>`;
+  if (/^https?:\/\/[^\s<>"']+$/i.test(s)) return `<a href="${ce(s)}" target="_blank" rel="noopener noreferrer">${ce(s)}</a>`;
   const e = byId(s);
-  if (e) return `<button class="textlink" data-entry="${esc(s)}">${esc(e.title)}</button> <span class="mono small quiet">${esc(s)}</span>`;
-  return `<code class="mono small">${esc(s)}</code>`;
+  if (e) return `<button class="textlink" data-entry="${ce(s)}">${ce(e.title)}</button> <span class="mono small quiet">${ce(s)}</span>`;
+  return `<code class="mono small">${ce(s)}</code>`;
 }
 function cardOriginHtml(c) {
   const o = c.origin || {};
@@ -960,13 +963,11 @@ function cardOriginHtml(c) {
   if (o.stage === 'fallback') {
     return `<p class="dcard-origin small quiet" data-card-origin="fallback"><b>Replacement card.</b> Nobody wrote a card for this entry; it is made by rule from the title and the first sentence. No author, no tier.</p>`;
   }
-  const who = o.author ? esc(o.author) : 'an unknown author';
-  const checked = o.rank === 'user';
-  const note = checked ? ''
-    : isPersonName(o.author) ? `<p class="dcard-agent small" data-card-agent>Tier ${esc(o.rank || 'unknown')}: not confirmed by you.</p>`
-      : `<p class="dcard-agent small" data-card-agent>Written by an agent, not checked by you.</p>`;
-  const replaced = c.replaced ? ` · replaced a card by ${esc(c.replaced.author || 'an unknown author')}${c.replaced.rank ? ` (tier ${esc(c.replaced.rank)})` : ''}` : '';
-  return `<p class="dcard-origin small quiet" data-card-origin="${esc(o.stage)}">Written by ${who} · tier ${esc(o.rank || 'unknown')} · ${esc(o.ts ? when(o.ts) : 'date unknown')} · ${esc(stage)}${replaced}</p>${note}`;
+  const who = o.author ? ce(o.author) : 'an unknown author';
+  // No hint for a card a person wrote: `origin.by_human` comes from the server (the configured human participant), no name here.
+  const note = o.rank === 'user' || o.by_human ? '' : `<p class="dcard-agent small" data-card-agent>Written by an agent, not checked by you.</p>`;
+  const replaced = c.replaced ? ` · replaced a card by ${ce(c.replaced.author || 'an unknown author')}${c.replaced.rank ? ` (tier ${ce(c.replaced.rank)})` : ''}` : '';
+  return `<p class="dcard-origin small quiet" data-card-origin="${ce(o.stage)}">Written by ${who} · tier ${ce(o.rank || 'unknown')} · ${ce(o.ts ? when(o.ts) : 'date unknown')} · ${esc(stage)}${replaced}</p>${note}`;
 }
 /**
  * @param c     a card of src/decisioncard.mjs (`{kind, question, context, options, advice, evidence, origin, replaced, identifier, supplemented}`)
@@ -974,16 +975,16 @@ function cardOriginHtml(c) {
  */
 function cardHtml(c, { foot = '' } = {}) {
   if (!c || typeof c !== 'object') return '';
-  const opts = (c.options || []).map((o) => `<li${o.decline ? ' data-decline="1"' : ''}><strong>${esc(o.choice)}</strong>${o.effect ? `<span class="muted"> — ${esc(o.effect)}</span>` : ''}${o.supplemented ? ' <span class="small quiet">(added by rule)</span>' : ''}</li>`).join('');
+  const opts = (c.options || []).map((o) => `<li${o.decline ? ' data-decline="1"' : ''}><strong>${ce(o.choice)}</strong>${o.effect ? `<span class="muted"> — ${ce(o.effect)}</span>` : ''}${o.supplemented ? ' <span class="small quiet">(added by rule)</span>' : ''}</li>`).join('');
   const ev = (c.evidence || []).map(cardEvidenceItem);
-  const idText = c.identifier && !(c.evidence || []).includes(c.identifier) ? `<span class="dcard-id mono small quiet" title="Identifier">${esc(c.identifier)}</span>` : '';
-  const filled = (c.supplemented || []).length ? `<p class="small quiet">Gaps filled by rule: ${(c.supplemented || []).map(esc).join(', ')}.</p>` : '';
+  const idText = c.identifier && !(c.evidence || []).includes(c.identifier) ? `<span class="dcard-id mono small quiet" title="Identifier">${ce(c.identifier)}</span>` : '';
+  const filled = (c.supplemented || []).length ? `<p class="small quiet">Gaps filled by rule: ${(c.supplemented || []).map(ce).join(', ')}.</p>` : '';
   return `<article class="dcard" data-card-kind="${esc(c.kind || '')}" data-card-stage="${esc(c.origin?.stage || '')}">`
     + `<span class="label">${esc(CARD_KIND[c.kind] || 'Open item')}</span>`
-    + `<h3 class="dcard-q">${esc(c.question)}</h3>`
-    + (c.context ? `<p class="dcard-ctx">${esc(c.context)}</p>` : '')
+    + `<h3 class="dcard-q">${ce(c.question)}</h3>`
+    + (c.context ? `<p class="dcard-ctx">${ce(c.context)}</p>` : '')
     + (opts ? `<ul class="dcard-opts" aria-label="Options">${opts}</ul>` : '')
-    + (c.advice ? `<p class="dcard-advice" data-card-advice><b>Recommendation from ${esc(c.advice.author || 'an unknown author')}:</b> ${esc(c.advice.text)}</p>` : '')
+    + (c.advice ? `<p class="dcard-advice" data-card-advice><b>Recommendation from ${ce(c.advice.author || 'an unknown author')}:</b> ${ce(c.advice.text)}</p>` : '')
     + (ev.length || idText ? `<p class="dcard-evidence small"><span class="quiet">Evidence:</span> ${ev.join(' · ')}${ev.length && idText ? ' · ' : ''}${idText}</p>` : '')
     + cardOriginHtml(c) + filled
     + (foot ? `<div class="dcard-foot">${foot}</div>` : '')
@@ -1163,7 +1164,7 @@ function home() {
         limit: 3,
         render: (e, c) => (c
           ? cardHtml(c, { foot: open(e.id, 'Open entry ↗', 'btn small ghost') })
-          : `<button class="attention" data-entry="${esc(e.id)}"><span class="sym">${e.type === 'question' ? '?' : '↗'}</span><div><strong>${esc(e.title)}</strong><span class="label">${esc(e.project)}${D._dutyWho.get(e.id) ? ' · owed by ' + esc(D._dutyWho.get(e.id)) : ''}</span></div><span class="arrow">↗</span></button>`),
+          : `<button class="attention" data-entry="${esc(e.id)}"><span class="sym">${e.type === 'question' ? '?' : '↗'}</span><div><strong>${ce(e.title)}</strong><span class="label">${ce(e.project)}${D._dutyWho.get(e.id) ? ' · owed by ' + ce(D._dutyWho.get(e.id)) : ''}</span></div><span class="arrow">↗</span></button>`),
       })
         || empty(es.length ? 'No duty and no question is open right now.' : 'Nothing is open — this memory holds no entry yet. <code class="mono">mem log duty "…"</code> records the first duty.')
     }<div class="smallstats"><span>Originals stay intact</span><span class="green">Append-only</span></div></article></div><div class="overview-today">${todayCard()}</div><div class="sectionline"><h2>Recently connected</h2>${link('See all', 'knowledge/entries')}</div><div class="grid two">${panel('Memories with origin', entryRows(es.slice(0, 3), 'Your first entries will appear here. <code class="mono">mem log learning "…"</code> writes one.'))}${panel(
@@ -1615,9 +1616,9 @@ const pages = {
     const es = scoped().filter((e) => ['duty', 'question'].includes(e.type));
     const openOnes = es.filter((e) => ['open', 'waiting'].includes(statusOf(e.id))), closed = es.filter((e) => !['open', 'waiting'].includes(statusOf(e.id)));
     const row = (e) =>
-      `<div class="row"><div><div class="small quiet">${esc(types[e.type])} · ${esc(e.project)}</div><h3 style="margin:6px 0">${esc(e.title)}</h3><p>${e.type === 'duty' ? 'Owed by: ' + esc(D._dutyWho.get(e.id) || (statusOf(e.id) === 'open' ? 'not named' : '—')) : 'Link an answer through a concrete entry'}</p></div><div>${statusBadge(e.id)}<div style="margin-top:8px">${open(e.id, 'Open ↗')}</div></div></div>`;
+      `<div class="row"><div><div class="small quiet">${esc(types[e.type])} · ${ce(e.project)}</div><h3 style="margin:6px 0">${ce(e.title)}</h3><p>${e.type === 'duty' ? 'Owed by: ' + ce(D._dutyWho.get(e.id) || (statusOf(e.id) === 'open' ? 'not named' : '—')) : 'Link an answer through a concrete entry'}</p></div><div>${statusBadge(e.id)}<div style="margin-top:8px">${open(e.id, 'Open ↗')}</div></div></div>`;
     const openRow = (e, c) => (c
-      ? cardHtml(c, { foot: `<span class="small quiet">${esc(types[e.type])} · ${esc(e.project)}${e.type === 'duty' ? ' · owed by ' + esc(D._dutyWho.get(e.id) || 'not named') : ''}</span>${statusBadge(e.id)}${open(e.id, 'Open ↗', 'btn small ghost')}${D._waitingQuestion.has(e.id) ? confirmAnswerBtn(e.id) : ''}` })
+      ? cardHtml(c, { foot: `<span class="small quiet">${esc(types[e.type])} · ${ce(e.project)}${e.type === 'duty' ? ' · owed by ' + ce(D._dutyWho.get(e.id) || 'not named') : ''}</span>${statusBadge(e.id)}${open(e.id, 'Open ↗', 'btn small ghost')}${D._waitingQuestion.has(e.id) ? confirmAnswerBtn(e.id) : ''}` })
       : row(e));
     return panel('Open and finished work', (workGroupsHtml(openOnes, { render: openRow }) || empty(es.length ? 'Nothing open.' : 'No duty and no question recorded yet.')) + (closed.length ? `<details class="accordion"><summary>${num(closed.length)} finished</summary>${closed.slice(0, 60).map(row).join('')}${limitNote(Math.min(60, closed.length), closed.length, 'knowledge/entries')}</details>` : ''), `${num(openOnes.length)} open · decided by memory.openDuties and question.open`);
   },

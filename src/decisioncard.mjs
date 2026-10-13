@@ -517,6 +517,7 @@ function asQuestion(t) {
  * @param opts.type     `duty` | `question` | `project` | `letter` | `review` | `word-pair`; otherwise a general card
  * @param opts.context.cards   Map target_id -> card (from the shelf)
  * @param opts.context.titles  Map or function id -> headline (only for review questions with titles)
+ * @param opts.context.human   the configured human participant's name (or null): a card by this author is a person's (`origin.by_human`)
  * @returns {{kind, question, context, options, advice, evidence, origin, replaced, identifier, supplemented}}
  *   `replaced` is `{author, rank, ts}` of the card this one beat (tier, then age), else null. `advice` is `{text, author}` or
  *   null; `supplemented` names what was filled from the fallback card.
@@ -585,9 +586,13 @@ function cardWithoutNorm(entry, { type = null, context = {} } = {}) {
     const add = fb.options.find((x) => !x.decline && !k.options.some((y) => y.choice === x.choice));
     if (add) { k.options = [{ ...add, supplemented: true }, ...k.options]; supplemented.push('options'); }
   }
+  // `by_human`: the author is a person, per the ONE rule (`authority.isHumanName`) or because it is the human participant of the
+  // configuration (`context.human`, handed in by the caller: no participant name stands in this file). The display shows no
+  // "written by an agent" note for such a card.
+  const byHuman = Boolean(from.author) && (authority.isHumanName(from.author) || (typeof context?.human === 'string' && context.human === from.author));
   return {
     kind: k.kind, question: k.question, context: k.context, options: k.options,
     advice: k.advice ? { text: k.advice, author: from.author } : null,
-    evidence: k.evidence, origin: { stage, ...from }, replaced, identifier: shownId, supplemented,
+    evidence: k.evidence, origin: { stage, ...from, by_human: byHuman }, replaced, identifier: shownId, supplemented,
   };
 }

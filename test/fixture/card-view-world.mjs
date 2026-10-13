@@ -54,6 +54,16 @@ export function buildWorld(root) {
     {
       id: 'dagent0001', ts, title: 'Guard for race at src/lock.mjs', who: 'session', class: 'race', file: 'src/lock.mjs', tags: ['auto-duty'], automatic: true,
     },
+    // 6b. a card written by the CONFIGURED HUMAN (participant `user`): no "written by an agent" note
+    {
+      id: 'dhuman0001', ts, title: 'Which logo for the release page', who: 'user', agent: 'user',
+      card_question: 'Which logo should the release page carry?',
+      card_context: 'Two logos exist. The page is printed on Friday.',
+      card_options: ['The round logo — it prints well', 'The wide logo — it needs a new slot', 'Not now — the page goes without a logo'],
+      card_kind: 'decide',
+    },
+    // 6c. a title with bidi and zero-width characters (they come back through the entry list, not through the card)
+    { id: 'dbidi00001', ts, title: 'Decide\u202E reversed\u2066 now\u200B please', who: 'user', tags: ['decision'] },
     // 7. a task for the human that is no decision (kind do-it): it belongs to "Agent work"
     { id: 'dtask00001', ts, title: 'Rename the folder old-notes', who: 'user' },
   ]);
@@ -77,5 +87,5 @@ export function buildWorld(root) {
   cli(root, ['project', 'new', 'garden-plan', '--title', 'Garden planner', '--reason', 'Three captures on two days.']);
   fs.mkdirSync(path.join(root, 'projects', 'hand-made'), { recursive: true });
   lines(root, 'projects/hand-made/learnings.jsonl', [{ id: 'lhand00001', ts: '2026-10-05T09:00:00Z', title: 'A note in a project made by hand', text: 'Made past the command.', agent: 'human:alex' }]);
-  return { written: 'dwrit00001', addendum: 'dadd000001', fallback: 'dfall00001', xss: 'dxss000001', key: 'dkey000001', agent: 'dagent0001', task: 'dtask00001', question: 'qopen00001', waiting: 'qwait00001' };
+  return { written: 'dwrit00001', addendum: 'dadd000001', fallback: 'dfall00001', xss: 'dxss000001', key: 'dkey000001', agent: 'dagent0001', human: 'dhuman0001', bidi: 'dbidi00001', task: 'dtask00001', question: 'qopen00001', waiting: 'qwait00001' };
 }

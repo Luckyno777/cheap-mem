@@ -18,7 +18,7 @@
 //
 // Red proof: the same scenario against the dashboard.js of the old state (git show) is played in through page.route; positive
 // control: the same page, the same data, with the new script, shows the cards.
-/* global document, window, getComputedStyle */
+/* global document, window, getComputedStyle, localStorage, sections, byId */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -53,7 +53,7 @@ function world() {
 }
 const ENV = { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', MEM_RECALL_SERVER: '0' };
 
-const READY = () => typeof sections === 'object' && !document.querySelector('#screen .loading'); // eslint-disable-line no-undef
+const READY = () => typeof sections === 'object' && !document.querySelector('#screen .loading');
 async function scenario(t, { width = 1400, light = false, hash = '', script = null }, fn) {
   const browser = await B.need(t);
   if (!browser) return;
@@ -87,7 +87,7 @@ test('the duties list: one card per item, For you apart from Agent work, origin 
     assert.equal(await q('[data-card-group="agent"]').count(), 1);
     const you = await q('[data-card-group="you"]').innerText();
     const agent = await q('[data-card-group="agent"]').innerText();
-    assert.match(you, /for you \(7\)/i);
+    assert.match(you, /for you \(9\)/i);
     assert.match(agent, /agent work \(2\)/i);
     assert.match(agent, /Guard for race at src\/lock\.mjs/, 'an agent posting is under Agent work');
     assert.match(agent, /Rename the folder old-notes/, 'a task (kind do-it) is under Agent work');
@@ -142,6 +142,12 @@ test('the duties list: one card per item, For you apart from Agent work, origin 
       assert.equal(await fb.locator('[data-card-agent]').count(), 0);
     }
 
+    // A card written by the configured human: no "written by an agent" note, whatever its tier.
+    const human = cardOf(page, ids.human);
+    assert.match(await human.innerText(), /Written by user · tier /);
+    assert.equal(await human.locator('[data-card-agent]').count(), 0, 'the configured human is a person: no agent note');
+    assert.equal(await written.locator('[data-card-agent]').count(), 1, 'positive control: another author still carries the note');
+
     // The waiting question carries its confirm button in the card's foot.
     assert.equal(await cardOf(page, ids.waiting).locator('[data-action="question-confirm"]').count(), 1);
     assert.deepEqual(errors, []);
@@ -161,6 +167,12 @@ test('the output stays safe: markup in a title is text, a key stays masked, noth
     assert.ok(XSS_TITLE.includes('<img'), 'positive control: the fixture really carries markup');
     assert.ok(!html.includes(FAKE_KEY) && !text.includes(FAKE_KEY), 'the key never reaches the page');
     assert.match(text, /\[REDACTED:[a-z-]+\]/, 'the key stands masked');
+    // Bidi and zero-width characters come back through the entry list (the evidence link shows the entry's title): dropped.
+    const raw = await page.evaluate((id) => byId(id).title, ids.bidi);
+    assert.ok(/[\u202E\u2066\u200B]/.test(raw), 'positive control: the entry list still carries the characters');
+    const inCards = await page.evaluate(() => [...document.querySelectorAll('#screen .dcard')].map((c) => c.innerHTML).join('\n'));
+    assert.ok(!/[\u202E\u2066\u200B]/.test(inCards), 'no bidi or zero-width character in any card');
+    assert.ok(inCards.includes('Decide reversed now please'), 'the title stands, only the characters are gone');
     assert.deepEqual(errors, []);
   });
 });
@@ -169,7 +181,7 @@ test('the overview: Today and "Your next look" carry the same cards; the waiting
   await scenario(t, { hash: '' }, async (page, errors) => {
     const next = page.locator('.home-layout article.pad');
     const nt = await next.innerText();
-    assert.match(nt, /for you \(7\)/i);
+    assert.match(nt, /for you \(9\)/i);
     assert.match(nt, /Which of the four open points from the decision form do you want first\?/);
     assert.ok(!/\bGLOBAL · USER\b/i.test(nt), 'no bare project and owner line instead of a card');
     assert.equal(await next.locator('.dcard').count(), 3, 'three cards at most, as the 3 items before');
@@ -216,25 +228,38 @@ for (const light of [false, true]) {
           const m = await page.evaluate(() => {
             const de = document.documentElement;
             const bad = [...document.querySelectorAll('#screen .dcard')].filter((c) => c.scrollWidth > c.clientWidth + 1 || c.getBoundingClientRect().right > de.clientWidth + 1).length;
-            // contrast of the card's own text against the card's background
-            const lum = (rgb) => { const [r, g, b] = rgb.map((v) => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
-            const parse = (s) => (s.match(/[\d.]+/g) || []).map(Number);
-            const c = document.querySelector('#screen .dcard');
-            let worst = 99;
-            if (c) {
-              const bg = parse(getComputedStyle(c).backgroundColor).slice(0, 3);
-              for (const el of c.querySelectorAll('h3,p,li,.label,span.muted,.quiet')) {
+            // contrast of EVERY text in a card (badges, buttons, links, identifier, foot) against its real background
+            const lum = (rgb) => { const [r, g, b] = rgb.map((v) => { const x = v / 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+            const parse = (str) => (str.match(/[\d.]+/g) || []).map(Number);
+            const bgOf = (el) => {
+              const layers = [];
+              for (let n = el; n; n = n.parentElement) {
+                const c = parse(getComputedStyle(n).backgroundColor);
+                const a = c.length > 3 ? c[3] : 1;
+                if (c.length >= 3 && a > 0) layers.push([c[0], c[1], c[2], a]);
+                if (a >= 1) break;
+              }
+              let acc = [255, 255, 255];
+              for (const l of layers.reverse()) acc = [0, 1, 2].map((i) => l[i] * l[3] + acc[i] * (1 - l[3]));
+              return acc;
+            };
+            let worst = 99; let where = '';
+            for (const c of document.querySelectorAll('#screen .dcard')) {
+              for (const el of c.querySelectorAll('*')) {
+                if (![...el.childNodes].some((nd) => nd.nodeType === 3 && nd.textContent.trim())) continue;
+                if (el.closest('[disabled]')) continue; // a disabled control is exempt
                 const fg = parse(getComputedStyle(el).color).slice(0, 3);
-                const a = lum(fg); const b = lum(bg);
-                worst = Math.min(worst, (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05));
+                const a = lum(fg); const b = lum(bgOf(el));
+                const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+                if (ratio < worst) { worst = ratio; where = `${el.tagName.toLowerCase()}.${el.className} "${el.textContent.trim().slice(0, 30)}"`; }
               }
             }
-            return { sw: de.scrollWidth, cw: de.clientWidth, bad, cards: document.querySelectorAll('#screen .dcard').length, worst };
+            return { sw: de.scrollWidth, cw: de.clientWidth, bad, cards: document.querySelectorAll('#screen .dcard').length, worst, where };
           });
           assert.ok(m.cards >= 1, `cards on ${hash || 'overview'}`);
           assert.ok(m.sw <= m.cw, `no sideways scroll on ${hash || 'overview'}: ${m.sw} > ${m.cw}`);
           assert.equal(m.bad, 0, 'no card sticks out of the page');
-          assert.ok(m.worst >= 4.5, `text contrast ${m.worst.toFixed(2)} on ${hash || 'overview'}`);
+          assert.ok(m.worst >= 4.5, `text contrast ${m.worst.toFixed(2)} on ${hash || 'overview'} at ${m.where}`);
           assert.deepEqual(errors, []);
         });
       }
