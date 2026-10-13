@@ -159,6 +159,12 @@ the ratchet `test/mask-before-cut-ratchet.test.mjs`.
   characters of prose in its first form), the complete-block pattern scanned to the end of the text from every BEGIN line (2.8 MB:
   38 s); now unambiguous, and the span between BEGIN and END is capped at 8 KB. Probes with time limits in `test/redaction-linear.test.mjs`.
 - **`git@github.com:Owner/repo.git`** is no credential pair any more (an scp-style remote); a bare secret after `git@host:` still is.
+- **Card text, cost bounds before the fold** (review of the merge): `cardrules.clean` cut to `MAX_IN` BEFORE it squeezed white space,
+  so with a long white-space lead and a token over the edge the cut-through rest of the token ended up at the END of the folded text,
+  where no pattern knows it (and `mem card add` wrote it to the shelf). New `outputguard.costCut(text, n)`: a cost bound that drops
+  the run the edge broke, used in `clean`, `plainText`, `partsOf` and `maskedCopy`. `cardstore.write` now says what the mask took
+  out (`redacted: github-token x2`; it said nothing since `clean` masks before the write core sees the fields), on the CLI and in the
+  bridge. Probes run against this tree and against mutant copies of it (`test/mask-before-cut.test.mjs`).
 - **An open PEM block** (header and key material, no END line: a text cut inside the key) is masked by `redaction.mjs` too; before,
   ~1990 characters of a key survived `questiontext.prepare` (cut at 8000 before it redacts, a cost bound), and any window that
   ended inside a block. A header alone in prose is not touched.

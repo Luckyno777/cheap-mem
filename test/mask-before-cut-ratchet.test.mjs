@@ -28,6 +28,8 @@
 //   - the receiver-name dictionary (BENIGN in the scanner): a variable called `key`, `ts`, `list` ... is taken to be a
 //     date, a hash or an array, whatever it holds; a name outside the dictionary and not made from a mask needs a
 //     `mask-ok` or a mask;
+//   - the follow-the-variable check is generous: `x = raw + masked` or `x = f(masked, raw)` counts as masked, because the
+//     right-hand side MENTIONS a masked name; a mixture of both is not told apart from a masked value;
 //   - data flow beyond ONE function: a variable made from a mask in the same function counts, a parameter handed in
 //     already masked does not (that is what rule 3 and the `mask-ok` reason are for);
 //   - `mask-ok:` is trusted: it excuses the cut it stands above (four lines), and nobody re-checks the reason;
@@ -252,3 +254,30 @@ test('structure: raw.snippet cuts its window through windowMasked, and the other
   assert.match(body, /maskText\(textOf\(l\)\)/, 'and the hit is located in the masked text');
   assert.doesNotMatch(body.replace(/windowMasked\(text, from, to\)/, ''), /text\.slice\(/, 'no plain slice of the text is left in snippet');
 });
+
+// ------------------------------------------------------------------------------ pins for the places a scan cannot see
+
+/**
+ * The card text tools cut to a cost bound with `costCut` (which drops the run the edge broke) and mask what is kept. `clean`
+ * has no cut call a scan could judge, so the order is pinned: each entry is a statement that must stand, and the same
+ * statement with its mask (or its `costCut`) taken out must NOT match, so the pin is known to bite. The behaviour is proved
+ * by the probe with mutant trees in mask-before-cut.test.mjs.
+ */
+const PINS = [
+  ['src/cardrules.mjs', /const t = typeof v === 'string' \? maskText\(costCut\(v, MAX_IN\)\)/, 'clean() masks what costCut kept'],
+  ['src/cardrules.mjs', /return maskText\(costCut\(String\(text \?\? ''\), SENTENCE_SOURCE_MAX\)\)/, 'plainText() likewise'],
+  ['src/cardrule.mjs', /maskText\(scrub\(costCut\(v, 2 \* rules\.MAX_IN\)\)\)/, 'partsOf() likewise'],
+  ['src/decisioncard.mjs', /maskText\(costCut\(v, MASK_CLIP\)\)/, 'maskedCopy() likewise'],
+  ['src/decisioncard.mjs', /const raw = costCut\(String\(t \?\? ''\), 2 \* rules\.MAX_IN\)/, 'textWithoutSource() bounds with costCut'],
+  ['src/cardstore.mjs', /\.\.\.maskedInFields\(fields\)/, 'write() reports what the mask took out'],
+  ['src/outputguard.mjs', /if \(\/\\s\/\.test\(text\[n\]\)\) return window\.trimEnd\(\);[\s\S]*?while \(i > 0 && !\/\\s\/\.test\(window\[i - 1\]\)\) i -= 1;/, 'costCut() drops the run the edge broke'],
+];
+for (const [rel, pin, what] of PINS) {
+  test(`pin: ${rel}: ${what}`, () => {
+    const src = fs.readFileSync(path.join(REPO, rel), 'utf8');
+    assert.match(src, pin, 'the statement stands');
+    const broken = src.replace(/maskText\(costCut\(/g, 'costCut(').replace(/costCut\(/g, 'cutPlain(').replace(/\.\.\.maskedInFields\(fields\)/, '')
+      .replace('if (/\\s/.test(text[n])) return window.trimEnd();', '');
+    assert.doesNotMatch(broken, pin, 'control: with the mask or the bound taken out the pin no longer matches');
+  });
+}

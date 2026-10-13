@@ -1238,6 +1238,7 @@ async function handleCall(name, args) {
         }, { project: args.project && args.project !== 'global' ? String(args.project) : null, agent: resolveAgent() });
         return textResult([
           `Card ${r.entry.id} for ${args.target_id} written (by ${r.entry.agent}, tier ${r.entry.authority}).`,
+          ...(r.findings?.length ? [`redacted: ${r.findings.map((f) => `${f.type}x${f.count}`).join(', ')} (nothing secret was written in the clear)`] : []),
           ...r.warnings.map((w) => `note: ${w}`),
           'The target was not touched; the card of the higher tier counts, then the youngest.',
         ].join('\n'));

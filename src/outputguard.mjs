@@ -136,3 +136,25 @@ export function windowMasked(text, from, to) {
   }
   return masked.slice(a, Math.max(a, b));
 }
+
+/**
+ * A **cost bound** (the work after it stays limited) that cannot leave half a key behind. A plain `text.slice(0, n)` in
+ * front of a mask cuts through whatever stands at the edge; if the text is later folded (white space squeezed, so the
+ * edge moves to the front of the result) or the kept part is short, the cut-through rest comes out and no pattern knows
+ * it. So: when the text is longer than `n`, the last run of non-white characters in the window (the one the edge
+ * broke) is dropped, back to the last white space. A text that fits comes back whole. Use it as
+ * `maskText(costCut(text, n))`, never `maskText(text).slice(0, n)` for a bound that is not itself the shown length.
+ *
+ * Costs one character class scan of the window; a window without any white space (one run longer than `n`) comes back
+ * empty: such a run is not text anybody reads, and a key is exactly such a run.
+ */
+export function costCut(text, n) {
+  if (typeof text !== 'string' || text.length <= n) return text;
+  // mask-ok: THIS is the cost bound; the run the edge broke is dropped on the next line
+  const window = text.slice(0, Math.max(0, n));
+  // the edge fell on white space: the last run is whole
+  if (/\s/.test(text[n])) return window.trimEnd();
+  let i = window.length;
+  while (i > 0 && !/\s/.test(window[i - 1])) i -= 1;
+  return window.slice(0, i).trimEnd();
+}

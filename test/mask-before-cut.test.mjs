@@ -26,7 +26,7 @@ import { exportCommit } from './helpers/export-commit.mjs';
 import { KIND_NAMES, bait, baitTail, leaks } from './helpers/mask-before-cut-bait.mjs';
 import http from 'node:http';
 import zlib from 'node:zlib';
-import { maskText, cutMasked, windowMasked } from '../src/outputguard.mjs';
+import { maskText, cutMasked, windowMasked, costCut } from '../src/outputguard.mjs';
 import { guardResponse, maskBody } from '../src/servemask.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -956,6 +956,121 @@ test('card rule: warning and refusal texts mask a key that stands over their cut
       }
     }
   }
+});
+
+// ---- the card code: the mask in front of every cost bound, and a mutant tree for each ---------------------------------
+//
+// The card work (cardrules.clean, cardrule.partsOf, decisioncard.maskedCopy, cardrules.plainText) cuts a text to a COST
+// bound before it masks. A plain cut leaves the cut-through rest of a key behind, and a fold of white space brings that
+// rest to the END of the folded text, where no pattern knows it (an 8160-space lead and a token over the edge). The probe
+// runs against this tree (no leak) and against MUTANTS of it (a copy of src/ with one mask or one `costCut` taken out):
+// each mutant must leak, so the probe is known to bite.
+
+const CARD_TOKEN = ['gh', 'p_'].join('') + 'A'.repeat(36);
+
+/** A copy of src/ in a scratch directory with one file changed. Returns the directory (the tree root). */
+function mutantTree(rel, mutate) {
+  const dir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'cm-mbc-mutant-'));
+  made.push(dir);
+  fs.cpSync(path.join(REPO, 'src'), path.join(dir, 'src'), { recursive: true });
+  const file = path.join(dir, rel);
+  const before = fs.readFileSync(file, 'utf8');
+  const after = mutate(before);
+  assert.notEqual(after, before, `the mutation of ${rel} changed nothing (the anchor is stale)`);
+  fs.writeFileSync(file, after);
+  return dir;
+}
+const leakIn = (value) => {
+  const s = (typeof value === 'string' ? value : JSON.stringify(value)).replace(/\[REDACTED:[^\]]*\]/g, '');
+  return leaks(s, CARD_TOKEN);
+};
+
+/** Every place the card code echoes or stores text, fed a token on the edges. Returns the names of the places that leak. */
+async function cardLeaks(tree, t) {
+  const found = new Set();
+  const dc = await imp(tree, 'src/decisioncard.mjs');
+  const cr = await imp(tree, 'src/cardrule.mjs');
+  const store = await imp(tree, 'src/cardstore.mjs');
+  const root = await mkroot(REPO, t); // the shelf is plain files: any initialised memory serves
+  // 1. what the checks say about an option (the error names its first 30 characters, the warning its first 40)
+  for (const choice of [`${CARD_TOKEN}${'w'.repeat(90)}`, `${CARD_TOKEN}`, `=${CARD_TOKEN}`]) {
+    const fields = { target_id: 'dut1abcd', question: 'Which?', context: 'Because it is open.', options: [`${choice} — eff`, 'No — b'] };
+    const c = store.check(fields);
+    if (leakIn([c.errors, c.warnings])) found.add('check: errors and warnings');
+    const c2 = store.check({ ...fields, options: [choice, 'No — b'] });
+    if (leakIn([c2.errors, c2.warnings])) found.add('check: option without effect');
+    // 2. the write itself: the stored line, the returned entry, and what the caller is told was taken out
+    await plant(REPO, root, 'duty', { id: 'dut1abcd', title: 'Plain', who: 'alice' });
+    try {
+      const w = store.write(root, fields);
+      const stored = fs.readFileSync(path.join(root, 'global', 'cards.jsonl'), 'utf8');
+      if (leakIn([w.entry, stored])) found.add('write: the stored card');
+      if (!w.findings.some((f) => f.type === 'github-token')) found.add('write: the caller is not told what was masked');
+    } catch (e) { if (leakIn(e.message)) found.add('write: the refusal text'); }
+  }
+  // 3. the edge: a long white-space lead, the token over the cost bound (the fold moves the rest to the end)
+  for (const [bound, ws] of [[8192, ' '], [8192, '\n'], [2000, ' '], [16384, ' '], [16384, '\t']]) {
+    for (const off of [-36, -30, -20, -10, -1]) {
+      const text = `lead${ws.repeat(bound + off - 4)}${CARD_TOKEN} tail`;
+      for (const f of ['card_question', 'card_context', 'card_advice', 'card_evidence', 'card_options']) {
+        const val = f === 'card_options' ? [`Yes — ${text}`, 'No — later'] : (f === 'card_evidence' ? [text] : text);
+        const entry = { id: 'dut1abcd', title: 'plain', who: 'alice', [f]: val };
+        if (leakIn(dc.cardOf(entry, { type: 'duty' }))) found.add(`cardOf ${f} @${bound}`);
+        const v = cr.judge('duty', entry, { route: 'cli', human: 'alice' });
+        if (leakIn([v, cr.messages(v, { id: 'a1234' }).join('\n')])) found.add(`judge ${f} @${bound}`);
+      }
+      for (const f of ['title', 'text', 'why']) {
+        const entry = { id: 'dut1abcd', title: f === 'title' ? text : 'plain', ...(f !== 'title' ? { [f]: text } : {}), who: 'alice' };
+        if (leakIn(dc.cardOf(entry, { type: 'duty' }))) found.add(`fallback card ${f} @${bound}`);
+      }
+    }
+  }
+  return [...found].sort();
+}
+
+test('card code: no echo, no stored line, no card shows a piece of a key at the cost bounds; the caller is told what was masked', async (t) => {
+  assert.deepEqual(await cardLeaks(REPO, t), []);
+});
+
+// (partsOf at 2*MAX_IN, maskedCopy at MASK_CLIP and plainText at 2000 are first layers: `clean()` bounds and masks again behind
+// them, so taking their `costCut` out is not observable; they keep it so that no layer depends on the next.)
+for (const [name, rel, mutate, expected] of [
+  ['clean() without its mask', 'src/cardrules.mjs', (s) => s.replace('maskText(costCut(v, MAX_IN))', 'costCut(v, MAX_IN)'), /check|write/],
+  ['clean() with a plain cut instead of costCut', 'src/cardrules.mjs', (s) => s.replace('maskText(costCut(v, MAX_IN))', 'maskText(v.slice(0, MAX_IN))'), /cardOf|judge|fallback/],
+  ['write() without the findings of the mask', 'src/cardstore.mjs', (s) => s.replace('...maskedInFields(fields), ', ''), /caller is not told/],
+]) {
+  test(`card code, mutant (red proof): ${name}: the probe sees the leak`, async (t) => {
+    const tree = mutantTree(rel, mutate);
+    const got = await cardLeaks(tree, t);
+    assert.ok(got.some((x) => expected.test(x)), `the mutant should leak where ${expected} (saw: ${got.join('; ') || 'nothing'})`);
+  });
+}
+
+test('mem card add: the refusal and the report show no piece of a token; the report says what was masked; the shelf holds none', async (t) => {
+  const root = await mkroot(REPO, t);
+  await plant(REPO, root, 'duty', { id: 'dut1abcd', title: 'Plain', who: 'user' });
+  const longChoice = `Use ${CARD_TOKEN} ${'and so on '.repeat(12)}`;
+  const refused = await mem(REPO, root, 'card', 'add', 'dut1abcd', '--question', 'Which?', '--context', 'Because it is open.', '--option', `${longChoice} — eff`, '--option', 'No — b');
+  assert.notEqual(refused.status, 0, 'positive control: the card is refused');
+  assert.match(refused.stderr + refused.stdout, /Card not written/, 'positive control: the refusal is the one we want');
+  assert.ok(!leakIn(refused.stderr + refused.stdout), `the refusal echoes a piece of the token: ${refused.stderr.slice(0, 200)}`);
+  const ok = await mem(REPO, root, 'card', 'add', 'dut1abcd', '--question', `Is ${CARD_TOKEN} still wanted?`, '--context', 'Because it is open.', '--option', 'Yes — keep', '--option', 'No — drop');
+  assert.equal(ok.status, 0, ok.stderr);
+  assert.match(ok.stdout, /redacted: github-token/, 'the report says what was masked');
+  assert.ok(!leakIn(ok.stdout + ok.stderr), 'and shows no piece of it');
+  assert.ok(!leakIn(fs.readFileSync(path.join(root, 'global', 'cards.jsonl'), 'utf8')), 'the shelf holds none');
+});
+
+test('costCut: a text that fits is whole, a longer one loses the run the edge broke, a window without white space is empty', () => {
+  assert.equal(costCut('short text', 50), 'short text');
+  assert.equal(costCut('aaa bbb ccc ddd', 9), 'aaa bbb');
+  assert.equal(costCut('aaa bbb ccc ddd', 8), 'aaa bbb');
+  assert.equal(costCut('aaa bbb ccc ddd', 7), 'aaa bbb', 'the edge falls on white space: the last run is whole');
+  assert.equal(costCut('aaa bbb ccc ddd', 6), 'aaa', 'the edge breaks bbb: it goes');
+  assert.equal(costCut('x'.repeat(100), 10), '');
+  const text = `lead${' '.repeat(40)}${CARD_TOKEN} tail`;
+  assert.ok(!leaks(maskText(costCut(text, 60)), CARD_TOKEN), 'no piece of a token the edge broke');
+  assert.ok(leaks(maskText(text.slice(0, 60)), CARD_TOKEN), 'control: a plain cut leaves one');
 });
 
 // ---- the runner -----------------------------------------------------------------------------------------------------

@@ -37,7 +37,7 @@
 // invariant: nicht-messbar-ist-nicht-null
 
 import * as authority from './authority.mjs';
-import { maskText } from './outputguard.mjs';
+import { maskText, costCut } from './outputguard.mjs';
 import * as rules from './cardrules.mjs';
 
 const { LIMITS: L, clean, shorten, sentencesOf, isDecline, splitOption, listOf } = rules;
@@ -80,8 +80,8 @@ const MASK_CLIP = 2 * rules.MAX_IN;
  * (a PEM block longer than the limit) survives as clear text. Masking each finished field afterwards is the second layer.
  */
 function maskedCopy(v, depth = 0) {
-  // mask-ok: a cost bound (MASK_CLIP); what is kept is masked next
-  if (typeof v === 'string') return maskText(v.length > MASK_CLIP ? v.slice(0, MASK_CLIP) : v);
+  // the cost bound (MASK_CLIP) drops the run the edge broke (outputguard.costCut); what is kept is masked next
+  if (typeof v === 'string') return maskText(costCut(v, MASK_CLIP));
   if (v === null || typeof v !== 'object' || depth >= 6) return depth >= 6 && typeof v === 'object' ? null : v;
   if (Array.isArray(v)) return v.slice(0, 200).map((x) => maskedCopy(x, depth + 1));
   const out = {};
@@ -196,8 +196,8 @@ function repeats(sentence, title) {
  * runs are disjoint.
  */
 function textWithoutSource(t) {
-  // mask-ok: a cost bound; clean() masks and cuts again at MAX_IN, past this stump
-  const raw = String(t ?? '').slice(0, 2 * rules.MAX_IN);
+  // a cost bound that drops the run the edge broke; clean() masks and bounds again at MAX_IN
+  const raw = costCut(String(t ?? ''), 2 * rules.MAX_IN);
   let from = raw.indexOf('Source:');
   while (from !== -1) {
     let start = from; let breaks = 0;

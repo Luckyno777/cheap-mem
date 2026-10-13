@@ -21,7 +21,7 @@
 
 // invariant: eine-regel-eine-stelle
 
-import { maskText } from './outputguard.mjs';
+import { maskText, costCut } from './outputguard.mjs';
 
 /** The three kinds of card: the human chooses between ways / releases what another prepared / a task, not a decision. */
 export const KINDS = Object.freeze(['decide', 'approve', 'do-it']);
@@ -41,9 +41,11 @@ const SENTENCE_SOURCE_MAX = 2000;
  * bidi switches such as U+202E, zero-width characters). A card goes to a terminal, a page and an agent's context.
  */
 export function clean(v) {
-  // mask-ok: MAX_IN is a cost bound far beyond anything a card shows (every output is shorter); the MASK runs on what
-  // is kept, before the fold and before every later cut (shorten, sentencesOf, the limits)
-  const t = typeof v === 'string' ? maskText(v.slice(0, MAX_IN)) : (typeof v === 'number' ? String(v) : '');
+  // The cost bound comes through `costCut`, which drops the run the edge broke: the fold below squeezes white space, so a
+  // plain cut at MAX_IN would leave the cut-through rest of a key at the END of the folded text, where no pattern knows
+  // it (an 8160-space lead and a token over the edge did exactly that). The mask runs on what is kept, before the fold
+  // and before every later cut (shorten, sentencesOf, the limits).
+  const t = typeof v === 'string' ? maskText(costCut(v, MAX_IN)) : (typeof v === 'number' ? String(v) : '');
   return t.replace(/\s+/g, ' ').replace(/[\p{Cc}\p{Cf}]/gu, '').trim();
 }
 
@@ -92,8 +94,8 @@ const ABBREVIATIONS = new Set(['e', 'g', 'i', 'eg', 'ie', 'etc', 'vs', 'cf', 'ap
 
 /** Markdown out, whitespace folded: bounded patterns only (at most a few hundred characters per link). */
 function plainText(text) {
-  // mask-ok: SENTENCE_SOURCE_MAX is a cost bound; the mask runs on what is kept, before any sentence is cut
-  return maskText(String(text ?? '').slice(0, SENTENCE_SOURCE_MAX))
+  // the cost bound drops the run the edge broke (outputguard.costCut); the mask runs on what is kept, before any sentence is cut
+  return maskText(costCut(String(text ?? ''), SENTENCE_SOURCE_MAX))
     .replace(/!?\[([^\]\n]{0,200})\]\([^)\n]{0,300}\)/g, '$1')
     .replace(/`+/g, '')
     .replace(/\*\*|__/g, '')
