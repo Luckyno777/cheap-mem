@@ -7,6 +7,9 @@
 // happened to begin with `my` or `test` made a test flake (headline-rule, one run in ten). Now the whole value must
 // be a placeholder word, alone or with exactly one generic word behind it.
 //
+// CANARY FILE: contains deliberate sample secrets as probes for the redaction; the scanner and the pre-commit hook
+// skip files with this marker.
+//
 // Red proof against a FIXED old commit (never a moving merge-base). Positive control: the placeholders stay
 // unmasked, otherwise "masks more" would be a redaction that eats its own documentation.
 import test from 'node:test';
@@ -44,6 +47,7 @@ test('red proof: the old exception list let the prefixed values through', async 
     const old = await import(pathToFileURL(path.join(dir, 'src', 'redaction.mjs')).href);
     const through = MASKED.filter((v) => !/REDACTED/.test(old.redact(v).text));
     assert.ok(through.includes('password=mySecret123!') && through.includes('password=test1234'), `the old list excused: ${through.join(', ')}`);
+    assert.ok(/REDACTED/.test(old.redact('git@github.com:Luckyno777/cheap-mem.git').text), 'the old tree masked an scp-style git remote as a credential pair');
     for (const v of ['password=your_password', 'password=<TOKEN>', 'password=${VAR}', 'token=my-token', 'api_key=example']) assert.equal(old.redact(v).text, v, `control: the old list kept ${v} too`);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
@@ -56,4 +60,12 @@ test('one source: the commit scan runs the same redact(), it keeps no placeholde
   for (const rel of ['hooks/pre-push', 'hooks/append-only.mjs']) {
     assert.doesNotMatch(fs.readFileSync(path.join(REPO, rel), 'utf8'), /\b(your|my|example|sample|dummy|fake)\s*\|\s*(my|example|sample|dummy|fake|placeholder)/i, `${rel}: no placeholder list`);
   }
+});
+
+test('an scp-style git remote is not an address followed by a credential; real credential pairs and token URLs still are masked', () => {
+  for (const v of ['git@github.com:Luckyno777/cheap-mem.git', 'git remote add origin git@github.com:Luckyno777/lucky-mem.git', 'git@github.com:Luckyno777/cheap-mem',
+    'origin\tdeploy@github.com:Luckyno777/cheap-mem.git (fetch)']) assert.equal(redact(v).text, v, `must stay: ${v}`);
+  const token = ['gh', 'p_'].join('') + 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789';
+  for (const v of ['admin@example.com / aB3xY9kQ7mZ2pL5wQ1', 'admin@example.com:aB3xY9kQ7mZ2pL5wQ1', 'git@example.com:aB3xY9kQ7mZ2pL5wQ1', 'git@example.com: aB3xY9kQ7mZ2pL5wQ1',
+    `https://oauth2:${token}@github.com/o/r.git`]) assert.ok(/REDACTED/.test(redact(v).text), `must be masked: ${v}`);
 });

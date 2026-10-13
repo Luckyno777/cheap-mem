@@ -127,14 +127,18 @@ export const PATTERNS = Object.freeze([
   // json-blob 4 of 5). Now only a dot followed by token characters, the
   // JWT shape, stops it.
   ['json-blob',       /\beyJ[A-Za-z0-9_-]{40,}={0,2}(?![A-Za-z0-9_-]|\.[A-Za-z0-9_-])/g],
-  ['pem-block',       /-----BEGIN[^-]{0,40}-----[\s\S]*?-----END[^-]{0,40}-----/g],
+  // The span between BEGIN and END is bounded (8 KB; a 4096-bit RSA key is ~3.2 KB): without the bound a text with many
+  // BEGIN lines and no END scanned to its end from each of them, quadratic (2.8 MB took 38 s).
+  ['pem-block',       /-----BEGIN[^-]{0,40}-----[\s\S]{0,8192}?-----END[^-]{0,40}-----/g],
   // The same block WITHOUT its END line: a text that was cut inside the key (a cap, a window, a truncated paste)
   // keeps the header and a long run of key material, and the pattern above needs the END to see any of it
   // (mask-before-cut round: ~1990 characters of a key survived `questiontext.prepare` this way). Runs after the
   // pattern above, so a complete block has already fallen; what is left is open. Only the key MATERIAL falls:
   // the header, then base64 runs of 20+ characters (lines, or the literal \n of a JSON string between them).
   // A header alone ("-----BEGIN CERTIFICATE-----" in prose) is not touched.
-  ['pem-block',       /-----BEGIN[^-]{0,40}-----(?:\s|\\[nr]|[A-Za-z0-9 ,:.-]{1,60}(?:\r?\n|\\n))*(?:[A-Za-z0-9+/=]{20,}(?:\s|\\[nr])*)+/g],
+  // Unambiguous by construction (no two ways to read the same characters, so no backtracking blow-up): blank space; then
+  // header lines (`Proc-Type: 4,ENCRYPTED`: a letter-led name, a colon, a bounded value, a line end); then base64 runs.
+  ['pem-block',       /-----BEGIN[^-]{0,40}-----(?:\s|\\[nr])*(?:[A-Za-z][A-Za-z0-9-]{0,30}:[^\n\\]{0,61}(?:\r?\n|\\n)(?:\s|\\[nr])*)*(?:[A-Za-z0-9+/=]{20,}(?:\s|\\[nr])*)+/g],
   ['ssh-key',         /\bssh-(?:rsa|ed25519|dss)\s+[A-Za-z0-9+/=]{50,}/g],
 
   // --- Headers / URLs ------------------------------------------------
@@ -466,6 +470,9 @@ export function redact(text) {
       if (type === 'credential-pair' && real.length >= 3) {
         const [who, sep, value] = real;
         if (isHarmless(value)) return match;
+        // `git@github.com:Owner/repo.git` is an scp-style remote, not an address followed by a credential: the
+        // separator is a bare colon and the "value" is a repository path (a `.git` suffix, or `owner/repo` after the `git` user). A bare secret after `git@host:` is still masked.
+        if (sep === ':' && (/\.git$/i.test(value) || (/^git@/i.test(who) && /^[\w.-]+\/[\w./-]+$/.test(value)))) return match;
         counter.set(type, (counter.get(type) ?? 0) + 1);
         return `${who}${sep}[REDACTED:${type}]`;
       }
