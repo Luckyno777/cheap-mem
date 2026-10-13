@@ -151,7 +151,9 @@ const FORMS = {
 const CODE_TREE_FINDINGS = new Set(['docs-images-fresh', 'integration-contract']);
 // A finding added after the exported old state, reading `.mem/local/question-text/` and no drawer:
 // the old state cannot have it. Its own probes are in test/question-text.test.mjs.
-const NEWER_FINDINGS = new Set(['question-text']);
+// Likewise `decision-without-explanation` (H11, card-rule-doctor-cm): it counts the human's open decisions through the card source.
+// Its own probes are in test/decision-without-explanation.test.mjs.
+const NEWER_FINDINGS = new Set(['question-text', 'decision-without-explanation']);
 // The O_APPEND probe races worker threads against a deadline: under load it answers "could not
 // measure" for a reason that is the machine's, so its text is not compared.
 const TIMING_PROBE = /concurrent (O_APPEND writes|writers)/;

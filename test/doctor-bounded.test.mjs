@@ -232,7 +232,9 @@ test('old and new agree on the findings this change must not touch', async () =>
     assert.equal(b.find((x) => x.name === 'index').level, a.find((x) => x.name === 'index').level);
     // `question-text` was added after the exported old state (it reads .mem/local/, no drawer);
     // everything else must be the same findings in the same order, no renames.
-    const newer = new Set(['question-text']);
+    // `decision-without-explanation` (H11, card-rule-doctor-cm) is the same: it reads the open duties and questions through the
+    // card source, no new drawer, and the old state cannot have it. Its own probes are in test/decision-without-explanation.test.mjs.
+    const newer = new Set(['question-text', 'decision-without-explanation']);
     assert.ok(b.some((x) => newer.has(x.name)), 'positive control: the newer finding is there');
     assert.deepEqual(b.map((x) => x.name).filter((n) => !newer.has(n)), a.map((x) => x.name), 'same findings, same order, no renames');
   } finally {

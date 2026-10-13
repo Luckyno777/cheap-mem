@@ -60,8 +60,14 @@ routinely forget. Four occasions:
 - a finding that saves work next time → `type: learning`
 - an event that changes the state → `type: event`
 
-Three more drawers:
+More drawers:
 
+- **What a person is meant to decide** → `type: duty` or `type: question`
+  with `who` = that person, and **the decision card with it**:
+  `card_question` (one sentence, ends in "?"), `card_context` (one or two
+  sentences), `card_options` (at least two, "choice — effect", one of them
+  No / not now). Without it the entry is taken in but flagged "explanation
+  missing"; the person then reads a fallback card instead of your words.
 - **What you do NOT know** → `type: question`. Noting it is cheaper
   than asking it twice.
 - **A document somebody points at** → `type: source`.

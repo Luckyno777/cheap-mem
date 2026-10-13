@@ -429,8 +429,8 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-numbers.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **87 CLI commands, 45 MCP tools, 203 modules, 4576
-tests**; as of 2026-09-20, about 85593 lines in `bin/` and `src/`, at
+As of 2026-09-26: **87 CLI commands, 45 MCP tools, 207 modules, 4618
+tests**; as of 2026-09-20, about 86206 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 
 ### Reading it with a model, or evaluating it properly
@@ -688,6 +688,7 @@ mem component <path>               everything about ONE file
 mem topic-merge <old> --to <new>   fold topics; applied on read, nothing rewritten
 mem questions / mem answer <q> --with <entry>   what we do not know, and closing it (a person's question: `mem questions confirm`; `--who` names who it goes to)
 mem card add|list                  a decision card for what a person is to decide: question, context, options with effects (docs/CAPABILITIES.md 10.31)
+                                   a NEW duty or question for the human brings its card (`--card_question`, `--card_options` twice); without one it is taken in as "explanation missing", with `CHEAP_MEM_CARD_REJECT=yes` it is refused
 mem procedures / mem teach         recorded steps; what a newcomer needs to hear
 mem sources add|bridge|list        where a claim came from
 mem store put|list|get|verify      files the memory keeps by hash

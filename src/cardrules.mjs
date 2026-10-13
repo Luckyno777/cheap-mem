@@ -153,14 +153,14 @@ export const projectOfTarget = (target) => TARGET_PROJECT.exec(target ?? '')?.[1
 export const targetIsEntry = (target) => TARGET_ID.test(target ?? '');
 
 /**
- * Check whether these fields may become a card. Pure. `errors` stop the write, `warnings` do not. The lengths are STRICTER
- * than on display (which only cuts): whoever writes a card should write it so it is read in one piece.
+ * The content of a card (without the target): question, context, options, advice, evidence, kind. ONE check for the card on the
+ * shelf (`checkCard`) and for the card an entry carries itself (`cardrule`, the write rule for a duty or question to a person).
+ * `contextRequired: false` turns a missing context into a warning: on the entry the fallback card fills it, on the shelf the card
+ * IS what the person reads. Pure.
  */
-export function checkCard({ target_id: target, question, context, options, advice, evidence, kind } = {}) {
+export function checkCardContent({ question, context, options, advice, evidence, kind } = {}, { contextRequired = true } = {}) {
   const errors = []; const warnings = [];
   const L = LIMITS;
-  const tp = targetFormProblem(target);
-  if (tp) errors.push(tp);
   const q = clean(question);
   if (!q) errors.push('card_question missing — the decision question in one sentence');
   else {
@@ -168,8 +168,10 @@ export function checkCard({ target_id: target, question, context, options, advic
     if (!q.endsWith('?')) warnings.push('the question does not end in "?" — sure it is a decision question?');
   }
   const c = clean(context);
-  if (!c) errors.push('card_context missing — one or two sentences: what is it about, why now');
-  else if (c.length > L.context) errors.push(`card_context is ${c.length} characters long, ${L.context} are allowed`);
+  if (!c) {
+    if (contextRequired) errors.push('card_context missing — one or two sentences: what is it about, why now');
+    else warnings.push('card_context missing — one or two sentences: what is it about, why now (the fallback card fills it in)');
+  } else if (c.length > L.context) errors.push(`card_context is ${c.length} characters long, ${L.context} are allowed`);
   const opt = listOf(options);
   if (opt.length < 2) errors.push(`at least two options are needed (one "choice — effect" each; \`mem card add\`: --option twice, \`mem log card\`: --card_options twice or one per line), given: ${opt.length}`);
   if (opt.length > L.optionsMax) errors.push(`at most ${L.optionsMax} options, given: ${opt.length}`);
@@ -189,4 +191,15 @@ export function checkCard({ target_id: target, question, context, options, advic
     errors.push(`card_kind '${clean(kind)}' does not exist; allowed: ${KINDS.join(', ')}`);
   }
   return { ok: errors.length === 0, errors, warnings };
+}
+
+/**
+ * Check whether these fields may become a card on the shelf. Pure. `errors` stop the write, `warnings` do not. The lengths are
+ * STRICTER than on display (which only cuts): whoever writes a card should write it so it is read in one piece.
+ */
+export function checkCard({ target_id: target, ...content } = {}) {
+  const tp = targetFormProblem(target);
+  const c = checkCardContent(content);
+  const errors = tp ? [tp, ...c.errors] : c.errors;
+  return { ok: errors.length === 0, errors, warnings: c.warnings };
 }
