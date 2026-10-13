@@ -9,18 +9,21 @@
 // the query. Embeddings cover that case but cost a call and a network hop.
 //
 // Hybrid is the escalation that keeps the default cheap: run BM25, and —
-// only when embeddings are actually configured — run the semantic search
-// too and FUSE the two rankings. One entry surfaced by either ranker
-// survives. When embeddings are not set up, hybrid is exactly BM25, at
-// exactly BM25's cost. No silent dependency.
+// only when a LOCAL embedding model is configured — run the semantic
+// search too and FUSE the two rankings. One entry surfaced by either
+// ranker survives. When embeddings are not set up, hybrid is exactly
+// BM25, at exactly BM25's cost. No silent dependency.
+//
+// Since 2026-10-13 no embedding provider is external (owner decision:
+// no entry text goes to a vendor). A memory still configured for one gets
+// the state `rejected` from `semanticPlan`, and every caller must SAY so
+// when it falls back to lexical search; the fallback is never silent.
 //
 // Fusion is Reciprocal Rank Fusion (RRF): each ranker contributes
 // 1/(k + rank) to an item's score. It needs no score normalisation across
 // the two very different scales (BM25 magnitude vs. cosine similarity),
 // which is what makes it robust — the ranks are all that matter.
 
-import fs from 'node:fs';
-import path from 'node:path';
 import { search } from './search.mjs';
 
 export const RRF_K = 60;
@@ -80,20 +83,25 @@ export function fuse(bmHits, semHits, { k = RRF_K, top = 10 } = {}) {
  * `semantic` is an async (query, n) => hit[] | null. Inject the real one
  * with makeSemantic(root); tests inject a mock. When it is null, returns
  * empty, or throws, hybrid degrades to plain BM25 — same result, same
- * cost, no error surfaced to the caller.
+ * cost. A throw is not swallowed unseen: it goes to `onSemanticError`,
+ * so the caller can put it in the label instead of claiming "no hits".
  */
 export async function hybridSearch(index, query, {
   top = 10,
   candidateN = 20,
   semantic = null,
   searchOpts = {},
+  onSemanticError = null,
 } = {}) {
   const bm = search(index, query, { top: candidateN, minScore: 0, ...searchOpts });
 
   let sem = null;
   if (semantic) {
     try { sem = await semantic(query, candidateN); }
-    catch { sem = null; }
+    catch (e) {
+      sem = null;
+      if (onSemanticError) onSemanticError(e);
+    }
   }
   if (!sem || sem.length === 0) {
     // Pure BM25 path — shape the return to match fuse() so callers are uniform.
@@ -103,32 +111,40 @@ export async function hybridSearch(index, query, {
 }
 
 /**
- * Build the real semantic ranker for a memory root, or return null when
- * embeddings are not configured / no vectors are stored. Loads the embed
- * modules lazily so that a memory without embeddings never pays for them.
+ * The semantic side of a search, and the honest reason when there is none.
+ *
+ *   { state: 'local', rank }           rank(query, n) -> hits, on this machine
+ *   { state: 'not-configured'|'rejected'|'broken', rank: null, message }
+ *
+ * Loads the embed modules lazily so that a memory without embeddings
+ * never pays for them. `message` is what to show the person; the caller
+ * decides where (stdout label, stderr line, JSON field).
  */
-export async function makeSemantic(root) {
-  let embedmod, store, cfg, dim;
-  try {
-    embedmod = await import('./embed/index.mjs');
-    // Only when the user deliberately ran `mem embed setup` — which writes
-    // embed.json — do we attempt semantic recall. readConfig() otherwise
-    // falls back to a default provider, which would make every hybrid query
-    // fire a doomed network call (and mislabel the result as "semantic").
-    if (!fs.existsSync(path.join(root, embedmod.CONFIG_PATH))) return null;
-    cfg = embedmod.readConfig(root);
-    dim = embedmod.dimensions(cfg.provider, cfg.model);
-    store = await import('./embed/store.mjs');
-  } catch {
-    return null;
-  }
-  return async (query, n) => {
-    const vector = await embedmod.embed(root, query, { cfg });
+export async function semanticPlan(root, opts = {}) {
+  const embedmod = await import('./embed/index.mjs');
+  const st = await embedmod.embedState(root, opts);
+  if (st.state !== 'local') return { ...st, rank: null };
+  let dim;
+  try { dim = embedmod.dimensions(st.provider, st.model); }
+  catch (e) { return { ...st, state: 'broken', reason: 'dimension', rank: null, message: `${e.message}; using lexical search` }; }
+  const rank = async (query, n) => {
+    const store = await import('./embed/store.mjs');
+    const vector = await embedmod.embed(root, query, { cfg: st.cfg });
     const db = await store.open(root, dim);
     try {
-      return store.search(db, vector, { top: n });
+      return store.search(db, vector, { top: n, provider: st.provider, model: st.model });
     } finally {
       try { db.close(); } catch { /* fine */ }
     }
   };
+  return { ...st, rank };
+}
+
+/**
+ * The ranker alone, or null when there is no local one. Kept for callers
+ * that only want the function; anything that reports a mode should use
+ * `semanticPlan` so it can say WHY there is none.
+ */
+export async function makeSemantic(root) {
+  return (await semanticPlan(root)).rank;
 }

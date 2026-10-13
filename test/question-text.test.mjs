@@ -99,6 +99,18 @@ test('THE CASE: the hook keeps the question locally, tied to its journal line; t
   }
 });
 
+test('an inherited PROMPT variable (Windows: cmd.exe\'s prompt string) does not turn the kept question into a redaction mark', () => {
+  const root = build();
+  const question = 'what was the hummingbeat measurement about, quuxlevarn?';
+  const { out, lines } = ask(root, question, 'qt-env', { PROMPT: '$P$G' });
+  assert.ok(out.includes('hummingbeat'), `the hook delivered nothing - the fixture is no good: ${out.slice(0, 120)}`);
+  assert.equal(lines.length, 1);
+  assert.equal(qt.read(root).lines[0]?.question, question);
+  // Control: the same run without the inherited name keeps it, too.
+  const plain = ask(root, question, 'qt-env2');
+  assert.equal(plain.lines.length, 1);
+});
+
 test('a short prompt without signal is booked no-signal and its text is tied to that line', () => {
   const root = build();
   const { lines } = ask(root, 'ok', 'qt-2');
@@ -360,24 +372,26 @@ test('doctor: assess (behind the finding question-text) states the situations ho
 
 // --- Follow-ups (reviewer 2026-10-12) ---------------------------------------------------------------------
 
-/** A fake `git`: logs every call and answers per sub-command as ordered. */
+/**
+ * A fake `git`: logs every call and answers per sub-command as ordered. A node script started as
+ * `[process.execPath, script]`: a `#!/bin/sh` file is no program on Windows (CI run 912), where it
+ * made the fake "no git at all" and turned four probes of the git-unclear path into wrong answers.
+ */
 function fakeGit({ ignore = 0, revParse = 0, sleep = 0 } = {}) {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-qt-git-'));
   roots.push(d);
   const log = path.join(d, 'calls.log');
-  const bin = path.join(d, 'git');
-  fs.writeFileSync(bin, [
-    '#!/bin/sh',
-    `echo "$1" >> '${log}'`,
-    sleep ? `sleep ${sleep}` : '',
-    'case "$1" in',
-    `  check-ignore) exit ${ignore} ;;`,
-    `  rev-parse) [ ${revParse} -eq 0 ] && echo true; exit ${revParse} ;;`,
-    'esac',
-    'exit 0',
+  const script = path.join(d, 'git.mjs');
+  fs.writeFileSync(script, [
+    "import fs from 'node:fs';",
+    `fs.appendFileSync(${JSON.stringify(log)}, \`\${process.argv[2]}\\n\`);`,
+    sleep ? `Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ${sleep * 1000});` : '',
+    `if (process.argv[2] === 'check-ignore') process.exit(${ignore});`,
+    `if (process.argv[2] === 'rev-parse') { if (${revParse} === 0) process.stdout.write('true\\n'); process.exit(${revParse}); }`,
+    'process.exit(0);',
     '',
-  ].join('\n'), { mode: 0o755 });
-  return { bin, calls: () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').split('\n').filter(Boolean) : []) };
+  ].join('\n'));
+  return { bin: [process.execPath, script], calls: () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').split('\n').filter(Boolean) : []) };
 }
 
 test('git answers unclear (exit 128 but inside a work tree): nothing written, counted as git-unclear', () => {

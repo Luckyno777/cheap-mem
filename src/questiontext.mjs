@@ -124,9 +124,12 @@ export function key(journalLine) {
 function placeVerdict(root, target, { gitBin = 'git', gitTimeoutMs = GIT_TIMEOUT_MS } = {}) {
   const rel = path.relative(root, target);
   if (rel.startsWith('..') || path.isAbsolute(rel)) return 'ignored'; // outside the tree
+  // `gitBin` is a program, or `[program, ...leading arguments]`: a stand-in for git that is a script needs
+  // `[process.execPath, 'script.mjs']` on Windows, where no script can be started as a program of its own.
+  const [bin, ...lead] = Array.isArray(gitBin) ? gitBin : [gitBin];
   const run = (args) => {
     try {
-      execFileSync(gitBin, args, { cwd: root, stdio: 'ignore', timeout: gitTimeoutMs });
+      execFileSync(bin, [...lead, ...args], { cwd: root, stdio: 'ignore', timeout: gitTimeoutMs });
       return { status: 0 };
     } catch (e) {
       return { status: e?.status ?? null, timedOut: e?.code === 'ETIMEDOUT' || e?.signal === 'SIGTERM' };

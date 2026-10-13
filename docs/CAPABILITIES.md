@@ -29,7 +29,7 @@ the verification commands at the end.
 | **Automation** | 7 Claude Code hooks (session start, recall per message, recall per file edit, recall after a failed or failure-printing tool call, subagent start, answer check and capture at stop), one model call per few hours, watcher, git as sync | [6](#6-automation) |
 | **Surfaces** | 87 CLI commands, 45 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 4578 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 4576 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -240,8 +240,9 @@ directory. The section number in brackets is where it is explained.
 | `workflowdetect.mjs` | finds the visible workflow (human, in force, no draft) for a prompt, a subagent assignment (`triggers`), a Bash command (`tool_patterns`) or a file (`path_patterns`, table role `works-on`); a tie shows titles only (10.26) |
 | `writegate.mjs` | the dashboard write switch: off by default, one check in front of every writing route (7.4) |
 
-Plus `src/embed/` — the optional embedding lane (provider, store,
-index), which is off unless configured.
+Plus `src/embed/` — the optional embedding lane (the local ollama
+adapter, its loopback gate, the store, the dispatcher), which is off
+unless configured and never sends entry text off the machine.
 
 ---
 ## Read this first if you are evaluating cheap-mem
@@ -407,12 +408,16 @@ There is no CLI flag for it: code calling `retrieve()` in `src/retrieval.mjs` ca
 
 ### 2.4 Optional semantic recall
 
-Embeddings are **off by default**. `src/embed-hook.mjs` is the seam
-where an embedding provider plugs in; `src/embed` holds the providers. When configured, `hybrid.mjs` runs
-BM25 and semantic search and fuses the two rankings with Reciprocal
-Rank Fusion — no score normalisation needed across the two very
-different scales. With embeddings unconfigured, hybrid is exactly BM25
-at exactly BM25's cost. **No silent dependency.**
+Embeddings are **off by default**, and **local only**: the one provider
+is ollama on a loopback address, and no entry text goes to an embedding
+vendor (Voyage and OpenAI were removed on 2026-10-13). `src/embed-hook.mjs`
+is the seam where the embedding is attached; `src/embed` holds the
+adapter. When configured, `hybrid.mjs` runs BM25 and semantic search and
+fuses the two rankings with Reciprocal Rank Fusion — no score
+normalisation needed across the two very different scales. With
+embeddings unconfigured, hybrid is exactly BM25 at exactly BM25's cost;
+a memory still set up for an external provider is refused out loud and
+searched lexically. **No silent dependency.**
 
 ### 2.5 Time-window retrieval
 

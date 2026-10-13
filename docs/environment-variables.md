@@ -183,7 +183,7 @@ A variable that is not in the table is not a switch: there is none.
 | `CHEAP_MEM_SMTP_TLS` | from the port | `ssl`, `starttls` or `plain` (plain only against your own machine). |
 | `MEM_WATCH_BRANCH` | not set (`main`) | Branch the inbox watcher checks. |
 | `MEM_WATCH_REMOTE` | not set (`origin`) | Remote the inbox watcher fetches from. |
-| `OLLAMA_HOST` | http://localhost:11434 | Where the Ollama embedding backend listens. |
+| `OLLAMA_HOST` | http://localhost:11434 | Where the local Ollama embedding backend listens. Loopback addresses only (127.0.0.0/8, ::1, `localhost`); any other host is refused and the search falls back to lexical, with a message. No entry text leaves the machine. |
 
 ### Identity — who, which zone, which surface
 
@@ -214,8 +214,8 @@ A variable that is not in the table is not a switch: there is none.
 | `CHEAP_MEM_MCP_TOKEN` | not set | Bearer token of the HTTP MCP bridge; never printed. |
 | `CHEAP_MEM_SERVE_TOKEN` | not set (localhost only) | Bearer token of the viewer; never printed. |
 | `CHEAP_MEM_SMTP_PASSWORD_FILE` | not set | Path of a file holding the SMTP password (permissions checked); the password never sits in a variable. |
-| `OPENAI_API_KEY` | not set (`.mem/embed.env` is read next) | Key of the OpenAI embedding backend; never printed. |
-| `VOYAGE_API_KEY` | not set (`.mem/embed.env` is read next) | Key of the Voyage embedding backend; never printed. |
+| `OPENAI_API_KEY` | ignored (REMOVED 2026-10-13) | REMOVED: the OpenAI embedding backend no longer exists (no entry text goes to an embedding vendor). The key is never used or printed; `mem embed status` only notes that the variable is set. |
+| `VOYAGE_API_KEY` | ignored (REMOVED 2026-10-13) | REMOVED: the Voyage embedding backend no longer exists (no entry text goes to an embedding vendor). The key is never used or printed; `mem embed status` only notes that the variable is set. |
 
 ### Test hooks
 

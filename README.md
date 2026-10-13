@@ -247,7 +247,9 @@ Nowhere. That is not a policy, it is the architecture:
   except summarisation still works.
 - **Semantic search, if you want it, stays local.** `mem find-hybrid`
   reranks with embeddings from **ollama** on your own machine — no key,
-  no vendor, still 0 API cost.
+  no vendor, still 0 API cost. There is no other embedding provider:
+  no entry text goes to an embedding vendor, not even masked, and an
+  ollama host that is not a loopback address is refused.
 
 <!-- cheap-mem-brand:workflow:start -->
 ![Capture appends redacted session records without a model. Digest uses a model to structure accumulated records. Standard recall searches indexed fields without a model; local embeddings are optional.](docs/assets/brand/01-how-it-works.png)
@@ -427,8 +429,8 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-numbers.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **87 CLI commands, 45 MCP tools, 208 modules, 4578
-tests**; as of 2026-09-20, about 85846 lines in `bin/` and `src/`, at
+As of 2026-09-26: **87 CLI commands, 45 MCP tools, 203 modules, 4576
+tests**; as of 2026-09-20, about 85593 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 
 ### Reading it with a model, or evaluating it properly
@@ -669,9 +671,9 @@ mem inbox claim <name> [--minutes M]            claim a message, with expiry
 mem inbox renew|done <name> --claim-id ID       renew / finish YOUR claim
                                (bridge: mem_inbox_claim / _renew / _done)
 
-mem embed setup|backfill|status    optional: semantic escalation
-mem find-embed "<query>"           pure semantic search (needs embeddings)
-mem find-hybrid "<query>"          BM25 + semantic, fused (RRF)
+mem embed setup|backfill|status    optional: local (ollama) semantic escalation
+mem find-embed "<query>"           local semantic search (else lexical, with a notice)
+mem find-hybrid "<query>"          BM25 + local semantic, fused (RRF)
 ```
 
 More commands, one line each (`mem --help` is the complete, current list;
@@ -713,13 +715,18 @@ BM25 honestly cannot do — a true paraphrase with no word in common:
 - `find-embed` searches the vector store alone.
 - `find-hybrid` runs BM25 **and** the semantic search and fuses the two
   rankings, so an entry surfaced by either survives. When embeddings are
-  not set up it is exactly `mem find`, at the same cost and with no wasted
-  network call; a missing key or empty store degrades silently to BM25.
-  Its label reports what actually ran, never what was merely configured.
+  not set up it is exactly `mem find`, at the same cost, and its first
+  line says `lexical only`. Its label reports what actually ran, never
+  what was merely configured.
 
-Both need `mem embed setup` + a backfill first. Use `ollama` as the
-provider — local, free, no key — if the memory holds anything you would
-not send to a vendor.
+Both need `mem embed setup` + a backfill first, with **ollama** — local,
+free, no key. It is the only provider: **no entry text goes to an
+embedding vendor** (Voyage and OpenAI were removed on 2026-10-13), and
+`OLLAMA_HOST` must be a loopback address. A memory still set up for a
+removed provider, or pointing ollama at another machine, is refused out
+loud (`external embedding providers are disabled: no entry text leaves
+this machine; using lexical search`) and searched lexically. See
+[docs/semantic-search.md](docs/semantic-search.md).
 
 ## Wire into your AI
 

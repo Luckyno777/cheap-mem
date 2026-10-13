@@ -232,9 +232,9 @@ export const REGISTER = Object.freeze([
   sw('CHEAP_MEM_CALENDAR_ID', CONNECTION, 'not set', 'Google calendar the appointments go into.'),
   sw('CHEAP_MEM_CALENDAR_KEY_FILE', SECRET, 'not set', 'Path of the Google service-account key file; its content never sits in a variable.'),
   sw('CHEAP_MEM_CALENDAR_REMIND_MIN', TUNING, 'not set (config, else 15)', 'Minutes before the appointment the outside calendar alarms.'),
-  sw('OLLAMA_HOST', CONNECTION, 'http://localhost:11434', 'Where the Ollama embedding backend listens.'),
-  sw('OPENAI_API_KEY', SECRET, 'not set (`.mem/embed.env` is read next)', 'Key of the OpenAI embedding backend; never printed.'),
-  sw('VOYAGE_API_KEY', SECRET, 'not set (`.mem/embed.env` is read next)', 'Key of the Voyage embedding backend; never printed.'),
+  sw('OLLAMA_HOST', CONNECTION, 'http://localhost:11434', 'Where the local Ollama embedding backend listens. Loopback addresses only (127.0.0.0/8, ::1, `localhost`); any other host is refused and the search falls back to lexical, with a message. No entry text leaves the machine.'),
+  sw('OPENAI_API_KEY', SECRET, 'ignored (REMOVED 2026-10-13)', 'REMOVED: the OpenAI embedding backend no longer exists (no entry text goes to an embedding vendor). The key is never used or printed; `mem embed status` only notes that the variable is set.'),
+  sw('VOYAGE_API_KEY', SECRET, 'ignored (REMOVED 2026-10-13)', 'REMOVED: the Voyage embedding backend no longer exists (no entry text goes to an embedding vendor). The key is never used or printed; `mem embed status` only notes that the variable is set.'),
 
   // --- handed from one cheap-mem process to the next ---------------------------
   sw('CM_REBUILD_LOCK', INTERNAL, 'set by the component-table rebuild', 'Lock file the detached rebuild child removes when it ends.'),

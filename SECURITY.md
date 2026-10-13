@@ -10,9 +10,12 @@ a formality:
 2. **It commits and pushes.** Whatever survives redaction goes into a
    git repository, and git keeps history — a secret committed once is
    not removed by deleting the file.
-3. **It can hold API keys.** The optional embedding providers
-   (Voyage, OpenAI) read a key from the environment; Ollama is local
-   and needs none.
+3. **It sends no entry text to an embedding vendor.** The one optional
+   embedding provider is Ollama, and only on a loopback address; a
+   remote host is refused before a connection opens. (Voyage and OpenAI
+   were removed on 2026-10-13; their key variables are no longer read.)
+   Other things that can hold keys, such as `.mem/embed.env` from an
+   older setup, stay git-ignored.
 
 ## Reporting
 
@@ -37,6 +40,7 @@ Every claim below has a command. Run it rather than believe it.
 | A pre-commit hook scans staged content | `hooks/pre-commit` | `mem doctor --strict` |
 | A project name cannot walk out of the memory root | `src/memory.mjs` (`logPath`) | `node --test test/guards.test.mjs` |
 | Signed-URL parameters (AWS, GCS, Azure SAS) redacted in captures | `src/redaction.mjs` | `node --test test/redaction-signed-url.test.mjs` |
+| No entry text goes to an embedding vendor; ollama only on loopback | `src/embed/` (`loopback.mjs`) | `node --test test/embed-local-only.test.mjs` |
 | A secret that got past the write path is masked where entries are shown | `src/outputguard.mjs` | `node --test test/output-guard.test.mjs` |
 | The dashboard writes nothing until its owner allows it | `src/writegate.mjs` | `node --test test/writegate.test.mjs` |
 | The dashboard and any HTTP service sit behind a door (token or password, localhost by default) | `src/webauth.mjs`, `src/login.mjs` | `node --test test/webauth.test.mjs test/login.test.mjs` |
