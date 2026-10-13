@@ -207,6 +207,47 @@ export function growthExponent(points) {
 const median = (v) => pct(v.slice().sort((a, b) => a - b), 50);
 const max = (v) => (v.length ? Math.max(...v) : null);
 
+/**
+ * Judge the peak RSS of the processes of one rung against the build bound.
+ *
+ * Three states, never two. The build's peak is read from /proc/<pid>/status
+ * (VmHWM, bench/scale-gate.mjs `run`), a Linux-only high-water mark; macOS and
+ * Windows have no such file, so there the build's figure is `null`. A null is
+ * "not measurable here", not zero and not a pass: the verdict then reads
+ * `not-measured` and says why, unless a process that WAS measured is already
+ * over the bound (that is a fail whatever the build did). The smaller processes
+ * are never stood in for the build: their own peaks stay in `peaks`, labelled.
+ * @param {Record<string, number|null>} peaks build, find, context, hook, loadProbe in MB
+ * @param {number} boundMb the pre-registered build bound
+ * @param {string} [platform]
+ */
+export function judgePeakRss(peaks, boundMb, platform = process.platform) {
+  const present = Object.entries(peaks).filter(([, v]) => v != null);
+  const peakMax = max(present.map(([, v]) => v));
+  const buildMissing = peaks.build == null;
+  const why = platform === 'linux'
+    ? 'the build child ended before /proc/<pid>/status could be read'
+    : `the build's peak is read from /proc/<pid>/status (VmHWM), which ${platform} does not have`;
+  // A bound that is not a positive finite number (NaN, undefined, null, Infinity, 0, a string) judges nothing: a
+  // comparison with it is false either way, which must never read as "under the bound". Written as a negated
+  // `<=` so that every doubtful case falls to FAIL, as it did before this function existed.
+  const boundOk = typeof boundMb === 'number' && Number.isFinite(boundMb) && boundMb > 0;
+  let verdict;
+  if (peakMax != null && !(boundOk && peakMax <= boundMb)) verdict = VERDICT.FAIL;
+  else if (peakMax == null || buildMissing) verdict = VERDICT.NOT_MEASURED;
+  else verdict = VERDICT.PASS;
+  const listed = present.map(([k, v]) => `${k} ${v}`).join(', ');
+  const actual = peakMax == null
+    ? 'no peak read'
+    : (buildMissing ? `build peak not measurable here; largest of the others ${peakMax} MB (${listed})` : `largest ${peakMax} MB (${listed})`);
+  const evidence = peakMax != null && !boundOk
+    ? `the bound is not a positive finite number (${String(boundMb)}), so no peak can be judged against it; this is a defect of the harness, not a measurement`
+    : buildMissing
+    ? `not measurable here: ${why}. The other processes' own maxRSS at exit is listed, but it is not the build's peak and is not passed off as it.`
+    : 'build: VmHWM polled while the child ran; the rest: the process\'s own maxRSS at exit';
+  return { verdict, peakMax: buildMissing ? null : peakMax, actual, evidence, buildMeasured: !buildMissing };
+}
+
 // --- the phase --------------------------------------------------------------
 
 function bashAvailable() {
@@ -286,9 +327,9 @@ export async function run(atlas, { quick = false, rungs = null } = {}) {
         title: `build ${n} entries (heaps corpus + gold world) and the first index`,
         verdict: built ? VERDICT.PASS : VERDICT.FAIL,
         expected: 'the first `mem find` exits 0 and leaves an index cache behind',
-        actual: built ? `built; peak RSS ${stage.build.peakRssMb} MB` : `exit ${stage.build.status}${stage.build.timedOut ? ' (timed out)' : ''}`,
+        actual: built ? `built; peak RSS ${stage.build.peakRssMb == null ? 'not measurable here (no /proc VmHWM)' : `${stage.build.peakRssMb} MB`}` : `exit ${stage.build.status}${stage.build.timedOut ? ' (timed out)' : ''}`,
         severity: SEVERITY.MAJOR,
-        evidence: stage.build.stderr ?? 'peak RSS read from /proc VmHWM while the child ran; build time is a companion value, in `measured`',
+        evidence: stage.build.stderr ?? 'peak RSS read from /proc VmHWM while the child ran (null where there is no /proc: not measurable, not zero); build time is a companion value, in `measured`',
         measured: { entries: n, buildMs: stage.build.ms, buildPeakRssMb: stage.build.peakRssMb, genMs: stage.genMs, goldEntries: stage.goldN },
       });
       if (!built) {
@@ -430,17 +471,19 @@ export async function run(atlas, { quick = false, rungs = null } = {}) {
         hook: hook?.io.maxRssMb ?? null,
         loadProbe: probe?.maxRssMb ?? null,
       };
-      const peakMax = max(Object.values(peaks).filter((x) => x != null));
+      const judged = judgePeakRss(peaks, buildBound);
+      const peakMax = judged.peakMax;
       record({
         id: id('peak-rss'),
         title: `peak RSS of the processes at ${n} entries`,
-        verdict: peakMax == null ? VERDICT.NOT_MEASURED : (peakMax <= buildBound ? VERDICT.PASS : VERDICT.FAIL),
+        verdict: judged.verdict,
         expected: `no process above the gate's pre-registered build bound of ${round(buildBound)} MB (bench/scale-gate-criteria.json, build-peak-rss)`,
-        actual: peakMax == null ? 'no peak read' : `largest ${peakMax} MB (${Object.entries(peaks).filter(([, v]) => v != null).map(([k, v]) => `${k} ${v}`).join(', ')})`,
+        actual: judged.actual,
         severity: SEVERITY.MAJOR,
-        evidence: 'build: VmHWM polled while the child ran; the rest: the process\'s own maxRSS at exit',
+        evidence: judged.evidence,
         measured: { entries: n, ...peaks, boundMb: round(buildBound) },
       });
+      if (!judged.buildMeasured) atlas.blind(`the build's peak RSS at ${n} entries`, judged.evidence);
 
       // --- the time companion ----------------------------------------------------------------
       const times = finds.map((f) => f.ms).sort((a, b) => a - b);
@@ -505,7 +548,7 @@ export async function run(atlas, { quick = false, rungs = null } = {}) {
       evidence: 'counters, not time; read the per-rung records for the values',
       measured: { slope: e, points: pts },
     });
-    if (e == null) atlas.blind(title, 'fewer than two rungs, or rungs too close together, to fit a slope');
+    if (e == null) atlas.blind(title, 'fewer than two measured rungs, or rungs too close together, to fit a slope (a figure that was not measurable on this platform leaves its rung out)');
   };
   growth('find-lines-read', 'growth of lines read per warm find with the number of entries', (f) => f.findLines, GROWTH_EXPONENT_MAX);
   growth('find-corpus-bytes-read', 'growth of log bytes read per warm find with the number of entries', (f) => f.findCorpusBytes, GROWTH_EXPONENT_MAX);

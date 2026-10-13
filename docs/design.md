@@ -11,7 +11,7 @@ It is *not* a database, a vector store, an embedding pipeline, or a
 "second brain" app. Its default search is lexical — BM25 with a curated
 thesaurus and a learned tag graph, no model in the path; semantic search
 (`mem embed`, `mem find-embed`, `mem find-hybrid`) is an optional add-on
-(docs/semantic-search.md). The JSONL logs stay trivial to index if you
+with a local model only (docs/semantic-search.md). The JSONL logs stay trivial to index if you
 want to wire something else alongside.
 
 ## Why git, not SQLite

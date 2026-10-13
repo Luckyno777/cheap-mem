@@ -46,6 +46,9 @@ export const BODY_FIELDS_BY_TYPE = Object.freeze({
   link: Object.freeze(['why']),
   workflow: Object.freeze(['title', 'steps']),
   snippet: Object.freeze(['title', 'description', 'body', 'text']),
+  // H11: the decision card. Only the question and the context are PROSE; options, advice and evidence travel as lists / access
+  // lines and stay out of the one-line renderers (an entry that carries its card inline would otherwise print it three times).
+  card: Object.freeze(['card_question', 'card_context']),
 });
 
 /**
@@ -57,8 +60,16 @@ export const BODY_FIELDS_BY_TYPE = Object.freeze({
 export const BODY_FIELDS = Object.freeze([
   'choice', 'learning', 'duty', 'rule', 'question', 'skill',
   'why', 'title', 'text', 'fact', 'description', 'excerpt', 'rejected',
-  'steps', 'body',
+  'steps', 'body', 'card_question', 'card_context',
 ]);
+
+/**
+ * All five fields an entry can carry its decision card in (src/decisioncard.mjs `CARD_FIELDS`, plus `card_kind` which is a
+ * word, not prose). Only the question and the context are BODY (shown in one-line renderers, weighted in the index); the
+ * other three are prose too and must be encrypted with the rest of an entry that is written with `shred: true`, or the options
+ * and the advice of a locked entry would stand next to its `body_enc` in the clear (`shred.SHREDDABLE_FIELDS` adds them).
+ */
+export const CARD_PROSE_FIELDS = Object.freeze(['card_question', 'card_context', 'card_options', 'card_advice', 'card_evidence']);
 
 /**
  * Indexed, on purpose not part of the body: access words, not prose.

@@ -95,7 +95,11 @@ export const LEGIT = Object.freeze({
   update: { title: 't', text: 'x', tags: ['t'] },
   link: { from: 'abcd1234', to: 'efgh5678', kind: 'causes', why: 'w' },
   snippet: { title: 't', kind: 'code', body: 'echo {{X}}', description: 'd', placeholders: ['X'], language: 'bash', version: 1, test: 'test/x.mjs', used_by: ['a'] },
+  // H11: a card needs a target that exists; `groupFields` seeds the duty `PROBE_CARD_TARGET` first.
+  card: { title: 't', target_id: 'probe-card-target', card_question: 'Should it?', card_context: 'It is time.', card_options: ['Yes — it happens', 'No — it stays'], card_advice: 'Yes.', card_evidence: ['docs/x.md'], card_kind: 'decide' },
 });
+/** The id of the duty the legit card of the fields group points at. */
+const PROBE_CARD_TARGET = 'probe-card-target';
 /** The types the bridge refuses outright. */
 export const REFUSED_TYPES = Object.freeze(['procedure', 'workflow']);
 
@@ -143,6 +147,8 @@ const names = (text, field) => text.includes(`'${field}'`);
 
 async function groupFields(atlas, bridge, root) {
   const types = Object.keys(LEGIT);
+  // The target of the legit card (a card for an entry that does not exist is refused, on every road).
+  memory.logEntry(root, 'duty', { id: PROBE_CARD_TARGET, title: 'target of the probe card', agent: 'probe' });
   const controlOk = new Map();
   for (const type of types) {
     const res = await bridge.call('mem_log', { type, ...LEGIT[type] });

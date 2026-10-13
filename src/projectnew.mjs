@@ -168,6 +168,25 @@ export function projectStatus(root, name) {
   };
 }
 
+/**
+ * Title and reason of a project, as far as they are on record (H11, the card "Take over project <name>?"): the title stands in
+ * `facts.yaml`, the reason in the event `Project created`. A project made by hand has no reason; what is missing is `null` —
+ * never invented. Read only; unreadable is `null`, not empty.
+ */
+export function profile(root, name) {
+  let title = null; let reason = null;
+  try {
+    const t = readFacts(root, name).title;
+    title = typeof t === 'string' && t.trim() ? t.trim() : null;
+  } catch { /* unreadable: unknown */ }
+  try {
+    const e = readJsonl(path.join(root, 'projects', name, memory.TYPES.event)).find((x) => x?.title === TITLE_CREATED);
+    const r = e?.reason;
+    reason = typeof r === 'string' && r.trim() ? r.trim() : null;
+  } catch { /* unreadable: unknown */ }
+  return { title, reason };
+}
+
 function dayOf(date) { return new Date(date).toISOString().slice(0, 10); }
 
 /** The day a capture was taken, from its file name (`<time>--<session>.jsonl.gz`). */

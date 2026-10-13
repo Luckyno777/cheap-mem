@@ -14,6 +14,8 @@ import { pathToFileURL, fileURLToPath } from 'node:url';
 import * as tasks from '../src/tasks.mjs';
 import { personCookie } from './person-session.mjs';
 
+const { scrubServerPaths, realpathsOf } = tasks;
+
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SERVE = path.join(REPO, 'bin', 'mem-serve');
 const DOOR = ['probe', 'paths', String(process.pid)].join('-');
@@ -34,6 +36,7 @@ async function ended(root, id) {
   }
   return tasks.read(root, id);
 }
+const slashes = (text) => text.replace(/\\/g, '/');
 const absolute = (text, root) => [path.resolve(root), path.resolve(REPO)].filter((p) => text.includes(p));
 
 test('tasks.read: the command, result and reason name <root> and <code>, not the server paths', async () => {
@@ -43,11 +46,12 @@ test('tasks.read: the command, result and reason name <root> and <code>, not the
     const done = await ended(r, a.id);
     const text = JSON.stringify(done);
     assert.deepEqual(absolute(text, r), [], `absolute paths left in: ${text.slice(0, 500)}`);
-    assert.deepEqual(done.command, ['<code>/bin/mem', 'chain', '--json']);
+    // The part after the mark keeps the host's own separator (`<code>\\bin\\mem` on Windows): compare it as written with `/`.
+    assert.deepEqual(done.command.map(slashes), ['<code>/bin/mem', 'chain', '--json']);
     const b = tasks.start(r, 'export', {}, { user: true });
     const exp = await ended(r, b.id);
     assert.deepEqual(absolute(JSON.stringify(exp), r), []);
-    assert.deepEqual(exp.command.slice(0, 4), ['<code>/bin/mem', 'raw', 'export', '--into']);
+    assert.deepEqual(exp.command.slice(0, 4).map(slashes), ['<code>/bin/mem', 'raw', 'export', '--into']);
     assert.match(exp.command[4], /^<root>[\\/]\.mem[\\/]tasks[\\/].+[\\/]export$/);
     // the journal on disk keeps the full command: a restart and a bug hunt need it
     const journal = fs.readFileSync(tasks.statePath(r, b.id), 'utf8');
@@ -128,4 +132,73 @@ test('tasks.read: a symlinked root (the child reports the real path) and both se
     fs.rmSync(real, { recursive: true, force: true });
     fs.rmSync(linkBase, { recursive: true, force: true });
   }
+});
+
+// --- Windows spellings, proven on every host with path.win32 (CI run 888: the tasks.read test failed on Windows only) ----------------
+
+test('scrubServerPaths: a Windows root and code folder in every spelling the child may report', () => {
+  const root = 'C:\\profiles\\RUNNER~1\\Temp\\cm-taskpaths-abc';
+  const longRoot = 'C:\\profiles\\runneradmin\\Temp\\cm-taskpaths-abc';
+  const code = 'D:\\a\\cheap-mem\\cheap-mem';
+  const realpaths = (dir) => (dir === root ? [root, longRoot] : [dir]);
+  const folders = [[root, '<root>'], [code, '<code>']];
+  const opt = { pathApi: path.win32, realpaths, caseless: true };
+  const value = {
+    command: [`${code}\\bin\\mem`, 'raw', 'export', '--into', `${root}\\.mem\\tasks\\t1\\export`],
+    result: { a: longRoot, b: longRoot.replace(/\\/g, '/'), c: 'd:\\a\\CHEAP-MEM\\cheap-mem\\src', d: root.toLowerCase(), n: 3, nested: [`${longRoot}\\x`] },
+    reason: `could not write ${longRoot}\\z and ${code.replace(/\\/g, '/')}/bin`,
+  };
+  const out = scrubServerPaths(value, folders, opt);
+  const text = JSON.stringify(out);
+  for (const leak of ['RUNNER~1', 'runneradmin', 'cheap-mem\\\\cheap-mem', 'a/cheap-mem', 'C:', 'D:', 'd:']) {
+    assert.ok(!text.toLowerCase().includes(leak.toLowerCase()), `${leak} is still in: ${text}`);
+  }
+  assert.equal(out.command[0], '<code>\\bin\\mem');
+  assert.equal(out.command[4], '<root>\\.mem\\tasks\\t1\\export');
+  assert.equal(out.result.n, 3, 'a number passes unchanged');
+  assert.equal(out.result.c, '<code>\\src');
+  // The bare drive root is never a path to swap: that would eat every separator of every path on the drive.
+  assert.deepEqual(scrubServerPaths('C:\\keep\\this', [['C:\\', '<x>']], opt), 'C:\\keep\\this');
+  // Positive control: with the case-insensitive match off (a POSIX host), the lower-case spelling is NOT swapped, so the
+  // case above is what the match is doing.
+  assert.equal(scrubServerPaths(root.toLowerCase(), folders, { ...opt, caseless: false }), root.toLowerCase());
+});
+
+test('scrubServerPaths: POSIX hosts keep their case-sensitive match', () => {
+  const out = scrubServerPaths('/srv/Mem/x and /srv/mem/x', [['/srv/Mem', '<root>']], { pathApi: path.posix, realpaths: () => [], caseless: false });
+  assert.equal(out, '<root>/x and /srv/mem/x');
+});
+
+test('realpathsOf asks both lookups (the JS one and the native one), keeps both answers, and leaves out one that fails', () => {
+  const calls = [];
+  const js = (d) => { calls.push('js'); return `${d}-as-written`; };
+  const native = (d) => { calls.push('native'); return `${d}-long-name`; };
+  assert.deepEqual(realpathsOf('/x', [js, native]), ['/x-as-written', '/x-long-name']);
+  assert.deepEqual(calls, ['js', 'native']);
+  const gone = () => { throw Object.assign(new Error('gone'), { code: 'ENOENT' }); };
+  assert.deepEqual(realpathsOf('/x', [gone, native]), ['/x-long-name']);
+  assert.deepEqual(realpathsOf('/x', [gone, gone]), []);
+  // The real default: both lookups of the real file system, on a folder that exists.
+  const here = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-taskpaths-rp-'));
+  try {
+    const got = realpathsOf(here);
+    assert.equal(got.length, 2, 'both lookups answered');
+    assert.equal(fs.realpathSync.native(got[0]), fs.realpathSync.native(here));
+    assert.equal(got[1], fs.realpathSync.native(here));
+    assert.deepEqual(realpathsOf(path.join(here, 'not-there')), []);
+  } finally { fs.rmSync(here, { recursive: true, force: true }); }
+});
+
+test('scrubServerPaths: the default case rule follows the platform it is given', () => {
+  const root = 'C:\\profiles\\RUNNER~1\\Temp\\r1';
+  const asked = [];
+  const realpaths = (d) => { asked.push(d); return []; };
+  const lower = root.toLowerCase();
+  // win32: caseless without being told so; anything else: exact case.
+  assert.equal(scrubServerPaths(lower, [[root, '<root>']], { pathApi: path.win32, realpaths, platform: 'win32' }), '<root>');
+  assert.equal(scrubServerPaths(lower, [[root, '<root>']], { pathApi: path.win32, realpaths, platform: 'linux' }), lower);
+  assert.equal(scrubServerPaths(lower, [[root, '<root>']], { pathApi: path.win32, realpaths, platform: 'darwin' }), lower);
+  // An explicit rule wins over the platform's.
+  assert.equal(scrubServerPaths(lower, [[root, '<root>']], { pathApi: path.win32, realpaths, platform: 'linux', caseless: true }), '<root>');
+  assert.ok(asked.length > 0, 'the real-path lookup was consulted');
 });

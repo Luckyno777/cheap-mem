@@ -475,11 +475,17 @@ export const COMMANDS = {
     // it is built against.
     if (count.broken) out('A broken latch checks nothing. It is not a latch that passed.');
     if (args.duty && reds.length) {
+      // The addressee goes into `who`, the field every reader of a duty knows (`p.who ?? p.owner ?? p.to`). It used to be written
+      // as `owed_to: 'owner'`, which no reader knows and which names no participant: the duty sat in the store and never showed up
+      // for anyone. The name is the configured human participant (design commitment 3: no names in the code); without one the
+      // duty is written without an addressee, and that is said.
+      const human = cfgmod.humanParticipant(requireConfig(root).participants);
+      if (!human.name) warn(`guard run --duty: ${human.reason} — the duties are written without an addressee.`);
       for (const g of reds) {
         memory.logEntry(root, 'duty', {
           title: `Latch ${g.r.state}: ${g.entry.class ?? g.entry.title}`,
           text: `${g.r.why}\nBelongs to entry ${g.entry.id}.`,
-          owed_to: 'owner',
+          ...(human.name ? { who: human.name } : {}),
         }, { project: g.project });
       }
       out(`${reds.length} duty/duties raised.`);

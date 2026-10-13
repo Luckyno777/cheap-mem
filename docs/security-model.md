@@ -467,6 +467,19 @@ each was reproduced against a throwaway root here first.
 - **Contradiction detection** (§5).
 - **Identity.** Everything above rests on fields anyone with repo write
   access can set.
+- **Decision cards: who is a person, and what a target is.** The write
+  core refuses tier `user` on a card unless the author name is a person
+  (`authority.isHumanName`: `owner` or `human:<name>`). A name is a field in
+  a file, and the CLI is the same program for a person and an agent: a
+  session that writes `mem log card ... --authority user --agent owner`
+  from an agent's shell is not stopped (the same limit as the sibling house;
+  an unattended run, `MEM_HEADLESS`, and the bridge, which lowers every tier
+  to `agent`, ARE stopped). What the rule buys is that the claim must be
+  forged by name, in the open, and shows as `origin.author` on the card. The
+  target of a card is checked for existence and for a lock only where there
+  is an entry to look at (an entry id, `project:<name>`); `letter:<id>` and
+  `word-pair:<a>|<b>` name things without an entry in this house, so any
+  well-formed one is accepted (also like the sibling house).
 
 ---
 

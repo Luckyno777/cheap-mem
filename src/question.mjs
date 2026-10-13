@@ -69,7 +69,27 @@ export function check(fields = {}) {
     // would be formalism.
     warnings.push('the question has no question mark — sure this is a question?');
   }
+  // `who` (owner decision 2026-10-13, 19po2xtvp7ae): to whom the question goes. Optional - a question nobody addressed is
+  // everyone's business - but when it is there it is ONE name: a blank or a list would make "a question for the human" a guess.
+  if (fields.who !== undefined && fields.who !== null) {
+    const w = typeof fields.who === 'string' ? fields.who.trim() : '';
+    if (!w) errors.push('who is empty — name the participant the question goes to, or leave --who out');
+    else if (!WHO_FORM.test(w)) {
+      errors.push(`who '${maskText(String(w)).slice(0, 40)}' is not one name — letters, digits and . _ : @ - (at most 64), no blanks`);
+    }
+  }
   return { ok: errors.length === 0, errors, warnings };
+}
+
+/** The form of an addressee: one name (a participant of `.mem/config.json`, or an agent name). */
+const WHO_FORM = /^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,63}$/;
+
+/**
+ * The addressee of a question: its `who`, else null. Only a text counts (a legacy line with a list there is no addressee). Pure.
+ */
+export function whoOf(q) {
+  const w = q?.who;
+  return typeof w === 'string' && w.trim() ? w.trim() : null;
 }
 
 /**
@@ -172,5 +192,6 @@ export function line(q) {
   const rest = q.open ? ''
     : q.waiting ? `  <- ${ids}  (answered, waits for the person's confirmation)`
       : `  <- ${ids}`;
-  return `${mark} ${String(q.id).padEnd(14)} ${short}${rest}`;
+  const to = whoOf(q) ? `  (to ${whoOf(q)})` : '';
+  return `${mark} ${String(q.id).padEnd(14)} ${short}${to}${rest}`;
 }

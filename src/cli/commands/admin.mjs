@@ -638,18 +638,22 @@ export const COMMANDS = {
   embed: async ({ rest, args }) => {
     if (isHelp(args) || rest.length === 0) {
       out([
-        'mem embed setup [--provider voyage|openai|ollama] [--model M]',
+        'mem embed setup [--provider ollama] [--model M]',
         'mem embed backfill [--force] [--project <name>]   embed entries written before setup',
-        'mem embed status                  provider, model, how many are stored',
+        'mem embed status                  state, provider, model, how many are stored',
         'mem find-embed "<query>"          semantic search',
         '',
         '  This is the ESCALATION, not the default. `mem find` works with',
         '  no key, no network and no cost — use it. Reach for embeddings',
         '  only for true paraphrase with no word in common.',
         '',
+        '  LOCAL ONLY. The one provider is ollama, on a loopback address',
+        '  (OLLAMA_HOST, default http://localhost:11434). No entry text goes to',
+        '  an embedding vendor: voyage and openai were removed, and an ollama',
+        '  host that is not loopback is refused. Searches then use lexical',
+        '  search and say so.',
+        '',
         '  Needs: npm install better-sqlite3 sqlite-vec  (optional deps)',
-        '  Keys:  VOYAGE_API_KEY / OPENAI_API_KEY, or .mem/embed.env',
-        '         ollama needs no key and sends nothing off the machine.',
       ].join('\n'));
       return;
     }
@@ -658,10 +662,12 @@ export const COMMANDS = {
 
     if (rest[0] === 'setup') {
       checkFlags(args, ['provider', 'model', 'on-fail'], 'embed setup');
-      const provider = args.provider ?? 'voyage';
+      const provider = args.provider ?? 'ollama';
       if (!embedmod.knownProviders().includes(provider)) {
-        die(`embed setup: unknown provider '${provider}'. `
-          + `Known: ${embedmod.knownProviders().join(', ')}`);
+        const removed = Object.hasOwn(embedmod.REMOVED_PROVIDERS, provider);
+        die(`embed setup: provider '${provider}' ${removed ? 'was removed' : 'is not a local provider'}. `
+          + `${embedmod.EXTERNAL_DISABLED_MESSAGE}. `
+          + `Known: ${embedmod.knownProviders().join(', ')}. Nothing was written.`);
       }
       const cfg = { ...embedmod.DEFAULTS, provider, model: args.model ?? null };
       if (args['on-fail']) cfg.onFail = args['on-fail'];
@@ -672,6 +678,8 @@ export const COMMANDS = {
       out(`Wrote ${memory.asSource(root, written)}`);
       out(`  provider: ${eff.provider}`);
       out(`  model:    ${eff.model} (${embedmod.dimensions(eff.provider, eff.model)} dim)`);
+      const st = await embedmod.embedState(root);
+      if (st.state === 'rejected') warn(`embed setup: ${st.message}`);
       out('');
       out('Next: npm install better-sqlite3 sqlite-vec');
       out('      mem embed backfill');
@@ -679,19 +687,31 @@ export const COMMANDS = {
     }
 
     if (rest[0] === 'status') {
-      let cfg;
-      try { cfg = embedmod.readConfig(root); }
-      catch (e) { die(`embed status: ${e.message}`); }
-      out(`provider: ${cfg.provider}`);
-      out(`model:    ${cfg.model} (${embedmod.dimensions(cfg.provider, cfg.model)} dim)`);
+      const st = await embedmod.embedState(root);
+      out(`state:    ${st.state}${st.state === 'local' ? ' (semantic search runs on this machine)' : ''}`);
+      if (st.provider) out(`provider: ${st.provider}`);
+      if (st.model) out(`model:    ${st.model}${embedmod.LOCAL_PROVIDERS.includes(st.provider) ? ` (${embedmod.dimensions(st.provider, st.model)} dim)` : ''}`);
+      if (st.endpoint) out(`endpoint: ${st.endpoint}`);
+      if (st.state !== 'local') out(`${st.state === 'not-configured' ? 'note' : 'REFUSED'}:    ${st.message}`);
       const store = await import('../../embed/store.mjs');
-      try {
-        const db = await store.open(root, embedmod.dimensions(cfg.provider, cfg.model));
-        out(`stored:   ${store.count(db)} entries`);
-        db.close();
-      } catch (e) {
-        out(`stored:   not readable — ${e.message.split('\n')[0]}`);
+      const counts = await store.providerCounts(root);
+      if (counts) {
+        const total = Object.values(counts).reduce((x, y) => x + y, 0);
+        const external = Object.entries(counts).filter(([k]) => !embedmod.LOCAL_PROVIDERS.includes(k));
+        out(`stored:   ${total} entries`);
+        if (external.length) {
+          const n = external.reduce((x, [, c]) => x + c, 0);
+          out(`          ${n} of them from a removed external provider (${external.map(([k, c]) => `${k}: ${c}`).join(', ')}):`
+            + ' kept in .mem/vectors.db, never used. Delete or move the file yourself when you no longer need them.');
+        }
+      } else if (fs.existsSync(path.join(root, '.mem', 'vectors.db'))) {
+        out('stored:   not readable (is better-sqlite3 installed?)');
+      } else {
+        out('stored:   0 entries (no .mem/vectors.db)');
       }
+      const keys = embedmod.removedKeyVarsSet();
+      if (keys.length) out(`ignored:  ${keys.join(', ')} ${keys.length > 1 ? 'are' : 'is'} set in the environment; no embedding code reads ${keys.length > 1 ? 'them' : 'it'} any more.`);
+      if (embedmod.legacyEnvFilePresent(root)) out('ignored:  .mem/embed.env exists; nothing reads it any more. It may still hold keys: delete it when you are done with them.');
       return;
     }
 
@@ -712,16 +732,43 @@ export const COMMANDS = {
         if (args.force) die('embed backfill: --force rebuilds the whole store; drop --project, or drop --force');
         only = [name];
       }
+      // The gate comes BEFORE anything is touched: with an external or
+      // missing setup, --force must not delete a store the user owns.
+      const gate = await embedmod.embedState(root);
+      if (gate.state !== 'local') {
+        process.stderr.write(`Backfill refused: ${gate.message}\n`
+          + '  Nothing was embedded, nothing was sent anywhere, nothing was deleted.\n'
+          + '  `mem find` (BM25, no model) is unaffected.\n');
+        process.exit(2);
+      }
       const store = await import('../../embed/store.mjs');
-      if (args.force) store.deleteDb(root);
+      // Can this run work at all? Ask BEFORE touching the store: without the
+      // optional sqlite packages `--force` used to move (or delete) the store
+      // and then stop, leaving a memory with no store and no embeddings.
+      try { await store.requireSqlite(); }
+      catch (e) {
+        process.stderr.write(`Backfill stopped: ${e.message}\n`
+          + '  Nothing was embedded, moved or deleted.\n');
+        process.exit(2);
+      }
+      if (args.force) {
+        // Vectors an external provider wrote are the user's data: they are
+        // not used any more, but --force moves them aside instead of
+        // deleting them. A store we cannot read is kept the same way.
+        const counts = await store.providerCounts(root);
+        const foreign = counts === null || Object.keys(counts).some((k) => !embedmod.LOCAL_PROVIDERS.includes(k));
+        const aside = foreign ? store.moveAside(root) : null;
+        if (aside) out(`Kept the old store (not deleted, not used): ${memory.asSource(root, aside)}`);
+        else store.deleteDb(root);
+      }
       let fresh = 0; let skipped = 0; let broken = 0;
       let noKey = null;
-      const cfg = embedmod.readConfig(root);
+      const cfg = gate.cfg;
       const dim = embedmod.dimensions(cfg.provider, cfg.model);
       const db = await store.open(root, dim);
       try {
         for (const project of only ?? [null, ...memory.listProjects(root)]) {
-          for (const type of Object.keys(memory.TYPES)) {
+          for (const type of memory.SEARCH_TYPES) {
             const file = memory.logPath(root, type, project);
             if (!fs.existsSync(file)) continue;
             const lines = fs.readFileSync(file, 'utf8').split('\n');
@@ -734,7 +781,7 @@ export const COMMANDS = {
               const r = await embedHook.embedEntry(root, file, i + 1, e);
               if (r.status === 'ok') fresh += 1;
               else if (r.status === 'empty') skipped += 1;
-              else if (r.status === 'off') { noKey = r.reason; break; }
+              else if (r.status === 'off' || r.status === 'rejected') { noKey = r.detail ?? r.reason; break; }
               else {
                 broken += 1;
                 process.stderr.write(`${rel}:${i + 1} ${embedHook.warning(r)}\n`);
@@ -747,10 +794,10 @@ export const COMMANDS = {
       } finally { try { db.close(); } catch { /* fine */ } }
 
       if (noKey) {
-        // Without a key not one entry can succeed. Say it once and
-        // stop, instead of counting thousands of identical failures.
+        // Without a usable local setup not one entry can succeed. Say it
+        // once and stop, instead of counting thousands of identical failures.
         process.stderr.write(`Backfill stopped: ${noKey}.\n`
-          + '  Embeddings are the optional escalation. Without a key,\n'
+          + '  Embeddings are the optional escalation. Without them,\n'
           + '  `mem find` (BM25, no model) is unaffected.\n');
         process.exit(2);
       }

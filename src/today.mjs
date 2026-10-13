@@ -31,12 +31,17 @@
  *                     (`projectnew.handmade`). Read only; nothing open =
  *                     an empty list and the card takes no room.
  *
+ * **The card (H11, 2026-10-13).** Every item a person is meant to decide or release (a duty, a project) carries a field `card`
+ * (`decisioncard.cardOf`): question, context, options with their effects, advice with its author, evidence — and the stage it
+ * comes from (written, addendum from the card shelf `cards.jsonl`, fallback). `mem today` shows the question instead of the
+ * title. The shelf is read ONCE per result (`result.cards`); when it cannot be read every item gets the fallback card and
+ * `reasons` says so.
+ *
  * **What does NOT go in here.** `question.open()` (this house's
- * `questions.jsonl`, no address field — same reasoning the sibling's
- * heute.mjs gives for excluding `fragen.jsonl` from part (b): an
- * unaddressed question is everyone's business, not specifically the
- * human's, and counting it as "a decision for the human" would be
- * invention, not a finding.
+ * `questions.jsonl`): since 2026-10-13 (owner decision 19po2xtvp7ae) a question CAN carry an addressee `who` — the dashboard
+ * lists carry it along — but no question in the store has one yet, and counting open questions with `who: <human>` as
+ * "decisions for the human" would change the number on the session-start line. That is a decision for the owner (reported
+ * as open by card-core-cm), not made here. Until then an unaddressed question is everyone's business, as before.
  */
 
 import * as memory from './memory.mjs';
@@ -47,6 +52,8 @@ import * as verifylog from './verifylog.mjs';
 import * as goldlog from './goldlog.mjs';
 import * as injection from './injection.mjs';
 import * as projectnew from './projectnew.mjs';
+import * as decisioncard from './decisioncard.mjs';
+import * as cardstore from './cardstore.mjs';
 import { isoWeek } from './measurements.mjs';
 
 /** At most this many verify candidates shown at once (N9 parity: "up to 3"). */
@@ -98,7 +105,7 @@ export function operations(root, { check = doctorMod.checkAll, doctorResult = nu
  * decision), so this function stays to the ONE real source cheap-mem
  * has: open duties whose `who` names the configured human participant.
  */
-export function decisionsForHuman(root, { human = null } = {}) {
+export function decisionsForHuman(root, { human = null, cards = undefined } = {}) {
   let who = human;
   if (who === null) {
     let cfg;
@@ -113,9 +120,15 @@ export function decisionsForHuman(root, { human = null } = {}) {
   try { open = memory.openDuties(root).open; } catch (e) {
     return { readable: false, reason: `duties not readable: ${e?.message || e}`, list: [] };
   }
+  // The card shelf: read here when the caller did not hand it in. Not readable -> the fallback card for every item (the caller
+  // that read it says so in its reasons).
+  const shelf = cards === undefined ? (() => { try { return cardstore.latestCards(root); } catch { return new Map(); } })() : cards;
   const list = open
     .filter((p) => (p.who ?? p.owner ?? p.to ?? null) === who)
-    .map((p) => ({ id: p.id, title: p.title ?? p.text ?? p.id, due: dueCore.dueText(p), since: dueCore.openSince(p) }))
+    .map((p) => ({
+      id: p.id, title: p.title ?? p.text ?? p.id, due: dueCore.dueText(p), since: dueCore.openSince(p),
+      card: decisioncard.cardOf(p, { type: 'duty', context: { cards: shelf } }),
+    }))
     .sort((a, b) => String(a.since ?? '').localeCompare(String(b.since ?? '')));
   return { readable: true, reason: null, who, list };
 }
@@ -373,7 +386,7 @@ export function wordPairSuggestions() {
  * card shows nothing. Unreadable: `readable: false` with a reason — never
  * an invented 0.
  */
-export function projectsAwaiting(root) {
+export function projectsAwaiting(root, { cards = undefined } = {}) {
   try {
     const list = [];
     for (const name of memory.listProjects(root)) {
@@ -384,6 +397,13 @@ export function projectsAwaiting(root) {
       list.push({ name: h.name, kind: 'hand', createdOn: String(h.firstEntry ?? '').slice(0, 10) || null, createdBy: null });
     }
     list.sort((a, b) => String(a.createdOn ?? '').localeCompare(String(b.createdOn ?? '')) || a.name.localeCompare(b.name));
+    // H11: title and reason as far as they are on record, and the card "Take over project <name>?".
+    const shelf = cards === undefined ? (() => { try { return cardstore.latestCards(root); } catch { return new Map(); } })() : cards;
+    for (const p of list) {
+      const pr = projectnew.profile(root, p.name);
+      p.title = pr.title; p.reason = pr.reason;
+      p.card = decisioncard.cardOf(p, { type: 'project', context: { cards: shelf } });
+    }
     return { readable: true, reason: null, list };
   } catch (e) {
     return { readable: false, reason: `not measurable: projects not readable (${e?.message || e})`, list: [] };
@@ -420,23 +440,27 @@ export function counts(result) {
 
 export function today(root, { env = process.env, now = new Date(), doctorResult = null } = {}) {
   const ops = operations(root, { doctorResult });
-  const decisions = decisionsForHuman(root);
+  // H11: the card shelf ONCE for the whole result; not readable -> fallback cards, and `reasons` says so.
+  const shelf = cardstore.readCards(root);
+  const decisions = decisionsForHuman(root, { cards: shelf.cards });
   const verify = verifyCandidates(root, { now });
   const review = reviewSuggestions();
   const wordPairs = wordPairSuggestions();
   const gold = goldQuestions(root, { env, now });
-  const projects = projectsAwaiting(root);
-  return assemble({ ops, decisions, verify, review, wordPairs, gold, projects }, { env, now });
+  const projects = projectsAwaiting(root, { cards: shelf.cards });
+  return assemble({ ops, decisions, verify, review, wordPairs, gold, projects, cards: cardstore.stateOf(shelf) }, { env, now });
 }
 
 /** The parts of a day result put together: reasons, state, counts, line — one place for `today()` and `refresh()`. */
-function assemble({ ops, decisions, verify, review, wordPairs, gold, projects }, { env, now }) {
+function assemble({ ops, decisions, verify, review, wordPairs, gold, projects, cards }, { env, now }) {
+  const shelf = cards ?? { readable: false, reason: 'card shelf not read', cards: null, broken: null, unusable: null };
   const reasons = [
     ...(ops.readable ? [] : [ops.reason]),
     ...(decisions.readable ? [] : [decisions.reason]),
     ...(verify.readable ? [] : [verify.reason]),
     ...(gold.drawn.readable ? [] : [gold.drawn.reason]),
     ...(projects.readable ? [] : [projects.reason]),
+    ...cardstore.reasonsOf(shelf),
   ];
 
   const result = {
@@ -454,6 +478,8 @@ function assemble({ ops, decisions, verify, review, wordPairs, gold, projects },
     review,
     wordPairs,
     projects,
+    // H11: the state of the card shelf — readable, or unknown with a reason; never "no cards" for a shelf that could not be read.
+    cards: shelf,
     verifyTarget: verifylog.targetPath(env),
   };
   result.counts = counts(result);
@@ -471,13 +497,21 @@ export function refresh(stored, root, names, { env = process.env, now = new Date
   if (!stored || typeof stored !== 'object' || !stored.operations || !stored.gold || !stored.projects) throw new Error('no stored day result to refresh');
   const parts = {
     ops: stored.operations, decisions: stored.decisions, verify: stored.verify, review: stored.review, wordPairs: stored.wordPairs,
-    gold: stored.gold, projects: stored.projects,
+    gold: stored.gold, projects: stored.projects, cards: stored.cards,
   };
+  // A part with cards is read against the CURRENT shelf (once): a freshly added card shows, one that is there stays an
+  // addendum instead of falling back to the fallback card. A stored result without `cards` (an old state from disk) is
+  // read fresh once, instead of reporting "not read".
+  let shelf = null;
   for (const n of names) {
     if (n === 'gold') parts.gold = goldQuestions(root, { env, now });
-    else if (n === 'projects') parts.projects = projectsAwaiting(root);
-    else throw new Error(`day part '${n}' cannot be refreshed`);
+    else if (n === 'projects') {
+      shelf ??= cardstore.readCards(root);
+      parts.projects = projectsAwaiting(root, { cards: shelf.cards });
+    } else throw new Error(`day part '${n}' cannot be refreshed`);
   }
+  if (shelf) parts.cards = cardstore.stateOf(shelf);
+  else if (!parts.cards) parts.cards = cardstore.stateOf(cardstore.readCards(root));
   // `at` stays the time of the stored result (parts not read again are from then); NaN falls back to now.
   const at = new Date(stored.at);
   return assemble(parts, { env, now: Number.isNaN(at.getTime()) ? now : at });
@@ -517,6 +551,16 @@ export function line(result) {
 
 // --- CLI text -----------------------------------------------------------
 
+/** Where the card comes from, for the text line: a fallback card says so (nobody wrote it). */
+function cardMark(card) {
+  if (!card?.origin) return '';
+  if (card.origin.stage === 'fallback') return '  (fallback card)';
+  const by = `card${card.origin.stage === 'addendum' ? ' added later' : ''} by ${card.origin.author ?? 'unknown'}, tier ${card.origin.rank ?? 'unknown'}`;
+  // A card that beat another (higher tier, or younger) names it.
+  const replaced = card.replaced ? `; replaced a card by ${card.replaced.author ?? 'unknown'}${card.replaced.rank ? `, tier ${card.replaced.rank}` : ''}` : '';
+  return `  (${by}${replaced})`;
+}
+
 export function asText(result) {
   const lines = [`TODAY — state: ${result.state.toUpperCase()}`, ''];
 
@@ -533,7 +577,11 @@ export function asText(result) {
 
   lines.push(`DECISIONS FOR THE HUMAN: ${result.decisions.readable ? result.decisions.list.length : 'unknown'}`);
   if (!result.decisions.readable) lines.push(`  ${result.decisions.reason}`);
-  for (const { id, title, due: dueText } of result.decisions.list ?? []) lines.push(`  [duty] ${id}  ${title}${dueText ? `  (due ${dueText})` : ''}`);
+  for (const { id, title, due: dueText, card } of result.decisions.list ?? []) {
+    // H11: the question instead of the keyword title; the options below, so one knows the effects before acting.
+    lines.push(`  [duty] ${id}  ${card?.question ?? title}${cardMark(card)}${dueText ? `  (due ${dueText})` : ''}`);
+    if (card?.options?.length) lines.push(`      Options: ${card.options.map((o) => o.choice).join(' | ')}`);
+  }
   lines.push('');
 
   lines.push(`TO VERIFY: ${result.verify.readable ? result.verify.list.length : 'unknown'} (of ${result.verify.totalUncertain ?? 0} uncertain)`);
@@ -554,7 +602,8 @@ export function asText(result) {
   lines.push(`PROJECTS AWAITING CONFIRMATION: ${result.projects?.readable ? result.projects.list.length : 'unknown'}`);
   for (const p of result.projects?.list ?? []) {
     lines.push(`  [${p.kind === 'hand' ? 'by hand' : 'new'}] ${p.name}  `
-      + `${p.kind === 'hand' ? '(made past the command, see mem project suggestions)' : `mem project confirm ${p.name}`}`);
+      + `${p.kind === 'hand' ? '(made past the command, see mem project suggestions)' : `mem project confirm ${p.name}`}`
+      + `${p.card ? `  — ${p.card.question}${cardMark(p.card)}` : ''}`);
   }
   lines.push('');
 

@@ -82,6 +82,57 @@ function workflowFieldsFrom(args) {
   return f;
 }
 
+/**
+ * The mode a hybrid-style search actually ran in, as the words that go
+ * in the first output line. Three states, never blurred:
+ *   local semantic available   -> 'hybrid: bm25 + semantic (local ...)'
+ *   not configured             -> 'lexical only — not configured ...'
+ *   refused (external)         -> 'lexical only — REFUSED: external ...'
+ * A configured local model that returned nothing, or failed, says that
+ * instead of pretending the fusion ran.
+ */
+function modeLabel(plan, { usedSemantic, semanticError }) {
+  if (plan.state === 'local') {
+    const where = `${plan.provider}/${plan.model}, local`;
+    if (usedSemantic) return `hybrid: bm25 + semantic (${where})`;
+    if (semanticError) return `bm25 only — local semantic search failed: ${String(semanticError.message).split('\n')[0]}`;
+    return `bm25 only — local semantic search found nothing (${where}; backfill run?)`;
+  }
+  if (plan.state === 'rejected') return `lexical only — REFUSED: ${plan.message}`;
+  if (plan.state === 'broken') return `lexical only — ${plan.message}`;
+  return 'lexical only — semantic search is not configured (`mem embed setup --provider ollama` + backfill adds a local one)';
+}
+
+/** BM25 plus, when the plan allows, the local semantic ranker; prints the hits under an honest mode label. */
+async function printHybrid({ root, memCfg, query, args, plan }) {
+  thesaurus.loadUserGroups(root, fs, path);
+  const index = search.loadIndex(root, { fresh: Boolean(args.fresh), language: memCfg.language });
+  const t0 = Date.now();
+  let semanticError = null;
+  const fused = await hybrid.hybridSearch(index, query, {
+    top: numberFlag('top', args.top, { fallback: 10, min: 1 }),
+    semantic: plan.rank,
+    onSemanticError: (e) => { semanticError = e; },
+  });
+  const ms = Date.now() - t0;
+
+  // Honest label: report what actually happened, not what was configured.
+  const usedSemantic = fused.some((f) => f.found_by.includes('semantic'));
+  const mode = modeLabel(plan, { usedSemantic, semanticError });
+  if (semanticError) warn(`semantic search failed (${semanticError.code ?? 'error'}): ${String(semanticError.message).split('\n')[0]}`);
+  if (fused.length === 0) { out(`Nothing for '${query}' (${mode}, ${ms}ms).`); return; }
+  out(`${fused.length} hits for '${query}' (${mode}, ${ms}ms):`);
+  for (const f of fused) {
+    const h = f.hit;
+    const src = h.source ?? h.source_file;
+    const line = h.line ?? h.line_number;
+    const ts = h.entry?.ts ?? h.ts ?? '?';
+    const preview = h.entry ? compactLine(h.entry) : sanitizeForDisplay(String(h.text ?? ''));
+    out(`  ${src}:${line}  [${ts}]  [${f.found_by.join('+')}]`);
+    out(`    ${maskText(String(preview)).replace(/\s+/g, ' ').slice(0, 160)}`);
+  }
+}
+
 /** 15 commands. */
 export const COMMANDS = {
   find: async ({ rest, args }) => {
@@ -140,7 +191,7 @@ export const COMMANDS = {
         '             1 % of the last one shown comes along (at most one more than --top).',
         '             Switch for the frame: MEM_RETRIEVE_REQUEST_FRAME. A plain `mem find',
         '             --top N` stays exactly N.',
-        `  --type     one of ${Object.keys(memory.TYPES).join(', ')}`,
+        `  --type     one of ${memory.SEARCH_TYPES.join(', ')} (cards are not searched: mem card list)`,
         '  --category only entries whose topic is assigned to this category',
         '             (confirmed or proposal; see `mem category list`)',
       ].join('\n'));
@@ -153,6 +204,12 @@ export const COMMANDS = {
     const cfg = requireConfig(root);
     let query = rest[0];
     if (!query) die("find: no query. Example: mem find 'flaky ci'");
+    // Cards are not in the search index (`memory.SEARCH_TYPES`): say where they stand instead of a silent "nothing found".
+    if (args.type === 'card') {
+      const hint = 'Cards are not in the search index: mem card list (or mem show <card-id>)';
+      out(args.json ? JSON.stringify({ query, ms: 0, asOf: null, hits: [], hint }) : hint);
+      return;
+    }
     // The gate below (M16 port) reads the text exactly as it arrived —
     // before --content-words may shorten it to a rarity-ranked word list,
     // which would throw away the very tag a harness wrapper starts with.
@@ -214,7 +271,7 @@ export const COMMANDS = {
     }
 
     if (args.literal) {
-      const types = args.type ? [args.type] : Object.keys(memory.TYPES);
+      const types = args.type ? [args.type] : memory.SEARCH_TYPES;
       // issue #136: `memory.find` now requires a real Capability instead
       // of a hand-built drawer list. Minted exactly the way `mem
       // retrieve`/the ranked branch below already do: a real project
@@ -582,29 +639,42 @@ export const COMMANDS = {
       out([
         'mem find-embed "<query>" [--top N] [--type T] [--project P] [--since 7d]',
         '',
-        '  Semantic search over the vector store. Needs `mem embed setup`',
-        '  and a backfill first. For everything else use `mem find` — it',
-        '  is faster, free, and works offline.',
+        '  Semantic search over the vector store, with a LOCAL model (ollama).',
+        '  Needs `mem embed setup --provider ollama` and a backfill first. For',
+        '  everything else use `mem find` — it is faster, free, and works',
+        '  offline.',
+        '',
+        '  No entry text goes to an embedding vendor. If the memory is not set',
+        '  up for a local model, or is still configured for a removed external',
+        '  provider (voyage, openai) or a non-loopback ollama host, this',
+        '  command says so on stderr and answers with the lexical search',
+        '  instead; the first line of the answer names the mode that ran.',
       ].join('\n'));
       return;
     }
     checkFlags(args, ['top', 'type', 'project', 'since'], 'find-embed');
     const root = findRoot(args);
-    requireConfig(root);
+    const memCfg = requireConfig(root);
     const query = rest[0];
     if (!query) die('find-embed: no query.');
 
+    const plan = await hybrid.semanticPlan(root);
+    if (plan.state !== 'local') {
+      // Loud, never silent: say why the semantic way is closed, then do
+      // the lexical search the person can still have.
+      warn(`find-embed: ${plan.message}`);
+      await printHybrid({ root, memCfg, query, args, plan });
+      return;
+    }
+
     const store = await import('../../embed/store.mjs');
-    const cfg = embedmod.readConfig(root);
+    const cfg = plan.cfg;
     const dim = embedmod.dimensions(cfg.provider, cfg.model);
 
     let vector;
     try { vector = await embedmod.embed(root, query, { cfg }); }
     catch (e) {
-      if (e.code === 'NO_KEY') {
-        die(`find-embed: ${e.message}\n  Or just use: mem find "${query}"`);
-      }
-      die(`find-embed: ${e.message}`);
+      die(`find-embed: ${e.message}\n  Or just use: mem find "${query}"`);
     }
 
     const db = await store.open(root, dim);
@@ -614,6 +684,8 @@ export const COMMANDS = {
         type: args.type ?? null,
         project: args.project ?? null,
         since: args.since ? sinceOf(args.since) : null,
+        provider: cfg.provider,
+        model: cfg.model,
       });
       if (hits.length === 0) {
         out(`Nothing for '${query}' (${store.count(db)} embedded entries).`);
@@ -632,47 +704,30 @@ export const COMMANDS = {
       out([
         'mem find-hybrid "<query>" [--top N] [--fresh]',
         '',
-        '  BM25 and semantic recall, fused (Reciprocal Rank Fusion). It uses',
-        '  embeddings only when `mem embed setup` + a backfill were run;',
-        '  without them it is exactly `mem find`, at the same cost. Best for a',
-        '  paraphrase that shares no word with the entry you want.',
+        '  BM25 and semantic recall, fused (Reciprocal Rank Fusion). The',
+        '  semantic half runs only with a LOCAL model (`mem embed setup',
+        '  --provider ollama` + a backfill); without one it is exactly',
+        '  `mem find`, at the same cost. Best for a paraphrase that shares no',
+        '  word with the entry you want.',
+        '',
+        '  No entry text goes to an embedding vendor. A memory still',
+        '  configured for voyage/openai, or for an ollama host that is not a',
+        '  loopback address, is refused on stderr and searched lexically; the',
+        '  first line names the mode that actually ran.',
       ].join('\n'));
       return;
     }
     checkFlags(args, ['top', 'fresh'], 'find-hybrid');
     const root = findRoot(args);
-    const cfg = requireConfig(root);
+    const memCfg = requireConfig(root);
     const query = rest[0];
     if (!query) die('find-hybrid: no query.');
 
-    thesaurus.loadUserGroups(root, fs, path);
-    const index = search.loadIndex(root, { fresh: Boolean(args.fresh), language: cfg.language });
-    const semantic = await hybrid.makeSemantic(root);
-    const t0 = Date.now();
-    const fused = await hybrid.hybridSearch(index, query, {
-      top: numberFlag('top', args.top, { fallback: 10, min: 1 }),
-      semantic,
-    });
-    const ms = Date.now() - t0;
-
-    // Honest label: report what actually happened, not what was configured.
-    // A configured provider whose store is empty or whose key is missing
-    // yields no semantic hits and must not be advertised as "hybrid".
-    const usedSemantic = fused.some((f) => f.found_by.includes('semantic'));
-    const mode = usedSemantic
-      ? 'hybrid: bm25 + semantic'
-      : 'bm25 only — run `mem embed setup` + backfill to add semantic';
-    if (fused.length === 0) { out(`Nothing for '${query}' (${mode}, ${ms}ms).`); return; }
-    out(`${fused.length} hits for '${query}' (${mode}, ${ms}ms):`);
-    for (const f of fused) {
-      const h = f.hit;
-      const src = h.source ?? h.source_file;
-      const line = h.line ?? h.line_number;
-      const ts = h.entry?.ts ?? h.ts ?? '?';
-      const preview = h.entry ? compactLine(h.entry) : sanitizeForDisplay(String(h.text ?? ''));
-      out(`  ${src}:${line}  [${ts}]  [${f.found_by.join('+')}]`);
-      out(`    ${maskText(String(preview)).replace(/\s+/g, ' ').slice(0, 160)}`);
+    const plan = await hybrid.semanticPlan(root);
+    if (plan.state === 'rejected' || plan.state === 'broken') {
+      warn(`find-hybrid: ${plan.message}`);
     }
+    await printHybrid({ root, memCfg, query, args, plan });
   },
 
   retrieve: async ({ rest, args }) => {

@@ -88,11 +88,11 @@ otherwise the digest fires in the middle of your working day.
 The tick itself is cheap: it asks `mem digest due` and is back out in
 milliseconds with no lock, no git, no model.
 
-### The 15 drawers
+### The 16 drawers
 
 `decision` · `error` · `event` · `timeline` · `thought` · `learning` ·
 `duty` · `question` · `skill` · `procedure` · `source` · `update` ·
-`link` · `workflow` · `snippet` — all append-only.
+`link` · `workflow` · `snippet` · `card` — all append-only. (`card` is the card shelf: decision cards written afterwards to a target; it is not searched and not shown at recall.)
 
 **Duty is the only one with a lifecycle.** Closing one appends a line
 with `closes_id`; `mem duties` folds the log into a current view. It is
@@ -273,8 +273,10 @@ For that case there are two escalations, never the default:
   ranker survives. RRF needs no score normalisation across the BM25
   magnitude and cosine scales — only the ranks matter, which is what makes
   it robust. Without embeddings configured it is exactly `mem find`, at
-  the same cost; a missing key or empty store degrades silently to BM25,
-  and the label reports what actually ran.
+  the same cost. Embeddings are LOCAL only (ollama on a loopback address;
+  no entry text goes to an embedding vendor). When the semantic half
+  cannot run (not configured, refused, or a local model that is down) the
+  search falls back to BM25 and the label says which of those it was.
 
 The measured shape of this loss lives in `bench/retrieval.mjs`: lexical
 queries score 100% top-1, paraphrases reach 100% by rank 5, and the one

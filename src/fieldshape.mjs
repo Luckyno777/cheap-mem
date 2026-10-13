@@ -44,6 +44,8 @@ const TEXT_FIELDS = Object.freeze([
   'valid_until', 'address', 'language', 'when', 'scope',
   'family', 'subject', 'project', 'type', 'source', 'target', 'start_status', 'status_of', 'issued_by',
   'hash', 'author',
+  // H11: the decision card on an entry and the card shelf (src/decisioncard.mjs, src/cardstore.mjs)
+  'card_question', 'card_context', 'card_advice', 'card_kind', 'target_id', 'target_type',
 ]);
 
 /** The few scalars that are not prose: a number, a boolean or a text. Never an object or a list. */
@@ -73,6 +75,8 @@ const LIST_FIELDS = Object.freeze([
   'triggers', 'trigger_words', 'path_patterns', 'tool_patterns', 'tools', 'on_class',
   // what a decision turned down: `--rejected a,b` is stored as a list
   'rejected',
+  // H11: "choice - effect" per line; ids, paths or URLs
+  'card_options', 'card_evidence',
 ]);
 
 const TEXT = new Set([...TEXT_FIELDS, ...STRICT_TEXT_FIELDS]);

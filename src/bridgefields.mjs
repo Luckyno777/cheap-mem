@@ -54,6 +54,7 @@
 import * as procedure from './procedure.mjs';
 import { isTextField } from './fieldshape.mjs';
 import * as workflow from './workflow.mjs';
+import { CARD_PROSE_FIELDS } from './bodyfields.mjs';
 
 /**
  * Set by the write path, not by the caller: dropped without a word, as they
@@ -106,6 +107,10 @@ const COMMON = Object.freeze([
   'valid_from', 'valid_until', 'authority',
 ]);
 
+// H11: the decision card on an entry (src/decisioncard.mjs). A duty and a question carry it inline; the type `card` is the card
+// shelf (an addendum to a target). All text or lists of texts: it fits the field-shape check.
+const CARD = Object.freeze([...CARD_PROSE_FIELDS, 'card_kind']);
+
 const PER_TYPE = Object.freeze({
   decision: ['choice', 'rejected'],
   error: ['file', 'files'],
@@ -115,8 +120,10 @@ const PER_TYPE = Object.freeze({
   learning: ['learning', 'from'],
   // `due` (Q1): the one due-date field, only on a duty; the form and the type are checked by the write path
   // (src/due.mjs). The older names (due_date / until / deadline / by) are still READ, never written over the bridge.
-  duty: ['duty', 'owner', 'who', 'due', 'to'],
-  question: ['question'],
+  duty: ['duty', 'owner', 'who', 'due', 'to', ...CARD],
+  // `who`: to whom the question goes (owner decision 2026-10-13, 19po2xtvp7ae) - without an addressee "a question for the human" cannot be told.
+  question: ['question', 'who', ...CARD],
+  card: ['target_id', 'target_type', ...CARD],
   skill: ['skill', 'when', 'scope', 'family'],
   source: ['excerpt', 'description', 'address'],
   update: [],
@@ -217,7 +224,7 @@ export function shapeCheck(schema, args) {
 }
 
 /** The `mem_log` fields that may carry a list of strings. Every other field is a scalar. */
-const LIST_FIELDS = Object.freeze(['tags', 'symbols', 'asked_as', 'asked-as', 'placeholders', 'files', 'used_by']);
+const LIST_FIELDS = Object.freeze(['tags', 'symbols', 'asked_as', 'asked-as', 'placeholders', 'files', 'used_by', 'card_options', 'card_evidence']);
 
 /**
  * The shape of the fields of a `mem_log` call (review, 2026-10-11, after `shapeCheck`): the schema declares only

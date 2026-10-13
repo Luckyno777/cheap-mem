@@ -110,6 +110,7 @@ if (!head || head === '--help' || head === '-h' || head === 'help') {
   out("  workflow new|check|list|show          named sequences, with triggers/patterns");
   out("  command-guard build|show|check|seed   mishandling errors with --command-pattern warn before a matching Bash command");
   out("  snippet new|list|show                 reusable blocks with {{PLACEHOLDERS}}");
+  out("  card add|list                         decision cards: question, context, options with effects (mem card --help)");
   out("  experiences      [--all] [--type T]   what the memory stands behind");
   out("                    ranked by citations, not by how often it was read");
   out("  viewer           [--out f.html] [--title \"...\"] [--open]");
@@ -161,9 +162,9 @@ if (!head || head === '--help' || head === '-h' || head === 'help') {
   out("  retrieve \"<question>\" [--as-of ISO] [--json]  claims, each with a coverage line");
   out("  explain \"<question>\" <claim-id>             why one NAMED claim came back, or did not");
   out("  when \"<time expression>\" [--tz Zone]        time-range recall, no model");
-  out("  find-hybrid \"<query>\" [--top N]             BM25 and semantic, fused (RRF)");
-  out("  find-embed \"<query>\" [--top N]              semantic only; needs embed setup+backfill");
-  out("  embed setup|backfill|status                  the vector store, off by default");
+  out("  find-hybrid \"<query>\" [--top N]             BM25 and local semantic, fused (RRF)");
+  out("  find-embed \"<query>\" [--top N]              local semantic only; else lexical, with a notice");
+  out("  embed setup|backfill|status                  the local (ollama) vector store, off by default");
   out("  component <path> [--top 8]                   everything about ONE file, both spellings");
   out("  topic-merge <old>... --to <new>              fold topics; applied on READ, nothing rewritten");
   out("");

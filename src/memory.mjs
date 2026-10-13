@@ -37,6 +37,7 @@ import * as drawermemo from './drawermemo.mjs';
 import { BODY_FIELDS } from './bodyfields.mjs';
 import { shapeProblem, legacyLists, withoutListFlags } from './fieldshape.mjs';
 import * as dueCore from './due.mjs';
+import * as cardrules from './cardrules.mjs';
 
 /**
  * The per-writer hash chain (`src/chain.mjs`), loaded lazily and
@@ -123,7 +124,24 @@ export const TYPES = Object.freeze({
                                  // redaction check before it is written; a
                                  // real-data hit aborts the write. See
                                  // src/snippet.mjs.
+  card: 'cards.jsonl',           // a decision card for a TARGET (`target_id`):
+                                 // question, context, options with effects,
+                                 // advice, evidence. The shelf next to the
+                                 // entries - the target is never touched, the
+                                 // card of the higher tier (then the youngest)
+                                 // per target counts. Not searched, not
+                                 // recalled. See src/cardstore.mjs (H11).
 });
+
+/**
+ * Drawers that are neither searched nor shown at recall (card-core-cm, ported from the sibling house's cross-check
+ * 2026-10-13, S3). A card repeats the words of its target and would stand in search and recall BEFORE the original; it stays
+ * reachable through `mem card list` and `mem show <id>`. An explicit type filter at `memory.find` (`types: ['card']`) reads the
+ * shelf; `mem find --type card` does not (the index does not know it) and points to `mem card list`.
+ */
+const NOT_SEARCHED = Object.freeze(['card']);
+/** The drawers searched when none is chosen: all but `NOT_SEARCHED`. */
+export const SEARCH_TYPES = Object.freeze(Object.keys(TYPES).filter((t) => !NOT_SEARCHED.includes(t)));
 
 /**
  * The closed vocabulary of relations between entries.
@@ -555,6 +573,62 @@ function checkReservedFields(data) {
   }
 }
 
+/**
+ * H11 (ported from the sibling's cross-check 2026-10-13, B2/S2/S6): the check of a line in the card shelf, in the write core, so
+ * that `mem card add`, `mem log card` and the MCP bridge ALL run through it. Form, lengths, options and the No option come from
+ * `cardrules.checkCard`; on top the target: the form of the id, that it exists, and that it is NOT locked (a card in the clear
+ * next to an encrypted entry would give its content away; there is no envelope road here). A tombstone (`retires_id` /
+ * `closes_id`) and a state line without a card are not checked as a card.
+ * Throws with `code: 'CARD_INVALID'` and `errors`.
+ */
+function checkCardLine(root, data) {
+  // A line in the shelf is a card or a pure tombstone. If it carries ANY content field of a card (`target_id` or a `card_*`
+  // field) it is checked as a WHOLE card with a target, also as a correction (`replaces_id`) and also with `closes_id`: an
+  // early return here would be the road to write clear text to a locked target.
+  const hasCardField = Object.keys(data).some((k) => k === 'target_id' || k.startsWith('card_'));
+  const fail = (errors) => {
+    const f = new Error(`Card not written:\n  ${errors.join('\n  ')}`);
+    f.code = 'CARD_INVALID';
+    f.errors = errors;
+    return f;
+  };
+  if (!hasCardField) {
+    if (data.retires_id || data.closes_id || data.replaces_id || data.by_id) return; // a pure tombstone / state line without a card
+    throw fail(['a line in the card shelf is a card (target_id, card_question, card_context, card_options) '
+      + 'or a tombstone (mem discard <id> --type card); this is neither']);
+  }
+  const errors = [];
+  // Tier `user` on a card: only from a person. An agent writing `--authority user` would displace the owner's own card.
+  // KNOWN LIMIT (docs/security-model.md, "Decision cards"): `data.agent` is a name in a field, and the CLI is the same program for
+  // a person and an agent, so `--agent owner --authority user` from an agent's shell passes. The headless run and the bridge are
+  // stopped before this point; the forgery is not prevented, it is made visible (the card shows its author).
+  if (data.authority === 'user' && !authority.isHumanName(data.agent)) {
+    errors.push(`Tier user for a card exists only from a person; the author '${data.agent ?? 'unknown'}' is none (an agent writes with tier agent)`);
+  }
+  const checked = cardrules.checkCard({
+    target_id: data.target_id, question: data.card_question, context: data.card_context, options: data.card_options,
+    advice: data.card_advice, evidence: data.card_evidence, kind: data.card_kind,
+  });
+  errors.push(...checked.errors);
+  if (!cardrules.targetFormProblem(data.target_id)) {
+    const target = data.target_id;
+    const project = cardrules.projectOfTarget(target);
+    if (project !== null) {
+      if (!projectExists(root, project)) errors.push(`no project '${project}' — the card would hang on nothing`);
+    // `letter:<id>` and `word-pair:<a>|<b>` name things that are not entries of this house: nothing to look up, so a well-formed
+    // one is accepted (a known limit, docs/security-model.md; the sibling house does the same).
+    } else if (cardrules.targetIsEntry(target)) {
+      const e = getEntry(root, target);
+      if (!e) errors.push(`no entry with id '${target}' — nobody reads a card without a target`);
+      else if (e.body_enc) {
+        errors.push(`the target '${target}' is locked (encrypted): a card in the clear would give its content away. `
+          + 'There is no addendum to a locked target.');
+      }
+    }
+  }
+  if (errors.length) throw fail(errors);
+}
+
 export function logEntry(root, type, data, { project = null, now = new Date() } = {}) {
   // F03: protect the reserved fields (id, ts) at the write core, BEFORE
   // anything else, so a refusal has never written anything.
@@ -637,6 +711,9 @@ export function logEntry(root, type, data, { project = null, now = new Date() } 
   // `mem answer`). Under a ceiling the claim was already LOWERED above, not refused, so the digest and the
   // reflector keep working unchanged; the not-headless CLI stays the person's way.
   if (data.authority === 'user') authority.checkNotHeadless();
+
+  // H11: a line in the card shelf is a whole card at a target that exists and is not locked - for EVERY road.
+  if (type === 'card') checkCardLine(root, data);
 
   const p = logPath(root, type, project);
   // **No silent project creation (2026-10-02, owner decision).** The
@@ -1554,7 +1631,7 @@ export function iterLog(root, type, { project = null } = {}) {
  */
 export function find(root, pattern, capability, opts = {}) {
   const {
-    types = Object.keys(TYPES),
+    types = SEARCH_TYPES,
     projects = null,   // narrows WITHIN what `capability` admits; null = everything it admits
     since = null,
     withRetired = false,  // include retired (done/discarded/superseded)?
