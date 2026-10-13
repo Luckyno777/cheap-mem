@@ -83,6 +83,15 @@ test('a failed read (a directory where the journal should be: EISDIR, also as ro
 
 test('the reason carries an error code, never a path of this machine', (t) => {
   const r = root(t);
+  if (process.platform === 'win32') {
+    // Windows answers a file where the folder should be with ENOENT ("missing"), so there is no unreadable
+    // read whose message names the path; hold the code-only reason on the EISDIR read instead
+    fs.mkdirSync(journal(r));
+    const w = vis.read(r);
+    assert.equal(w.state, 'unreadable');
+    assert.ok(!String(w.reason).includes(r), 'the reason names the memory path');
+    return;
+  }
   // ENOTDIR (a file where the journal's folder should be): unlike EISDIR, its message names the path,
   // so a reason built from e.message would turn this red
   const folder = path.join(r, path.dirname(vis.LOG));
