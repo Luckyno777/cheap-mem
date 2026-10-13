@@ -111,6 +111,13 @@ the ratchet `test/mask-before-cut-ratchet.test.mjs`.
   helper, whatever their callers do; the new rule 3 of the ratchet judges every such helper in `src/` and `bin/`. The MCP bridge masks
   the text of a failed call (`Error: ...`) and the JSON-RPC error of its HTTP form. The static exports (`mem viewer`, the project
   package JSON and its offline HTML view) were checked and are green controls.
+- **`mem serve` guard, second pass:** `text/plain` bodies (the 500 texts that carry `e.message`) are masked as well; the answer is
+  held until the body is checked, and a body that cannot be read (a broken gzip) becomes a bare 500 instead of going out; what is
+  asked for again and again (the packed dashboard body) is masked once. The MCP refusal of the read-only profile masks the tool name.
+- **The PEM patterns are linear** (review blocker): the open-block pattern read every header line two ways (2^n, 37 s for 143
+  characters of prose in its first form), the complete-block pattern scanned to the end of the text from every BEGIN line (2.8 MB:
+  38 s); now unambiguous, and the span between BEGIN and END is capped at 8 KB. Probes with time limits in `test/redaction-linear.test.mjs`.
+- **`git@github.com:Owner/repo.git`** is no credential pair any more (an scp-style remote); a bare secret after `git@host:` still is.
 - **An open PEM block** (header and key material, no END line: a text cut inside the key) is masked by `redaction.mjs` too; before,
   ~1990 characters of a key survived `questiontext.prepare` (cut at 8000 before it redacts, a cost bound), and any window that
   ended inside a block. A header alone in prose is not touched.
@@ -118,11 +125,11 @@ the ratchet `test/mask-before-cut-ratchet.test.mjs`.
 ### Security - a placeholder is a placeholder only as a whole value (both houses, owner decision 2026-10-13)
 
 The exception list of `src/redaction.mjs` excused every value that merely STARTED with `your`, `my`, `test`, `example`, `sample`,
-`dummy`, `fake` or `placeholder`: `password=mySecret123!` and `password=test1234` went through unmasked. Now the whole value must be
+`dummy`, `fake` or `placeholder`: a value such as `my` + `Secret123!` or `test` + `1234` after a `password` key went through unmasked. Now the whole value must be
 a placeholder word (`your`, `my`, `dein`, `ihr`, `beispiel`, `example`, `sample`, `dummy`, `fake`, `placeholder`), alone or with exactly
 one generic word behind it (`password`, `key`, `api_key`, `token`, `secret`, `value` ...), joined by `_`, `-` or nothing:
 `your_password`, `my-token`, `example` stay; `test...` is no placeholder at all. The commit scan runs the same `redact()`; it keeps
-no list of its own. Fixture `export API_TOKEN=your-token-here` (bench/value-report.mjs) became `your-token`. A random test value that
+no list of its own. One fixture value in bench/value-report.mjs (an exported API token that read `your-token-here`) became `your-token`. A random test value that
 started with a placeholder word made `test/headline-rule.test.mjs` flake; its value now starts with `Q7`.
 `test/redaction-placeholder.test.mjs` (red on acff04e).
 

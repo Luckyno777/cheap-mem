@@ -22,6 +22,16 @@
 // scan must turn red for each (a ratchet that bites only nine of twenty-six removals was the review's finding).
 // Rule 3 judges every HELPER anywhere in src/ and bin/ (a function whose cut length is one of its own parameters:
 // `short(s, n)`, `clip`, `cap`, `excerpt`, `squash`): the mask has to stand in the helper, whatever its callers do.
+// KNOWN LIMITS (what this ratchet does not see; the probes in mask-before-cut.test.mjs are the other half):
+//   - cuts that are not a `.slice/.substring/.substr` call: `s.match(/^.{0,n}/)`, `s['slice'](..)`, `Buffer.subarray`,
+//     `split(sep, n)`, a hand-written loop over characters;
+//   - the receiver-name dictionary (BENIGN in the scanner): a variable called `key`, `ts`, `list` ... is taken to be a
+//     date, a hash or an array, whatever it holds; a name outside the dictionary and not made from a mask needs a
+//     `mask-ok` or a mask;
+//   - data flow beyond ONE function: a variable made from a mask in the same function counts, a parameter handed in
+//     already masked does not (that is what rule 3 and the `mask-ok` reason are for);
+//   - `mask-ok:` is trusted: it excuses the cut it stands above (four lines), and nobody re-checks the reason;
+//   - files outside src/ and bin/ (bench, install), and the .ps1 twins.
 // A structural pin covers what a scan cannot see (raw.snippet must cut through windowMasked). A watched file that is
 // gone is reported, not skipped: a ratchet over a moved file guards nothing.
 //
