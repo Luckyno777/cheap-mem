@@ -9,8 +9,10 @@
 // positive control: the child really computes (its CPU time grows), otherwise "the child is gone" proves
 // nothing.
 //
-// These probes never leave a child behind: every PID this file started or was told about is checked with
-// signal 0 at the end and -- only our own -- ended.
+// These probes never leave a child behind. Cleanup without PID-recycling risk: direct children of this file
+// through their ChildProcess handle (Node no longer signals after the exit); grandchildren (PIDs reported by
+// the driver) only while their start time from /proc is still the one noted at the report -- a recycled PID
+// falls through, neither a false alarm nor an innocent process killed.
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -18,17 +20,25 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { tempDir } from './temp-dir.mjs';
-import { loadChildSource, startLoadChildren, cpuTimeMs, isAlive, MAX_LIFETIME_MS } from './fixture/loadchild.mjs';
+import {
+  loadChildSource, startLoadChildren, cpuTimeMs, isAlive, startTime, MAX_LIFETIME_MS, CHECK_EVERY_MAX,
+} from './fixture/loadchild.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DRIVER = path.join(HERE, 'fixture', 'loadchild-driver.mjs');
-const mine = new Set(); // every PID this file started or was told about
+const handles = new Set();
+const grandchildren = new Map(); // pid -> start time noted at the report
+const note = (pid) => grandchildren.set(pid, startTime(pid));
+const own = (child) => { handles.add(child); return child; };
+const sameProcess = (pid) => isAlive(pid) && startTime(pid) === grandchildren.get(pid);
 
-after(() => {
-  for (const pid of mine) {
-    if (isAlive(pid)) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }
+after(async () => {
+  for (const k of handles) { try { k.kill('SIGKILL'); } catch { /* gone */ } }
+  for (const pid of grandchildren.keys()) {
+    if (sameProcess(pid)) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }
   }
-  const left = [...mine].filter((p) => isAlive(p));
+  await waitUntil(() => ![...grandchildren.keys()].some(sameProcess), 3000); // SIGKILL acts once the kernel has reaped it
+  const left = [...grandchildren.keys()].filter(sameProcess);
   assert.deepEqual(left, [], `the probe left processes behind: ${left}`);
 });
 
@@ -42,11 +52,10 @@ async function waitUntil(cond, deadlineMs, stepMs = 50) {
 async function startDriver(mode, t) {
   const dir = tempDir('cm-loadchild-', t);
   const pidFile = path.join(dir, 'pids.json');
-  const driver = spawn(process.execPath, [DRIVER, mode, pidFile], { stdio: 'ignore' });
-  mine.add(driver.pid);
+  const driver = own(spawn(process.execPath, [DRIVER, mode, pidFile], { stdio: 'ignore' }));
   assert.ok(await waitUntil(() => fs.existsSync(pidFile) && fs.statSync(pidFile).size > 0, 15000), 'the driver reported no PIDs');
   const { children } = JSON.parse(fs.readFileSync(pidFile, 'utf8'));
-  for (const k of children) mine.add(k);
+  for (const k of children) note(k);
   return { driver, children };
 }
 
@@ -71,10 +80,9 @@ test('a-red) positive control: after the OLD shape the child lives on after SIGK
 });
 
 test('a2) parent PID gone: a child with a dead parent PID ends at once (exit 0)', async () => {
-  const dead = spawn(process.execPath, ['-e', '0'], { stdio: 'ignore' });
+  const dead = own(spawn(process.execPath, ['-e', '0'], { stdio: 'ignore' }));
   await new Promise((r) => dead.on('exit', r));
-  const k = spawn(process.execPath, ['-e', loadChildSource({ parent: dead.pid, maxLifetimeMs: 30000 })], { stdio: 'ignore' });
-  mine.add(k.pid);
+  const k = own(spawn(process.execPath, ['-e', loadChildSource({ parent: dead.pid, maxLifetimeMs: 30000 })], { stdio: 'ignore' }));
   const exited = new Promise((r) => { k.on('exit', (c, s) => r(c ?? s)); });
   // The lifetime is 30 s: ending within 15 s can only be the parent leash.
   const code = await Promise.race([exited, sleep(15000).then(() => 'still running')]);
@@ -83,7 +91,7 @@ test('a2) parent PID gone: a child with a dead parent PID ends at once (exit 0)'
 
 test('b) maximum lifetime bites: the child ends by itself although the parent lives', async () => {
   const { children, pids } = startLoadChildren(1, { maxLifetimeMs: 1500 });
-  for (const p of pids) mine.add(p);
+  children.forEach(own);
   await sleep(300);
   assert.ok(isAlive(pids[0]), 'the child was gone 300 ms after the start -- the 1500 ms lifetime cannot have ended it');
   const hold = setInterval(() => {}, 100); // the helper unref()s its children; this keeps the event loop alive meanwhile
@@ -93,12 +101,20 @@ test('b) maximum lifetime bites: the child ends by itself although the parent li
   assert.ok(isAlive(process.pid), 'the parent lives (so the parent leash cannot be the cause)');
 });
 
-test('b2) the lifetime is capped: more than 60 s and nonsense are clamped to 60 s', () => {
+test('b2) the lifetime is capped (60 s) and runs on the monotonic clock; checkEvery is capped', () => {
   assert.equal(MAX_LIFETIME_MS, 60000);
-  assert.match(loadChildSource({ maxLifetimeMs: 3600000 }), /Date\.now\(\) \+ 60000;/);
-  assert.match(loadChildSource({ maxLifetimeMs: 'x' }), /Date\.now\(\) \+ 60000;/);
-  assert.match(loadChildSource({ maxLifetimeMs: 5000 }), /Date\.now\(\) \+ 5000;/);
-  assert.match(loadChildSource({}), /Date\.now\(\) \+ 60000;/);
+  const ns = (ms) => new RegExp(`hrtime\\.bigint\\(\\) \\+ ${ms}000000n;`);
+  assert.match(loadChildSource({ maxLifetimeMs: 3600000 }), ns(60000));
+  assert.match(loadChildSource({ maxLifetimeMs: 'x' }), ns(60000));
+  assert.match(loadChildSource({ maxLifetimeMs: 5000 }), ns(5000));
+  assert.match(loadChildSource({}), ns(60000));
+  assert.doesNotMatch(loadChildSource({}), /Date\.now/, 'a wall clock can jump (NTP, DST): the leash uses the monotonic clock');
+  // A huge checkEvery must not switch the parent leash off: the first check comes after CHECK_EVERY_MAX iterations at the latest.
+  assert.equal(CHECK_EVERY_MAX, 1000000);
+  for (const big of [1e12, 5e9, CHECK_EVERY_MAX + 1]) {
+    assert.match(loadChildSource({ checkEvery: big }), /i < 1000000;/, `checkEvery=${big} not capped`);
+  }
+  assert.match(loadChildSource({ checkEvery: 500 }), /i < 500;/, 'small values stay');
 });
 
 test('b3) the parent leash is in the loop and checks both ppid and kill(parent, 0)', () => {
@@ -111,8 +127,8 @@ test('b3) the parent leash is in the loop and checks both ppid and kill(parent, 
 });
 
 test('c) positive control: the load child really produces load while it runs (its CPU time grows)', async (t) => {
-  const { pids, stop } = startLoadChildren(1, { maxLifetimeMs: 20000 });
-  for (const p of pids) mine.add(p);
+  const { children, pids, stop } = startLoadChildren(1, { maxLifetimeMs: 20000 });
+  children.forEach(own);
   try {
     // Deadline-based, not a fixed window: on a busy machine the child gets less than a core, and a fixed
     // 1.2 s window would measure the machine instead of the child.
@@ -129,28 +145,31 @@ test('c) positive control: the load child really produces load while it runs (it
   assert.ok(await waitUntil(() => !isAlive(pids[0]), 5000));
 });
 
-test('d) stop() cleans up (the finally path); the parent also cleans up through process.on(exit)', async (t) => {
-  // A separate parent process starts load children and ends NORMALLY (no SIGKILL, no stop()): its exit handler
-  // has to fetch them. The parent leash is made toothless on purpose here (first check only after 5e9
-  // iterations, far beyond the 3 s below): within 3 s only the exit handler can have fetched the children --
-  // otherwise the probe would prove leash (b), not the exit cleanup.
+test('d) stop() cleans up (the finally path); a child the probe started itself is cleaned up through watch() and process.on(exit)', async (t) => {
+  // A separate parent process starts load children WITHOUT a parent leash (both check lines are struck from the
+  // source text; `watch` puts them under the helper's exit cleanup) and ends NORMALLY (no SIGKILL, no stop()).
+  // Only the lifetime (15 s) remains as an emergency brake: within 3 s of the parent's end only the exit handler
+  // can have fetched the children -- otherwise the probe would prove leash (a), not the exit cleanup.
   const dir = tempDir('cm-loadchild-', t);
   const pidFile = path.join(dir, 'pids.json');
   const script = path.join(dir, 'parent.mjs');
-  fs.writeFileSync(script, `import { startLoadChildren } from ${JSON.stringify(path.join(HERE, 'fixture', 'loadchild.mjs'))};
+  fs.writeFileSync(script, `import { loadChildSource, watch } from ${JSON.stringify(path.join(HERE, 'fixture', 'loadchild.mjs'))};
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
-const { pids } = startLoadChildren(2, { maxLifetimeMs: 30000, checkEvery: 5000000000 });
+const text = loadChildSource({ maxLifetimeMs: 15000 }).split('\\n').filter((l) => !/^\\s*(if \\(process\\.ppid|try \\{ process\\.kill\\(PARENT)/.test(l)).join('\\n');
+if (/kill\\(PARENT|ppid !==/.test(text)) throw new Error('parent leash not struck');
+const pids = [0, 1].map(() => { const k = spawn(process.execPath, ['-e', text], { stdio: 'ignore' }); k.unref(); watch(k); return k.pid; });
 fs.writeFileSync(${JSON.stringify(pidFile)}, JSON.stringify(pids));
 setTimeout(() => {}, 800);\n`);
-  const parent = spawn(process.execPath, [script], { stdio: 'ignore' });
-  mine.add(parent.pid);
+  const parent = own(spawn(process.execPath, [script], { stdio: 'ignore' }));
   await new Promise((r) => parent.on('exit', r));
   const pids = JSON.parse(fs.readFileSync(pidFile, 'utf8'));
-  for (const p of pids) mine.add(p);
-  assert.ok(await waitUntil(() => pids.every((p) => !isAlive(p)), 10000), `the exit handler left ${pids.filter(isAlive)} behind`);
+  for (const p of pids) note(p);
+  assert.ok(await waitUntil(() => pids.every((p) => !sameProcess(p)), 3000), `the exit handler left ${pids.filter(sameProcess)} behind`);
 
   const h = startLoadChildren(1, { maxLifetimeMs: 5000 });
-  for (const p of h.pids) mine.add(p);
+  h.children.forEach(own);
+  for (const p of h.pids) note(p);
   h.stop();
-  assert.ok(await waitUntil(() => !isAlive(h.pids[0]), 5000), 'stop() left the child behind');
+  assert.ok(await waitUntil(() => !sameProcess(h.pids[0]), 5000), 'stop() left the child behind');
 });

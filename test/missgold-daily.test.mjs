@@ -179,12 +179,13 @@ test('digest tick: a hanging collection is ended by its own cap, the exit code s
     const root = world();
     const k = program(work);
     const without = tick(k, root, work, { MEM_GOLD_DAILY: 'no' });
-    // A hang WITH a leash (failure record 3rmr30wgcgjn): it computes until the cap (2 s) ends it; if the cap fails,
-    // the maximum lifetime (20 s) and the parent leash end the child anyway.
-    fs.writeFileSync(path.join(k, 'src', 'missgold.mjs'), loadChildSource({ maxLifetimeMs: 20000 }));
+    // A hang WITH a leash (failure record 3rmr30wgcgjn): it computes until the cap (2 s) ends it; if the cap fails, the
+    // maximum lifetime (30 s) and the parent leash end the child anyway. The threshold below (< 15 s) lies UNDER the
+    // lifetime: a failed cap would let the tick end only after ~30 s and is thus detected, not hidden by the leash.
+    fs.writeFileSync(path.join(k, 'src', 'missgold.mjs'), loadChildSource({ maxLifetimeMs: 30000 }));
     const hung = tick(k, root, work, { MEM_GOLD_TIMEOUT: '2' });
     assert.equal(hung.code, without.code);
-    assert.ok(hung.ms < 60000, `the tick took ${hung.ms} ms`);
+    assert.ok(hung.ms < 15000, `the tick took ${hung.ms} ms (cap 2 s; from ~30 s only the hang's own lifetime acts)`);
   });
 });
 

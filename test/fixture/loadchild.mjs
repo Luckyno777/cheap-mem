@@ -22,6 +22,10 @@
  *       If the ppid changed (the child was re-parented to PID 1 or a
  *       subreaper) or the parent PID is gone, the child exits at once.
  *
+ * The lifetime runs on the monotonic clock (`process.hrtime`), not the wall clock, which can jump (NTP, DST). `checkEvery`
+ * is capped at CHECK_EVERY_MAX, so a huge value cannot switch the parent leash off. A child the probe spawns by itself
+ * goes under the same cleanup with `watch(child)`.
+ *
  * In the parent process there is also the cleanup the old shape had (`stop()`
  * in a `finally`), plus a `process.on('exit')` cleanup that kills every load
  * child of this process still alive. On SIGTERM/SIGINT/SIGHUP the helper
@@ -45,6 +49,9 @@ export const MAX_LIFETIME_MS = 60000;
 /** Iterations between two leash checks (one block takes well under 1 ms). */
 export const CHECK_EVERY = 20000;
 
+/** Upper bound for `checkEvery` (about 15 ms of work): a huge value must not switch the parent leash off. */
+export const CHECK_EVERY_MAX = 1000000;
+
 /**
  * Source text for `node -e` or a module file: computes until a leash snaps,
  * then exits 0.
@@ -52,21 +59,21 @@ export const CHECK_EVERY = 20000;
  * @param {object} [o]
  * @param {number} [o.maxLifetimeMs] default and upper bound: MAX_LIFETIME_MS
  * @param {number} [o.parent] parent PID; without it the ppid seen at start
- * @param {number} [o.checkEvery] iterations per check
+ * @param {number} [o.checkEvery] iterations per check (at most CHECK_EVERY_MAX)
  */
 export function loadChildSource({ maxLifetimeMs = MAX_LIFETIME_MS, parent, checkEvery = CHECK_EVERY } = {}) {
-  const lifetime = Math.max(1, Math.min(Number(maxLifetimeMs) || MAX_LIFETIME_MS, MAX_LIFETIME_MS));
-  const every = Math.max(1, Math.floor(Number(checkEvery) || CHECK_EVERY));
+  const lifetime = Math.max(1, Math.min(Math.floor(Number(maxLifetimeMs)) || MAX_LIFETIME_MS, MAX_LIFETIME_MS));
+  const every = Math.max(1, Math.min(Math.floor(Number(checkEvery)) || CHECK_EVERY, CHECK_EVERY_MAX));
   const parentText = Number.isInteger(parent) && parent > 0 ? String(parent) : 'process.ppid';
   return [
     `const PARENT = ${parentText};`,
-    `const DEADLINE = Date.now() + ${lifetime};`,
+    `const DEADLINE = process.hrtime.bigint() + ${lifetime}000000n;`, // monotonic clock: a wall clock can jump (NTP, DST)
     'let x = 0;',
     'for (;;) {',
     `  for (let i = 0; i < ${every}; i += 1) x += Math.sqrt(x + 1);`,
     '  if (process.ppid !== PARENT) process.exit(0);',
     '  try { process.kill(PARENT, 0); } catch { process.exit(0); }',
-    '  if (Date.now() >= DEADLINE) process.exit(0);',
+    '  if (process.hrtime.bigint() >= DEADLINE) process.exit(0);',
     '}',
     '',
   ].join('\n');
@@ -98,6 +105,14 @@ function wire() {
   }
 }
 
+/** Puts a child the probe started itself under the same exit/signal cleanup as the helper's own children. */
+export function watch(child) {
+  wire();
+  child.on('exit', () => alive.delete(child));
+  alive.add(child);
+  return child;
+}
+
 /**
  * Starts `count` load children on the double leash.
  * @returns {{ children: import('node:child_process').ChildProcess[], pids: number[], stop: () => void }}
@@ -108,11 +123,9 @@ export function startLoadChildren(count, { maxLifetimeMs = MAX_LIFETIME_MS, chec
   const children = [];
   for (let i = 0; i < count; i += 1) {
     const k = spawn(process.execPath, ['-e', source], { stdio: 'ignore' });
-    k.on('exit', () => alive.delete(k));
     // A load child never keeps the parent alive: the exit cleanup must get its chance.
     k.unref();
-    alive.add(k);
-    children.push(k);
+    children.push(watch(k));
   }
   return {
     children,
@@ -133,6 +146,14 @@ export function cpuTimeMs(pid) {
     const f = s.slice(s.lastIndexOf(')') + 2).split(' ');
     const ticks = Number(f[11]) + Number(f[12]); // utime, stime (fields 14, 15)
     return Number.isFinite(ticks) ? ticks * 10 : null; // 100 ticks per second
+  } catch { return null; }
+}
+
+/** Start time of a process (ticks since boot, /proc/<pid>/stat field 22) or null: tells it apart from a recycled PID. */
+export function startTime(pid) {
+  try {
+    const s = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+    return s.slice(s.lastIndexOf(')') + 2).split(' ')[19] ?? null;
   } catch { return null; }
 }
 
