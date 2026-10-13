@@ -193,6 +193,11 @@ refresh
 # are not questions for the memory, and showing hits for them is noise,
 # and noise is what people learn to skim past.
 IN="$(cat)"
+# `PROMPT` is also the name of an environment variable on Windows (cmd.exe's prompt string, `$P$G`). A shell variable
+# that shares the name of an inherited one stays EXPORTED when assigned, so every child below saw PROMPT=<the question>,
+# and the redaction's env layer then blanked the whole question to `[REDACTED:env:PROMPT]` (CI run 912, Windows). Unset
+# first: the assignment then makes a plain shell variable that no child inherits.
+unset PROMPT
 PROMPT="$(printf '%s' "$IN" | node -e '
   let d = "";
   process.stdin.on("data", (c) => (d += c)).on("end", () => {
