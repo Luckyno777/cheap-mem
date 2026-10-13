@@ -137,9 +137,17 @@ export function save(db, { sourceFile, lineNumber, jsonlId, ts, text, provider, 
 }
 
 /** Top-K semantic search. Returns metadata plus a `score` in (0,1]. */
-export function search(db, vector, { top = 5, type = null, project = null, since = null } = {}) {
+export function search(db, vector, {
+  top = 5, type = null, project = null, since = null, provider = null, model = null,
+} = {}) {
   const where = [];
   const params = {};
+  // Only vectors the CURRENT local model wrote are comparable with its
+  // query vector. Rows from any other provider (an external one used
+  // before 2026-10-13, say) stay in the file, untouched, and are never
+  // ranked.
+  if (provider) { where.push('provider = @provider'); params.provider = provider; }
+  if (model) { where.push('model = @model'); params.model = model; }
   if (type) {
     where.push('source_file LIKE @type');
     params.type = `%/${memory.TYPES[type] ?? `${type}.jsonl`}`;
@@ -191,6 +199,47 @@ export function exists(db, sourceFile, lineNumber, jsonlId) {
 
 export function count(db) {
   return db.prepare('SELECT COUNT(*) as n FROM entries').get().n;
+}
+
+/**
+ * How many stored entries each provider wrote, as `{provider: n}`; null
+ * when the store cannot be read (no file, or the optional sqlite package
+ * is not installed). Read-only, and the vec extension is not needed for
+ * the metadata table, so this works on a store whose vectors have the
+ * wrong dimension.
+ */
+export async function providerCounts(root) {
+  const p = path.join(root, DB_PATH);
+  if (!fs.existsSync(p)) return null;
+  let db;
+  try {
+    const sqlite = (await import('better-sqlite3')).default;
+    db = new sqlite(p, { readonly: true, fileMustExist: true });
+    const rows = db.prepare('SELECT provider, COUNT(*) AS n FROM entries GROUP BY provider').all();
+    return Object.fromEntries(rows.map((r) => [r.provider, r.n]));
+  } catch {
+    return null;
+  } finally {
+    try { db?.close(); } catch { /* fine */ }
+  }
+}
+
+/**
+ * Move the store out of the way WITHOUT deleting it, into
+ * `.mem/local/kept-vectors/` (git-ignored: the store holds entry text, and
+ * a copy next to it would not be). Returns the new path, or null when
+ * there was no store. For vectors the current setup cannot use but the
+ * user owns.
+ */
+export function moveAside(root) {
+  const p = path.join(root, DB_PATH);
+  if (!fs.existsSync(p)) return null;
+  const dir = path.join(root, '.mem', 'local', 'kept-vectors');
+  fs.mkdirSync(dir, { recursive: true });
+  let to = path.join(dir, 'vectors.db');
+  for (let n = 2; fs.existsSync(to); n += 1) to = path.join(dir, `vectors-${n}.db`);
+  fs.renameSync(p, to);
+  return to;
 }
 
 export function deleteDb(root) {
