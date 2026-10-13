@@ -291,13 +291,13 @@ add({ id: 'A retrieval.retrieve bodyChars (4000)', cut: 4000,
   } });
 
 /** MCP over stdio: the calls, answered in order. */
-async function bridge(tree, root, calls) {
+async function bridge(tree, root, calls, extraEnv = {}) {
   const lines = [J({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 't', version: '1' } } })];
   let id = 10;
   for (const [name, a] of calls) lines.push(J({ jsonrpc: '2.0', id: id++, method: 'tools/call', params: { name, arguments: a } }));
   const r = await run(process.execPath, [path.join(tree, 'bin', 'mem-mcp')], {
     input: `${lines.join('\n')}\n`,
-    env: { ...process.env, CHEAP_MEM_ROOT: root, CHEAP_MEM_AGENT: 'session' },
+    env: { ...process.env, CHEAP_MEM_ROOT: root, CHEAP_MEM_AGENT: 'session', ...extraEnv },
   });
   const replies = String(r.stdout ?? '').split('\n').filter((z) => z.trim()).map((z) => JSON.parse(z));
   if (replies.length < calls.length + 1) throw new Error(`bridge answered ${replies.length} times: ${String(r.stderr).slice(0, 600)}`);
@@ -752,6 +752,15 @@ add({ id: 'E mem serve: inbox subject/text/replies, facts, experiences (all JSON
     } finally { await new Promise((r) => { s.server.close(r); s.server.closeAllConnections?.(); }); }
   } });
 
+add({ id: 'E bin/mem-mcp: the refusal of the read-only profile names the tool the caller asked for (whole)', mode: 'whole', kinds: ['github', 'jwt', 'password'],
+  async run({ tree, t }, b) {
+    const root = await mkroot(tree, t);
+    const [res] = await bridge(tree, root, [[b.text, {}]], { CHEAP_MEM_MCP_READONLY: '1' });
+    const text = resultText(res);
+    assert.match(text, /read-only/, `positive control: the refusal is the read-only one: ${text.slice(0, 200)}`);
+    return text;
+  } });
+
 add({ id: 'E bin/mem-mcp: the error text of a failed call (whole)', mode: 'whole', kinds: ['github', 'jwt', 'password'],
   async run({ tree, t }, b) {
     const root = await mkroot(tree, t);
@@ -830,7 +839,7 @@ test('servemask: JSON is masked, an answer without a key is byte for byte unchan
   const server = http.createServer((req, res) => {
     guardResponse(res);
     if (req.url === '/json') res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'content-length': Buffer.byteLength(dirty) }).end(dirty);
-    else res.writeHead(200, { 'content-type': 'text/plain' }).end(b.text);
+    else res.writeHead(200, { 'content-type': 'text/html' }).end(b.text);
   });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   try {
@@ -838,8 +847,39 @@ test('servemask: JSON is masked, an answer without a key is byte for byte unchan
     const j = await httpGet(base, '/json');
     assert.ok(!leaks(j.text, b.key), 'JSON route: masked, and a fixed content-length did not break the answer');
     const p = await httpGet(base, '/plain');
-    assert.ok(leaks(p.text, b.key), 'control: a non-JSON answer is not touched by this guard');
+    assert.ok(leaks(p.text, b.key), 'control: an HTML answer is not touched by this guard');
   } finally { await new Promise((r) => { server.close(r); server.closeAllConnections?.(); }); }
+});
+
+test('servemask: text/plain error bodies are masked, a body that cannot be read becomes a bare 500, a repeated body is masked once', async () => {
+  const b = bait('github', 200);
+  const brokenGz = Buffer.from('this is not gzip at all');
+  const server = http.createServer((req, res) => {
+    guardResponse(res);
+    if (req.url === '/err') res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' }).end(`dashboard could not be built: ${b.text}`);
+    else if (req.url === '/html') res.writeHead(200, { 'content-type': 'text/html' }).end(`<p>${b.text}</p>`);
+    else if (req.url === '/broken') res.writeHead(200, { 'content-type': 'application/json', 'content-encoding': 'gzip' }).end(brokenGz);
+    else res.writeHead(404, { 'content-type': 'text/plain' }).end('not found');
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  try {
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const e = await httpGet(base, '/err');
+    assert.equal(e.status, 500, 'the status of the error stays');
+    assert.ok(/could not be built/.test(e.text) && !leaks(e.text, b.key), `masked, text kept: ${e.text.slice(0, 80)}`);
+    const h = await httpGet(base, '/html');
+    assert.ok(leaks(h.text, b.key), 'control: HTML (pages, scripts, styles) is not touched by this guard');
+    const broken = await new Promise((resolve, reject) => {
+      http.get(`${base}/broken`, (r) => { const parts = []; r.on('data', (c) => parts.push(c)); r.on('end', () => resolve({ status: r.statusCode, text: Buffer.concat(parts).toString() })); }).on('error', reject);
+    });
+    assert.equal(broken.status, 500, 'fail closed: a body that cannot be checked is not handed out');
+    assert.ok(!broken.text.includes('this is not gzip'), 'and the unchecked bytes do not go out');
+  } finally { await new Promise((r) => { server.close(r); server.closeAllConnections?.(); }); }
+  // the memo: the same packed Buffer is unpacked and masked once
+  const packed = zlib.gzipSync(JSON.stringify({ subject: b.text }));
+  const first = maskBody(packed, true);
+  assert.equal(maskBody(packed, true), first, 'the same input buffer gives the very same output buffer (no second round of gunzip + mask + gzip)');
+  assert.throws(() => maskBody(brokenGz, true), 'maskBody itself throws on a body it cannot read');
 });
 
 test('mem-serve: every request runs through guardResponse before any route can answer', () => {
@@ -854,13 +894,15 @@ test('mem-serve: every request runs through guardResponse before any route can a
 
 // ---- an open PEM block (no END line in view) -------------------------------------------------------------------------
 
+/** A PEM boundary line, put together at run time (the commit scan reads this source and must not see a block in it). */
+const pem = (kind, what) => ['-----', kind, ' ', what, '-----'].join('');
 const pemLines = (n) => Array.from({ length: n }, (_, i) => Buffer.from(`pem-probe-line-${String(i).padStart(4, '0')}-${'AbCdEfGhIjKlMnOpQrStUvWxYz'.repeat(2)}`).toString('base64'));
 
 /** How many of the first key lines survive `questiontext.prepare` on a PEM block whose END lies beyond the 8000 bound. */
 async function pemLinesKept(tree) {
   const lines = pemLines(200);
-  const text = `Why does this fail? ${['-----BEGIN', 'RSA PRIVATE KEY-----'].join(' ')}\n${lines.join('\n')}\n${['-----END', 'RSA PRIVATE KEY-----'].join(' ')}\nthanks`;
-  assert.ok(text.indexOf('-----END') > 8000, 'the END line lies beyond the 8000 bound');
+  const text = `Why does this fail? ${pem('BEGIN', 'RSA PRIVATE KEY')}\n${lines.join('\n')}\n${pem('END', 'RSA PRIVATE KEY')}\nthanks`;
+  assert.ok(text.indexOf(pem('END', 'RSA PRIVATE KEY')) > 8000, 'the END line lies beyond the 8000 bound');
   const m = await imp(tree, 'src/questiontext.mjs');
   const out = m.prepare(text, { env: {} }).question;
   return lines.slice(0, 20).filter((l) => out.includes(l)).length;
@@ -875,15 +917,15 @@ test('old acff04e (red proof): C questiontext.prepare: the open PEM block surviv
 test('an open PEM block: header and key material fall, a header alone in prose does not, a complete block still falls whole', async () => {
   const { redact } = await import('../src/redaction.mjs');
   const lines = pemLines(4);
-  const head = ['-----BEGIN', 'PRIVATE KEY-----'].join(' ');
+  const head = pem('BEGIN', 'PRIVATE KEY');
   const open = redact(`note ${head}\n${lines.join('\n')}`).text;
   assert.ok(!lines.some((l) => open.includes(l)) && /REDACTED:pem-block/.test(open), `open block masked: ${open}`);
   const esc = redact(`{"text":"${head}\\n${lines.join('\\n')}\\n"}`).text;
   assert.ok(!lines.some((l) => esc.includes(l)), 'the JSON-escaped form too');
   assert.ok(esc.endsWith('"}'), `and the string around it survives: ${esc}`);
-  const prose = `a ${['-----BEGIN', 'CERTIFICATE-----'].join(' ')} line starts the block, then words follow.`;
+  const prose = `a ${pem('BEGIN', 'CERTIFICATE')} line starts the block, then words follow.`;
   assert.equal(redact(prose).text, prose, 'a header alone in prose is not touched');
-  const whole = redact(`${head}\n${lines[0]}\n${['-----END', 'PRIVATE KEY-----'].join(' ')} after`).text;
+  const whole = redact(`${head}\n${lines[0]}\n${pem('END', 'PRIVATE KEY')} after`).text;
   assert.equal(whole, '[REDACTED:pem-block] after', 'a complete block falls whole, as before');
   const old = await imp(oldDir(), 'src/redaction.mjs');
   assert.ok(lines.some((l) => old.redact(`note ${head}\n${lines.join('\n')}`).text.includes(l)), 'red proof: the old tree leaves the open block');

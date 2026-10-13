@@ -1106,7 +1106,8 @@ async function handleCall(name, args) {
   // name still calls it. Unknown counts as writing — see
   // src/mcpprofile.mjs for why that is the only safe direction.
   if (!mcpprofile.allowed(name, PROFILE)) {
-    return { content: [{ type: 'text', text: mcpprofile.refusal(name) }], isError: true };
+    // the refusal names the tool the CALLER asked for: masked like every other error text
+    return { content: [{ type: 'text', text: maskText(mcpprofile.refusal(name)) }], isError: true };
   }
 
   switch (name) {
