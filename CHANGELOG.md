@@ -74,6 +74,8 @@ Every hook call is a new node process that translates `src/*.mjs` from scratch. 
 `NODE_COMPILE_CACHE` to `<user cache>/cheap-mem/node-cc` - `${XDG_CACHE_HOME:-~/.cache}` on Linux, `~/Library/Caches` on macOS,
 `%LOCALAPPDATA%` on Windows - **not** in the memory (a git repository that travels between machines). A value the user set stays;
 a directory that cannot be made means no cache and an unchanged hook; Node before 22.1 ignores the variable and runs cleanly without.
+Measured on the (now single-start) before-edit hook, 15 interleaved runs, median: CPU 161 -> 145 ms per call (about 10 %); the wall figures of that run (256 vs 280 ms) lie inside the
+noise of the loaded box - the sibling house measured about 50 ms on its heavier hook; with one lean start there is less to cache.
 `test/hook-compile-cache.test.mjs`: source order (set before the first node, comments do not count), a real run fills the user cache
 and leaves nothing in the memory, the user's value wins, an unmakeable directory is harmless, every platform branch of
 `mem_compile_cache` (Linux with/without `XDG_CACHE_HOME`, macOS, Git Bash, no HOME); red on the old hook, mutation caught.
@@ -83,7 +85,7 @@ New variable in the register: `NODE_COMPILE_CACHE` (and `XDG_CACHE_HOME`, `LOCAL
 
 `bin/mem-before-edit` and its PowerShell twin cut one recall into a dozen `node -e` snippets plus a full `node bin/mem component`
 (every command group loaded for one lookup). Measured on the old hook with the injection of a real hit (Linux 6.18, 4 cores,
-Xeon 2.1 GHz, Node 22.22, median of 11 runs, marks reset each run): **13 node starts, 1079 ms**. Now the shells keep the switches, the
+Xeon 2.1 GHz, Node 22.22, median of 11 runs, marks reset each run): **13 node starts, 1079 ms**. (Re-measured at the end, old/new/new-with-cache INTERLEAVED, 15 runs each, on a box that other builders were loading: wall 1664 -> 256 ms, CPU user+sys 847 -> 161 ms; the load moves the wall figures, the ratio holds.) Now the shells keep the switches, the
 root lookup and the two armed Bash guards, and hand the rest to `bin/mem-before-edit-core.mjs` (`src/beforeedit.mjs`):
 **1 node start, 222 ms** (a Bash call that writes no file still starts none). `mem component --hook` and the hook share
 `src/componenthook.mjs`; `compactLine` moved to its own small module (`src/compactline.mjs`, `display.mjs` re-exports it).
