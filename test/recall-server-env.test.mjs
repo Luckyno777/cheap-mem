@@ -52,9 +52,9 @@ function direct(root, env = {}) {
   return r.stdout;
 }
 
-async function startServer(root, env = {}) {
+async function startServer(root, env = {}, code = CODE) {
   const kid = spawn(process.execPath, ['-e', `
-    import(${JSON.stringify(pathToFileURL(path.join(CODE, 'src', 'recallserver.mjs')).href)}).then((r) => r.start(${JSON.stringify(root)}))
+    import(${JSON.stringify(pathToFileURL(path.join(code, 'src', 'recallserver.mjs')).href)}).then((r) => r.start(${JSON.stringify(root)}))
       .then((x) => {
         if (!x.running) process.exit(1);
         const stop = () => x.close().then(() => process.exit(0));
@@ -76,11 +76,11 @@ async function startServer(root, env = {}) {
   return { stop };
 }
 
-function client(root, env = {}) {
+function client(root, env = {}, code = CODE) {
   return new Promise((resolve) => {
     const e = { ...process.env, MEM_HOOK_START_MS: String(Date.now()), ...env };
     for (const k of ['MEM_RETRIEVE_REQUEST_FRAME', 'MEM_SEARCH_LEVERS', 'MEM_RETRIEVE_TIE', 'MEM_EXPAND']) if (!(k in env)) delete e[k];
-    const k = spawn(process.execPath, [CLIENT, root, QUESTION, '5'], { env: e, stdio: ['ignore', 'pipe', 'pipe'] });
+    const k = spawn(process.execPath, [path.join(code, 'bin', 'mem-retrieve-client.mjs'), root, QUESTION, '5'], { env: e, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     k.stdout.on('data', (s) => { out += s; });
     k.on('exit', (code) => resolve({ code, out }));
@@ -169,4 +169,21 @@ test('the allowlist is the set of switches the find handler reads from the envir
   for (const m of src.matchAll(/levers\.active\('h[13]'([^)]*)\)/g)) assert.ok(/env/.test(m[1]), `${m[0]} reads process.env, not the caller's environment`);
   assert.deepEqual([...place.FORWARDED_ENV].sort(), ['MEM_RETRIEVE_REQUEST_FRAME', 'MEM_RETRIEVE_TIE', 'MEM_SEARCH_LEVERS']);
   assert.deepEqual([...place.INDEX_ENV], ['MEM_EXPAND']);
+});
+
+test('MUTATION: a server that ignores the request\'s environment is caught by the probe above', async (t) => {
+  const root = world(t);
+  const copy = tempDir('cm-rsenv-mut-', t);
+  fs.cpSync(path.join(CODE, 'bin'), path.join(copy, 'bin'), { recursive: true });
+  fs.cpSync(path.join(CODE, 'src'), path.join(copy, 'src'), { recursive: true });
+  const f = path.join(copy, 'src', 'recallserver.mjs');
+  const text = fs.readFileSync(f, 'utf8');
+  const hook = "if (req.env && typeof req.env === 'object') {";
+  assert.equal(text.split(hook).length, 2, 'the line the mutation hits moved');
+  fs.writeFileSync(f, text.replace(hook, "if (false && req.env && typeof req.env === 'object') {"));
+  const srv = await startServer(root, {}, copy);
+  t.after(() => srv.stop());
+  const got = await client(root, { MEM_RETRIEVE_REQUEST_FRAME: '0' }, copy);
+  assert.equal(got.code, 0);
+  assert.notDeepEqual(norm(got.out), norm(direct(root, { MEM_RETRIEVE_REQUEST_FRAME: '0' })), 'the mutated server still followed the caller - the probe cannot tell');
 });
