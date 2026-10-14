@@ -22,7 +22,7 @@ import * as timetrack from '../timetrack.mjs';
 import * as capability from '../capability.mjs';
 import * as procedure from '../procedure.mjs';
 import * as bidi from '../bidi.mjs';
-import { maskText, maskEntry } from '../outputguard.mjs';
+import { maskText, maskEntry, maskOutput } from '../outputguard.mjs';
 import * as bodyfields from '../bodyfields.mjs';
 import * as injection from '../injection.mjs';
 import { out, die, checkFlags, numberFlag, isHelp, findRoot, requireConfig, authorityArg, textFlag } from './shell.mjs';
@@ -299,7 +299,10 @@ export function markedEntry(e, { root = null } = {}) {
 export function sanitizeForDisplay(value) {
   // The output guard (src/outputguard.mjs) rides on the same function: every
   // string a surface shows is also masked for known key shapes.
-  if (typeof value === 'string') return bidi.visible(maskText(value));
+  // A string that is a JSON document (the MCP bridge hands `mem_show` over as pretty-printed JSON text) is masked as a
+  // document first, so a value under a secret's KEY falls whole (`maskOutput`); the text mask then runs over the result
+  // (keys, anything the document pass leaves). Plain text takes the second step only; a second mask changes nothing.
+  if (typeof value === 'string') return bidi.visible(maskText(maskOutput(value)));
   if (value === null || value === undefined) return value;
   return JSON.parse(bidi.visible(JSON.stringify(maskEntry(value))));
 }

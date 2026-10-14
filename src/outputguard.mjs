@@ -27,7 +27,7 @@
  * still reported by `mem doctor`.
  */
 
-import { redact } from './redaction.mjs';
+import { redact, walkSecrets } from './redaction.mjs';
 
 // A long-running process (`mem serve`, the warm recall server) masks the
 // same entries again on every build. The mask is a pure function of the
@@ -54,20 +54,14 @@ export function maskText(text) {
 
 /**
  * An entry (or anything JSON-shaped) for the output: every string value is
- * masked, keys and numbers stay. Returns a COPY.
+ * masked, keys stay; a number stays unless a secret's key stands above it.
+ * Returns a COPY.
  */
 export function maskEntry(value) {
-  if (typeof value === 'string') return maskText(value);
-  if (Array.isArray(value)) return value.map(maskEntry);
-  if (value !== null && typeof value === 'object') {
-    // Plain objects only: a Date, a Map or a Buffer stays what it is.
-    const proto = Object.getPrototypeOf(value);
-    if (proto !== Object.prototype && proto !== null) return value;
-    const out = {};
-    for (const [k, v] of Object.entries(value)) out[k] = maskEntry(v);
-    return out;
-  }
-  return value;
+  // Plain objects only (a Date, a Map or a Buffer stays what it is). A string under a secret's KEY falls whole, however
+  // deep (`{env: {API_KEY: "..."}}`): the key is context the text alone lacks (`walkSecrets`, redaction.mjs). A cycle or
+  // a runaway depth ends in a marker, never in a crash.
+  return walkSecrets(value, maskText, { plainOnly: true });
 }
 
 /**

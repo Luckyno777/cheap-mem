@@ -2268,7 +2268,7 @@ function checkLegacyLeaks(root) {
       const text = JSON.stringify(l);
       read += text.length;
       if (read >= CAP) { truncated = true; break; }
-      for (const f of redaction.redact(text).found) {
+      for (const f of redaction.scanObject(l, text)) {
         hits.set(f.type, (hits.get(f.type) ?? 0) + f.count);
       }
     }

@@ -357,7 +357,7 @@ export const COMMANDS = {
         let lines;
         try { ({ lines } = raw.readCapture(root, rel)); } catch { continue; }
         for (let i = 0; i < lines.length; i += 1) {
-          const found = redaction.redact(JSON.stringify(lines[i])).found;
+          const found = redaction.scanObject(lines[i]);
           for (const f of found) {
             const k = `${f.type}|${rel}`;
             if (!seen.has(k)) seen.set(k, { type: f.type, capture: rel, lines: new Set(), count: 0 });

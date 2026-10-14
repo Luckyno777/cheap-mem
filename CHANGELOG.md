@@ -41,6 +41,35 @@ hosted MCP connector, and nothing makes the model use it. The habit that hooks g
   up in the tool list the server itself answers with (not copied); the core sentences against softening; size; the four
   moments against `HOUSE-RULES.md`; a positive control (a renamed tool turns it red); the command against scratch memories.
 
+### Security - an object field under a secret's key falls whole; a Bearer/Basic value behind a marker falls (2026-10-14)
+
+Measured on the previous tip (e58fb2b), all open: `{password: "correct horse battery staple"}`, `{token: "abc123def456"}`, `{password: 123456}`,
+and nested the way the raw capture sees them (`tool_use.input`): `{headers: {Authorization: "Basic ..."}}`, `{env: {API_KEY: "k1"}}`
+(`redactObject`, `redactEntry` and `maskEntry` read each string alone, so the key meant nothing); and `Bearer [REDACTED:x]<32 characters>`,
+`Bearer [REDACTED:x][REDACTED:y]<32>`, `Basic [REDACTED:x]<value>` (a marker right behind the scheme ended the pattern).
+
+- **Object fields.** One walk (`walkSecrets`, `src/redaction.mjs`) serves the write path (`redactObject`, `redactEntry`: raw capture, every
+  logged entry) and the output (`maskEntry`: `mem find`/`show`, the viewer payload, the MCP replies, `mem raw show`, the recall hooks). A string
+  under a secret's key is masked whole as `[REDACTED:json-secret]`, however deep the key sits; a number or boolean directly under it too
+  (a numeric PIN is a password). The key list is the one of `json-secret` (`JSON_KEY_WORDS`, no second copy), tested anywhere in the key, after
+  NFKC and without zero-width characters; for objects the header name `authorization` / `proxy-authorization` is added, exactly. `null`, the empty
+  string and a value of markers alone stay (idempotence). The strings below a secret key inherit it (`{secrets: {A: "x"}}`); numbers only where the key
+  stands directly over them. **No false alarm on counters:** `max_tokens`, `tokens_used`, `usage.input_tokens`, `"secrets": 120`, `password_length: 12`
+  keep their numbers (plural of a keyword, `*_count`/`*_limit`/... , `max_token`); `token: 1234` and `authToken: 1234` do not. Pagination cursors
+  (`nextPageToken`) stay, as in the text rule; a key that runs on long behind its keyword spares a prose string (`token_system_is_a_facade`), as the text
+  rule does. `password_hint` is masked (a hint is where the password gets written down). Bounded: a cycle ends in `[REDACTED:cycle]`, a depth over 64 or
+  more than 2,000,000 nodes in `[REDACTED:depth]`; no crash.
+- **Bearer / Basic / `Authorization: Token`.** One or more markers directly behind the scheme no longer end the pattern; the value after them
+  falls, a stump after a marker inside the value too. A value of markers alone is no match. `Authorization: Token <value>` is new (header
+  name required in front, so prose is not touched).
+- **MCP replies that are JSON documents** (`mem_show`) went through the text mask only (`sanitizeForDisplay`): `{"API_KEY": "k1abc"}` stayed in the clear
+  on the bridge while the CLI and the viewer masked it. A JSON string is now masked as a document first, then as text.
+- **Legacy scan.** `mem raw check` and the doctor's legacy check count the fields this rule masks (`scanObject`), values never shown.
+
+Measured: monotony against the base (every secret fragment masked by e58fb2b is still masked), 60,504 text cases + 60,000 object cases, 0
+regressions, 0 idempotence failures; 1 MB shapes linear (`test/redaction-linear.test.mjs`, `test/redaction-object-keys.test.mjs`); corpus
+docs/, test/, README.md, CHANGELOG.md (640 files, 15 JSON): no difference. `test/redaction-object-keys.test.mjs`.
+
 ### Security - recall server: concurrent starts no longer leave it deaf; a stop takes only its own socket (lucky-mem R3; both houses)
 
 Two recall servers started at the same time: both wrote the key file before `listen`, the loser failed with EADDRINUSE and
