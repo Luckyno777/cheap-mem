@@ -80,7 +80,7 @@ if (!head || head === '--help' || head === '-h' || head === 'help') {
   out("");
   out("Setup:");
   out("  init [--participants a,b,c] [--branch main] [--remote origin]");
-  out("  setup <agent> [--dry-run]             wire it into an agent (claude)");
+  out("  setup <agent> [--dry-run] [--force]   wire it into an agent (claude, codex-cloud)");
   out("  whoami [<name>]                       who this install is (or set)");
   out("");
   out("Memory (append-only logs):");
