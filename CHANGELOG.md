@@ -14,6 +14,20 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Fixed - review follow-up of the hook work (M2, N1-N3, N5-N7)
+
+- **N3** The touched file's name (last two path segments) left the before-edit hook unmasked: a file `.../ghp_<token>.sh` put the token into the answer, the pointer line,
+  the journal's `file` field, the trace and the name of the once-per-file mark. The answer now passes `maskOutput`; journal field, trace and mark name take the masked query
+  (a masked name is no path name for the journal, so the field is left out). `test/before-edit-mask.test.mjs`, token built at run time, red on `c1ad4a9`.
+- **N1/N2** The clone gate shows nothing when its verdict cannot be written (it could not be throttled and would repeat on every prompt), and shows the cached line only cleaned:
+  `Memory: ...` first, one line, no control or bidi characters, secret shapes masked, at most 300 characters.
+- **N5** A `defaultRemote` that is no remote of the clone (`git remote get-url -- <name>`) is refused like a bad name: `git fetch <name>` reads it as a path or URL - a directory
+  inside the clone was enough (red on `c1ad4a9` in `test/tracked-ref.test.mjs`). The refused value is printed clipped to 40 printable ASCII characters. Shell, inline twin, both PowerShell hooks.
+- **N6** The PowerShell plain-name checks end in `\z`, not `$` (.NET lets `$` match before a trailing newline).
+- **M2** The node-start counter loads with `--import` and a file URL (a backslash path in `NODE_OPTIONS --require` breaks on Windows); the compile-cache probes give the scratch home its own
+  `LOCALAPPDATA` on Windows instead of deleting it.
+- **N7** The figures in the code comments are the CHANGELOG's: 13 starts, median of 11 runs.
+
 ### Fixed - a memory's `.gitignore` covers the whole `.pipeline/` folder (review of the hook work, M1)
 
 Only `.pipeline/observations.jsonl` had a line. `.pipeline/injections.jsonl` (the journal, written by every hook call) and the new `.pipeline/clone-gate.json`

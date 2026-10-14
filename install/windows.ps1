@@ -301,13 +301,24 @@ try {
     `$r = [string]`$trackJson.defaultRemote
     `$b = [string]`$trackJson.defaultBranch
     if (`$r) {
-      if (`$r -match '^[A-Za-z0-9][A-Za-z0-9._-]*`$' -and -not `$r.Contains('..')) { `$memRemote = `$r }
-      else { Write-Host "[hook] WARNING: config defaultRemote '`$r' is not a plain remote name - using origin" }
+      # The anchor is \z, not the end-of-line one (in .NET that also matches before a trailing newline). The refused value is printed clipped (40 characters,
+      # printable ASCII only): it is data out of a file.
+      `$rShow = (`$r -replace '[^\x20-\x7e]', '')
+      if (`$rShow.Length -gt 40) { `$rShow = `$rShow.Substring(0, 40) + '...' }
+      if (`$r -match '^[A-Za-z0-9][A-Za-z0-9._-]*\z' -and -not `$r.Contains('..')) {
+        # A name that is no remote of THIS clone would be read by git as a path or URL.
+        & git -C `$env:CHEAP_MEM_ROOT remote get-url -- `$r 2>`$null | Out-Null
+        if (`$LASTEXITCODE -eq 0) { `$memRemote = `$r }
+        else { Write-Host "[hook] WARNING: config defaultRemote '`$rShow' is not a remote of this clone - using origin" }
+      }
+      else { Write-Host "[hook] WARNING: config defaultRemote '`$rShow' is not a plain remote name - using origin" }
     }
     if (`$b) {
-      if (`$b -match '^[A-Za-z0-9][A-Za-z0-9._/-]*`$' -and -not `$b.Contains('..') -and -not `$b.Contains('//') -and
+      `$bShow = (`$b -replace '[^\x20-\x7e]', '')
+      if (`$bShow.Length -gt 40) { `$bShow = `$bShow.Substring(0, 40) + '...' }
+      if (`$b -match '^[A-Za-z0-9][A-Za-z0-9._/-]*\z' -and -not `$b.Contains('..') -and -not `$b.Contains('//') -and
           -not `$b.EndsWith('/') -and -not `$b.EndsWith('.lock')) { `$memBranch = `$b }
-      else { Write-Host "[hook] WARNING: config defaultBranch '`$b' is not a plain branch name - using main" }
+      else { Write-Host "[hook] WARNING: config defaultBranch '`$bShow' is not a plain branch name - using main" }
     }
   }
 } catch { }

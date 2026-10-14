@@ -203,7 +203,17 @@ mem_compile_cache() {
 # installed hook has no _portable.sh next to it); test/tracked-ref.test.mjs runs
 # both over the same cases.
 #
+# A remote that is not one of THIS clone's is refused as well (N5): `git fetch <name>` with a name that is no remote is
+# read by git as a path or URL, and the name comes out of a file in a cloned repository. Checked with
+# `git remote get-url -- <name>`; where the directory is no git repository nothing is fetched anyway and nothing is asked.
+# The refused value is shown clipped (40 characters, printable ASCII only): it is data, and it is printed.
+#
 # mem_tracked_ref <memory root>
+mem_clip() {
+  local c; c="$(printf '%s' "$1" | LC_ALL=C tr -cd '\040-\176' | cut -c1-40)"
+  [ "${#1}" -gt 40 ] && c="$c..."
+  printf '%s' "$c"
+}
 mem_tracked_ref() {
   local cfg="$1/.mem/config.json" v
   mem_track_remote="origin"; mem_track_branch="main"; mem_track_note=""
@@ -211,14 +221,17 @@ mem_tracked_ref() {
   v="$(grep -o '"defaultRemote"[[:space:]]*:[[:space:]]*"[^"]*"' "$cfg" 2> /dev/null | head -n 1 | sed 's/^[^:]*:[[:space:]]*"\(.*\)"$/\1/')"
   if [ -n "$v" ]; then
     case "$v" in
-      [!A-Za-z0-9]* | *[!A-Za-z0-9._-]* | *..*) mem_track_note="config defaultRemote '$v' is not a plain remote name - using origin" ;;
-      *) mem_track_remote="$v" ;;
+      [!A-Za-z0-9]* | *[!A-Za-z0-9._-]* | *..*) mem_track_note="config defaultRemote '$(mem_clip "$v")' is not a plain remote name - using origin" ;;
+      *)
+        if git -C "$1" rev-parse --git-dir > /dev/null 2>&1 && ! git -C "$1" remote get-url -- "$v" > /dev/null 2>&1; then
+          mem_track_note="config defaultRemote '$(mem_clip "$v")' is not a remote of this clone - using origin"
+        else mem_track_remote="$v"; fi ;;
     esac
   fi
   v="$(grep -o '"defaultBranch"[[:space:]]*:[[:space:]]*"[^"]*"' "$cfg" 2> /dev/null | head -n 1 | sed 's/^[^:]*:[[:space:]]*"\(.*\)"$/\1/')"
   if [ -n "$v" ]; then
     case "$v" in
-      [!A-Za-z0-9]* | */ | *//* | *..* | *.lock | *[!A-Za-z0-9._/-]*) mem_track_note="${mem_track_note:+$mem_track_note; }config defaultBranch '$v' is not a plain branch name - using main" ;;
+      [!A-Za-z0-9]* | */ | *//* | *..* | *.lock | *[!A-Za-z0-9._/-]*) mem_track_note="${mem_track_note:+$mem_track_note; }config defaultBranch '$(mem_clip "$v")' is not a plain branch name - using main" ;;
       *) mem_track_branch="$v" ;;
     esac
   fi

@@ -216,8 +216,13 @@ function Update-Clone {
       $cfg = Get-Content -LiteralPath $cfgPath -Raw -ErrorAction Stop | ConvertFrom-Json
       $r = [string]$cfg.defaultRemote
       $b = [string]$cfg.defaultBranch
-      if ($r -match '^[A-Za-z0-9][A-Za-z0-9._-]*$' -and -not $r.Contains('..')) { $tracked.remote = $r }
-      if ($b -match '^[A-Za-z0-9][A-Za-z0-9._/-]*$' -and -not $b.Contains('..') -and -not $b.Contains('//') -and
+      # `\z`, not `$`: in .NET `$` also matches before a trailing newline. And a name that is no remote of THIS clone is
+      # refused (`git fetch <name>` would read it as a path or URL).
+      if ($r -match '^[A-Za-z0-9][A-Za-z0-9._-]*\z' -and -not $r.Contains('..')) {
+        & git -C $Root remote get-url -- $r 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) { $tracked.remote = $r }
+      }
+      if ($b -match '^[A-Za-z0-9][A-Za-z0-9._/-]*\z' -and -not $b.Contains('..') -and -not $b.Contains('//') -and
           -not $b.EndsWith('/') -and -not $b.EndsWith('.lock')) { $tracked.branch = $b }
     }
   } catch { }

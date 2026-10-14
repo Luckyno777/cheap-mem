@@ -119,19 +119,29 @@ echo ""
 # _portable.sh next to it); the test runs both over the same cases. The
 # config is DATA out of a cloned repository: only a plain name goes to git.
 mem_remote="origin"; mem_branch="main"; mem_track_note=""
+# The refused value is shown clipped (40 characters, printable ASCII only): it is data out of a file, and it is printed.
+mem_clip() {
+  c="$(printf '%s' "$1" | LC_ALL=C tr -cd '\040-\176' | cut -c1-40)"
+  [ "${#1}" -gt 40 ] && c="$c..."
+  printf '%s' "$c"
+}
 mem_cfg="$CHEAP_MEM_ROOT/.mem/config.json"
 if [ -f "$mem_cfg" ]; then
   v="$(grep -o '"defaultRemote"[[:space:]]*:[[:space:]]*"[^"]*"' "$mem_cfg" 2>/dev/null | head -n 1 | sed 's/^[^:]*:[[:space:]]*"\(.*\)"$/\1/')"
   if [ -n "$v" ]; then
     case "$v" in
-      [!A-Za-z0-9]*|*[!A-Za-z0-9._-]*|*..*) mem_track_note="config defaultRemote '$v' is not a plain remote name - using origin" ;;
-      *) mem_remote="$v" ;;
+      [!A-Za-z0-9]*|*[!A-Za-z0-9._-]*|*..*) mem_track_note="config defaultRemote '$(mem_clip "$v")' is not a plain remote name - using origin" ;;
+      *)
+        # N5: a name that is no remote of this clone would be read by git as a path or URL.
+        if git -C "$CHEAP_MEM_ROOT" rev-parse --git-dir >/dev/null 2>&1 && ! git -C "$CHEAP_MEM_ROOT" remote get-url -- "$v" >/dev/null 2>&1; then
+          mem_track_note="config defaultRemote '$(mem_clip "$v")' is not a remote of this clone - using origin"
+        else mem_remote="$v"; fi ;;
     esac
   fi
   v="$(grep -o '"defaultBranch"[[:space:]]*:[[:space:]]*"[^"]*"' "$mem_cfg" 2>/dev/null | head -n 1 | sed 's/^[^:]*:[[:space:]]*"\(.*\)"$/\1/')"
   if [ -n "$v" ]; then
     case "$v" in
-      [!A-Za-z0-9]*|*/|*//*|*..*|*.lock|*[!A-Za-z0-9._/-]*) mem_track_note="${mem_track_note:+$mem_track_note; }config defaultBranch '$v' is not a plain branch name - using main" ;;
+      [!A-Za-z0-9]*|*/|*//*|*..*|*.lock|*[!A-Za-z0-9._/-]*) mem_track_note="${mem_track_note:+$mem_track_note; }config defaultBranch '$(mem_clip "$v")' is not a plain branch name - using main" ;;
       *) mem_branch="$v" ;;
     esac
   fi

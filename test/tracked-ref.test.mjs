@@ -154,6 +154,8 @@ const CASES = [
   [{ defaultRemote: '-o' }, ['origin', 'main', "config defaultRemote '-o' is not a plain remote name - using origin"]],
   [{ defaultRemote: 'a/b' }, ['origin', 'main', "config defaultRemote 'a/b' is not a plain remote name - using origin"]],
   [{ defaultRemote: '..' }, ['origin', 'main', "config defaultRemote '..' is not a plain remote name - using origin"]],
+  [{ defaultRemote: 'ghost' }, ['origin', 'main', "config defaultRemote 'ghost' is not a remote of this clone - using origin"]],
+  [{ defaultBranch: `${'a'.repeat(50)} b` }, ['origin', 'main', `config defaultBranch '${'a'.repeat(40)}...' is not a plain branch name - using main`]],
   [{ defaultRemote: '-o', defaultBranch: '-b' }, ['origin', 'main',
     "config defaultRemote '-o' is not a plain remote name - using origin; config defaultBranch '-b' is not a plain branch name - using main"]],
 ];
@@ -171,6 +173,10 @@ test('bin/_portable.sh mem_tracked_ref and the inline twin in session-start.sh a
   for (const [cfg, want] of CASES) {
     const dir = tempDir('cm-trk-c-', t);
     fs.mkdirSync(path.join(dir, '.mem'));
+    // A git repository with two remotes: a name that is no remote of the clone is refused (N5).
+    git(dir, 'init', '-q', '-b', 'main');
+    git(dir, 'remote', 'add', 'upstream', 'https://example.invalid/u.git');
+    git(dir, 'remote', 'add', 'my-remote.2', 'https://example.invalid/m.git');
     if (cfg !== null) fs.writeFileSync(path.join(dir, '.mem', 'config.json'), JSON.stringify(cfg, null, 2));
     const fn = spawnSync('bash', ['-c', `. "${sl(PORTABLE)}"; mem_tracked_ref "${sl(dir)}"; printf '%s\\n%s\\n%s' "$mem_track_remote" "$mem_track_branch" "$mem_track_note"`], { encoding: 'utf8' });
     assert.equal(fn.status, 0, fn.stderr);
@@ -179,6 +185,21 @@ test('bin/_portable.sh mem_tracked_ref and the inline twin in session-start.sh a
     assert.equal(twin.status, 0, twin.stderr);
     assert.deepEqual(twin.stdout.split('\n'), want, `twin, config ${JSON.stringify(cfg)}`);
   }
+  // N5, outside a git repository nothing is asked and nothing fetched: the plain name stands.
+  const plain = tempDir('cm-trk-c-', t);
+  fs.mkdirSync(path.join(plain, '.mem'));
+  fs.writeFileSync(path.join(plain, '.mem', 'config.json'), JSON.stringify({ defaultRemote: 'whatever' }));
+  const np = spawnSync('bash', ['-c', `. "${sl(PORTABLE)}"; mem_tracked_ref "${sl(plain)}"; printf '%s|%s' "$mem_track_remote" "$mem_track_note"`], { encoding: 'utf8' });
+  assert.equal(np.stdout, 'whatever|');
+  // Control characters and escape sequences in a refused value are not printed (the value is data, and it is printed).
+  const ctl = tempDir('cm-trk-c-', t);
+  fs.mkdirSync(path.join(ctl, '.mem'));
+  git(ctl, 'init', '-q', '-b', 'main');
+  fs.writeFileSync(path.join(ctl, '.mem', 'config.json'), '{"defaultBranch":"a\tb\u001b[31m"}');
+  const cr = spawnSync('bash', ['-c', `. "${sl(PORTABLE)}"; mem_tracked_ref "${sl(ctl)}"; printf '%s' "$mem_track_note"`], { encoding: 'utf8' });
+  assert.equal(cr.stdout, "config defaultBranch 'ab[31m' is not a plain branch name - using main");
+  const twinCtl = spawnSync('bash', ['-c', `CHEAP_MEM_ROOT="${sl(ctl)}"\n${twinBlock()}\nprintf '%s' "$mem_track_note"`], { encoding: 'utf8' });
+  assert.equal(twinCtl.stdout, cr.stdout);
   // A single-line config is read the same (a minified file must not silently fall back to main).
   const dir = tempDir('cm-trk-c-', t);
   fs.mkdirSync(path.join(dir, '.mem'));
@@ -260,5 +281,34 @@ test('the PowerShell session start and recall hook ask the config too, and never
     assert.match(text, /\^\[A-Za-z0-9\]\[A-Za-z0-9\._\/-\]\*/);
     assert.match(text, /Contains\('\.\.'\)/);
     assert.match(text, /EndsWith\('\.lock'\)/);
+    // N6: `\z`, not `$` (.NET lets `$` match before a trailing newline); N5: a remote is asked before it is fetched from.
+    assert.match(text, /\*\\z'/);
+    assert.doesNotMatch(text, /-match '\^\[A-Za-z0-9\][^']*\$'/, 'a plain-name check still ends in $');
+    assert.match(text, /remote get-url -- /);
   }
+});
+
+test('N5 end to end: a defaultRemote that is no remote - here the name of a directory in the clone - is not fetched from', (t) => {
+  const w = world(t);
+  // A directory inside the clone that IS a repository with the tracked branch: `git fetch sub main` would take it for a path.
+  const sub = path.join(w.mem, 'sub');
+  fs.mkdirSync(sub);
+  git(sub, 'init', '-q', '-b', 'develop');
+  fs.writeFileSync(path.join(sub, 'x'), 'x');
+  git(sub, 'add', '-A'); git(sub, 'commit', '-q', '-m', 'planted');
+  const cfgPath = path.join(w.mem, '.mem', 'config.json');
+  fs.writeFileSync(cfgPath, JSON.stringify({ ...JSON.parse(fs.readFileSync(cfgPath, 'utf8')), defaultRemote: 'sub' }, null, 2));
+  const r = start(START, w.mem, mkhome(home(t)));
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /WARNING: config defaultRemote 'sub' is not a remote of this clone - using origin/);
+  assert.equal(git(w.mem, 'branch', '-r', '--list', 'sub/*'), '', 'a ref came from the planted directory');
+  assert.doesNotMatch(git(w.mem, 'log', '--all', '--format=%s'), /planted/);
+  // RED: the version before this change (c1ad4a9) fetches from it.
+  const old = spawnSync('git', ['show', 'c1ad4a9:install/hooks/session-start.sh'], { cwd: REPO, encoding: 'utf8' });
+  if (old.status !== 0) { t.diagnostic('c1ad4a9 is not in this clone: the red proof could not run (unknown, not green)'); return; }
+  const oldPath = path.join(tempDir('cm-trk-old-', t), 'session-start.sh');
+  fs.writeFileSync(oldPath, old.stdout);
+  const o = start(oldPath, w.mem, mkhome(home(t)));
+  assert.equal(o.status, 0, o.stderr);
+  assert.match(git(w.mem, 'log', '--all', '--format=%s'), /planted/, `the red proof no longer holds: the old hook did not fetch from the planted directory\n${o.stdout}`);
 });
