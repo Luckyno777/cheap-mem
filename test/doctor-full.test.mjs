@@ -141,9 +141,12 @@ test('CLI: --quiet shows the "not measured" line, and the summary does not count
   assert.ok(summary, `no summary line in:\n${plain.stdout}`);
   assert.equal(Number(summary[1]), okLines);
   assert.ok(!/^ok\s+env\/append-atomicity/m.test(plain.stdout));
-  // With --full the same finding is measured and reads ok.
+  // With --full the same finding is measured. It reads ok only on a filesystem whose documentation
+  // affirms atomic O_APPEND (ext4 on the Linux runners); on APFS or NTFS a clean run stays unknown,
+  // "measured ... but this filesystem is not one whose documentation affirms" - measured either way.
   const full = cli(t, root, ['--full']);
-  assert.match(lineOf(full), /^ok\s+env\/append-atomicity .*measured/);
+  assert.match(lineOf(full), /^(ok|\?)\s+env\/append-atomicity .*measured/);
+  assert.doesNotMatch(lineOf(full), /not measured/, '--full must run the probe');
 });
 
 test('CLI: --alarm (the session-start banner) neither measures nor prints the unknown', (t) => {
