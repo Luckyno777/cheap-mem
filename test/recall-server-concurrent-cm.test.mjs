@@ -175,8 +175,8 @@ test('R3 lever 9b: a regular file at the socket path is not "a dead socket" and 
   assert.equal(fs.existsSync(path.join(w.dir, 'recall.sock')), true, 'a stop must not remove a file the server does not own');
 });
 
-test('positive control: the socket of a server that died is taken over (a stale socket is still cleaned up)', async (t) => {
-  const root = memoryRoot(t);
+/** A child server (own PID) listens on the memory's socket and is killed hard: its socket FILE stays behind. */
+async function leaveStaleSocket(root) {
   // A child that listens on the memory's socket and is killed hard (by its own PID) leaves the file behind.
   const kid = spawn(process.execPath, ['-e', `
     import(${JSON.stringify(pathToFileURL(path.join(CODE, 'src', 'recallserver.mjs')).href)})
@@ -197,6 +197,11 @@ test('positive control: the socket of a server that died is taken over (a stale 
     try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
     throw e;
   }
+}
+
+test('positive control: the socket of a server that died is taken over (a stale socket is still cleaned up)', async (t) => {
+  const root = memoryRoot(t);
+  await leaveStaleSocket(root);
   const w = place.place(root, {});
   if (!WIN) assert.ok(fs.existsSync(w.socket), 'precondition: a killed server leaves its socket file');
   const s = await startIn(root);
@@ -205,5 +210,52 @@ test('positive control: the socket of a server that died is taken over (a stale 
     assert.ok(answers(await ask(root)));
   } finally {
     if (s.running) await s.close();
+  }
+});
+
+test('R3 lever 9b (race): a socket bound by another starter between the probe and the clean-up is not taken for the dead one', async (t) => {
+  const root = memoryRoot(t);
+  const w = place.place(root, {});
+  if (WIN) {
+    // A named pipe is no file: there is no path to look at twice, and nothing to race on.
+    assert.equal(w.marker !== null && w.socket.startsWith('\\\\.\\pipe\\'), true, 'on Windows the socket is a pipe name');
+    return;
+  }
+  await leaveStaleSocket(root);
+  assert.ok(fs.existsSync(w.socket), 'precondition: a dead server\'s socket file');
+  // The "winner": another starter that, at the moment our probe finds nobody home, clears the dead file and binds a
+  // new socket of its own. Injected into the very tick the probe's connect fails in.
+  const winner = net.createServer((c) => { c.end('winner\n'); });
+  const realConnect = net.connect;
+  let fired = false;
+  net.connect = function patched(...args) {
+    const c = realConnect.apply(this, args);
+    if (!fired) {
+      fired = true;
+      c.once('error', () => { fs.rmSync(w.socket, { force: true }); winner.listen(w.socket); });
+    }
+    return c;
+  };
+  const restore = () => { net.connect = realConnect; };
+  const s = await startIn(root).finally(restore);
+  try {
+    assert.equal(fired, true, 'the injection point was reached (otherwise the probe proves nothing)');
+    assert.ok(fs.existsSync(w.socket), 'the winner\'s socket was removed by the late starter');
+    // (The winner's new socket usually gets the freed inode NUMBER of the dead one back: identity by inode alone is
+    // not enough here, which is why the clean-up also compares the change time.)
+    assert.equal(s.running, false, 'the late starter must not run over the winner');
+    assert.equal(s.reason, 'busy');
+    const talked = await new Promise((resolve) => {
+      const c = net.connect(w.socket);
+      let a = '';
+      c.setEncoding('utf8');
+      c.on('data', (x) => { a += x; });
+      c.on('end', () => resolve(a));
+      c.on('error', (e) => resolve(`error ${e.code}`));
+    });
+    assert.equal(talked, 'winner\n', 'the winner still answers at its path');
+  } finally {
+    if (s.running) await s.close();
+    await new Promise((r) => winner.close(r));
   }
 });

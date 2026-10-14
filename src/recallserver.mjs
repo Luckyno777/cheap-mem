@@ -133,7 +133,10 @@ function someoneListens(socket) {
 
 /** Device and inode of a path (`lstat`, follows no link), or null. */
 function socketStand(p) {
-  try { const st = fs.lstatSync(p); return { dev: st.dev, ino: st.ino, socket: st.isSocket() }; } catch { return null; }
+  try {
+    const st = fs.lstatSync(p, { bigint: true });
+    return { dev: Number(st.dev), ino: Number(st.ino), socket: st.isSocket(), born: st.ctimeNs };
+  } catch { return null; }
 }
 
 /**
@@ -203,23 +206,26 @@ export async function start(root, {
   // itself (a missing pipe answers at once with an error).
   const win = process.platform === 'win32';
   if (win || fs.existsSync(where.socket)) {
+    // R3 lever 9b: take device and inode of what stands at the path BEFORE the probe. Only a SOCKET that nobody
+    // listens on is "a dead server's leftover"; a regular file, a directory or a link belongs to somebody else: no
+    // start over it, and it is not touched. (A check taken AFTER the probe would see a socket another starter has just
+    // bound in the meantime and take it for the dead one.)
+    const before = win ? null : socketStand(where.socket);
+    if (before && !before.socket) {
+      const reason = `${where.socket} exists and is not a socket - not touched`;
+      say(`not started: ${reason}`);
+      return { running: false, reason };
+    }
     if (await someoneListens(where.socket)) {
       say(`not started: a server already listens on ${where.socket}`);
       return { running: false, reason: 'busy' };
     }
     if (!win) {
-      // R3 lever 9b: only a SOCKET that nobody listens on is "a dead server's leftover". A regular file, a
-      // directory or a link at this path belongs to somebody else: no start over it, and it is not touched.
-      const seen = socketStand(where.socket);
-      if (seen && !seen.socket) {
-        const reason = `${where.socket} exists and is not a socket - not touched`;
-        say(`not started: ${reason}`);
-        return { running: false, reason };
-      }
-      // Same file as before the probe? Then it is the dead one. Another one has just been bound by a server that
-      // is starting right now: leave it, `listen` below then says busy.
-      const again = socketStand(where.socket);
-      if (seen && again && again.dev === seen.dev && again.ino === seen.ino) {
+      // Removed only if it is STILL the very file that was seen before the probe. Another one - bound by a server
+      // that is starting right now - is left alone: `listen` below then says busy. A freed inode number is handed out
+      // again at once on most file systems, so the change time counts too (a new file has a new one).
+      const after = socketStand(where.socket);
+      if (before && after && after.dev === before.dev && after.ino === before.ino && after.born === before.born) {
         try { fs.rmSync(where.socket, { force: true }); } catch { /* listen will say */ }
       }
     }
