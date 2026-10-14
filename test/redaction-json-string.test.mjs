@@ -129,11 +129,11 @@ test('brackets: a reference stays, a key or a phrase in brackets falls', () => {
   for (const v of [`\${{ ${k} }}`, `\${{ ${PHRASE} }}`, `{{${k}}}`, `\${${k}}`, `<${k}>`, `{{ ${k} }}`, `{{ ${PHRASE} }}`, `[${k}]`]) {
     assert.equal(redact(`{"password": "${v}"}`).text, `{"password": "${MARK('json-secret')}"}`, `must fall: ${v}`);
   }
-  for (const v of ['\${{ secrets.DB_PASSWORD }}', '\${{ secrets.GITHUB_TOKEN }}', "{{ lookup('env','X') }}", "{{ vault.secret | default('x') }}",
-    '\${DB_PASSWORD}', '<your password here>']) {
+  for (const v of ['${{ secrets.DB_PASSWORD }}', '${{ secrets.GITHUB_TOKEN }}', "{{ lookup('env','X') }}", "{{ vault.secret | default('x') }}",
+    '${DB_PASSWORD}', '<your password here>']) {
     assert.equal(redact(`{"password": "${v}"}`).text, `{"password": "${v}"}`, `must stay: ${v}`);
   }
-  assert.equal(redact('token: "\${{ secrets.GITHUB_TOKEN }}"').text, 'token: "\${{ secrets.GITHUB_TOKEN }}"');
+  assert.equal(redact('token: "${{ secrets.GITHUB_TOKEN }}"').text, 'token: "${{ secrets.GITHUB_TOKEN }}"');
 });
 
 test('kept: values without a secret key, prose, placeholders, markers alone', () => {
