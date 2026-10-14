@@ -31,6 +31,7 @@ import * as componentTable from '../../component-table.mjs';
 import * as capability from '../../capability.mjs';
 import * as board from '../../board.mjs';
 import * as errorcontext from '../../errorcontext.mjs';
+import * as codexcloud from '../../codexcloud.mjs';
 import { PKG_ROOT, out, die, warn, checkFlags, numberFlag, isHelp, findRoot, requireConfig } from '../shell.mjs';
 import { compactLine, countLines } from '../display.mjs';
 import { maskText } from '../../outputguard.mjs';
@@ -200,31 +201,59 @@ export const COMMANDS = {
     // and says so instead of listing a dozen agents it cannot test.
     const AGENTS = {
       claude: 'Claude Code — user-level hooks, permissions and the MCP server',
+      'codex-cloud': 'OpenAI Codex Cloud — the $mem skill inside this memory, and the text for "Start skill"',
     };
     const agent = rest[0];
     if (isHelp(args) || !agent) {
       out([
-        'mem setup <agent> [--dry-run]',
+        'mem setup <agent> [--dry-run] [--force]',
         '',
-        '  Wire this memory into an agent: context on session start, recall on',
-        '  every prompt, capture on session end, and the MCP tools.',
+        '  claude       Wire this memory into Claude Code: context on session start,',
+        '               recall on every prompt, capture on session end, and the MCP',
+        '               tools. Writes under ~/.claude. Idempotent — run it again after',
+        '               moving the memory and it re-points.',
         '',
-        '  Idempotent — run it again after moving the memory and it re-points.',
+        '  codex-cloud  Prepare this memory to be opened in OpenAI Codex Cloud, which',
+        '               runs no hooks and reaches cheap-mem only through a hosted MCP',
+        '               connector (docs/mcp-setup.md, "OpenAI Codex Cloud"). Writes',
+        '               .agents/skills/mem/SKILL.md INSIDE the memory, appends a narrow',
+        '               .gitignore exception only if git ignores .agents/ there, and',
+        '               prints the text for the environment field "Start skill".',
+        '               Commits and pushes nothing, touches nothing under ~/.claude,',
+        '               and does not replace a skill file that differs unless --force.',
         '',
         '  Supported:',
-        ...Object.entries(AGENTS).map(([k, v]) => `    ${k.padEnd(8)} ${v}`),
+        ...Object.entries(AGENTS).map(([k, v]) => `    ${k.padEnd(12)} ${v}`),
         '',
-        '  Only Claude Code is supported, on purpose. Any MCP-capable agent can',
-        '  use the server today by pointing at bin/mem-mcp; what is NOT offered',
-        '  is a one-command install for agents whose config format cannot be',
-        '  verified here. A wrong config fails silently in your home directory.',
+        '  Only these two, on purpose. Any MCP-capable agent can use the server today',
+        '  by pointing at bin/mem-mcp; what is NOT offered is a one-command install',
+        '  for agents whose config format cannot be verified here. A wrong config',
+        '  fails silently in your home directory.',
         '',
         '  --dry-run   print what would happen, change nothing',
+        '  --force     (codex-cloud) replace an existing, different skill file',
       ].join('\n'));
       return;
     }
     if (!Object.hasOwn(AGENTS, agent)) {
       die(`setup: no recipe for '${agent}'. Supported: ${Object.keys(AGENTS).join(', ')}`);
+    }
+
+    if (agent === 'codex-cloud') {
+      checkFlags(args, ['dry-run', 'force'], 'setup codex-cloud');
+      const cloudRoot = findRoot(args);
+      requireConfig(cloudRoot);
+      const r = codexcloud.install(cloudRoot, PKG_ROOT, { dryRun: Boolean(args['dry-run']), force: Boolean(args.force) });
+      for (const l of r.lines) out(l);
+      if (!r.ok) process.exit(1);
+      out('');
+      out('Start skill (paste into the Codex Cloud environment field "Start skill"):');
+      out('');
+      out(codexcloud.startText(PKG_ROOT));
+      out('');
+      out(args['dry-run'] ? 'Dry run: nothing was changed.' : 'Next: commit .agents/skills/mem/SKILL.md (and .gitignore if it changed) and push it where Codex Cloud reads this repository.');
+      out('Also needed: the hosted connector must be running with writing allowed, or mem_log is not offered (docs/mcp-setup.md).');
+      return;
     }
 
     checkFlags(args, ['dry-run'], 'setup');
