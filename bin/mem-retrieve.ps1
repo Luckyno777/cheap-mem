@@ -39,7 +39,8 @@
 #   MEM_RETRIEVE_TOP      at most this many hits (default 3)
 #   MEM_RETRIEVE_NO_PULL=1  read only, never refresh the clone
 #   MEM_RETRIEVE_FRESH_MIN  minutes between background pulls (default 10)
-#   MEM_RETRIEVE_REMOTE / _BRANCH  where to pull from (default origin/main)
+#   MEM_RETRIEVE_REMOTE / _BRANCH  where to pull from (default: the memory's
+#                         config defaultRemote / defaultBranch, else origin/main)
 #   MEM_RETRIEVE_ROOTS    fallback roots to probe
 #   MEM_RETRIEVE_TURNS    where the once-per-turn claims live
 
@@ -200,8 +201,24 @@ function Update-Clone {
 
   try { Set-Content -LiteralPath $marker -Value '' -ErrorAction Stop } catch { return }
 
-  $remote = if ($env:MEM_RETRIEVE_REMOTE) { $env:MEM_RETRIEVE_REMOTE } else { 'origin' }
-  $branch = if ($env:MEM_RETRIEVE_BRANCH) { $env:MEM_RETRIEVE_BRANCH } else { 'main' }
+  # Where to pull from: the switch, else what the memory TRACKS (.mem/config.json
+  # defaultRemote / defaultBranch), else origin/main. Only a plain name goes to git:
+  # the config is data out of a cloned repository (same rule as mem_tracked_ref in
+  # bin/_portable.sh).
+  $tracked = @{ remote = 'origin'; branch = 'main' }
+  try {
+    $cfgPath = Join-Path $Root '.mem/config.json'
+    if (Test-Path -LiteralPath $cfgPath) {
+      $cfg = Get-Content -LiteralPath $cfgPath -Raw -ErrorAction Stop | ConvertFrom-Json
+      $r = [string]$cfg.defaultRemote
+      $b = [string]$cfg.defaultBranch
+      if ($r -match '^[A-Za-z0-9][A-Za-z0-9._-]*$' -and -not $r.Contains('..')) { $tracked.remote = $r }
+      if ($b -match '^[A-Za-z0-9][A-Za-z0-9._/-]*$' -and -not $b.Contains('..') -and -not $b.Contains('//') -and
+          -not $b.EndsWith('/') -and -not $b.EndsWith('.lock')) { $tracked.branch = $b }
+    }
+  } catch { }
+  $remote = if ($env:MEM_RETRIEVE_REMOTE) { $env:MEM_RETRIEVE_REMOTE } else { $tracked.remote }
+  $branch = if ($env:MEM_RETRIEVE_BRANCH) { $env:MEM_RETRIEVE_BRANCH } else { $tracked.branch }
   # One pre-quoted argument string, not an array: Start-Process joins an
   # -ArgumentList array with plain spaces on Windows PowerShell, which
   # tears a root path containing spaces apart.

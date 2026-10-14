@@ -178,6 +178,53 @@ mem_compile_cache() {
   return 0
 }
 
+# --- Which remote and branch does this memory TRACK? (D4) -----------
+#
+# `.mem/config.json` says: `defaultRemote` and `defaultBranch` - the same
+# keys `mem-watch` reads. Until 2026-10-14 the recall hook pulled
+# `origin main` and the session start fetched `origin main`, checked out
+# `main` and pulled, whatever the memory said. Reproduced: a clone on
+# `develop` (config `defaultBranch: develop`, the remote also has a
+# `main`) came out of a session start on a NEW local `main` tracking
+# `origin/main` - every later write went to the wrong branch. The hook
+# had been "forcing main so a feature-branch checkout cannot misroute
+# writes"; for a memory that does not live on main it did the misrouting.
+#
+# Sets mem_track_remote and mem_track_branch (default origin / main, when the
+# file or the key is missing) and mem_track_note (empty, or one sentence
+# when a value was refused). The config is DATA out of a cloned repository:
+# a value goes to git only if it is a plain name (letters, digits, `._-`,
+# `/` inside a branch) that starts with a letter or digit (a leading `-` would
+# be read by git as an option), holds no `..` or `//` and does not end in `/`
+# or `.lock`. Anything else is refused LOUDLY
+# (the note), and the default stands - never a half-trusted value.
+#
+# install/hooks/session-start.sh carries an inline twin of this function (the
+# installed hook has no _portable.sh next to it); test/tracked-ref.test.mjs runs
+# both over the same cases.
+#
+# mem_tracked_ref <memory root>
+mem_tracked_ref() {
+  local cfg="$1/.mem/config.json" v
+  mem_track_remote="origin"; mem_track_branch="main"; mem_track_note=""
+  [ -f "$cfg" ] || return 0
+  v="$(grep -o '"defaultRemote"[[:space:]]*:[[:space:]]*"[^"]*"' "$cfg" 2> /dev/null | head -n 1 | sed 's/^[^:]*:[[:space:]]*"\(.*\)"$/\1/')"
+  if [ -n "$v" ]; then
+    case "$v" in
+      [!A-Za-z0-9]* | *[!A-Za-z0-9._-]* | *..*) mem_track_note="config defaultRemote '$v' is not a plain remote name - using origin" ;;
+      *) mem_track_remote="$v" ;;
+    esac
+  fi
+  v="$(grep -o '"defaultBranch"[[:space:]]*:[[:space:]]*"[^"]*"' "$cfg" 2> /dev/null | head -n 1 | sed 's/^[^:]*:[[:space:]]*"\(.*\)"$/\1/')"
+  if [ -n "$v" ]; then
+    case "$v" in
+      [!A-Za-z0-9]* | */ | *//* | *..* | *.lock | *[!A-Za-z0-9._/-]*) mem_track_note="${mem_track_note:+$mem_track_note; }config defaultBranch '$v' is not a plain branch name - using main" ;;
+      *) mem_track_branch="$v" ;;
+    esac
+  fi
+  return 0
+}
+
 # --- An exclusive claim --------------------------------------------
 #
 # flock on FD 9 where it exists; a directory otherwise. `mkdir` is

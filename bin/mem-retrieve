@@ -25,7 +25,8 @@
 #                         show me") like every other word (src/requestframe.mjs)
 #   MEM_RETRIEVE_NO_PULL=1  read only, never refresh the clone
 #   MEM_RETRIEVE_FRESH_MIN  minutes between background pulls (default 10)
-#   MEM_RETRIEVE_REMOTE / _BRANCH  where to pull from (default origin/main)
+#   MEM_RETRIEVE_REMOTE / _BRANCH  where to pull from (default: the memory's
+#                         config defaultRemote / defaultBranch, else origin/main)
 #   MEM_RETRIEVE_ROOTS    space-separated fallback roots to probe
 #   MEM_RETRIEVE_TIME     seconds for the search, server AND fallback (default 5)
 #   MEM_RECALL_SERVER=0   never ask the warm recall server (M10), always direct
@@ -183,8 +184,13 @@ refresh() {
   fi
 
   touch "$marker" 2>/dev/null || return 0
-  remote="${MEM_RETRIEVE_REMOTE:-origin}"
-  branch="${MEM_RETRIEVE_BRANCH:-main}"
+  # Where to pull from: the switch, else what the memory TRACKS (.mem/config.json
+  # defaultRemote / defaultBranch - bin/_portable.sh mem_tracked_ref), else origin/main.
+  # It used to be origin/main whatever the memory said: on a clone that lives on
+  # `develop` the pull merged the remote's `main` into it.
+  mem_tracked_ref "$ROOT"
+  remote="${MEM_RETRIEVE_REMOTE:-$mem_track_remote}"
+  branch="${MEM_RETRIEVE_BRANCH:-$mem_track_branch}"
   ( capped 30 git -C "$ROOT" pull --ff-only --quiet "$remote" "$branch" ) >/dev/null 2>&1 &
   return 0
 }

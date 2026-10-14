@@ -286,9 +286,34 @@ if (Test-Path (Join-Path `$env:CHEAP_MEM_ROOT 'bin\mem')) {
   Write-Host 'Fix: check out the tool into that memory, or point CHEAP_MEM_ROOT at one that has it.'
 }
 Write-Host ''
-& git -C `$env:CHEAP_MEM_ROOT fetch origin main 2>&1 | Select-Object -Last 1
-& git -C `$env:CHEAP_MEM_ROOT checkout main 2>&1 | Select-Object -Last 1
-& git -C `$env:CHEAP_MEM_ROOT pull --ff-only 2>&1 | Select-Object -Last 1
+# Which remote and branch does this memory TRACK? .mem\config.json says
+# (defaultRemote / defaultBranch, the keys mem-watch reads). This hook used
+# to fetch 'origin main', check out 'main' and pull, whatever the memory said:
+# a clone on 'develop' ended up on a NEW local 'main' (see
+# install/hooks/session-start.sh). Only a plain name goes to git: the config
+# is data out of a cloned repository.
+`$memRemote = 'origin'
+`$memBranch = 'main'
+try {
+  `$trackCfg = Join-Path `$env:CHEAP_MEM_ROOT '.mem\config.json'
+  if (Test-Path -LiteralPath `$trackCfg) {
+    `$trackJson = Get-Content -LiteralPath `$trackCfg -Raw -ErrorAction Stop | ConvertFrom-Json
+    `$r = [string]`$trackJson.defaultRemote
+    `$b = [string]`$trackJson.defaultBranch
+    if (`$r) {
+      if (`$r -match '^[A-Za-z0-9][A-Za-z0-9._-]*`$' -and -not `$r.Contains('..')) { `$memRemote = `$r }
+      else { Write-Host "[hook] WARNING: config defaultRemote '`$r' is not a plain remote name - using origin" }
+    }
+    if (`$b) {
+      if (`$b -match '^[A-Za-z0-9][A-Za-z0-9._/-]*`$' -and -not `$b.Contains('..') -and -not `$b.Contains('//') -and
+          -not `$b.EndsWith('/') -and -not `$b.EndsWith('.lock')) { `$memBranch = `$b }
+      else { Write-Host "[hook] WARNING: config defaultBranch '`$b' is not a plain branch name - using main" }
+    }
+  }
+} catch { }
+& git -C `$env:CHEAP_MEM_ROOT fetch `$memRemote `$memBranch 2>&1 | Select-Object -Last 1
+& git -C `$env:CHEAP_MEM_ROOT checkout `$memBranch 2>&1 | Select-Object -Last 1
+& git -C `$env:CHEAP_MEM_ROOT pull --ff-only `$memRemote `$memBranch 2>&1 | Select-Object -Last 1
 Write-Host ''
 
 `$facts = Join-Path `$env:CHEAP_MEM_ROOT 'FACTS.md'

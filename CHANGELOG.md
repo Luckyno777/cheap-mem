@@ -14,6 +14,17 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Fixed - the session start and the recall hook follow the branch the memory tracks (D4; lucky-mem parity)
+
+`install/hooks/session-start.sh` (and the inline Windows hook in `install/windows.ps1`) fetched `origin main`, checked out `main` and pulled,
+whatever `.mem/config.json` said; the recall hook pulled `origin main` too. Reproduced: a clone on `develop` (config `defaultBranch: develop`,
+the remote also has a `main`) came out of a session start on a NEW local `main` tracking `origin/main` - later writes went to the wrong branch -
+and the recall hook's background pull never brought `develop` forward (the old hook is the red proof in `test/tracked-ref.test.mjs`). Both now ask the
+memory (`defaultRemote` / `defaultBranch`, the keys `mem-watch` reads; `origin`/`main` when absent). The config is data out of a cloned repository:
+only a plain name reaches git (a leading `-`, `..`, `//`, a trailing `/` or `.lock` and anything outside letters, digits and `._-/` are refused
+with a warning and the default stands - a `--upload-pack=...` branch starts nothing). `MEM_RETRIEVE_REMOTE` / `MEM_RETRIEVE_BRANCH` still win.
+The "memory state old" warning names the tracked ref instead of `origin/main`.
+
 ### Performance - the hooks keep a V8 compile cache, in the user's cache (R6; lucky-mem e146b45ce, c0b14705c)
 
 Every hook call is a new node process that translates `src/*.mjs` from scratch. The hook shells (`mem-before-edit`, `mem-retrieve`,

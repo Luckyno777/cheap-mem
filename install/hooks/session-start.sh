@@ -109,47 +109,76 @@ else
 fi
 echo ""
 
-# Best-effort: bring the memory up to date, and force main so a
-# feature-branch checkout doesn't misroute later writes.
+# Which remote and branch does this memory TRACK? `.mem/config.json` says
+# (defaultRemote / defaultBranch, the keys mem-watch reads). This block used
+# to fetch `origin main`, check out `main` and pull, whatever the memory said:
+# a clone on `develop` came out of a session start on a NEW local `main`
+# tracking origin/main, and every later write went to the wrong branch
+# (reproduced 2026-10-14, test/tracked-ref.test.mjs). Inline twin of
+# bin/_portable.sh `mem_tracked_ref` (this hook is installed alone, with no
+# _portable.sh next to it); the test runs both over the same cases. The
+# config is DATA out of a cloned repository: only a plain name goes to git.
+mem_remote="origin"; mem_branch="main"; mem_track_note=""
+mem_cfg="$CHEAP_MEM_ROOT/.mem/config.json"
+if [ -f "$mem_cfg" ]; then
+  v="$(grep -o '"defaultRemote"[[:space:]]*:[[:space:]]*"[^"]*"' "$mem_cfg" 2>/dev/null | head -n 1 | sed 's/^[^:]*:[[:space:]]*"\(.*\)"$/\1/')"
+  if [ -n "$v" ]; then
+    case "$v" in
+      [!A-Za-z0-9]*|*[!A-Za-z0-9._-]*|*..*) mem_track_note="config defaultRemote '$v' is not a plain remote name - using origin" ;;
+      *) mem_remote="$v" ;;
+    esac
+  fi
+  v="$(grep -o '"defaultBranch"[[:space:]]*:[[:space:]]*"[^"]*"' "$mem_cfg" 2>/dev/null | head -n 1 | sed 's/^[^:]*:[[:space:]]*"\(.*\)"$/\1/')"
+  if [ -n "$v" ]; then
+    case "$v" in
+      [!A-Za-z0-9]*|*/|*//*|*..*|*.lock|*[!A-Za-z0-9._/-]*) mem_track_note="${mem_track_note:+$mem_track_note; }config defaultBranch '$v' is not a plain branch name - using main" ;;
+      *) mem_branch="$v" ;;
+    esac
+  fi
+fi
+[ -n "$mem_track_note" ] && echo "[hook] WARNING: $mem_track_note"
+
+# Best-effort: bring the memory up to date, and put it on the branch it
+# tracks so a feature-branch checkout doesn't misroute later writes.
 #
-# The explicit refspec keeps refs/remotes/origin/main current even in a
+# The explicit refspec keeps refs/remotes/<remote>/<branch> current even in a
 # clone that has no tracking ref (a single-URL or shallow clone), and the
 # count of commits behind below reads exactly that ref.
-fetch_out="$(git -C "$CHEAP_MEM_ROOT" fetch origin main +main:refs/remotes/origin/main 2>&1)"; fetch_rc=$?
+fetch_out="$(git -C "$CHEAP_MEM_ROOT" fetch "$mem_remote" "$mem_branch" "+$mem_branch:refs/remotes/$mem_remote/$mem_branch" 2>&1)"; fetch_rc=$?
 [ -n "$fetch_out" ] && printf '%s\n' "$fetch_out" | tail -n 1
-if git -C "$CHEAP_MEM_ROOT" rev-parse --verify main >/dev/null 2>&1; then
-  git -C "$CHEAP_MEM_ROOT" checkout main 2>&1 | tail -1 || true
+if git -C "$CHEAP_MEM_ROOT" rev-parse --verify "refs/heads/$mem_branch" >/dev/null 2>&1; then
+  git -C "$CHEAP_MEM_ROOT" checkout "$mem_branch" 2>&1 | tail -1 || true
 else
-  git -C "$CHEAP_MEM_ROOT" checkout -B main origin/main 2>&1 | tail -1 || true
+  git -C "$CHEAP_MEM_ROOT" checkout -B "$mem_branch" "$mem_remote/$mem_branch" 2>&1 | tail -1 || true
 fi
-git -C "$CHEAP_MEM_ROOT" pull --ff-only 2>&1 | tail -1 || true
+git -C "$CHEAP_MEM_ROOT" pull --ff-only "$mem_remote" "$mem_branch" 2>&1 | tail -1 || true
 
-# AU1 (lucky-mem parity): if the clone is STILL behind origin/main after the
+# AU1 (lucky-mem parity): if the clone is STILL behind its tracked branch after the
 # pull, the session is about to read an OLD memory - say so loudly, with the
 # rescue path from the doctor finding (hook-root-stranded), and reset
 # NOTHING. An automatic `reset --hard` would throw away exactly the captures
 # the rescue path exists to save. Only after a successful fetch: without a
 # fresh origin the "behind" count is unknown, and the line above says so.
 if [ "$fetch_rc" -eq 0 ]; then
-  behind_n="$(git -C "$CHEAP_MEM_ROOT" rev-list --count HEAD..origin/main 2>/dev/null)"
+  behind_n="$(git -C "$CHEAP_MEM_ROOT" rev-list --count "HEAD..$mem_remote/$mem_branch" 2>/dev/null)"
   if [ -n "$behind_n" ] && [ "$behind_n" -gt 0 ] 2>/dev/null; then
-    ahead_n="$(git -C "$CHEAP_MEM_ROOT" rev-list --count origin/main..HEAD 2>/dev/null)"
+    ahead_n="$(git -C "$CHEAP_MEM_ROOT" rev-list --count "$mem_remote/$mem_branch..HEAD" 2>/dev/null)"
     echo "[hook] ================================================================"
     if [ -n "$ahead_n" ] && [ "$ahead_n" -gt 0 ] 2>/dev/null; then
-      echo "[hook] MEMORY STATE OLD: $behind_n commits behind origin/main, $ahead_n only local (diverged)."
+      echo "[hook] MEMORY STATE OLD: $behind_n commits behind $mem_remote/$mem_branch, $ahead_n only local (diverged)."
     else
-      echo "[hook] MEMORY STATE OLD: $behind_n commits behind origin/main (fast-forward failed)."
+      echo "[hook] MEMORY STATE OLD: $behind_n commits behind $mem_remote/$mem_branch (fast-forward failed)."
     fi
     echo "[hook] This session reads the OLD state: newer entries, errors and decisions are missing."
     echo "[hook] The hook resets nothing (no reset --hard: that would throw local work away)."
     if [ -n "$ahead_n" ] && [ "$ahead_n" -gt 0 ] 2>/dev/null; then
       echo "[hook] Rescue path (mem doctor, finding hook-root-stranded): do not rebase/merge (diverged): create a"
-      echo "[hook]   separate worktree from origin/main (git -C $CHEAP_MEM_ROOT worktree add --detach <place> origin/main),"
+      echo "[hook]   separate worktree from $mem_remote/$mem_branch (git -C $CHEAP_MEM_ROOT worktree add --detach <place> $mem_remote/$mem_branch),"
       echo "[hook]   copy raw/ and raw-record.jsonl from $CHEAP_MEM_ROOT over there, commit and push there -"
-      echo "[hook]   only THEN bring $CHEAP_MEM_ROOT up to the new origin/main with fetch + reset --hard."
+      echo "[hook]   only THEN bring $CHEAP_MEM_ROOT up to the new $mem_remote/$mem_branch with fetch + reset --hard."
     else
       echo "[hook] Rescue path: secure local changes in $CHEAP_MEM_ROOT (git -C $CHEAP_MEM_ROOT status), then"
-      echo "[hook]   git -C $CHEAP_MEM_ROOT merge --ff-only origin/main; the finding is hook-root-stranded (mem doctor)."
+      echo "[hook]   git -C $CHEAP_MEM_ROOT merge --ff-only $mem_remote/$mem_branch; the finding is hook-root-stranded (mem doctor)."
     fi
     echo "[hook] ================================================================"
     echo ""

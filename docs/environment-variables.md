@@ -108,10 +108,10 @@ A variable that is not in the table is not a switch: there is none.
 | `MEM_REFLECT_PROMPT` | the built-in prompt | The prompt the reflector gives the model. |
 | `MEM_REFLECT_THRESHOLD_BYTES` | 400000 | Transcript growth, in bytes, before the reflector runs again. |
 | `MEM_REFLECT_TIMEOUT` | 90 | Seconds one reflector run may take. |
-| `MEM_RETRIEVE_BRANCH` | main | Branch the recall hook pulls. |
+| `MEM_RETRIEVE_BRANCH` | the memory's `defaultBranch` (config), else main | Branch the recall hook pulls. |
 | `MEM_RETRIEVE_FRESH_MIN` | 10 | Minutes the clone counts as fresh before the recall hook pulls. |
 | `MEM_RETRIEVE_MIN` | 5.0 | Score a hit needs before the recall hook shows it. |
-| `MEM_RETRIEVE_REMOTE` | origin | Remote the recall hook pulls from. |
+| `MEM_RETRIEVE_REMOTE` | the memory's `defaultRemote` (config), else origin | Remote the recall hook pulls from. |
 | `MEM_RETRIEVE_TIE` | 0 (off) | Relative score spread within which ONE more hit than `MEM_RETRIEVE_TOP` comes along when it ties the last one shown (the recall hook only; `0.01` is the 1 % of lucky-mem; valid above 0 up to 0.5, anything else is the hard cut). Off by default: on the gold set it gained nothing and cost one gold case (`docs/recall-levers-2026-10-10.md`). |
 | `MEM_RETRIEVE_TIME` | 5 seconds | Time budget of one recall search, server and direct fallback alike. |
 | `MEM_RETRIEVE_TOP` | 3 | How many hits the recall hook shows at most. |
