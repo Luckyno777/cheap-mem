@@ -14,6 +14,19 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Performance - measured, not built: a word-normalisation memo for the cold index build (cli-speed-cm TB9; cheap-mem only)
+
+The order's lever: memoise the normalisation of a word. Measured first, on the 20,000-entry scratch memory, a cold `buildIndex`: the English pack normalised
+827,000 words and the German one 403,000, of only 19,300 different ones, so a memo would hit about 98 times in 100, and `stripAccents` plus `deNormalize` stand at 201 of 1,840 ms
+in a CPU profile of the build (11 %: that is the ceiling, a free normaliser). A memo with a ceiling in `src/language.mjs` was built as an experiment and measured,
+child CPU time of `buildIndex` alone, 6 interleaved runs each, median: 1,808 -> 1,719 ms (5 %, 89 ms; wall time on this host swings from 1,700 to 4,800 ms at load 30 and says nothing).
+Under the order's own bar (below 10 % is not built) it was thrown away. The larger parts of the build are `buildLexicon` (380 ms), `buildTermGraph` (242 ms) and the shard
+writer (187 ms), not the normaliser. How often the build runs, counted in the code (`loadIndexCached` falling through to `buildIndex`): on a clone without `.mem/search-index`
+(the cache is local), after a `CACHE_VERSION` or language change, when the cache does not read back whole, when a log file was rewritten or shrunk (a merge that reorders lines),
+once the corpus has grown by 20 % since the last build (`REBUILD_AFTER_FRACTION`), with `--fresh`, and **on every non-closing `mem correction`**, which calls
+`search.buildIndex(root)` directly (src/cli/commands/write.mjs, the content-loss warning) and never uses the cache: that one is where a cold build is paid again and again,
+and a better lever than the normaliser (not built here: it needs the cached index to give the same `docFreq`, which is a question for its own order).
+
 ### Changed / Performance - `mem doctor` runs the concurrent-append probe only with `--full` (and `--strict`) and says so when it did not (cli-speed-cm TB7; cheap-mem only)
 
 The probe of `env/append-atomicity` starts six writer threads on the memory's mount and was the slowest single part of a doctor run:
