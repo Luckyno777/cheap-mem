@@ -740,10 +740,10 @@ this machine; using lexical search`) and searched lexically. See
 mem setup claude              # add --dry-run to see it first
 ```
 
-Claude Code is the only agent with a one-command recipe, and that is
-deliberate: writing an agent's config from a *guessed* format fails
+Claude Code is the only agent whose own config this tool writes, and that
+is deliberate: writing an agent's config from a *guessed* format fails
 silently, in someone's home directory, in a file they did not know was
-touched. Any MCP-capable agent can use the server today by pointing at
+touched. (`mem setup codex-cloud`, below, writes only inside the memory.) Any MCP-capable agent can use the server today by pointing at
 `bin/mem-mcp` — see [docs/mcp-setup.md](docs/mcp-setup.md).
 
 The same thing by hand, if you would rather see every step:
@@ -841,6 +841,26 @@ claude mcp add cheap-mem --scope user \
   --env CHEAP_MEM_ROOT=~/my-memory \
   -- node ~/cheap-mem/bin/mem-mcp
 ```
+
+### OpenAI Codex Cloud (a skill in the memory + a hosted connector)
+
+Codex Cloud runs no hooks, so nothing shows it the memory and nothing
+captures its turn (reported by Codex, not verified here); it can only reach
+cheap-mem through a hosted MCP connector. The habit that hooks give Claude Code, a skill gives it:
+
+```bash
+mem setup codex-cloud --dry-run   # then without --dry-run
+```
+
+It writes `.agents/skills/mem/SKILL.md` **inside the memory** (the `$mem`
+skill: look up before a file and after a failure, log on your own, one
+closing summary per task, say so when the connector is missing), appends a
+narrow `.gitignore` exception only if git ignores `.agents/` there, and
+prints the text for the environment field "Start skill". It commits and
+pushes nothing, touches nothing under `~/.claude`, and keeps a skill file
+that differs from the shipped one unless you pass `--force`. What else the
+setup needs (a connector that allows writing) and where it stops:
+[docs/mcp-setup.md](docs/mcp-setup.md), "OpenAI Codex Cloud".
 
 ### Claude Desktop / Cursor / any MCP-capable client
 
