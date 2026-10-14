@@ -238,7 +238,7 @@ a failure — for CI, where refusing to determine a property *is* the defect.
 
 | guarantee | layer | how it is checked | if absent |
 |---|---|---|---|
-| `O_APPEND` atomicity | os/filesystem | filesystem type; **UNKNOWN** when undeterminable | concurrent writers may interleave (NFS) |
+| `O_APPEND` atomicity | os/filesystem | filesystem type, plus a measured run of concurrent writers only with `mem doctor --full` or `--strict`; **UNKNOWN** when undeterminable or not measured. `--alarm` (the session-start banner) sees only the filesystem-name list, so it reports a documented-unsafe name (NFS) but never a torn line | concurrent writers may interleave (NFS) |
 | `*.jsonl merge=union` | git | `.gitattributes` | a merge silently destroys entries |
 | pre-commit hook | git | `core.hooksPath` + file | secrets reach git |
 | clock | operational | newest `ts` vs. system clock | "newest" is wrong |

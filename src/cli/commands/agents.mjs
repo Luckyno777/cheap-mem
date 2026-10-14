@@ -9,7 +9,8 @@
  *
  * The groups are cut by the QUESTION a command answers, not by size:
  * whoever is looking for `mem log` is not looking next to `mem
- * doctor`. `bin/mem` merges them and dispatches; nothing here knows
+ * doctor`. `bin/mem` looks a command up in `src/cli/command-index.mjs`,
+ * imports only its group and dispatches; nothing here knows
  * about the others.
  */
 

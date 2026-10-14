@@ -414,7 +414,10 @@ function guardedAll(fnName, checks) {
 const DRAWER_MEMO_HEAP_DIVISOR = 10;
 export function drawerMemoBytes() { return v8.getHeapStatistics().heap_size_limit / DRAWER_MEMO_HEAP_DIVISOR; }
 
-export function checkAll(root, { memo = true } = {}) {
+export function checkAll(root, { memo = true, full = true } = {}) {
+  // `full: false` leaves out the one measuring probe of the run, the concurrent-append writers
+  // (`env/append-atomicity`), which then reports UNKNOWN with the way to run it, never `ok`
+  // (cli-speed-cm TB7). The default measures, as before; `mem doctor` passes it from `--full`.
   // One doctor run = one index context: the full index is built AT MOST
   // ONCE, however many findings read it (see `doctorIndex`), and every
   // drawer file is read and parsed ONCE however many findings walk it
@@ -423,12 +426,12 @@ export function checkAll(root, { memo = true } = {}) {
   RUN_INDEX = { root, result: null };
   try {
     return memo
-      ? drawermemo.runWithMemo({ maxBytes: drawerMemoBytes() }, () => checkAllCore(root))
-      : checkAllCore(root);
+      ? drawermemo.runWithMemo({ maxBytes: drawerMemoBytes() }, () => checkAllCore(root, { full }))
+      : checkAllCore(root, { full });
   } finally { RUN_INDEX = before; }
 }
 
-function checkAllCore(root) {
+function checkAllCore(root, { full = true } = {}) {
   const f = [];
   f.push(guarded('checkRoot', () => checkRoot(root)));
   f.push(guarded('checkConfig', () => checkConfig(root)));
@@ -476,7 +479,7 @@ function checkAllCore(root) {
   f.push(guarded('checkEntryForm', () => checkEntryForm(root)));
   f.push(guarded('checkGitignoreEffective', () => checkGitignoreEffective(root)));
   f.push(guarded('checkRollback', () => checkRollback(root)));
-  f.push(...guardedAll('checkEnvironmentContract', () => checkEnvironmentContract(root)));
+  f.push(...guardedAll('checkEnvironmentContract', () => checkEnvironmentContract(root, { full })));
   f.push(guarded('checkCorpusSize', () => checkCorpusSize(root)));
   f.push(guarded('checkAppendOnlyGit', () => checkAppendOnlyGit(root)));
   f.push(guarded('checkFindingParity', () => checkFindingParity(root)));
@@ -2593,9 +2596,9 @@ export function checkIntegrity(root) {
  * always returns — that result is simply not the one this function
  * reports under `env/clock`.
  */
-export function checkEnvironmentContract(root) {
+export function checkEnvironmentContract(root, { full = true } = {}) {
   let checks;
-  try { checks = environment.checkEnvironment(root, {}); }
+  try { checks = environment.checkEnvironment(root, { full }); }
   catch { return [finding('environment', LEVEL.UNKNOWN, 'environment could not be checked')]; }
 
   const mapped = checks.filter((c) => c.name !== 'clock').map((c) => {

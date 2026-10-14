@@ -14,6 +14,67 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Performance - measured, not built: a word-normalisation memo for the cold index build (cli-speed-cm TB9; cheap-mem only)
+
+The order's lever: memoise the normalisation of a word. Measured first, on the 20,000-entry scratch memory, a cold `buildIndex`: the English pack normalised
+827,000 words and the German one 403,000, of only 19,300 different ones, so a memo would hit about 98 times in 100, and `stripAccents` plus `deNormalize` stand at 201 of 1,840 ms
+in a CPU profile of the build (11 %: that is the ceiling, a free normaliser). A memo with a ceiling in `src/language.mjs` was built as an experiment and measured,
+child CPU time of `buildIndex` alone, 6 interleaved runs each, median: 1,808 -> 1,719 ms (5 %, 89 ms; wall time on this host swings from 1,700 to 4,800 ms at load 30 and says nothing).
+Under the order's own bar (below 10 % is not built) it was thrown away. The larger parts of the build are `buildLexicon` (380 ms), `buildTermGraph` (242 ms) and the shard
+writer (187 ms), not the normaliser. How often the build runs, counted in the code (`loadIndexCached` falling through to `buildIndex`): on a clone without `.mem/search-index`
+(the cache is local), after a `CACHE_VERSION` or language change, when the cache does not read back whole, when a log file was rewritten or shrunk (a merge that reorders lines),
+once the corpus has grown by 20 % since the last build (`REBUILD_AFTER_FRACTION`), with `--fresh`, and **on every non-closing `mem correction`**, which calls
+`search.buildIndex(root)` directly (src/cli/commands/write.mjs, the content-loss warning) and never uses the cache: that one is where a cold build is paid again and again,
+and a better lever than the normaliser (not built here: it needs the cached index to give the same `docFreq`, which is a question for its own order).
+
+### Changed / Performance - `mem doctor` runs the concurrent-append probe only with `--full` (and `--strict`) and says so when it did not (cli-speed-cm TB7; cheap-mem only)
+
+The probe of `env/append-atomicity` starts six writer threads on the memory's mount and was the slowest single part of a doctor run:
+9 fresh processes took 167 to 445 ms for it (median 320 ms), and under load one ran past its own 400 ms limit and reported UNKNOWN anyway.
+Without `--full` that one finding now reads `not measured on this run ... only runs with mem doctor --full` at level UNKNOWN, the third state, with
+the way to the real answer in its advice; it never reads `ok`. A filesystem whose name is documented as unsafe is still a failure without the probe
+(that answer needs no measuring). `--strict` includes the probe, because there an unverifiable guarantee is a failure and the documented CI call
+`mem doctor --strict` must not turn red for a check it skipped. `--alarm` lists only errors and no longer measures tearing on every start. The library
+default is unchanged: `doctor.checkAll(root)` measures, `checkAll(root, { full: false })` does not; the dashboard and `mem today` still call it as before.
+Measured, interleaved against the commit before, child CPU time (wall time on this shared host is too noisy: load 6 to 31),
+`mem doctor --quiet`: 300 entries 580 -> 290 ms (-50 %), 1,000 entries 620 -> 350 ms (-44 %), 20,000 entries 1,710 -> 1,450 ms (-15 %). The index was
+already loaded once per run (counted: the cache manifest is read once, each document shard once); there was nothing to save there. Tested structurally
+(`test/doctor-full.test.mjs`: the probe directory is created 0 times without `--full`, once with it). The output differs in exactly one finding
+and in `mem doctor --help`; golden over a 400-entry scratch memory otherwise identical.
+Through the real CLI the tests also hold: `--quiet` keeps the "not measured" line and the summary does not count it as good, `--alarm` neither measures nor prints it, and
+a documented-unsafe filesystem (driven with a fake `stat` on PATH; skipped on Windows, where such a script is not found) is an error without `--full` and shows in `--alarm`.
+
+### Performance - `mem retrieve` derives the retirements once and reads the log twice (cli-speed-cm TB6; cheap-mem only)
+
+On a 20,000-entry scratch memory (5.2 MB) one `retrieve` took 1,080 ms (7 fresh processes, warm index cache). `retrieve` derived the log's
+retirements for its own claims, and `loadIndex` derived them again for the index's retired flags (141 ms each at that size), each
+time in three passes over the typed logs. Now `retrieve` derives once and hands the state to the index load
+(`loadIndex(root, { derivedState })`; the state is still read from the log in this very call, never stored), and
+`retiredMapFromFiles` keeps the few retirement lines (slim copies, not correction bodies) during its first read, so the files are read twice, not
+three times. `docSimilarity` takes an optional per-ranking Map of norms (MMR compared the same vectors again and again and normed both in every
+comparison; the value is unchanged to the last bit). Measured against the commit before (TB4 only), 15 interleaved runs, medians, load about
+5 on 4 cores: 20,000 entries 898 -> 681 ms (-24 %), 5,000 entries 416 -> 355 ms (-15 %), 300 entries 184 -> 184 ms (no gain: below the
+size where the log reads matter, which is why the order's threshold decides by size). In process, repeated: 611 -> 455 ms at 20,000. Structurally:
+`retrieve` opens the typed logs 12 times instead of 21 on the test world (`test/retrieve-once.test.mjs`, which also counts the norms: 30 instead of 1,800
+for 30 vectors compared 900 times). Ranking and claims unchanged: byte-identical `--json` over a 400-entry scratch memory with discards, dones, a supersession,
+corrections and a refused (disputed) override, for `retrieve` with `--top`, `--as-of`, `--with-disputed`, `--type`, and for `find`.
+
+### Performance - a CLI start loads the group of its command, not all six (cli-speed-cm TB4; counterpart in lucky-mem open)
+
+`bin/mem` imported the six command groups statically, so `mem version` compiled the code of all 87 handlers to run one. Measured
+with a fresh process per run, 21 runs interleaved old/new (median), 1000-entry scratch memory (261 KB), a container at load
+about 6 on 4 cores, so the absolute times are high and only the pairs mean something: `mem version` 210 -> 139 ms, `mem --help`
+231 -> 127 ms, an unknown command 184 -> 113 ms, `mem inbox new` 213 -> 138 ms, `mem find` 299 -> 247 ms, `mem doctor --quiet`
+606 -> 565 ms (the groups it needs were always loaded; the gain there is under 10 percent). Structurally: `version` imports 1 group
+instead of 6 (93 modules instead of 158), help and an unknown command import none (61). `src/cli/command-index.mjs` names the
+group of each command; `test/cli-lazy-groups.test.mjs` holds the index equal to the six `COMMANDS` tables in both directions and
+counts the imported groups per start, not the time. Output byte for byte unchanged (golden over 192 invocations: every command with
+`--help` and with an unknown flag, `--help`, `-h`, `help`, the unknown-command path). The `Intl.DateTimeFormat` the order named
+does not run at load in this tree (counted: 0 constructions for `version`, `--help`, `find`; 1 for `doctor`), so nothing was made
+lazy there. A new command's name goes into that index too (CLAUDE.md).
+A group that does not load (a missing file, a syntax error) is answered as `mem <cmd>: the '<group>' command group did not load: ...` on stderr with exit 1, and
+the cause stays visible (the missing file by name; for a syntax error the engine's own file:line and code line), instead of Node's raw stack. What is quoted goes through the output guard first, loses control and bidi characters and is cut to three lines of 200 characters, so a token in a broken group file does not reach stderr.
+
 ### Added - `mem setup codex-cloud`: a skill for memories that are opened in OpenAI Codex Cloud (counterpart of the sibling house's Codex anchor)
 
 Codex Cloud runs no hooks (reported by Codex, not verified here), so a memory opened there reaches cheap-mem only through a
