@@ -368,10 +368,17 @@ const VISIBLE_ENV = { CHEAP_MEM_SERVE_CACHE_SYNC_TEST_MS: '0', CHEAP_MEM_SERVE_T
 async function recordFetches(page) {
   await page.addInitScript(() => {
     const realFetch = window.fetch;
-    const w = { inDispatch: false, sync: 0, starts: [], answers: [] };
+    const w = { inDispatch: false, sync: 0, markNext: false, starts: [], answers: [] };
     window.__noJump = w;
     window.fetch = function (input, ...rest) {
       const url = input instanceof URL ? input.href : typeof input === 'string' ? input : input?.url || '';
+      // Probe marker (late-answer probe): the next call carries a header
+      // that the route recognises -- the product's own request, only
+      // labelled, so no timing guess decides which request is held.
+      if (w.markNext && url.includes('/dashboard.json')) {
+        w.markNext = false;
+        rest[0] = { ...rest[0], headers: { ...rest[0]?.headers, 'x-no-jump-hold': '1' } };
+      }
       const p = realFetch.call(this, input, ...rest);
       if (url.includes('/dashboard.json')) {
         w.starts.push(performance.now());
@@ -510,13 +517,11 @@ test('no-jump: an answer that arrives only AFTER the tab was hidden arms no new 
     // route, the tab is hidden while it is held, then it is released with
     // `cache.fresh` forced to false (a fresh answer would end the chain
     // by itself and hide the missing guard).
-    let holdNext = false;
     let held = null;
     let heldArrived;
     const heldSeen = new Promise((res) => { heldArrived = res; });
     await page.route('**/dashboard.json', async (route) => {
-      if (!holdNext) { await route.continue(); return; }
-      holdNext = false;
+      if (route.request().headers()['x-no-jump-hold'] !== '1') { await route.continue(); return; }
       held = route;
       heldArrived();
     });
@@ -524,16 +529,18 @@ test('no-jump: an answer that arrives only AFTER the tab was hidden arms no new 
     try {
       await primeNotFresh(base, r);
       await pageReady(page, base);
-      // The held request must be the page's LIVE one (a newer call aborts
-      // an older one -- F18), so no other call may start in between: ask
-      // for it ourselves, and check below that its answer really arrived.
-      holdNext = true;
-      await page.evaluate(() => { window.loadData({ quiet: true }); });
-      await Promise.race([heldSeen, new Promise((_, rej) => setTimeout(() => rej(new Error('the held request never reached the route')), 20000))]);
+      // One synchronous step in the page: a quiet call (labelled for the
+      // route), then hidden. The request is therefore in flight when the
+      // tab is hidden, the visibilitychange listener has already cleared
+      // any pending timer, and no tick can start another call that would
+      // abort the held one (F18) -- however slow the machine is.
       await page.evaluate(() => {
+        window.__noJump.markNext = true;
+        window.loadData({ quiet: true });
         Object.defineProperty(document, 'hidden', { value: true, configurable: true });
         document.dispatchEvent(new Event('visibilitychange'));
       });
+      await Promise.race([heldSeen, new Promise((_, rej) => setTimeout(() => rej(new Error('the held request never reached the route')), 20000))]);
       const answersBefore = await page.evaluate(() => window.__noJump.answers.length);
       const resp = await held.fetch();
       const body = await resp.json();
