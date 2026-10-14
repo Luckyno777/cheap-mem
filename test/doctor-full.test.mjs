@@ -105,7 +105,8 @@ test('mem doctor --help names --full, and an unknown flag is still refused', () 
 
 // --- the same through the real CLI --------------------------------------------------------------
 
-const SPY = fileURLToPath(new URL('./probe-spy.mjs', import.meta.url));
+// A file URL, not a path: on Windows `C:\\...` after `--import` is read as a URL with scheme `c:` (ERR_UNSUPPORTED_ESM_URL_SCHEME).
+const SPY = new URL('./probe-spy.mjs', import.meta.url).href;
 
 /** Run `mem --root <root> doctor <flags>`; also say how many probe directories the process started. */
 function cli(t, root, flags, env = {}) {
@@ -153,16 +154,24 @@ test('CLI: --alarm (the session-start banner) neither measures nor prints the un
 });
 
 // The CLI has no `fsTypeOf` hook; the only door to a filesystem name is the `stat` binary, so the
-// case is driven with a fake `stat` ahead on PATH (as test/environment.test.mjs does). A fake
-// executable script cannot be found through PATH on Windows (CreateProcess runs .exe only, ';'-separated),
-// so there this one case is skipped; the same classification is covered through `fsTypeOf` in the test above.
-test('CLI: a documented-unsafe filesystem is an error without --full, and --alarm shows it', { skip: process.platform === 'win32' && 'a fake stat script cannot be found through PATH on Windows' }, (t) => {
+// case is driven with a fake `stat` ahead on PATH (as test/environment.test.mjs does). On Windows a
+// fake script cannot be found through PATH (CreateProcess runs .exe only, ';'-separated), so the
+// platform branch there states exactly that premise instead of skipping: the same fake must NOT
+// steer the check, and the plain run stays in the third state. UNVERIFIED on a Windows runner
+// (written from the platform's documented behaviour); the classification itself is covered
+// through `fsTypeOf` in the environment tests.
+test('CLI: a documented-unsafe filesystem is an error without --full, and --alarm shows it', (t) => {
   const root = world(t);
   const bin = tempDir('cm-doctor-full-stat-', t);
   fs.writeFileSync(path.join(bin, 'stat'), '#!/bin/sh\nprintf \'%s\' nfs\n', { mode: 0o755 });
   const env = { PATH: `${bin}${path.delimiter}${process.env.PATH}` };
   const plain = cli(t, root, [], env);
   assert.equal(plain.probes, 0, 'a name documented as unsafe needs no probe');
+  if (process.platform === 'win32') {
+    assert.doesNotMatch(lineOf(plain), /filesystem is nfs/, 'a PATH script named stat must not steer the check on Windows');
+    assert.match(lineOf(plain), /^\?\s+env\/append-atomicity .*not measured/);
+    return;
+  }
   assert.match(lineOf(plain), /^FAIL\s+env\/append-atomicity .*filesystem is nfs/);
   assert.doesNotMatch(lineOf(plain), /^ok\s/);
   assert.notEqual(plain.status, 0, 'an error finding is a non-zero exit');

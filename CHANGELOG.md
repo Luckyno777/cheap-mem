@@ -73,7 +73,7 @@ counts the imported groups per start, not the time. Output byte for byte unchang
 does not run at load in this tree (counted: 0 constructions for `version`, `--help`, `find`; 1 for `doctor`), so nothing was made
 lazy there. A new command's name goes into that index too (CLAUDE.md).
 A group that does not load (a missing file, a syntax error) is answered as `mem <cmd>: the '<group>' command group did not load: ...` on stderr with exit 1, and
-the cause stays visible (the missing file by name; for a syntax error the engine's own file:line and code line), instead of Node's raw stack.
+the cause stays visible (the missing file by name; for a syntax error the engine's own file:line and code line), instead of Node's raw stack. What is quoted goes through the output guard first, loses control and bidi characters and is cut to three lines of 200 characters, so a token in a broken group file does not reach stderr.
 
 ### Added - `mem setup codex-cloud`: a skill for memories that are opened in OpenAI Codex Cloud (counterpart of the sibling house's Codex anchor)
 

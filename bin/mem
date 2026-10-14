@@ -222,6 +222,11 @@ let COMMANDS;
 try {
   ({ COMMANDS } = await LOAD_GROUP[group]());
 } catch (e) {
+  // Everything quoted below comes from a broken file or from the engine and may carry a secret
+  // (a token in the line of code, an identifier named in the message), so it goes through the
+  // output guard, loses control and bidi characters, and is cut to 3 lines of 200 characters.
+  const { maskText } = await import('../src/outputguard.mjs');
+  const tidy = (t) => maskText(String(t)).replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069\ufeff]/g, '').slice(0, 200);
   let where = '';
   if (e instanceof SyntaxError) {
     try {
@@ -231,10 +236,10 @@ try {
         { encoding: 'utf8', timeout: 10000 });
       const lines = String(r.stderr ?? '').split('\n');
       const end = lines.findIndex((l) => l.startsWith('SyntaxError'));
-      if (end > 0) where = `\n${lines.slice(0, end).filter(Boolean).join('\n')}`;
+      if (end > 0) where = `\n${lines.slice(0, end).filter(Boolean).slice(0, 3).map(tidy).join('\n')}`;
     } catch { /* the message alone then */ }
   }
-  die(`mem ${head}: the '${group}' command group did not load: ${e.message}${where}`);
+  die(`mem ${head}: the '${group}' command group did not load: ${String(e.message).split('\n').slice(0, 3).map(tidy).filter(Boolean).join(' / ')}${where}`);
 }
 const cmd = Object.hasOwn(COMMANDS, head) ? COMMANDS[head] : undefined;
 if (!cmd) die(`mem ${head}: the command index lists it under '${group}', which does not define it.`);

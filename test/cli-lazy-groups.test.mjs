@@ -25,6 +25,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { tempDir } from './temp-dir.mjs';
 import { traceRun, GROUPS } from './module-trace.mjs';
+import { maskText } from '../src/outputguard.mjs';
 import { GROUP_COMMANDS } from '../src/cli/command-index.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -129,4 +130,35 @@ test('a group that does not load is answered as `mem <cmd>: ...` with exit 1, ca
 
   // Another group is not hurt by it: that is the point of loading one group per start.
   assert.equal(run('version').status, 0);
+});
+
+test('what a failed group load quotes is masked, stripped of control and bidi characters, and cut', (t) => {
+  const copy = tempDir('cm-lazy-mask-', t);
+  fs.cpSync(path.join(REPO, 'src'), path.join(copy, 'src'), { recursive: true });
+  fs.mkdirSync(path.join(copy, 'bin'));
+  fs.copyFileSync(BIN, path.join(copy, 'bin', 'mem'));
+  fs.copyFileSync(path.join(REPO, 'package.json'), path.join(copy, 'package.json'));
+  const bin = path.join(copy, 'bin', 'mem');
+  const capture = path.join(copy, 'src', 'cli', 'commands', 'capture.mjs');
+  const pristine = fs.readFileSync(capture, 'utf8');
+  // Built at run time, so this file never holds a token-shaped string: an AWS key id and an
+  // OpenAI-style key, each as the guard's own patterns know them.
+  const aws = `AKIA${'Q7ZX2'.repeat(4).slice(0, 16)}`;
+  const sk = `sk-${'aB3dE6gH9'.repeat(4)}`;
+  const bidi = '\u202e';
+  const long = 'x'.repeat(600);
+  // control: the guard does know both shapes
+  assert.notEqual(maskText(aws), aws, 'control: the guard must know the AWS shape');
+  assert.notEqual(maskText(sk), sk, 'control: the guard must know the key shape');
+  // the secrets are in the quoted line of code AND in an identifier the engine names in its message
+  fs.writeFileSync(capture, `${pristine}\nexport const ${sk} = "${aws}" ${bidi} ${long} = ;\n`);
+  const r = spawnSync(process.execPath, [bin, 'raw', '--help'], { encoding: 'utf8', input: '' });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /^mem raw: the 'capture' command group did not load: /);
+  assert.match(r.stderr, /capture\.mjs:\d+/, 'file:line stays visible');
+  assert.ok(!r.stderr.includes(aws) && !r.stderr.includes(sk), 'a token must not reach stderr');
+  assert.ok(!r.stderr.includes(bidi), 'a bidi override must not reach stderr');
+  assert.ok(!/[\u0000-\u0008\u000b-\u001f\u007f]/.test(r.stderr), 'no control character');
+  assert.ok(r.stderr.split('\n').every((l) => l.length <= 400), 'quoted lines are cut');
+  assert.ok(r.stderr.split('\n').length <= 6, 'at most the message line and three quoted lines');
 });
