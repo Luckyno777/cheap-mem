@@ -147,16 +147,21 @@ test('what a failed group load quotes is masked, stripped of control and bidi ch
   const sk = `sk-${'aB3dE6gH9'.repeat(4)}`;
   const bidi = '\u202e';
   const long = 'x'.repeat(600);
+  // a key split by a zero-width space: the guard must see it whole, so stripping comes before masking
+  const joined = `sk-${'Zq4Wx8Rt'.repeat(4)}`;
+  const split = `${joined.slice(0, 12)}\u200b${joined.slice(12)}`;
   // control: the guard does know both shapes
   assert.notEqual(maskText(aws), aws, 'control: the guard must know the AWS shape');
   assert.notEqual(maskText(sk), sk, 'control: the guard must know the key shape');
+  assert.notEqual(maskText(joined), joined, 'control: the guard must know the joined key');
   // the secrets are in the quoted line of code AND in an identifier the engine names in its message
-  fs.writeFileSync(capture, `${pristine}\nexport const ${sk} = "${aws}" ${bidi} ${long} = ;\n`);
+  fs.writeFileSync(capture, `${pristine}\nexport const ${sk} = "${split}" + "${aws}" ${bidi} ${long} = ;\n`);
   const r = spawnSync(process.execPath, [bin, 'raw', '--help'], { encoding: 'utf8', input: '' });
   assert.equal(r.status, 1);
   assert.match(r.stderr, /^mem raw: the 'capture' command group did not load: /);
   assert.match(r.stderr, /capture\.mjs:\d+/, 'file:line stays visible');
   assert.ok(!r.stderr.includes(aws) && !r.stderr.includes(sk), 'a token must not reach stderr');
+  assert.ok(!r.stderr.includes(joined), 'a key split by a zero-width character must not be joined back in the clear');
   assert.ok(!r.stderr.includes(bidi), 'a bidi override must not reach stderr');
   assert.ok(!/[\u0000-\u0008\u000b-\u001f\u007f]/.test(r.stderr), 'no control character');
   assert.ok(r.stderr.split('\n').every((l) => l.length <= 400), 'quoted lines are cut');
