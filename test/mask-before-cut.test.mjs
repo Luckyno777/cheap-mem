@@ -27,6 +27,7 @@ import { KIND_NAMES, bait, baitTail, leaks } from './helpers/mask-before-cut-bai
 import http from 'node:http';
 import zlib from 'node:zlib';
 import { maskText, cutMasked, windowMasked, costCut } from '../src/outputguard.mjs';
+import * as deadlines from '../src/deadlines.mjs';
 import { guardResponse, maskBody } from '../src/servemask.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -1108,3 +1109,48 @@ for (const c of CASES) {
     });
   });
 }
+
+const KINDS_FOR_EDGE = ['github', 'jwt', 'password'];
+// A cut or window edge that falls anywhere inside a marker moves to the marker's start: not only past
+// `[REDACTED` (the old trailing pattern) but also at `[R`, `[REDA`, `[REDACTED:git` (review of today-due-cm).
+test('cutMasked / windowMasked: no edge leaves a piece of a [REDACTED:...] marker (positive control: a plain slice does)', () => {
+  const text = `lead text ${KINDS_FOR_EDGE.map((k) => bait(k, 60).key).join(' middle ')} end words`;
+  const masked = maskText(text);
+  const piece = /\[(?:R(?:E(?:D(?:A(?:C(?:T(?:E(?:D(?::[^\]]*)?)?)?)?)?)?)?)?)?$/;
+  const lead = /^[^[]*?\]/;
+  let plainTorn = 0;
+  for (let n = 1; n < masked.length; n += 1) {
+    if (piece.test(masked.slice(0, n)) && masked[n - 1] !== ' ') plainTorn += 1;
+    const out = cutMasked(text, n);
+    assert.ok(!piece.test(out), `cut ${n} leaves a piece of a marker: ${JSON.stringify(out.slice(-24))}`);
+    assert.ok(masked.startsWith(out), `cut ${n} is a prefix of the masked text`);
+    const w = windowMasked(text, n, Math.min(masked.length, n + 30));
+    assert.ok(!piece.test(w) || w === '', `window ${n} ends inside a marker: ${JSON.stringify(w.slice(-24))}`);
+    assert.ok(!lead.test(w), `window ${n} starts inside a marker: ${JSON.stringify(w.slice(0, 24))}`);
+  }
+  assert.ok(plainTorn > 10, `positive control: a plain slice of the masked text tears markers (${plainTorn})`);
+});
+
+test('marker edges, fixed: on the start the marker stays out, on the end it stays whole; markers at the start and in a row', () => {
+  assert.equal(cutMasked('ab [REDACTED:x] cd', 3), 'ab ');
+  assert.equal(cutMasked('ab [REDACTED:x] cd', 4), 'ab ');
+  assert.equal(cutMasked('ab [REDACTED:x] cd', 15), 'ab [REDACTED:x]');
+  assert.equal(cutMasked('[REDACTED:x][REDACTED:y][REDACTED:z] tail', 11), '');
+  assert.equal(cutMasked('[REDACTED:x][REDACTED:y][REDACTED:z] tail', 12), '[REDACTED:x]');
+  assert.equal(cutMasked('[REDACTED:x][REDACTED:y][REDACTED:z] tail', 30), '[REDACTED:x][REDACTED:y]');
+  assert.equal(windowMasked('ab [REDACTED:x] cd', 5, 9), '');
+  // the write layer's own marker carries a second colon and a variable name (redaction.mjs `env:<NAME>`)
+  assert.equal(cutMasked('ab [REDACTED:env:MY_API_TOKEN] cd', 10), 'ab ');
+  assert.equal(cutMasked('ab [REDACTED:env:MY_API_TOKEN] cd', 22), 'ab ');
+  assert.equal(windowMasked('ab [REDACTED:env:MY_API_TOKEN] cd', 8, 25), '');
+});
+
+test('the marker scan stays linear: unclosed [REDACTED: runs do not make a cut quadratic', () => {
+  const bad = '[REDACTED:'.repeat(40000); // 400 KB; unbounded label pattern: 6.5 s (review of torn-marker-cm)
+  const t0 = process.hrtime.bigint();
+  cutMasked(bad, 100);
+  windowMasked(bad, 50, 150);
+  deadlines.safeText(bad, 100);
+  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+  assert.ok(ms < 1500, `cut and window over 400 KB of unclosed markers took ${Math.round(ms)} ms`);
+});

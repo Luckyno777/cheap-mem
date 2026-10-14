@@ -143,7 +143,7 @@ test('today.refresh keeps an addendum an addendum, shows a card added since, rea
   assert.equal(fresh.cards.readable, true);
   assert.ok(!fresh.reasons.some((x) => /card shelf/.test(x)));
   // a card added after the stored state shows after the refresh of the projects (and only there)
-  cardstore.write(w, { target_id: 'project:garden-plan', question: 'Newer question?', context: 'c', options: ['Yes — a', 'No — b'] }, { agent: 'orch', now: new Date('2026-10-14T00:00:00Z') });
+  cardstore.write(w, { target_id: 'project:garden-plan', question: 'Newer question?', context: 'c', options: ['Yes — a', 'No — b'] }, { agent: 'orch', now: new Date(Date.now() + 60000) }); // later than the first card, which took the real clock
   assert.equal(today.refresh(stored, w, ['projects'], { now: NOW }).projects.list[0].card.question, 'Newer question?');
   assert.equal(stored.projects.list[0].card.question, 'Does it belong?', 'the stored state stayed as it was');
   // an unreadable shelf after the refresh: unknown, fallback cards, the reasons say so
