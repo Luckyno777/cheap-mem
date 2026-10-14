@@ -106,6 +106,12 @@ for (const [name, text] of [
   ['a quote run of 1 MB behind a head', `token: ${'"'.repeat(MB)}`],
   ['apostrophes in prose with the keyword', repeatTo("it's a token: don't ")],
   ['markers behind a header name', repeatTo('x-api-key: [REDACTED:x][REDACTED:y] ')],
+  ['a stray quote behind a bare key, 1 MB of prose in one line', `Note: password: "see below. ${repeatTo('plain words, none of them a secret ')}`],
+  ['a bare-key head and a stray quote on every line', repeatTo('Note: password: "see below, plain words\n')],
+  ['bracket references, repeated', repeatTo('{"password": "${{ a.b | c(d) | e(f) | g }}", ')],
+  ['a bracket reference of pipes', `{"password": "{{ ${'a|'.repeat(MB / 2)}"}`],
+  ['a bracket value of blanks', `{"password": "\${{ ${' '.repeat(MB)}x }}"}`],
+  ['brackets that never close', repeatTo('{"password": "${{ aaa(bbb) ')],
   ['one value of markers and stumps', `api_key=${repeatTo('Ab3xK9mQAb3xK9mQ[REDACTED:x]')}`],
 ]) {
   test(`linear: whole-string pass: ${name}, under ${JSON_STRING_LIMIT_MS} ms`, { timeout: 60000 }, () => {

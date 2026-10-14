@@ -106,6 +106,36 @@ test('the code-literal guard holds (and only for an unescaped quote: the escaped
   assert.equal(redact(lit).text, lit);
 });
 
+test('a stray quote behind a bare key in a long line of prose takes nothing with it; a short bare value without a closer still falls', () => {
+  const prose = ' so it goes on and on with plain words, none of them a secret'.repeat(2000);
+  for (const n of [4100, 10000, 100000]) {
+    const text = `Note: password: "see below.${prose.slice(0, n)}`;
+    assert.equal(redact(text).text, text, `${n} characters: the text must stay`);
+    assert.equal(redact(redact(text).text).text, redact(text).text);
+  }
+  // Control: up to the cap the bare value falls to the end of the text, as before, and masking twice is masking once.
+  const key = 'Ab3xK9mQ7zLpWq5r ';
+  for (const value of [`${PHRASE}`, key.repeat(200)]) {
+    const text = `Note: password: "${value}`;
+    assert.equal(redact(text).text, `Note: password: "${MARK('json-secret')}`, `${value.length} characters`);
+    assert.equal(redact(redact(text).text).text, `Note: password: "${MARK('json-secret')}`);
+  }
+  // A quoted key keeps the old rule: a cut JSON line falls whole, however long.
+  assert.equal(redact(`{"password": "${prose.slice(0, 10000)}`).text, `{"password": "${MARK('json-secret')}`);
+});
+
+test('brackets: a reference stays, a key or a phrase in brackets falls', () => {
+  const k = 'Ab3xK9mQ7zLpWq5r';
+  for (const v of [`\${{ ${k} }}`, `\${{ ${PHRASE} }}`, `{{${k}}}`, `\${${k}}`, `<${k}>`, `{{ ${k} }}`, `{{ ${PHRASE} }}`, `[${k}]`]) {
+    assert.equal(redact(`{"password": "${v}"}`).text, `{"password": "${MARK('json-secret')}"}`, `must fall: ${v}`);
+  }
+  for (const v of ['\${{ secrets.DB_PASSWORD }}', '\${{ secrets.GITHUB_TOKEN }}', "{{ lookup('env','X') }}", "{{ vault.secret | default('x') }}",
+    '\${DB_PASSWORD}', '<your password here>']) {
+    assert.equal(redact(`{"password": "${v}"}`).text, `{"password": "${v}"}`, `must stay: ${v}`);
+  }
+  assert.equal(redact('token: "\${{ secrets.GITHUB_TOKEN }}"').text, 'token: "\${{ secrets.GITHUB_TOKEN }}"');
+});
+
 test('kept: values without a secret key, prose, placeholders, markers alone', () => {
   for (const [name, text] of KEPT) assert.equal(redact(text).text, text, `${name}: changed`);
 });

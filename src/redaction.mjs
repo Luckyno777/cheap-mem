@@ -434,7 +434,10 @@ function isHarmless(s) {
 const JSON_STRING_CAP = 4096;
 const JSON_SUFFIX_MAX = 12;
 const JSON_HEAD = new RegExp(`(?<![A-Za-z0-9_])((["']?)[A-Za-z0-9_]{0,64}(?:${JSON_KEY_WORDS})([A-Za-z0-9_-]{0,64})(\\\\{0,3}["']?)${SP}*${SEP}${SP}*)(\\\\{0,3})(["'])`, 'gi');
-const BRACKET_WHOLE = /^(?:<[^<>]{0,200}>|\{\{[^{}]{0,200}\}\}|\$\{\{?[^{}]{0,200}\}\}?|\[[^[\]]{0,200}\])$/;
+// A REFERENCE in template brackets, bounded: a dotted name, optionally called (`lookup('env','X')`), optionally piped through
+// filters (`| default('x')`). Several plain words are no reference: `${{ horse battery staple }}` is a phrase in brackets.
+const REF_INNER = String.raw`\s{0,10}[A-Za-z_][\w.-]{0,100}(?:\s{0,3}\([^(){}]{0,100}\))?(?:\s{0,3}\|\s{0,3}[A-Za-z_][\w.]{0,40}(?:\([^(){}]{0,60}\))?){0,5}\s{0,10}`;
+const BRACKET_WHOLE = new RegExp(`^(?:<[^<>]{0,200}>|\\[[^[\\]]{0,200}\\]|\\{\\{${REF_INNER}\\}\\}|\\$\\{\\{?${REF_INNER}\\}\\}?)$`);
 const PLACEHOLDER_PHRASE = new RegExp(`^${PLACEHOLDER_WORD}[ _-]${GENERIC_WORD.replace('api[_-]?key', 'api[ _-]?key')}$`, 'i');
 
 const PROSE_WORDS = 12;
@@ -457,8 +460,12 @@ function isKebabKey(key) {
 
 function harmlessString(value) {
   const t = value.trim();
+  if (MARKER_ONLY.test(t)) return true;
+  // A bracketed value is a placeholder or a reference only while nothing credential-shaped sits in it: `<Ab3xK9mQ7zLpWq5r>`,
+  // `{{Ab3xK9mQ7zLpWq5r}}` and `${{ Ab3xK9mQ7zLpWq5r }}` are keys in brackets.
+  if (/^(?:<|\{|\$\{|\[)/.test(t) && looksLikeCredential(t)) return false;
   if (!/\s/.test(t)) return isHarmless(t);
-  if (t.length < 8 || MARKER_ONLY.test(t) || BRACKET_WHOLE.test(t) || PLACEHOLDER_PHRASE.test(t)) return true;
+  if (t.length < 8 || BRACKET_WHOLE.test(t) || PLACEHOLDER_PHRASE.test(t)) return true;
   return IS_REFERENCE.some((r) => r.test(t)) && !looksLikeCredential(t);
 }
 
@@ -522,6 +529,9 @@ function redactJsonStrings(text, counter) {
     // JSON line, and the rest of the line is the value. Behind a key that no quote closes it is code (`'FOO_PASSWORD=', x`):
     // not a string value, it stays with `json-secret` above.
     if (found.close < 0 && found.lineEnd && !/["']/.test(keyClose)) continue;
+    // Nor is a bare key whose quote never closes within the cap: a stray quote in a long line of prose (`Note: password: "see
+    // below. ...`) would take everything behind it. Short, it falls as before.
+    if (found.close < 0 && !/["']/.test(keyClose) && found.to - start > JSON_STRING_CAP) continue;
     const close = found.close;
     // No closing quote: the value runs to where the search ended (the line end behind a quoted key, else the text end). The
     // cap bounds what is JUDGED below, never how much falls: a masked head with an open tail would not be idempotent.

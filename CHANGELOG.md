@@ -234,7 +234,12 @@ behind it stayed), `PASSWORD='two words'` (only the first word fell: `[REDACTED:
   cursor. The code-literal guard holds for an unescaped quote only: `{"env":"PASSWORD=\"...\""}` (a command line inside a JSON
   string, the usual shape in a transcript) is a value. Chosen on purpose, and a false alarm in the safe direction: a sentence under
   a quoted secret key falls (`{"token_budget": "ten thousand words per day"}`, `{"password_hint": "..."}`, `{"secret": "see the
-  vault"}`, YAML `token: "..."` with a plain word). The gaps these
+  vault"}`, YAML `token: "..."` with a plain word). A bare key whose quote never closes and whose rest of the text is longer than the cap of 4096
+  (a stray quote in a long line of prose, `Note: password: "see below. ..."`) is skipped, not masked: it would take the whole rest of the
+  text; short, it falls to the end of the text. A bracket value is a placeholder or reference only without a credential-shaped run
+  in it (`<Ab3x...>`, `{{Ab3x...}}`, `${{ Ab3x... }}` fall; some of these were open on 7a46a3a already), and a template reference is a
+  dotted name, optionally called or piped (`${{ secrets.GITHUB_TOKEN }}`, `{{ lookup('env','X') }}`). `${{ horse battery staple }}` is
+  NOT a reference (words, no name or call), so it falls: indistinguishable from a phrase secret, and the safe direction. The gaps these
   leave: a passphrase of twelve plain words behind a bare key; a phrase behind a key with a long suffix; a kebab key (`secret-value`)
   needs a credential-shaped value, as before.
 - **Not covered, named** (the next order builds the key words and the object fields; none of it is new, all of it was open on 7a46a3a):
