@@ -24,6 +24,7 @@ import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import * as tasks from '../src/tasks.mjs';
 import { personCookie } from './person-session.mjs';
+import { removeTree } from './fixture/cleanup.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..');
@@ -38,7 +39,8 @@ function world() {
     JSON.stringify({ name: 'tasks', participants: ['someone'], language: 'en' }));
   return r;
 }
-function gone(r) { fs.rmSync(r, { recursive: true, force: true }); }
+// tasks and their children may still hold files on Windows for a moment (CI run 980, the sibling probe)
+function gone(r) { removeTree(r); }
 
 /**
  * A single large drawer file, written directly (no CLI round-trips) so
