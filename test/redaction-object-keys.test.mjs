@@ -131,6 +131,43 @@ test('a camelCase key is never read looser than as written: the suffix is counte
   assert.deepEqual(maskEntry({ tokenSystemIsAFacadeForEverything: prose }), { tokenSystemIsAFacadeForEverything: prose });
 });
 
+test('a keyword spelled with a capital inside it is still a keyword: the camel cut never makes a counter (review 2026-10-14)', () => {
+  const keys = ['passWord', 'paSsword', 'toKen', 'accessToKen', 'userSecreT', 'secRet', 'aPIkey', 'priVateKey', 'accEssKey', 'tOkenS', 'passPhrase', 'apIKey'];
+  for (const key of keys) {
+    for (const f of [maskEntry, (o) => redaction.redactObject(o), (o) => redaction.redactEntry(o, { secrets: [] }).object]) {
+      assert.deepEqual(f({ [key]: 123456 }), { [key]: MARK }, key);
+    }
+  }
+  // the camel cut still finds a counter where the keyword is whole
+  const free = { tokensUsed: 5, maxTokens: 9, apiKeyCount: 3, accessKeyLimit: 4, clientSecretLength: 8, refreshTokenCount: 2, privateKeyLen: 1 };
+  assert.deepEqual(maskEntry(free), free);
+  // tokenSystem is not the plural tokenS
+  assert.deepEqual(maskEntry({ tokenSystem: 5 }), { tokenSystem: MARK });
+});
+
+test('pin_number and pin_num are the pin; only count/limit/len/length/max/min make a counter for pin, pwd, passcode, credential(s)', () => {
+  for (const key of ['pinNumber', 'pin_number', 'pin_num', 'pin_used', 'pin_total', 'pin_usage', 'passcodeNumber', 'credentialsTotal', 'pwdNum']) {
+    assert.deepEqual(maskEntry({ [key]: 1234 }), { [key]: MARK }, key);
+  }
+  for (const key of ['pin_count', 'pinLimit', 'passcode_len', 'pwdLength', 'max_pin', 'min_passcode', 'credentialsCount']) {
+    assert.deepEqual(maskEntry({ [key]: 3 }), { [key]: 3 }, key);
+  }
+});
+
+test('a whole number of 1e12 and up falls even under a counter key; a real count stays', () => {
+  const big = { credentialCount: 4111111111111111, token_count: 4111111111111111, tokens_used: 1e12, max_tokens: 1234567890123, secrets: 9999999999999 };
+  for (const f of [maskEntry, (o) => redaction.redactObject(o)]) {
+    assert.deepEqual(f(big), { credentialCount: MARK, token_count: MARK, tokens_used: MARK, max_tokens: MARK, secrets: MARK });
+    assert.deepEqual(f({ tokens_used: 1234567, tokens_used2: 999999999999, secrets: 120, usage: { input_tokens: 123456789 } }),
+      { tokens_used: 1234567, tokens_used2: 999999999999, secrets: 120, usage: { input_tokens: 123456789 } });
+  }
+});
+
+test('an upper-case run is split: PINCode and PWDHash are found; SPINCode and pins are not', () => {
+  assert.deepEqual(maskEntry({ PINCode: 'a b', PWDHash: 'a b', userPINCode: 5 }), { PINCode: MARK, PWDHash: MARK, userPINCode: MARK });
+  assert.deepEqual(maskEntry({ SPINCode: 'a b', PINs: 'a b', OPINION: 'a b', PINT: 'a b' }), { SPINCode: 'a b', PINs: 'a b', OPINION: 'a b', PINT: 'a b' });
+});
+
 test('pin, pwd, passcode and credential(s) follow the counter rule: a count is a single number, a value is not', () => {
   const free = { pin_count: 3, passcode_length: 6, max_pin: 4, pwd_len: 8, credentials_count: 2, credentialCount: 1, pinLimit: 3 };
   assert.deepEqual(maskEntry(free), free);

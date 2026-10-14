@@ -743,7 +743,12 @@ const CREDENTIAL_WORDS = new Set(['credential', 'credentials']);
 const FETCH_CREDENTIALS = /^(?:same-origin|include|omit)$/;
 const COUNTER_WORDS = new RegExp(`(?:${KEY_WORDS_FLEX})(?:s|[_-]?(?:count|counts|limit|limits|budget|usage|used|len|length|total|num|number))|(?:max|min|num|total)[_-]?token`, 'gi');
 const SECRET_KEY_ALL = new RegExp(KEY_WORDS_FLEX, 'gi');
-const COUNTER_SUFFIX_WORDS = new Set(['count', 'counts', 'limit', 'limits', 'budget', 'usage', 'used', 'len', 'length', 'total', 'num', 'number', 'max', 'min']);
+// For `pin`, `pwd`, `passcode`, `credential(s)` only these: a `pin_number` or `pin_num` IS the pin, `pin_used` and `pin_total` are not counts of anything
+// a person would call safe (review 2026-10-14).
+const COUNTER_SUFFIX_WORDS = new Set(['count', 'counts', 'limit', 'limits', 'len', 'length', 'max', 'min']);
+const UPPER_RUN_CUT = /([A-Z]+)([A-Z][a-z])/g;
+// A whole number this size is a card number or an id, never a count: it falls under a counter key, too.
+const BIG_INTEGER = 1e12;
 const KEY_NOISE = /[\u00AD\u200B-\u200F\u2060\uFEFF]/g;
 const KEY_MAX = 512;
 const CAMEL_CUT = /([a-z0-9])([A-Z])/g;
@@ -768,16 +773,19 @@ function secretKeyKind(key) {
   if (!SECRET_KEY.test(k)) {
     // The whole words `pin`, `pwd`, `passcode`, `credential(s)`: split at `_`, `-` and camelCase. The same counter rule as
     // for the list: `pin_count`, `passcode_length`, `max_pin` are counts (every other word is a counter word).
-    const words = k.replace(CAMEL_CUT, '$1_$2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+    const words = k.replace(CAMEL_CUT, '$1_$2').replace(UPPER_RUN_CUT, '$1_$2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
     const hit = words.some((w) => EXTRA_KEY_WORDS.has(w) || CREDENTIAL_WORDS.has(w));
     if (!hit) return null;
     const rest = words.filter((w) => !EXTRA_KEY_WORDS.has(w) && !CREDENTIAL_WORDS.has(w));
     if (rest.length > 0 && rest.every((w) => COUNTER_SUFFIX_WORDS.has(w))) return 'counter';
     return words.some((w) => EXTRA_KEY_WORDS.has(w)) ? 'secret' : 'cred';
   }
-  // The counter words are read on the camel-cut key (`tokenSystem` is `token` + `System`, not the plural `tokenS`); the cut can only
-  // make a counter harder to see, never easier. The suffix below is counted on the key as written.
-  if (!SECRET_KEY.test(k.replace(CAMEL_CUT, '$1_$2').replace(COUNTER_WORDS, '_'))) return 'counter';
+  // A counter only if NEITHER reading still finds a keyword once the counter words are out: the key as written (`tokenSystem` is
+  // the plural `tokenS` plus `ystem` there) and the camel-cut key (`token_System`: not a plural). The cut can destroy a keyword
+  // that is spelled with a capital inside it (`passWord` is `pass_Word`, `toKen`, `aPIkey`): a keyword that only the plain
+  // reading finds is a keyword, so such a key is never a counter (it was, in 83aab6b: `passWord: 123456` stayed).
+  const cut = k.replace(CAMEL_CUT, '$1_$2');
+  if (SECRET_KEY.test(cut) && !SECRET_KEY.test(cut.replace(COUNTER_WORDS, '_')) && !SECRET_KEY.test(k.replace(COUNTER_WORDS, '_'))) return 'counter';
   // The suffix is counted from the LAST keyword (the text rule's key takes as much prefix as it can). One pass, linear.
   let end = 0;
   for (const m of k.matchAll(SECRET_KEY_ALL)) end = m.index + m[0].length;
@@ -810,7 +818,7 @@ export function walkSecrets(root, leaf, { plainOnly = false, onKeyMask = null } 
       // A number or boolean is masked only when the secret's key stands DIRECTLY over it (or over the array that holds it):
       // `{"github-token": {"n": 5, "caught": 5}}` is a table of counts that happens to be named after a kind of key. Under a
       // counter key a single number stays; a boolean or a number in an array does not.
-      if (!direct || (direct === 'counter' && typeof v === 'number')) return v;
+      if (!direct || (direct === 'counter' && typeof v === 'number' && !(Number.isInteger(v) && Math.abs(v) >= BIG_INTEGER))) return v;
       if (onKeyMask) onKeyMask();
       return KEY_MARK;
     }
