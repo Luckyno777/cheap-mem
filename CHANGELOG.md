@@ -29,8 +29,11 @@ hosted MCP connector, and nothing makes the model use it. The habit that hooks g
 - **`mem setup codex-cloud [--dry-run] [--force]`** (`src/codexcloud.mjs`): writes the skill to
   `<memory>/.agents/skills/mem/SKILL.md`, appends a narrow `.gitignore` exception only when git says `.agents/` is ignored
   there (checked afterwards and undone if it does not open exactly that folder), prints the Start-skill text. Idempotent;
-  a differing skill file is left alone without `--force`; refuses a symbolic link that leads out of the memory; keeps the
-  line ending of an existing `.gitignore`; commits, pushes and writes under the home directory never. Deliberately not an MCP
+  a differing skill file is left alone without `--force`; everything that can be refused is checked before anything is written
+  (a symbolic link - also a dangling one - at the skill, on the way to it or at `.gitignore`, a directory where a file belongs, an
+  unreadable `.gitignore`), the `.gitignore` rules are tried in a throw-away repository first (so `--dry-run` is not more optimistic
+  than the real run) and undone if git still ignores the skill, and an empty `.gitignore` comes back as an empty file; keeps the
+  line ending and the mode of an existing `.gitignore`; commits, pushes and writes under the home directory never. Deliberately not an MCP
   tool: the connector is how a remote agent writes entries, not a door for writing files into the checkout.
 - **`docs/mcp-setup.md`**, section "OpenAI Codex Cloud": the hosted connector (writing must be allowed, HTTP starts read-only),
   what the skill does, and the limits (not enforced, no transcript, a copy and not a link).

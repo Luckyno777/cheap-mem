@@ -833,8 +833,8 @@ claude mcp add cheap-mem --scope user \
 ### OpenAI Codex Cloud (a skill in the memory + a hosted connector)
 
 Codex Cloud runs no hooks, so nothing shows it the memory and nothing
-captures its turn; it can only reach cheap-mem through a hosted MCP
-connector. The habit that hooks give Claude Code, a skill gives it:
+captures its turn (reported by Codex, not verified here); it can only reach
+cheap-mem through a hosted MCP connector. The habit that hooks give Claude Code, a skill gives it:
 
 ```bash
 mem setup codex-cloud --dry-run   # then without --dry-run

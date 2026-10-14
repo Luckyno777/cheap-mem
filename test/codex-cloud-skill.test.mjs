@@ -307,7 +307,7 @@ test('the skill repeats the rules of the doc block "Tell the model to actually u
 
 // --- read-only connector: the claims about it are true ------------------------------
 
-test('a read-only connector offers neither mem_log nor the inbox tools, but the full one does (as the skill and doc say)', () => {
+test('a read-only connector offers neither mem_log nor the tools that list new mail or write to the inbox, but still the reading ones (as the skill and doc say)', () => {
   const names = (list) => new Set(list.map((t) => t.name));
   const ro = names(READ_ONLY);
   const full = names(TOOLS);
@@ -315,10 +315,15 @@ test('a read-only connector offers neither mem_log nor the inbox tools, but the 
     assert.ok(full.has(w), `${w} is not offered by the full profile`);
     assert.ok(!ro.has(w), `${w} is offered by the read-only profile - the skill says it is missing there`);
   }
-  for (const r of ['mem_context', 'mem_find', 'mem_component', 'mem_show', 'mem_retrieve']) assert.ok(ro.has(r), `${r} is missing from the read-only profile`);
+  // the two inbox tools that only read stay: "the inbox tools are missing" would be too strong
+  for (const r of ['mem_context', 'mem_find', 'mem_component', 'mem_show', 'mem_retrieve', 'mem_inbox_show', 'mem_inbox_claims']) assert.ok(ro.has(r), `${r} is missing from the read-only profile`);
   assert.ok(ro.has('mem_heartbeat'), 'the heartbeat is the writing tool a read-only profile lets through');
   // the skill and the doc say it
-  assert.ok(hasSentence(SKILL, 'If `mem_log` is not in the connector\'s tool list, the connector runs read-only: the inbox tools are missing then too.'));
+  assert.ok(hasSentence(SKILL, 'If `mem_log` is not in the connector\'s tool list, the connector runs read-only: the tools that list new mail or write to the inbox are missing then too.'));
+  assert.ok(!/the inbox tools are missing/i.test(SKILL + DOC), 'too strong: mem_inbox_show and mem_inbox_claims stay in a read-only profile');
+  assert.match(DOC, /mem_inbox_show` and `mem_inbox_claims` stay/);
+  assert.match(DOC, /\*\*Where entries land\.\*\*/);
+  assert.match(DOC, /commit and push/);
   assert.match(DOC, /HTTP starts\s+read-only/);
   assert.match(DOC, /CHEAP_MEM_MCP_READONLY=0/);
   assert.match(read('bin/mem-mcp'), /CHEAP_MEM_MCP_READONLY/);
@@ -478,15 +483,53 @@ test('mem setup codex-cloud: an existing .gitignore with CRLF keeps CRLF on ever
   assert.equal(m.ignored('.agents/skills/mem/SKILL.md'), false);
 });
 
-test('mem setup codex-cloud: an ignore rule the exception cannot beat is reported and .gitignore is put back byte for byte', { skip: !haveGit && 'git is not available' }, () => {
+test('mem setup codex-cloud: an ignore rule the exception cannot beat is refused BEFORE anything is written', { skip: !haveGit && 'git is not available' }, () => {
   // `SKILL.md` anywhere is ignored by a rule that is not about .agents; the exception opens the folder, not the file.
   const m = memory2({ ignore: ['.agents/', 'SKILL.md'] });
   const before = m.gi();
   const r = m.run();
   assert.equal(r.status, 1);
-  assert.match(r.stdout + r.stderr, /\.gitignore restored/);
+  assert.match(r.stdout + r.stderr, /would stay ignored/);
+  assert.match(r.stdout + r.stderr, /Nothing was changed\./);
+  assert.ok(m.gi().equals(before), '.gitignore was touched');
+  assert.ok(!fs.existsSync(path.join(m.root, '.agents')), 'the skill was written although the run was refused');
+  // a dry run is not more optimistic than the real run
+  const dry = m.run('--dry-run');
+  assert.equal(dry.status, 1, 'the dry run promised what the real run refuses');
+  assert.doesNotMatch(dry.stdout, /Would append/);
+});
+
+test('mem setup codex-cloud --dry-run: says the rules were checked when they were', { skip: !haveGit && 'git is not available' }, () => {
+  const m = memory2({ ignore: ['.agents/'] });
+  const r = m.run('--dry-run');
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /checked in a throw-away repository/);
+});
+
+test('mem setup codex-cloud: a failure after .gitignore was changed puts back an EMPTY .gitignore as an empty file, and writes no skill', { skip: !haveGit && 'git is not available' }, () => {
+  // the ignore comes from .git/info/exclude, which the dry run cannot see: only the real run finds out
+  const m = memory2();
+  fs.writeFileSync(path.join(m.root, '.gitignore'), '');
+  fs.appendFileSync(path.join(m.root, '.git', 'info', 'exclude'), '.agents/\nSKILL.md\n');
+  assert.equal(m.ignored('.agents/skills/mem/SKILL.md'), true, 'setup of the probe');
+  const dry = m.run('--dry-run');
+  assert.equal(dry.status, 0, dry.stderr);
+  assert.match(dry.stdout, /not checkable in a dry run/);
+  const r = m.run();
+  assert.equal(r.status, 1);
   assert.match(r.stdout + r.stderr, /still ignored/);
-  assert.ok(m.gi().equals(before), '.gitignore was not restored');
+  assert.match(r.stdout + r.stderr, /put back as it was/);
+  assert.ok(fs.existsSync(path.join(m.root, '.gitignore')), 'an empty .gitignore was deleted instead of restored');
+  assert.equal(fs.statSync(path.join(m.root, '.gitignore')).size, 0);
+  assert.ok(!fs.existsSync(path.join(m.root, '.agents')), 'the skill was written although the run failed');
+});
+
+test('mem setup codex-cloud: the mode of .gitignore is kept', { skip: (!haveGit && 'git is not available') || (process.platform === 'win32' && 'no POSIX modes here') }, () => {
+  const m = memory2({ ignore: ['.agents/'] });
+  fs.chmodSync(path.join(m.root, '.gitignore'), 0o600);
+  assert.equal(m.run().status, 0);
+  assert.equal(fs.statSync(path.join(m.root, '.gitignore')).mode & 0o777, 0o600);
+  assert.ok(m.gi().toString('utf8').includes('!/.agents/skills/mem/'));
 });
 
 test('mem setup codex-cloud: outside a git repository it says it did not check the ignore rules and still installs the skill', () => {
@@ -528,4 +571,107 @@ test('mem setup --help names both recipes and the guarantees, and writes nothing
   assert.equal(r.status, 0);
   for (const s of ['claude', 'codex-cloud', '--dry-run', '--force', 'Commits and pushes nothing']) assert.ok(r.stdout.includes(s), `help lacks "${s}"`);
   assert.deepEqual(fs.readdirSync(bare), []);
+});
+
+// --- what the installer must never write through or replace --------------------------------
+
+/** A symbolic link, or null (with a skip reason) where the account may not create one. */
+function link(t, to, at, type) {
+  try { fs.symlinkSync(to, at, type); return true; } catch (e) { t.skip(`cannot create a link here: ${e.code}`); return false; }
+}
+const isLink = (p) => { try { return fs.lstatSync(p).isSymbolicLink(); } catch { return false; } };
+
+test('mem setup codex-cloud: .gitignore as a symbolic link is refused before anything is written, and stays a link', (t) => {
+  const m = memory2();
+  const real = path.join(scratch('gi-target'), 'ignore-elsewhere');
+  fs.writeFileSync(real, '.agents/\n');
+  fs.rmSync(path.join(m.root, '.gitignore'));
+  if (!link(t, real, path.join(m.root, '.gitignore'), 'file')) return;
+  const r = m.run();
+  assert.equal(r.status, 1);
+  assert.match(r.stdout + r.stderr, /\.gitignore is a symbolic link/);
+  assert.ok(isLink(path.join(m.root, '.gitignore')), 'the link was replaced by a regular file');
+  assert.equal(fs.readFileSync(real, 'utf8'), '.agents/\n', 'the file behind the link was written');
+  assert.ok(!fs.existsSync(path.join(m.root, '.agents')), 'the skill was written although the run was refused');
+  assert.equal(m.run('--dry-run').status, 1, 'the dry run is not more optimistic');
+});
+
+test('mem setup codex-cloud: .gitignore as a directory is refused before anything is written', () => {
+  const m = memory2();
+  fs.rmSync(path.join(m.root, '.gitignore'));
+  fs.mkdirSync(path.join(m.root, '.gitignore'));
+  const r = m.run();
+  assert.equal(r.status, 1);
+  assert.match(r.stdout + r.stderr, /\.gitignore is not a regular file/);
+  assert.ok(!fs.existsSync(path.join(m.root, '.agents')));
+});
+
+test('mem setup codex-cloud: an unreadable .gitignore is reported before anything is written (read failure injected)', () => {
+  const root = scratch('unreadable');
+  const gi = path.join(root, '.gitignore');
+  fs.writeFileSync(gi, 'node_modules/\n');
+  const real = fs.readFileSync;
+  fs.readFileSync = function patched(file, ...rest) {
+    if (path.resolve(String(file)) === gi) throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+    return real.call(this, file, ...rest);
+  };
+  let r;
+  try { r = codexcloud.install(root, ROOT, {}); } finally { fs.readFileSync = real; }
+  assert.equal(r.ok, false);
+  assert.match(r.lines.join('\n'), /cannot read .*\.gitignore/);
+  assert.ok(!fs.existsSync(path.join(root, '.agents')), 'the skill was written although .gitignore could not be read');
+  // positive control: without the injected failure the same call works
+  assert.equal(codexcloud.install(root, ROOT, {}).ok, true);
+});
+
+test('mem setup codex-cloud: an unreadable .gitignore by its mode (where the account is bound by modes)', { skip: (process.platform === 'win32' || process.getuid?.() === 0) && 'modes do not bind this account' }, () => {
+  const m = memory2();
+  fs.chmodSync(path.join(m.root, '.gitignore'), 0o000);
+  try {
+    const r = m.run();
+    assert.equal(r.status, 1);
+    assert.match(r.stdout + r.stderr, /cannot read/);
+    assert.ok(!fs.existsSync(path.join(m.root, '.agents')));
+  } finally { fs.chmodSync(path.join(m.root, '.gitignore'), 0o600); }
+});
+
+test('mem setup codex-cloud: SKILL.md as a symbolic link is refused - also a dangling one, also with --force', (t) => {
+  for (const kind of ['to a file', 'dangling']) {
+    const m = memory2();
+    const elsewhere = path.join(scratch('skill-target'), 'elsewhere.md');
+    if (kind === 'to a file') fs.writeFileSync(elsewhere, 'precious\n');
+    fs.mkdirSync(path.dirname(m.skill), { recursive: true });
+    if (!link(t, elsewhere, m.skill, 'file')) return;
+    for (const args of [[], ['--force'], ['--dry-run']]) {
+      const r = m.run(...args);
+      assert.equal(r.status, 1, `${kind} ${args.join(' ')}: expected a refusal`);
+      assert.match(r.stdout + r.stderr, /SKILL\.md is a symbolic link/);
+      assert.ok(isLink(m.skill), `${kind} ${args.join(' ')}: the link was replaced`);
+      if (kind === 'to a file') assert.equal(fs.readFileSync(elsewhere, 'utf8'), 'precious\n', 'written through the link');
+      else assert.ok(!fs.existsSync(elsewhere), 'the dangling link target was created');
+    }
+  }
+});
+
+test('mem setup codex-cloud: SKILL.md as a directory is refused', () => {
+  const m = memory2();
+  fs.mkdirSync(m.skill, { recursive: true });
+  const r = m.run('--force');
+  assert.equal(r.status, 1);
+  assert.match(r.stdout + r.stderr, /not a regular file/);
+});
+
+test('mem setup codex-cloud: .agents/skills as a symbolic link is refused, whether it leads out of the memory or stays inside', (t) => {
+  for (const where of ['outside', 'inside']) {
+    const m = memory2();
+    const dest = where === 'outside' ? scratch('skills-out') : path.join(m.root, 'shared-skills');
+    fs.mkdirSync(dest, { recursive: true });
+    fs.mkdirSync(path.join(m.root, '.agents'));
+    if (!link(t, dest, path.join(m.root, '.agents', 'skills'), 'junction')) return;
+    const r = m.run();
+    assert.equal(r.status, 1, where);
+    assert.match(r.stdout + r.stderr, /symbolic link|outside the memory/, where);
+    assert.deepEqual(fs.readdirSync(dest), [], `${where}: something was written through the link`);
+    assert.ok(isLink(path.join(m.root, '.agents', 'skills')));
+  }
 });

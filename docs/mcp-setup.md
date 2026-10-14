@@ -289,8 +289,9 @@ procedure. It is a convention, not a guarantee; nothing enforces it.
 1. **A hosted connector that allows writing.** Run `mem-mcp --http` where Codex
    can reach it (section "Hosted clients" above: token, allowed host, one
    process per agent). HTTP starts read-only; without
-   `CHEAP_MEM_MCP_READONLY=0` the connector offers no `mem_log` and no inbox
-   tools, so the closing entry below cannot be filed. `CHEAP_MEM_AGENT` is the
+   `CHEAP_MEM_MCP_READONLY=0` the connector offers no `mem_log` and none of the
+   tools that list new mail or write to the inbox, so the closing entry below
+   cannot be filed. `CHEAP_MEM_AGENT` is the
    name the entries are written under.
 2. **The skill, inside the memory.** In the memory repository:
 
@@ -346,8 +347,13 @@ Codex shows the connector's tools with a prefix (for example
   to remind it; whether it runs on every resume of a task has not been measured.
 - **No transcript.** The closing summary is the substitute; it is marked
   `no-raw-capture` so no reader mistakes it for a capture.
-- **Read-only connector.** Then `mem_log` and the inbox tools are missing and
-  nothing can be filed; the skill tells the agent to report that.
+- **Read-only connector.** Then `mem_log` and the tools that list new mail or
+  write to the inbox are missing (`mem_inbox_show` and `mem_inbox_claims` stay,
+  they only read) and nothing can be filed; the skill tells the agent to report that.
+- **Where entries land.** `mem_log` through the connector appends to the working
+  tree of the machine that runs the connector, not to the checkout Codex works in.
+  An entry becomes visible anywhere else only after that host has delivered it
+  through git (commit and push); the connector does not do that for you.
 - **A copy, not a link.** The skill in your memory does not follow this install
   when it is updated; review the shipped file and run `mem setup codex-cloud
   --force` to take it over.
