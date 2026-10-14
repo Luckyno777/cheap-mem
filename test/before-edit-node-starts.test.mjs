@@ -1,8 +1,8 @@
 // hooks-harden-cm / TB5 — how many node processes does ONE before-edit run start?
 //
 // Measured 2026-10-14 on the old hook (bash, e98bf2d; Linux 6.18, 4 cores,
-// Node 22.22): 14 node starts and a median of 852 ms (7 runs) for one Edit
-// with a hit. The hook fires on every Edit, Write and file-writing Bash call,
+// Node 22.22): 13 node starts (the detached rebuild of a stale component table
+// not counted) and a median of 1079 ms (11 runs) for one Edit with a hit. The hook fires on every Edit, Write and file-writing Bash call,
 // so the cost lands in the middle of the work. It is ONE start now.
 //
 // The count is taken the same way on every platform: NODE_OPTIONS carries a

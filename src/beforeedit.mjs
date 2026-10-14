@@ -8,8 +8,10 @@
  * this into a dozen `node -e` snippets and one `node bin/mem component`:
  * read the path, read the watermark, decide, search, pick, decide again,
  * write the mark, book the journal line, print. Measured 2026-10-14
- * (Linux 6.18, 4 cores, Node 22.22, median of 7): 14 node starts and
- * 852 ms for ONE edit with a hit. Each start pays the interpreter, and
+ * (Linux 6.18, 4 cores, Node 22.22, median of 11 runs): 13 node starts
+ * (the detached rebuild of a stale component table comes on top and is not
+ * counted) and 1079 ms for ONE edit with a hit; now 1 start (CHANGELOG has
+ * the interleaved 15-run figures: wall 1664 -> 256 ms, CPU 847 -> 161 ms). Each start pays the interpreter, and
  * the `mem` start pays the whole CLI on top. The hooks fire on every
  * Edit, Write and Bash that writes a file — the cost lands in the middle
  * of the work.
@@ -36,7 +38,7 @@ import path from 'node:path';
 import * as pointer from './pointer.mjs';
 import * as injection from './injection.mjs';
 import * as componentHook from './componenthook.mjs';
-import { maskOutput } from './outputguard.mjs';
+import { maskOutput, maskText } from './outputguard.mjs';
 
 const ARROW = '↳';
 
@@ -152,6 +154,9 @@ async function pickLines(root, hooked, top) {
  */
 export async function run(o = {}) {
   const r = await runPlain(o);
+  // The last word: whatever the path of the touched file brings along (`.../ghp_<token>.sh`) is masked on the way out,
+  // like every other output of this tool. The entries are masked where they are rendered; the QUERY is not an entry.
+  if (r.stdout) r.stdout = maskOutput(r.stdout);
   // The PowerShell twin: pure ASCII on the wire, so the console code page cannot touch it.
   if (o.ascii && r.stdout) r.stdout = r.stdout.replace(/[\u0080-\uffff]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
   return r;
@@ -159,8 +164,8 @@ export async function run(o = {}) {
 
 async function runPlain({ input, root, marks, startMs, top = 3, ascii = false, trace = false,
   stderr = (s) => process.stderr.write(s) } = {}) {
-  const exitAt = (where) => { if (trace) stderr(`mem-before-edit: exit at ${where}\n`); };
-  const note = (msg) => { if (trace) stderr(`mem-before-edit: ${msg}\n`); };
+  const exitAt = (where) => { if (trace) stderr(maskText(`mem-before-edit: exit at ${where}\n`)); };
+  const note = (msg) => { if (trace) stderr(maskText(`mem-before-edit: ${msg}\n`)); };
   let target = null;
   let reading = null;
   const book = (reason, hits, bytes, ids = '') => {
@@ -171,7 +176,7 @@ async function runPlain({ input, root, marks, startMs, top = 3, ascii = false, t
         bytes: Number(bytes), hits: Number(hits),
         searched: null, sources: [],
         ids: String(ids || '').split(',').filter(Boolean),
-        file: target?.query || undefined, tool: target?.tool || undefined,
+        file: target?.query ? maskText(target.query) : undefined, tool: target?.tool || undefined,
         durationMs: Number.isFinite(startMs) && startMs > 0 ? Date.now() - startMs : null,
       });
     } catch { /* a measurement must not stop what it measures */ }
@@ -193,7 +198,7 @@ async function runPlain({ input, root, marks, startMs, top = 3, ascii = false, t
     // pointer / show again. The memory appends, so content can only change
     // by growing: an equal watermark means a provably equal result, and the
     // pointer then costs no lookup at all.
-    const safe = `${target.session}__${q}`.replace(/[^A-Za-z0-9_.-]/g, '_');
+    const safe = `${target.session}__${maskText(q)}`.replace(/[^A-Za-z0-9_.-]/g, '_');
     const marksDir = marks || path.join(root, '.mem', 'before-edit');
     try { fs.mkdirSync(marksDir, { recursive: true }); }
     catch { exitAt(`marks-dir (MARKS=${marksDir})`); return { stdout: '' }; }

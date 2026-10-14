@@ -260,8 +260,8 @@ fi
 # **One node process for everything else (TB5, 2026-10-14).** Reading the
 # path, the watermark and the mark, the component lookup, the pick, the
 # second decision, the mark and the journal line used to be a dozen
-# `node -e` snippets plus a full `node bin/mem component` — 14 node starts
-# and about 850 ms for one edit with a hit (src/beforeedit.mjs has the
+# `node -e` snippets plus a full `node bin/mem component` — 13 node starts
+# and about 1.1 s for one edit with a hit (src/beforeedit.mjs has the
 # measurement). They are now plain function calls in
 # bin/mem-before-edit-core.mjs; this script keeps what is shell business.
 #

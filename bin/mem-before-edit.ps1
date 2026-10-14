@@ -206,7 +206,7 @@ if ($In -and $In -match '"tool_name"\s*:\s*"Bash"') {
 # path, the watermark and the mark, the component lookup, the pick, the
 # second decision, the mark and the journal line used to be a dozen
 # `node -e` snippets plus a full `node bin/mem component` - the POSIX hook
-# measured 14 node starts and 852 ms for one edit with a hit. They are now
+# measured 13 node starts and 1079 ms (median of 11) for one edit with a hit. They are now
 # plain function calls in bin/mem-before-edit-core.mjs (src/beforeedit.mjs);
 # this script keeps what is shell business.
 #
