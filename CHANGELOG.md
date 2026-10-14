@@ -41,6 +41,8 @@ Measured, interleaved against the commit before, child CPU time (wall time on th
 already loaded once per run (counted: the cache manifest is read once, each document shard once); there was nothing to save there. Tested structurally
 (`test/doctor-full.test.mjs`: the probe directory is created 0 times without `--full`, once with it). The output differs in exactly one finding
 and in `mem doctor --help`; golden over a 400-entry scratch memory otherwise identical.
+Through the real CLI the tests also hold: `--quiet` keeps the "not measured" line and the summary does not count it as good, `--alarm` neither measures nor prints it, and
+a documented-unsafe filesystem (driven with a fake `stat` on PATH; skipped on Windows, where such a script is not found) is an error without `--full` and shows in `--alarm`.
 
 ### Performance - `mem retrieve` derives the retirements once and reads the log twice (cli-speed-cm TB6; cheap-mem only)
 
@@ -70,6 +72,8 @@ counts the imported groups per start, not the time. Output byte for byte unchang
 `--help` and with an unknown flag, `--help`, `-h`, `help`, the unknown-command path). The `Intl.DateTimeFormat` the order named
 does not run at load in this tree (counted: 0 constructions for `version`, `--help`, `find`; 1 for `doctor`), so nothing was made
 lazy there. A new command's name goes into that index too (CLAUDE.md).
+A group that does not load (a missing file, a syntax error) is answered as `mem <cmd>: the '<group>' command group did not load: ...` on stderr with exit 1, and
+the cause stays visible (the missing file by name; for a syntax error the engine's own file:line and code line), instead of Node's raw stack.
 
 ### Added - `mem setup codex-cloud`: a skill for memories that are opened in OpenAI Codex Cloud (counterpart of the sibling house's Codex anchor)
 

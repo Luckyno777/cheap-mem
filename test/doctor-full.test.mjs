@@ -102,3 +102,72 @@ test('mem doctor --help names --full, and an unknown flag is still refused', () 
   const bad = spawnSync(process.execPath, [MEM, 'doctor', '--fulll'], { encoding: 'utf8' });
   assert.notEqual(bad.status, 0);
 });
+
+// --- the same through the real CLI --------------------------------------------------------------
+
+const SPY = fileURLToPath(new URL('./probe-spy.mjs', import.meta.url));
+
+/** Run `mem --root <root> doctor <flags>`; also say how many probe directories the process started. */
+function cli(t, root, flags, env = {}) {
+  const log = path.join(tempDir('cm-doctor-full-spy-', t), 'count.txt');
+  const r = spawnSync(process.execPath, ['--import', SPY, MEM, '--root', root, 'doctor', ...flags], {
+    encoding: 'utf8', env: { ...process.env, PROBE_SPY_LOG: log, ...env },
+  });
+  const probes = fs.existsSync(log) ? Number(fs.readFileSync(log, 'utf8')) : null;
+  return { ...r, probes };
+}
+const lineOf = (r) => `${r.stdout}`.split('\n').find((l) => l.includes('env/append-atomicity')) ?? '';
+
+test('CLI: the probe starts once for --full and --strict, never for the plain run, --quiet or --alarm', (t) => {
+  const root = world(t);
+  const counts = {};
+  for (const flags of [[], ['--quiet'], ['--alarm'], ['--full'], ['--strict']]) {
+    const r = cli(t, root, flags);
+    assert.notEqual(r.probes, null, `the spy wrote nothing for [${flags}] (control: the preload must run)`);
+    counts[flags.join(' ') || '(plain)'] = r.probes;
+  }
+  assert.deepEqual(counts, { '(plain)': 0, '--quiet': 0, '--alarm': 0, '--full': 1, '--strict': 1 });
+});
+
+test('CLI: --quiet shows the "not measured" line, and the summary does not count it as good', (t) => {
+  const root = world(t);
+  const quiet = cli(t, root, ['--quiet']);
+  assert.match(lineOf(quiet), /^\?\s+env\/append-atomicity .*not measured/, `quiet must keep an unknown:\n${quiet.stdout}`);
+  // Same run, all findings: the "good" in the summary is the number of lines that start with `ok`.
+  const plain = cli(t, root, []);
+  const okLines = plain.stdout.split('\n').filter((l) => /^ok\s/.test(l)).length;
+  const summary = plain.stdout.match(/(\d+) good, (\d+) warnings, (\d+) errors, (\d+) unchecked/);
+  assert.ok(summary, `no summary line in:\n${plain.stdout}`);
+  assert.equal(Number(summary[1]), okLines);
+  assert.ok(!/^ok\s+env\/append-atomicity/m.test(plain.stdout));
+  // With --full the same finding is measured and reads ok.
+  const full = cli(t, root, ['--full']);
+  assert.match(lineOf(full), /^ok\s+env\/append-atomicity .*measured/);
+});
+
+test('CLI: --alarm (the session-start banner) neither measures nor prints the unknown', (t) => {
+  const root = world(t);
+  const r = cli(t, root, ['--alarm']);
+  assert.equal(r.probes, 0);
+  assert.equal(lineOf(r), '', 'alarm lists only what is down; an unmeasured probe is not down');
+});
+
+// The CLI has no `fsTypeOf` hook; the only door to a filesystem name is the `stat` binary, so the
+// case is driven with a fake `stat` ahead on PATH (as test/environment.test.mjs does). A fake
+// executable script cannot be found through PATH on Windows (CreateProcess runs .exe only, ';'-separated),
+// so there this one case is skipped; the same classification is covered through `fsTypeOf` in the test above.
+test('CLI: a documented-unsafe filesystem is an error without --full, and --alarm shows it', { skip: process.platform === 'win32' && 'a fake stat script cannot be found through PATH on Windows' }, (t) => {
+  const root = world(t);
+  const bin = tempDir('cm-doctor-full-stat-', t);
+  fs.writeFileSync(path.join(bin, 'stat'), '#!/bin/sh\nprintf \'%s\' nfs\n', { mode: 0o755 });
+  const env = { PATH: `${bin}${path.delimiter}${process.env.PATH}` };
+  const plain = cli(t, root, [], env);
+  assert.equal(plain.probes, 0, 'a name documented as unsafe needs no probe');
+  assert.match(lineOf(plain), /^FAIL\s+env\/append-atomicity .*filesystem is nfs/);
+  assert.doesNotMatch(lineOf(plain), /^ok\s/);
+  assert.notEqual(plain.status, 0, 'an error finding is a non-zero exit');
+  const alarm = cli(t, root, ['--alarm'], env);
+  assert.equal(alarm.probes, 0);
+  assert.match(alarm.stdout, /^FAIL\s+env\/append-atomicity .*filesystem is nfs/m, 'the banner sees the filesystem-name list');
+  assert.notEqual(alarm.status, 0);
+});

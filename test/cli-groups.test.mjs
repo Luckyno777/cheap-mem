@@ -3,7 +3,10 @@
  *
  * **What this is for.** On 2026-09-18 `bin/mem` went from 4503 lines to
  * 223: the sixty command handlers moved into six modules under
- * `src/cli/commands/`, and `bin/mem` merges them. A split like that has
+ * `src/cli/commands/`, and `bin/mem` dispatched through their merged table
+ * (since cli-speed-cm it imports one group per start, by way of
+ * `src/cli/command-index.mjs`; test/cli-lazy-groups.test.mjs holds that
+ * index). A split like that has
  * exactly two ways to lose something quietly, and neither of them makes
  * a test fail on its own:
  *
@@ -95,9 +98,9 @@ test('the sixty commands the CLI had before the split are all still there', asyn
   assert.equal(EXPECTED.length, 60);
 });
 
-test('every command the CLI offers is reachable through the merge', () => {
+test('every command the CLI offers is reachable through the real program', () => {
   // Not through the modules — through the real program, so a broken
-  // merge or a bad import path is caught here and not only at runtime.
+  // dispatch or a bad import path is caught here and not only at runtime.
   const help = execFileSync('node', [path.join(REPO, 'bin/mem')], { encoding: 'utf8' });
   assert.match(help, /cheap-mem CLI/);
   // `log` and `find` are the two the whole thing exists for. If the help

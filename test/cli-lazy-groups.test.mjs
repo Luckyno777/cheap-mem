@@ -19,6 +19,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -93,4 +94,39 @@ test('help, no arguments and an unknown command load no group at all', (t) => {
   const bad = traceRun(BIN, ['definitely-not-a-command'], { logDir });
   assert.match(`${bad.stdout}${bad.stderr}`, /Unknown command: 'definitely-not-a-command'\. Run 'mem' with no args for help\./);
   assert.notEqual(bad.status, 0);
+});
+
+test('a group that does not load is answered as `mem <cmd>: ...` with exit 1, cause visible, no raw stack', (t) => {
+  // A throwaway copy of the program, so a real group file can be broken without touching this tree.
+  const copy = tempDir('cm-lazy-broken-', t);
+  fs.cpSync(path.join(REPO, 'src'), path.join(copy, 'src'), { recursive: true });
+  fs.mkdirSync(path.join(copy, 'bin'));
+  fs.copyFileSync(BIN, path.join(copy, 'bin', 'mem'));
+  fs.copyFileSync(path.join(REPO, 'package.json'), path.join(copy, 'package.json'));
+  const bin = path.join(copy, 'bin', 'mem');
+  const run = (...a) => spawnSync(process.execPath, [bin, ...a], { encoding: 'utf8', input: '' });
+  const capture = path.join(copy, 'src', 'cli', 'commands', 'capture.mjs');
+  const pristine = fs.readFileSync(capture, 'utf8');
+
+  // Control: the copy runs, in the broken group's command and another group's.
+  assert.equal(run('raw', '--help').status, 0, 'control: the untouched copy must run');
+
+  // 1. a file the group imports is gone
+  fs.writeFileSync(capture, `import './does-not-exist.mjs';\n${pristine}`);
+  let r = run('raw', '--help');
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /^mem raw: the 'capture' command group did not load: /);
+  assert.match(r.stderr, /does-not-exist\.mjs/, 'the cause names the file');
+  assert.doesNotMatch(r.stderr, /\n\s+at |node:internal/, 'no raw stack');
+
+  // 2. a syntax error: the file:line is the first thing the engine names
+  fs.writeFileSync(capture, `${pristine}\nexport const = ;\n`);
+  r = run('raw', '--help');
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /^mem raw: the 'capture' command group did not load: /);
+  assert.match(r.stderr, /capture\.mjs:\d+/, 'the cause names file and line');
+  assert.doesNotMatch(r.stderr, /\n\s+at |node:internal/, 'no raw stack');
+
+  // Another group is not hurt by it: that is the point of loading one group per start.
+  assert.equal(run('version').status, 0);
 });

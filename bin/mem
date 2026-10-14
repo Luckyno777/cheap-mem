@@ -34,9 +34,11 @@ for (const s of [process.stdout, process.stderr]) s._handle?.setBlocking?.(true)
  * work, is where a start goes). `src/cli/command-index.mjs` says which
  * group holds a command; only that group is imported. The loaders are
  * written out as literal specifiers, not built from the group name, so
- * every import stays greppable and checkable (test/cli-groups.test.mjs).
- * The duplicate refusal of the old merge now sits in that index, and
- * `test/cli-lazy-groups.test.mjs` holds index and tables equal.
+ * every import stays greppable and checkable (a group that does not
+ * load is answered by the dispatch below, tested in
+ * test/cli-lazy-groups.test.mjs; test/cli-contract.test.mjs drives the real
+ * program). The duplicate refusal of the old merge now sits in that index,
+ * and `test/cli-lazy-groups.test.mjs` holds index and tables equal.
  */
 const LOAD_GROUP = {
   write: () => import('../src/cli/commands/write.mjs'),
@@ -211,7 +213,29 @@ if (!head || head === '--help' || head === '-h' || head === 'help') {
 const group = groupOf(head);
 if (!group) die(`Unknown command: '${head}'. Run 'mem' with no args for help.`);
 guardOutputFor(head); // the read commands run with the output guard on (src/cli/shell.mjs)
-const { COMMANDS } = await LOAD_GROUP[group]();
+// A group that does not load (a missing file, a syntax error) is answered like any other failure of
+// a command: `mem <cmd>: ...` on stderr, exit 1, and the cause stays in the message. A missing file
+// is named in the message itself. A syntax error is not: the engine puts file and line only on the
+// fatal-error path, never on the caught error. So, on this error path only, the group is loaded once
+// more in a child process and the engine's own first lines (file:line, the line of code) are quoted.
+let COMMANDS;
+try {
+  ({ COMMANDS } = await LOAD_GROUP[group]());
+} catch (e) {
+  let where = '';
+  if (e instanceof SyntaxError) {
+    try {
+      const { spawnSync } = await import('node:child_process');
+      const url = new URL(`../src/cli/commands/${group}.mjs`, import.meta.url).href;
+      const r = spawnSync(process.execPath, ['--input-type=module', '-e', `import(${JSON.stringify(url)})`],
+        { encoding: 'utf8', timeout: 10000 });
+      const lines = String(r.stderr ?? '').split('\n');
+      const end = lines.findIndex((l) => l.startsWith('SyntaxError'));
+      if (end > 0) where = `\n${lines.slice(0, end).filter(Boolean).join('\n')}`;
+    } catch { /* the message alone then */ }
+  }
+  die(`mem ${head}: the '${group}' command group did not load: ${e.message}${where}`);
+}
 const cmd = Object.hasOwn(COMMANDS, head) ? COMMANDS[head] : undefined;
 if (!cmd) die(`mem ${head}: the command index lists it under '${group}', which does not define it.`);
 try {
