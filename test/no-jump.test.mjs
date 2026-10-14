@@ -359,11 +359,45 @@ test('no-jump: no quiet refetch timer while the tab is not visible; exactly one 
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     let dashboardFetches = 0;
     page.on('request', (req) => { if (req.url().includes('/dashboard.json')) dashboardFetches += 1; });
+    // Page-side record of every /dashboard.json call: start time, answer
+    // time (response head), and how many started synchronously inside a
+    // dispatch we flag (see "Becoming visible" below). The wrapper returns
+    // the very promise fetch() returned, so it changes nothing for the page.
+    await page.addInitScript(() => {
+      const realFetch = window.fetch;
+      const w = { inDispatch: false, sync: 0, starts: [], answers: [] };
+      window.__noJump = w;
+      window.fetch = function (input, ...rest) {
+        const url = typeof input === 'string' ? input : input?.url || '';
+        const p = realFetch.call(this, input, ...rest);
+        if (url.includes('/dashboard.json')) {
+          w.starts.push(performance.now());
+          if (w.inDispatch) w.sync += 1;
+          p.then(() => w.answers.push(performance.now()), () => {});
+        }
+        return p;
+      };
+    });
+    // The store keeps changing for the WHOLE probe (like the green probe
+    // above and the real VM), so every answer stays "not fresh" and the
+    // quiet refetch chain stays alive on its own. Without this the chain
+    // ended by itself as soon as one answer came back fresh (one single
+    // write before hiding, one while hidden): the "no fetch while hidden"
+    // check then passed even with the hidden-tab guard removed -- it could
+    // not see a silent timer, because there was none to see (mutation
+    // check 2026-10-14: guard and clearTimeout removed, probe stayed green).
+    let writing = true;
+    const writer = (async () => {
+      let n = 0;
+      while (writing) {
+        memory.logEntry(r, 'learning', { agent: 'builder', title: 'Keep changing ' + (n += 1), text: 'While the probe waits.' });
+        await new Promise((res) => setTimeout(res, 80));
+      }
+    })();
     try {
       await primeNotFresh(base, r);
       await pageReady(page, base);
       // Let one cycle get going, then simulate "not visible".
-      memory.logEntry(r, 'learning', { agent: 'builder', title: 'Before hidden', text: 'a' }, {});
       await page.waitForTimeout(400);
       await page.evaluate(() => {
         Object.defineProperty(document, 'hidden', { value: true, configurable: true });
@@ -376,21 +410,51 @@ test('no-jump: no quiet refetch timer while the tab is not visible; exactly one 
       // catches it.
       await page.waitForTimeout(300);
       const fetchesBeforePause = dashboardFetches;
-      memory.logEntry(r, 'learning', { agent: 'builder', title: 'While hidden', text: 'b' }, {});
       await page.waitForTimeout(700); // well beyond the test interval (150 ms)
       assert.equal(dashboardFetches, fetchesBeforePause, 'no fetch while the tab is not visible');
-      // Becoming visible -> EXACTLY ONE immediate, quiet fetch (the normal
-      // interval may keep going afterwards if that answer is still not
-      // fresh — that is not a second "immediate" call, just the usual
-      // cadence; check shortly AFTER the immediate call but BEFORE the
-      // next tick, 150 ms later).
-      await page.evaluate(() => {
+      // Becoming visible -> EXACTLY ONE immediate, quiet fetch. "Immediate"
+      // is measured IN THE PAGE, not by a Node-side stopwatch: the fetches
+      // that the product starts synchronously inside the dispatch of the
+      // visibilitychange event (loadData() calls fetch() before its first
+      // await). A Node-side `waitForTimeout(60)` then `count == before + 1`
+      // is a race against the 150 ms test interval: under CPU load the
+      // evaluate round trip and the timer overshoot by hundreds of ms, the
+      // regular tick (a legitimate, later fetch -- see the comment above)
+      // lands inside the window and is counted as a "second immediate"
+      // call (6 instead of 5; measured: 8 of 20 runs red under 4 CPU
+      // burners, always the extra fetch was the timer tick ~158 ms after
+      // the answer to the immediate call, never a second immediate one).
+      const visible = await page.evaluate(() => {
         Object.defineProperty(document, 'hidden', { value: false, configurable: true });
-        document.dispatchEvent(new Event('visibilitychange'));
+        const w = window.__noJump;
+        w.sync = 0;
+        w.inDispatch = true;
+        try {
+          document.dispatchEvent(new Event('visibilitychange'));
+        } finally {
+          w.inDispatch = false;
+        }
+        return { sync: w.sync, at: performance.now() };
       });
-      await page.waitForTimeout(60);
-      assert.equal(dashboardFetches, fetchesBeforePause + 1, 'exactly one fetch immediately on becoming visible');
+      assert.equal(visible.sync, 1, 'exactly one fetch immediately (synchronously) on becoming visible');
+      // Whatever follows is the usual cadence and must never be a second
+      // immediate call: every later fetch starts a full test interval
+      // (150 ms; 140 for timer rounding) after the answer to the previous
+      // one. A deferred duplicate (setTimeout 0, a second listener, a fetch
+      // before the first answer) breaks this regardless of how slow the
+      // machine is -- a slow machine only delays fetches, it never moves
+      // one closer to the previous answer.
+      await page.waitForTimeout(400);
+      const log = await page.evaluate(() => ({ starts: window.__noJump.starts, answers: window.__noJump.answers }));
+      const later = log.starts.filter((s) => s > visible.at);
+      for (const s of later) {
+        const prev = log.answers.filter((a) => a > visible.at && a <= s).pop();
+        assert.ok(prev !== undefined, `a fetch at ${s} ms started before any answer arrived (a second immediate call)`);
+        assert.ok(s - prev >= 140, `a fetch at ${s} ms started only ${s - prev} ms after the previous answer (a second immediate call, not the usual 150 ms cadence)`);
+      }
     } finally {
+      writing = false;
+      await writer;
       await page.close();
     }
   });
