@@ -206,7 +206,10 @@ test('server: the warm recall server answers a tie like the direct path (one fin
     while (!/listening on/.test(err) && Date.now() < until && kid.exitCode == null) await new Promise((r) => setTimeout(r, 25));
     assert.match(err, /listening on/, err);
     const client = path.join(CODE, 'bin', 'mem-retrieve-client.mjs');
-    const out = execFileSync(process.execPath, [client, root, QUESTION, '3'], { encoding: 'utf8', env: { ...process.env, MEM_HOOK_START_MS: String(Date.now()) } });
+    const out = execFileSync(process.execPath, [client, root, QUESTION, '3'], { encoding: 'utf8', env: { ...process.env, ...ON, MEM_HOOK_START_MS: String(Date.now()) } });
+    // The switch is the CALLER's (2026-10-14, test/recall-server-env.test.mjs): the hook that asks carries MEM_RETRIEVE_TIE, the
+    // client forwards it, the server evaluates the question under it. A server started with the switch no longer imposes it
+    // on a caller that has none.
     const viaServer = JSON.parse(out).hits.map((h) => h.entry.id);
     const direct = findOn(CODE, root, QUESTION, { top: 3, recall: true }).ids;
     assert.equal(viaServer.length, 4, `server: ${viaServer}`);
