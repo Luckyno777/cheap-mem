@@ -449,6 +449,28 @@ each was reproduced against a throwaway root here first.
   off, the MCP bridge over HTTP), a request that carries a proxy header (`cf-connecting-ip`, `cf-ray`, `x-forwarded-*`,
   `x-real-ip`, `forwarded`) no longer counts as loopback, since a tunnel on this machine connects from 127.0.0.1. With
   the login on, the password stands behind the door. `test/loopback-proxy-headers.test.mjs`.
+- **The warm recall server survives concurrent starts and keeps its hands off foreign sockets** (lucky-mem R3, levers 8
+  and 9). Two starts at the same time used to leave the winner deaf: both wrote the key file before `listen`, and the loser
+  removed it again after failing with EADDRINUSE (measured with two real server processes: 6 of 6 rounds deaf, the loser
+  exited 1 so the keeper stayed off). Now the key is written only after a successful `listen`, the loser reports `busy`
+  (the child exits `BUSY_RC`, the keeper retries), a key that cannot be stored closes the server again, the stale-socket
+  clean-up removes only a SOCKET nobody listens on (never a regular file, directory or link), and `close()` removes only
+  the socket whose device and inode it recorded after `listen` (libuv's `server.close()` unlinks the bound NAME on its own,
+  so a foreign socket at the path is put aside for the synchronous call and put back). A named pipe on Windows has no file
+  and one name per memory: there the second start is simply `busy`. `test/recall-server-concurrent-cm.test.mjs`.
+- **The two HTTP doors, counter-checked against the sibling's service round** (A3/F03, A5/F05, A7/F13, A8/F14, A13/F04 -
+  cheap-mem was not red on any of them, so the probes are guards): a request target, Host or Origin the URL parser rejects
+  ends neither service (both parse against a fixed base inside a `try`); the Host check of `bin/mem-serve` is central, and an
+  inventory over every route of `PATHS` shows entry text to no foreign Host, with a closed list of code/asset routes as the
+  only 200s; the bridge keeps no per-process "already shown" state (no module-level collection, the recall dedupe is a file
+  mark keyed by the client's session); the bridge's 1 MiB body limit is its own code and holds whichever SDK version is
+  installed, while the SDK's peer range now carries the floor the suite is measured on (`^1.30.0`, lock and install lines in
+  step; the lock pins WHICH release the development tree gets, but carries an `integrity` hash for only 145 of its 239
+  packages - the SDK's own entry has none, as before this round - so it does not prove that every download is the registry's
+  bytes); the one allow list for "this machine" as a network target (`src/embed/loopback.mjs`) refuses SIIT, NAT64, 6to4 and
+  mapped non-loopback forms. There is no feed fetcher in this house (`test/network-allowlist.test.mjs` keeps it so), so the
+  sibling's feed address filter and its DNS-rebinding remainder have no counterpart here.
+  `test/service-door-cm.test.mjs`, `test/mcp-sdk-floor-cm.test.mjs`.
 - **Checked and not a gap here:** an `In-Reply-To` letter never closes a request (the state is its own act, addressee
   only since B2, and `inbox.write` checks the direction); the dashboard's archive location (session + allowed bases) and
   the CLI (unchecked, the operator's own hand) split the way lucky-mem's does.
@@ -467,6 +489,21 @@ each was reproduced against a throwaway root here first.
 - **Contradiction detection** (§5).
 - **Identity.** Everything above rests on fields anyone with repo write
   access can set.
+- **A reverse proxy in front of a token-less door looks local (lucky-mem A14, N5).** With no token and no login behind the
+  door (the bridge over HTTP always, the viewer with `CHEAP_MEM_SERVE_LOGIN=off`), "local" means three things: the socket
+  address is one of three loopback literals (an allow list), the Host header is a loopback name or a configured one, and the
+  request carries none of the proxy headers in `src/webauth.mjs` (a block list, wide since this round: the families
+  `x-forwarded-*`, `x-real-*`, `cf-*` and `via`, `forwarded`, `true-client-ip`, `cdn-loop`, `fastly-client-ip`, `x-client-ip`,
+  `x-cluster-client-ip`, `x-original-forwarded-for`). A reverse proxy on this machine with NO configuration at all passes all
+  three: nginx with its defaults connects from 127.0.0.1, sets `Host` to the upstream (`127.0.0.1:<port>`) and adds no
+  forwarding header. Whoever reaches that proxy is served as local, without a token; on the bridge, with
+  `CHEAP_MEM_MCP_READONLY=0`, the writing tools are open to them too. The gradient is the wrong way round: the more
+  carelessly the proxy is set up, the more trust it is given. This cannot be detected from the socket. What is done: both
+  services print a `NOTICE` on stderr at start whenever no token (or login) stands behind the door ("set a token before putting
+  a proxy in front", with a second sentence when a non-loopback host name is configured); nothing is refused, because
+  `test/mcp-http.test.mjs` pins that a configured name without a token is served. A refusal to start in that combination
+  would be a change of a tested behaviour and is left to the owner. The rule for an operator: a proxy, a tunnel or a public
+  name needs a token. `test/service-door-cm.test.mjs`, `test/loopback-proxy-headers.test.mjs`.
 - **Decision cards: who is a person, and what a target is.** The write
   core refuses tier `user` on a card unless the author name is a person
   (`authority.isHumanName`: `owner` or `human:<name>`). A name is a field in
