@@ -50,6 +50,8 @@ function gitMemory(t, ageMin) {
 }
 
 test('a STALE clone shows its line once, then waits 30 minutes; the verdict is worked out again after 5', (t) => {
+  assert.equal(clonegate.SHOW_EVERY_MS, 30 * MIN);
+  assert.equal(clonegate.CHECK_EVERY_MS, 5 * MIN);
   const root = gitMemory(t, 5 * 60);
   const t0 = Date.now();
   const a = clonegate.gate(root, { now: t0 });
