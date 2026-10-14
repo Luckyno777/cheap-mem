@@ -368,7 +368,10 @@ test('shipped files carry no participant name and no German; the package ships i
 function memory2({ git = true, ignore = null, eol = '\n' } = {}) {
   const root = scratch('mem');
   const home = scratch('home');
-  if (git) assert.equal(spawnSync('git', ['init', '-q'], { cwd: root }).status, 0);
+  if (git) {
+    const g = spawnSync('git', ['init', '-q'], { cwd: root, encoding: 'utf8' });
+    assert.equal(g.status, 0, `git init in ${root}: ${g.error ? g.error.message : g.stderr}`);
+  }
   const env = { ...process.env, CHEAP_MEM_ROOT: root, HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: path.join(home, '.config') };
   assert.equal(spawnSync(process.execPath, [MEM, 'init'], { cwd: root, env, encoding: 'utf8' }).status, 0);
   if (ignore) fs.appendFileSync(path.join(root, '.gitignore'), ignore.join(eol) + eol);
