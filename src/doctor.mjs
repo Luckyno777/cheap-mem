@@ -2791,6 +2791,9 @@ export function checkGitignoreEffective(root) {
   const REQUIRED_IGNORES = [
     '.mem/embed.env', '.mem/epoch.json',
     '.mem/search-index.json', '.mem/search-index/',
+    // Runtime state of one clone (2026-10-14): written by the hooks on every call. Not ignored, `git add -A` tracks
+    // them, the tree turns dirty and the recall hook's pull stops. A memory written before the rule has no line for it.
+    '.pipeline/injections.jsonl', '.pipeline/clone-gate.json',
   ];
   if (!fs.existsSync(path.join(root, '.git'))) {
     return finding('gitignore', LEVEL.UNKNOWN, 'no git repository — nothing to ignore');

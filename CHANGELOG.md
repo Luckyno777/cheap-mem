@@ -14,6 +14,17 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Fixed - a memory's `.gitignore` covers the whole `.pipeline/` folder (review of the hook work, M1)
+
+Only `.pipeline/observations.jsonl` had a line. `.pipeline/injections.jsonl` (the journal, written by every hook call) and the new `.pipeline/clone-gate.json`
+had none, so `git add -A` (mem-reflect, mem-handle-post) tracked them: every hook write made the tree dirty, the recall hook's pull stopped, and two clones
+met in add/add conflicts on files that each describe one machine. Red on `c1ad4a9`: init, write the files, `git add -A` tracks `clone-gate.json` and
+`injections.jsonl`. `.pipeline/` is runtime state of one clone throughout (journals, verdict caches, the recall server's socket and key, the command-guard booklet,
+cost journal, shrink baseline - "runtime state, per machine" in `src/shrink.mjs`), so the rule is the folder, not a list. `mem init` writes it; an existing memory
+gets it by running `mem init` again (the "already initialized" branch repairs the file and says "added 1 missing .gitignore rule"); the doctor finding
+`gitignore` now asks git about `.pipeline/injections.jsonl` and `.pipeline/clone-gate.json` and names that command when they are not ignored. Files that
+a memory already committed stay tracked (git does not untrack by ignoring): `git rm --cached -r .pipeline` once. `test/pipeline-ignore.test.mjs`.
+
 ### Added - the gate "which clone answered" (D-B follow-up; lucky-mem decision 2villa33pdtl)
 
 `src/provenance.mjs` was reached by one caller, the doctor finding `provenance` (and `checkBehind`'s lag count) - which speaks when somebody asks. The case it
