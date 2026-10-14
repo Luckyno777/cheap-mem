@@ -131,6 +131,36 @@ function someoneListens(socket) {
   });
 }
 
+/**
+ * Remove pinning links (`recall.sock.hold.<pid>.<hex>`) that a start left behind when it was killed during the probe.
+ * Only names of exactly that shape, only files of our own uid, only those whose pid is not alive (a concurrent starter's
+ * link is in use right now), in our own socket directory.
+ */
+function sweepHolds(socket) {
+  const dir = path.dirname(socket);
+  const prefix = `${path.basename(socket)}.hold.`;
+  let names;
+  try { names = fs.readdirSync(dir); } catch { return; }
+  const uid = typeof process.getuid === 'function' ? process.getuid() : null;
+  for (const name of names) {
+    if (!name.startsWith(prefix)) continue;
+    const m = /^(\d+)\.[0-9a-f]{8}$/.exec(name.slice(prefix.length));
+    if (!m) continue;
+    const pid = Number(m[1]);
+    if (pid === process.pid) continue;
+    let alive = true;
+    try { process.kill(pid, 0); } catch (e) { alive = e?.code === 'EPERM'; }
+    if (alive) continue;
+    const full = path.join(dir, name);
+    try {
+      const st = fs.lstatSync(full);
+      if (uid !== null && st.uid !== uid) continue;
+      if (!st.isSocket()) continue;
+      fs.rmSync(full, { force: true });
+    } catch { /* gone, or not ours to remove */ }
+  }
+}
+
 /** Device and inode of a path (`lstat`, follows no link), or null. */
 function socketStand(p) {
   try {
@@ -220,6 +250,7 @@ export async function start(root, {
     // handed out again, so a new socket bound meanwhile cannot look like the old one (a freed inode number is reused at
     // once on some file systems - measured here on ext). If the link cannot be made, device, inode and change time carry
     // the comparison (a new file has a new change time), a little weaker.
+    sweepHolds(where.socket);
     let hold = null;
     let seen = before; // what the removal below is compared with (linking changes the change time: look again after it)
     if (!win && before) {
@@ -238,9 +269,13 @@ export async function start(root, {
       }
       if (!win) {
         // Removed only if it is STILL the very file that was seen before the probe. Another one - bound by a server
-        // that is starting right now - is left alone: `listen` below then says busy.
+        // that is starting right now - is left alone: `listen` below then says busy. With the pinning link device and
+        // inode are enough - and the change time must NOT be compared then: every starter links and unlinks, each of
+        // which changes the shared inode's change time, so with concurrent starters nobody would match and nobody would
+        // clean up. Without the link (`hold` null) the change time is all that tells a new file from the old one.
         const after = socketStand(where.socket);
-        if (seen && after && after.dev === seen.dev && after.ino === seen.ino && after.born === seen.born) {
+        if (seen && after && after.dev === seen.dev && after.ino === seen.ino
+          && (hold !== null || after.born === seen.born)) {
           try { fs.rmSync(where.socket, { force: true }); } catch { /* listen will say */ }
         }
       }

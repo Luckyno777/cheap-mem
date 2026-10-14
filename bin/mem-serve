@@ -1752,6 +1752,13 @@ export function serve(root, env = process.env, { allowWrites = false, measure: m
           .then((k) => { const kept = k.keep(root, { env }); server.once('close', () => { kept.stop(); }); })
           .catch((e) => process.stderr.write(`serve: recall server not started: ${e?.message || e}\n`));
       }
+      // A door with no token and no login: say what a proxy in front of it means (src/webauth.mjs `openDoorNotice`). Here, in
+      // `serve()`, so that both ways a real server starts - `bin/mem-serve` and `mem serve` - show it; a probe that only
+      // starts a handler in-process (`recall` off) stays quiet, like the recall server above.
+      if (recall) {
+        const notice = webauth.openDoorNotice({ token: cfg.token, login: cfg.login === true, hosts: cfg.hosts, origins: cfg.origins });
+        if (notice) process.stderr.write(`NOTICE: ${notice}\n`);
+      }
       resolve({ server, cfg });
     });
   });
@@ -1767,8 +1774,6 @@ if (isMain(import.meta.url)) {
       `cheap-mem console on http://${cfg.host}:${bound.port}/ `
       + `(root ${root}, ${cfg.token ? 'token set' : 'localhost only'}`
       + `, writing ${writegate.read(root, gateOpts(cfg)).state})\n`);
-    const notice = webauth.openDoorNotice({ token: cfg.token, login: cfg.login === true, hosts: cfg.hosts, origins: cfg.origins });
-    if (notice) process.stderr.write(`NOTICE: ${notice}\n`);
   }).catch((e) => {
     process.stderr.write(`${e.message}\n`);
     process.exit(1);

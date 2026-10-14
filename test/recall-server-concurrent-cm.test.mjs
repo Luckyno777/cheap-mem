@@ -279,3 +279,54 @@ test('R3 lever 9b (race), no hard links available: device, inode and change time
   if (WIN) { t.diagnostic('Windows: no socket file, see the test above'); return; }
   await raceOnce(t, { linkWorks: false }); // the inode number may well be reused here; the change time carries it
 });
+
+test('R3 lever 8 over a DEAD socket: 3 and 8 starters at once - exactly one cleans up and wins, the others say busy (nobody stands still)', async (t) => {
+  if (WIN) {
+    // A pipe leaves no dead file to clean up; the plain concurrent start is covered by the probes above.
+    const w = place.place(memoryRoot(t), {});
+    assert.equal(w.marker !== null, true);
+    return;
+  }
+  for (const n of [3, 3, 8]) {
+    const root = memoryRoot(t);
+    await leaveStaleSocket(root);
+    const starts = await Promise.all(Array.from({ length: n }, () => startIn(root)));
+    const running = starts.filter((x) => x.running);
+    try {
+      assert.equal(running.length, 1, `${n} starters over a dead socket: ${starts.map((x) => x.running ? 'running' : x.reason).join(', ')}`);
+      for (const x of starts.filter((y) => !y.running)) assert.equal(x.reason, 'busy');
+      assert.ok(answers(await ask(root)), 'and the winner answers');
+      assert.deepEqual(fs.readdirSync(place.place(root, {}).dir).filter((f) => f.includes('.hold.')), [], 'no pinning link is left');
+    } finally {
+      for (const x of running) await x.close();
+    }
+  }
+});
+
+test('R3: pinning links a killed start left behind are swept - only that name, only sockets of our own uid, only dead pids', async (t) => {
+  if (WIN) { t.diagnostic('Windows: no socket file, no pinning link'); return; }
+  const root = memoryRoot(t);
+  const w = place.place(root, {});
+  await leaveStaleSocket(root);
+  // A pid that is certainly gone: a child that has exited.
+  const gonePid = await new Promise((resolve) => { const k = spawn(process.execPath, ['-e', '0'], { stdio: 'ignore' }); k.once('exit', () => resolve(k.pid)); });
+  const dead = path.join(w.dir, `recall.sock.hold.${gonePid}.deadbeef`);
+  const alive = path.join(w.dir, `recall.sock.hold.${process.pid}x.cafebabe`); // wrong shape: not a pid
+  const live = path.join(w.dir, `recall.sock.hold.${process.ppid}.0badc0de`); // the parent test runner: alive
+  const regular = path.join(w.dir, `recall.sock.hold.${gonePid}.feedface`); // right name, but not a socket
+  const other = path.join(w.dir, 'recall.sock.keep');
+  fs.linkSync(w.socket, dead);
+  fs.linkSync(w.socket, alive);
+  fs.linkSync(w.socket, live);
+  fs.writeFileSync(regular, 'x');
+  fs.linkSync(w.socket, other);
+  const s = await startIn(root);
+  try {
+    assert.equal(s.running, true);
+    const left = fs.readdirSync(w.dir);
+    assert.ok(!left.includes(path.basename(dead)), 'the dead start\'s link is swept');
+    for (const f of [alive, live, regular, other]) assert.ok(left.includes(path.basename(f)), `${path.basename(f)} must not be touched`);
+  } finally {
+    await s.close();
+  }
+});

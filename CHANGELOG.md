@@ -26,6 +26,8 @@ The clean-up looks at the file (device, inode, change time) BEFORE it asks wheth
 a hard link in the server's own 0700 directory for the length of the probe (a freed inode number is handed out again at once on
 some file systems - measured on ext in this container: 300 of 300 - so device and inode alone cannot tell a new socket from the
 dead one), and removes it only if it is still that very file afterwards. Without hard links the change time stands in.
+The pinning links of a start that was killed during the probe (`recall.sock.hold.<pid>.<hex>`) are swept at the next start: only that
+name, only sockets of the same uid, only for dead pids.
 
 **Operator effect:** a regular file (or directory, or link) where the socket belongs now ends the server's start with exit code 1
 (`not started: <path> exists and is not a socket - not touched`) instead of being deleted. The keeper treats exit 1 as a real
@@ -47,7 +49,8 @@ header) passes every "is this local" check, so a door with no token serves whoev
 the bridge and the viewer now print `NOTICE: no token: anything that reaches this port through a local reverse proxy counts as
 local - set a token before putting a proxy in front` at start. The proxy-header detection also covers the families `x-forwarded-*`,
 `x-real-*`, `cf-*` and `via`, `true-client-ip`, `cdn-loop`, `fastly-client-ip`, `x-client-ip`, `x-cluster-client-ip`,
-`x-original-forwarded-for`: a request with one of them is not local. `test/service-door-cm.test.mjs`.
+`x-original-forwarded-for`: a request with one of them is not local. The notice is printed by `serve()` itself, so `mem serve` shows it as
+well as `bin/mem-serve`. `test/service-door-cm.test.mjs`.
 
 ### Security - guards for the service doors (lucky-mem A3, A5, A7, A8, A13; no defect found here)
 
