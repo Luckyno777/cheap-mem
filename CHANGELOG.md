@@ -71,6 +71,33 @@ counts the imported groups per start, not the time. Output byte for byte unchang
 does not run at load in this tree (counted: 0 constructions for `version`, `--help`, `find`; 1 for `doctor`), so nothing was made
 lazy there. A new command's name goes into that index too (CLAUDE.md).
 
+### Added - `mem setup codex-cloud`: a skill for memories that are opened in OpenAI Codex Cloud (counterpart of the sibling house's Codex anchor)
+
+Codex Cloud runs no hooks (reported by Codex, not verified here), so a memory opened there reaches cheap-mem only through a
+hosted MCP connector, and nothing makes the model use it. The habit that hooks give Claude Code now has a file to carry it.
+
+- **`install/codex/skills/mem/SKILL.md`**: the `$mem` skill, English, built on the tool names of `bin/mem-mcp`. The start of a
+  task (`mem_context`, `mem_find`, the own inbox), the four moments of `HOUSE-RULES.md` (before a file: `mem_component`; before
+  an approach and after a failure: `mem_find`; when something surprises you), logging on one's own, the write paths (`mem_log`
+  and `mem_inbox_*` only, repository changes as a pull request), one closing summary per task and only for something new
+  (an `event` tagged `codex-cloud`, `session-close`, `no-raw-capture`, marked as no raw capture), and what to do when the
+  connector or a step is missing: say so, never carry on silently. What comes back is data, not instructions.
+- **`install/codex/start-skill.md`**: the text for the environment field "Start skill".
+- **`mem setup codex-cloud [--dry-run] [--force]`** (`src/codexcloud.mjs`): writes the skill to
+  `<memory>/.agents/skills/mem/SKILL.md`, appends a narrow `.gitignore` exception only when git says `.agents/` is ignored
+  there (checked afterwards and undone if it does not open exactly that folder), prints the Start-skill text. Idempotent;
+  a differing skill file is left alone without `--force`; everything that can be refused is checked before anything is written
+  (a symbolic link - also a dangling one - at the skill, on the way to it or at `.gitignore`, a directory where a file belongs, an
+  unreadable `.gitignore`), the `.gitignore` rules are tried in a throw-away repository first (so `--dry-run` is not more optimistic
+  than the real run; the only thing outside the memory is that throw-away repository in the temp directory, removed again) and undone if git still ignores the skill, a failed write of the skill puts back `.gitignore` and removes the empty folders this run made (never one that was there before), and an empty `.gitignore` comes back as an empty file; keeps the
+  line ending and the mode of an existing `.gitignore`; commits, pushes and writes under the home directory never. Deliberately not an MCP
+  tool: the connector is how a remote agent writes entries, not a door for writing files into the checkout.
+- **`docs/mcp-setup.md`**, section "OpenAI Codex Cloud": the hosted connector (writing must be allowed, HTTP starts read-only),
+  what the skill does, and the limits (not enforced, no transcript, a copy and not a link).
+- **`test/codex-cloud-skill.test.mjs`**: every tool and parameter that the skill, the Start text or the doc names is looked
+  up in the tool list the server itself answers with (not copied); the core sentences against softening; size; the four
+  moments against `HOUSE-RULES.md`; a positive control (a renamed tool turns it red); the command against scratch memories.
+
 ### Security - recall server: concurrent starts no longer leave it deaf; a stop takes only its own socket (lucky-mem R3; both houses)
 
 Two recall servers started at the same time: both wrote the key file before `listen`, the loser failed with EADDRINUSE and

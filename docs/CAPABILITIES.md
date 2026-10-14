@@ -29,7 +29,7 @@ the verification commands at the end.
 | **Automation** | 7 Claude Code hooks (session start, recall per message, recall per file edit, recall after a failed or failure-printing tool call, subagent start, answer check and capture at stop), one model call per few hours, watcher, git as sync | [6](#6-automation) |
 | **Surfaces** | 87 CLI commands, 45 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 4780 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 4810 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -88,6 +88,7 @@ directory. The section number in brackets is where it is explained.
 | `clihelp.mjs` | what the CLI dispatches, what its help advertises, and where the two have drifted apart |
 | `clock.mjs` | clock skew between writers, measured from the log itself, never used to reorder anything |
 | `closingreport.mjs` | X2b: the task-end occasion — the Stop hook reports the open duties written in this session (a systemMessage, never a block; capped, once per duty; filtered from `today.decisionsForHuman`, no second count) |
+| `codexcloud.mjs` | `mem setup codex-cloud`: puts the `$mem` Codex skill (shipped under `install/codex/`) into a memory, appends a narrow `.gitignore` exception only if git ignores `.agents/` there (checked afterwards, and undone if it does not open exactly that folder), never overwrites a differing skill without `--force`; nothing outside the memory root is written, except that the check (and `--dry-run`) briefly makes a throw-away repository under `os.tmpdir()` and removes it again |
 | `commandguard.mjs` | the command guard (lever-5 port): an error of the class `mishandling` may carry a `command_pattern` (`mem log error ... --command-pattern "git add -A$"`); the before-edit hook on Bash warns once per session and error when a command matches, never blocks, behind a shell prefilter that starts node only on a keyword hit; derived booklet under `.pipeline/command-guard/`; `mem command-guard build\|show\|check\|seed` (10.30) |
 | `component-table.mjs` | an offline-built register — every git-tracked path and exported symbol to the entries that mention/guard/fix it — so `mem component --table`/`--hook` (the pre-edit hook) can look up instead of scanning; R-Tab parity with lucky-mem |
 | `component.mjs` | one file, across both spellings (10.14) |
