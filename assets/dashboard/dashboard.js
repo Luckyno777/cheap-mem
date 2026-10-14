@@ -1018,7 +1018,12 @@ function workGroupsHtml(es, { limit = Infinity, render }) {
     if (!shown.length) return '';
     return `<section class="dgroup" data-card-group="${name}"><div class="label" style="margin:16px 0 6px">${name === 'you' ? 'For you' : 'Agent work'} (${num(list.length)})</div>${hint ? `<p class="small quiet" style="margin-bottom:8px">${hint}</p>` : ''}${shown.map((e) => render(e, D._card?.get(e.id) || null)).join('')}</section>`;
   };
-  return part('you', mine, '') + part('agent', rest, 'Tasks and agent postings: nothing for you to decide.');
+  // "Nothing for you to decide" is true of what is owed to an agent. An item owed to nobody (no addressee, or a name the
+  // configuration does not know - a typo too) is not known to be agent work, so the hint says that instead.
+  const unowned = rest.some((e) => D._owner?.get(e.id) === 'unassigned');
+  return part('you', mine, '') + part('agent', rest, unowned
+    ? 'Tasks and agent postings. Nobody owns some of these yet: they may still be waiting for you.'
+    : 'Tasks and agent postings: nothing for you to decide.');
 }
 const confirmAnswerBtn = (id) => (catMayClick()
   ? btn('Confirm answer', 'question-confirm', `data-id="${esc(id)}" ${state.readonly ? 'disabled' : ''}`, 'small ghost')

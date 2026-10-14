@@ -112,6 +112,9 @@ test('the human\'s duties stand under "For you", the agents\' under "Agent work"
               assert.match(g.agent, new RegExp(k), `${label}: "${k}" is agent work`);
               assert.doesNotMatch(g.you, new RegExp(k), `${label}: "${k}" is not for you`);
             }
+            // positive control for the hint: only agents' items here, so the old sentence stays
+            assert.match(g.agent, /nothing for you to decide/, `${label}: only agent work: the old hint`);
+            assert.doesNotMatch(g.agent, /Nobody owns/, label);
           }
           const over = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
           assert.ok(over <= 0, `${label}: horizontal scroll of ${over}px`);
@@ -214,5 +217,52 @@ test('RED on 20ce113 (the group fixed, the order not): "Your next look" cuts the
     const l = await groupsIn(list.page, '#screen');
     assert.ok(l.you.indexOf('tax papers') > l.you.indexOf('Water the plants'), 'positive control: the duties list has the duty, but in list order, after the one without a date');
     await list.ctx.close();
+  } finally { await srv.stop(); }
+});
+
+// ---- the hint under "Agent work" when nobody owns some of it ----------------------------------------------------------------
+const UNOWNED = [
+  { id: 'ud000001', title: 'Renew the domain', owner: 'alex', due: day(0) },
+  { id: 'ud000002', title: 'Agent task, late', owner: 'vm-admin', due: day(-3) },
+  { id: 'ud000003', title: 'Task without an addressee' },
+  { id: 'ud000004', title: 'Task for a mistyped name', owner: 'alx' },
+];
+
+test('"Agent work" says "Nobody owns some of these yet" when it holds an item owed to nobody (no addressee or an unknown name), else the old hint', async (t) => {
+  const browser = await B.need(t);
+  if (!browser) return;
+  const srv = await startServer(UNOWNED);
+  try {
+    for (const width of [1920, 390]) {
+      for (const light of [false, true]) {
+        const label = `${width}/${light ? 'light' : 'dark'}`;
+        const { ctx, page } = await open(browser, srv.base, { width, light, hash: '#work/tasks', ready: '#screen [data-card-group]' });
+        const g = await groupsIn(page, '#screen');
+        assert.match(g.you, /Renew the domain/, label);
+        assert.match(g.agent, /agent work \(3\)/i, label);
+        for (const k of ['Agent task, late', 'Task without an addressee', 'Task for a mistyped name']) assert.match(g.agent, new RegExp(k), `${label}: ${k}`);
+        assert.match(g.agent, /Nobody owns some of these yet/, `${label}: the honest hint`);
+        assert.doesNotMatch(g.agent, /nothing for you to decide/, `${label}: not the old hint`);
+        await ctx.close();
+      }
+    }
+  } finally { await srv.stop(); }
+});
+
+test('RED on a3f6765 (the hint not yet split): the same group says "nothing for you to decide" over unowned items (positive control: the new script says it differently)', async (t) => {
+  const browser = await B.need(t);
+  if (!browser) return;
+  let before;
+  try { before = execFileSync('git', ['-C', REPO, 'show', 'a3f6765:assets/dashboard/dashboard.js'], { encoding: 'utf8', maxBuffer: 16 << 20 }); } catch { return; }
+  const srv = await startServer(UNOWNED);
+  try {
+    const old = await open(browser, srv.base, { width: 1440, light: false, hash: '#work/tasks', ready: '#screen [data-card-group]', oldScript: before });
+    const g = await groupsIn(old.page, '#screen');
+    assert.match(g.agent, /Task for a mistyped name/, 'positive control: the unowned item stands under Agent work on the old script too');
+    assert.match(g.agent, /nothing for you to decide/, 'the old script tells the person there is nothing to decide');
+    await old.ctx.close();
+    const now = await open(browser, srv.base, { width: 1440, light: false, hash: '#work/tasks', ready: '#screen [data-card-group]' });
+    assert.match((await groupsIn(now.page, '#screen')).agent, /Nobody owns some of these yet/);
+    await now.ctx.close();
   } finally { await srv.stop(); }
 });
