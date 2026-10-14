@@ -107,27 +107,22 @@ test('every command the CLI offers is reachable through the merge', () => {
   }
 });
 
-test('SABOTAGE: a duplicate name across two groups is refused, not resolved', () => {
-  // The merge throws. If it did not, the second definition would win by
-  // import order and the first would be dead code that still looks live.
-  const two = { a: { doppelt: 1, x: 2 }, b: { doppelt: 3 } };
-  const merge = () => {
-    const merged = {};
-    for (const [group, table] of Object.entries(two)) {
-      for (const [name, h] of Object.entries(table)) {
-        if (name in merged) throw new Error(`two groups define \`mem ${name}\`: ${group} and one before it`);
-        merged[name] = h;
-      }
-    }
-    return merged;
-  };
-  assert.throws(merge, /two groups define/);
-  // And the real merge in bin/mem must be the same shape — if someone
-  // replaces it with a spread, this test still passes while the
-  // guarantee is gone. So check the source says so.
+test('SABOTAGE: a duplicate name across two groups is refused, not resolved', async () => {
+  // Since cli-speed-cm (TB4) `bin/mem` no longer merges the six tables, it
+  // imports one group per start. The refusal sits where the names are all
+  // still seen at once: `indexGroups` in src/cli/command-index.mjs, which
+  // runs when that module loads. If it resolved by order, the first
+  // definition would be dead code that still looks live. This calls the
+  // REAL function with a clash.
+  const idx = await import(pathToFileURL(path.join(REPO, 'src/cli/command-index.mjs')).href);
+  const two = { a: ['doppelt', 'x'], b: ['doppelt'] };
+  assert.throws(() => idx.indexGroups(two), /two groups define `mem doppelt`/);
+  // Control: the same function accepts a clean table, so the throw above is
+  // the clash and not a function that throws on everything.
+  assert.equal(idx.indexGroups({ a: ['x'], b: ['y'] }).y, 'b');
+  // And bin/mem must still go through the index, not around it.
   const srcText = fs.readFileSync(path.join(REPO, 'bin/mem'), 'utf8');
-  assert.match(srcText, /if \(name in COMMANDS\)/,
-    'bin/mem no longer refuses duplicates — a spread merge would silently drop one');
+  assert.match(srcText, /groupOf\(head\)/, 'bin/mem no longer asks the command index');
 });
 
 test('bin/mem stays small enough to be read in one sitting', () => {

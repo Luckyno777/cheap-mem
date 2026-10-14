@@ -14,6 +14,20 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Performance - a CLI start loads the group of its command, not all six (cli-speed-cm TB4; counterpart in lucky-mem open)
+
+`bin/mem` imported the six command groups statically, so `mem version` compiled the code of all 87 handlers to run one. Measured
+with a fresh process per run, 21 runs interleaved old/new (median), 1000-entry scratch memory (261 KB), a container at load
+about 6 on 4 cores, so the absolute times are high and only the pairs mean something: `mem version` 210 -> 139 ms, `mem --help`
+231 -> 127 ms, an unknown command 184 -> 113 ms, `mem inbox new` 213 -> 138 ms, `mem find` 299 -> 247 ms, `mem doctor --quiet`
+606 -> 565 ms (the groups it needs were always loaded; the gain there is under 10 percent). Structurally: `version` imports 1 group
+instead of 6 (93 modules instead of 158), help and an unknown command import none (61). `src/cli/command-index.mjs` names the
+group of each command; `test/cli-lazy-groups.test.mjs` holds the index equal to the six `COMMANDS` tables in both directions and
+counts the imported groups per start, not the time. Output byte for byte unchanged (golden over 192 invocations: every command with
+`--help` and with an unknown flag, `--help`, `-h`, `help`, the unknown-command path). The `Intl.DateTimeFormat` the order named
+does not run at load in this tree (counted: 0 constructions for `version`, `--help`, `find`; 1 for `doctor`), so nothing was made
+lazy there. A new command's name goes into that index too (CLAUDE.md).
+
 ### Security - recall server: concurrent starts no longer leave it deaf; a stop takes only its own socket (lucky-mem R3; both houses)
 
 Two recall servers started at the same time: both wrote the key file before `listen`, the loser failed with EADDRINUSE and

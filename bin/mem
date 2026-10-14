@@ -16,24 +16,8 @@
  *   correction <type> <old-id> --<field> ...
  */
 
-import * as memory from '../src/memory.mjs';
-
-import {
-
-  parseArgs, out, die, guardOutputFor, } from '../src/cli/shell.mjs';
-import {
-
-} from '../src/cli/githook.mjs';
-import {
-
-} from '../src/cli/display.mjs';
-
-import { COMMANDS as WRITE } from '../src/cli/commands/write.mjs';
-import { COMMANDS as SEARCH } from '../src/cli/commands/search.mjs';
-import { COMMANDS as CAPTURE } from '../src/cli/commands/capture.mjs';
-import { COMMANDS as AGENTS } from '../src/cli/commands/agents.mjs';
-import { COMMANDS as SETUP } from '../src/cli/commands/setup.mjs';
-import { COMMANDS as ADMIN } from '../src/cli/commands/admin.mjs';
+import { parseArgs, out, die, guardOutputFor } from '../src/cli/shell.mjs';
+import { groupOf } from '../src/cli/command-index.mjs';
 
 // Blocking writes on stdout/stderr. A child started from Node (execFile,
 // spawn) gets a socket, not a pipe; under load its buffer fills, the rest
@@ -42,28 +26,26 @@ import { COMMANDS as ADMIN } from '../src/cli/commands/admin.mjs';
 // with this line 0 of 150. One line here covers every exit path.
 for (const s of [process.stdout, process.stderr]) s._handle?.setBlocking?.(true);
 
-/** Named, so a duplicate names its group. */
-const GROUPS = { write: WRITE, search: SEARCH, capture: CAPTURE, agents: AGENTS, setup: SETUP, admin: ADMIN };
-
 /**
- * The command table, merged from the six groups in src/cli/commands/.
+ * The six groups, each loaded ONLY when its command runs.
  *
- * **Why merged and not a chain of ifs.** A lookup is one place that
- * answers "does this command exist"; a chain answers it in as many
- * places as it has branches. The duplicate check below is the price of
- * the merge and worth paying: two groups claiming the same name would
- * otherwise resolve by import order, silently, and the losing handler
- * would never run again.
+ * **Why not a static import of all six.** A start compiled the code of all
+ * 87 handlers to run one (cli-speed-cm, TB4: the module compile, not the
+ * work, is where a start goes). `src/cli/command-index.mjs` says which
+ * group holds a command; only that group is imported. The loaders are
+ * written out as literal specifiers, not built from the group name, so
+ * every import stays greppable and checkable (test/cli-groups.test.mjs).
+ * The duplicate refusal of the old merge now sits in that index, and
+ * `test/cli-lazy-groups.test.mjs` holds index and tables equal.
  */
-const COMMANDS = {};
-for (const [group, table] of Object.entries(GROUPS)) {
-  for (const [name, handler] of Object.entries(table)) {
-    if (name in COMMANDS) {
-      throw new Error(`two groups define \`mem ${name}\`: ${group} and one before it`);
-    }
-    COMMANDS[name] = handler;
-  }
-}
+const LOAD_GROUP = {
+  write: () => import('../src/cli/commands/write.mjs'),
+  search: () => import('../src/cli/commands/search.mjs'),
+  capture: () => import('../src/cli/commands/capture.mjs'),
+  agents: () => import('../src/cli/commands/agents.mjs'),
+  setup: () => import('../src/cli/commands/setup.mjs'),
+  admin: () => import('../src/cli/commands/admin.mjs'),
+};
 
 // Pre-scan for a leading --root <path>, so it can appear before the subcommand.
 // Named argv, not `raw` — that name belongs to the raw-capture module.
@@ -76,6 +58,8 @@ const [head, ...rest] = argv;
 const { args, rest: leftover } = parseArgs(rest);
 
 if (!head || head === '--help' || head === '-h' || head === 'help') {
+  // Only the type list below needs the memory module; it is loaded here, not for every start.
+  const memory = await import('../src/memory.mjs');
   out("mem — cheap-mem CLI");
   out("");
   out("Setup:");
@@ -224,9 +208,12 @@ if (!head || head === '--help' || head === '-h' || head === 'help') {
   process.exit(0);
 }
 
-const cmd = Object.hasOwn(COMMANDS, head) ? COMMANDS[head] : undefined;
-if (!cmd) die(`Unknown command: '${head}'. Run 'mem' with no args for help.`);
+const group = groupOf(head);
+if (!group) die(`Unknown command: '${head}'. Run 'mem' with no args for help.`);
 guardOutputFor(head); // the read commands run with the output guard on (src/cli/shell.mjs)
+const { COMMANDS } = await LOAD_GROUP[group]();
+const cmd = Object.hasOwn(COMMANDS, head) ? COMMANDS[head] : undefined;
+if (!cmd) die(`mem ${head}: the command index lists it under '${group}', which does not define it.`);
 try {
   await cmd({ rest: leftover, args });
 } catch (e) {
