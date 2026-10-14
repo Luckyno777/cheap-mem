@@ -35,6 +35,7 @@ import * as codexcloud from '../../codexcloud.mjs';
 import { PKG_ROOT, out, die, warn, checkFlags, numberFlag, isHelp, findRoot, requireConfig } from '../shell.mjs';
 import { compactLine, countLines } from '../display.mjs';
 import { maskText } from '../../outputguard.mjs';
+import { trackedRuntimeFiles, UNTRACK_COMMAND } from '../../trackedruntime.mjs';
 import { installHook, proveHook, writeMergeDriver, writeMemoryGitignore, armHookIfRepo } from '../githook.mjs';
 
 /** 15 commands. */
@@ -104,6 +105,13 @@ export const COMMANDS = {
         out(`  check with: mem doctor`);
       } else {
         out(`  .gitignore and merge driver are in order`);
+      }
+      // A rule does not untrack. A memory that committed .pipeline/* before the rule existed keeps tracking it (dirty tree,
+      // blocked pull, add/add conflicts), whatever the rule says now - so it is said here, with the one command.
+      const stillTracked = trackedRuntimeFiles(root);
+      if (stillTracked && stillTracked.length) {
+        out(`  ! ${stillTracked.length} file(s) under .pipeline/ are still TRACKED (${stillTracked.slice(0, 3).join(', ')}${stillTracked.length > 3 ? ', ...' : ''}):`);
+        out(`    run \`${UNTRACK_COMMAND}\` once and commit - the rule only keeps NEW files out`);
       }
       // AU11: the hook is part of "in order" - arm it when it is not (a git repo, nothing set yet).
       for (const l of armHookIfRepo(root).lines) out(`  ${l}`);

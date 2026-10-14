@@ -32,6 +32,7 @@ import * as authority from './authority.mjs';
 import * as integrity from './integrity.mjs';
 import * as mirror from './findingmirror.mjs';
 import * as provenanceMod from './provenance.mjs';
+import { trackedRuntimeFiles, UNTRACK_COMMAND } from './trackedruntime.mjs';
 import * as environment from './environment.mjs';
 import * as clock from './clock.mjs';
 import * as drawermemo from './drawermemo.mjs';
@@ -2810,6 +2811,19 @@ export function checkGitignoreEffective(root) {
     }
   }
   if (!notIgnored.length) {
+    // `check-ignore --no-index` answers for the PATH, not for the index: a memory that committed `.pipeline/*` before the
+    // rule existed still tracks it, and "ignored" is then true and useless (dirty tree, blocked pull, add/add conflicts).
+    const tracked = trackedRuntimeFiles(root);
+    if (tracked === null) {
+      return finding('gitignore', LEVEL.UNKNOWN, 'git ls-files could not answer - tracked runtime files unknown');
+    }
+    if (tracked.length) {
+      const shown = tracked.slice(0, 4).join(', ') + (tracked.length > 4 ? `, +${tracked.length - 4} more` : '');
+      return finding('gitignore', LEVEL.WARN,
+        `git ignores the runtime paths, but the memory STILL TRACKS ${tracked.length} file(s) under .pipeline/ (${shown}) - `
+        + 'the tree turns dirty at every hook write and the recall hook does not pull',
+        `run \`${UNTRACK_COMMAND}\` once and commit (removes them from the index, not from the disk)`);
+    }
     return finding('gitignore', LEVEL.GOOD,
       `git ignores all ${REQUIRED_IGNORES.length} required paths`);
   }

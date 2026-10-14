@@ -102,3 +102,52 @@ test('MUTATION: a writer that forgets the rule is caught by the first probe', (t
   git(root, 'add', '-A');
   assert.notDeepEqual(tracked(root), [], 'without the rule the probe must see tracked files');
 });
+
+// ---- a memory that ALREADY committed .pipeline/* (review: the doctor said "ok" for exactly these) ----------------------
+
+function committedBeforeTheRule(t) {
+  const root = memory(t);
+  fs.writeFileSync(path.join(root, '.gitignore'), ignoreLines(root).filter((l) => l.trim() !== '.pipeline/').join('\n'));
+  runtimeFiles(root);
+  git(root, 'add', '-A'); git(root, 'commit', '-q', '-m', 'state with the runtime files');
+  assert.ok(tracked(root).includes('.pipeline/injections.jsonl'), 'the setup must have them tracked');
+  return root;
+}
+
+test('RED: after `mem init` the rule is there, check-ignore says "ignored" - and the memory still tracks the files', (t) => {
+  const root = committedBeforeTheRule(t);
+  const init = spawnSync(process.execPath, [MEM, 'init', '--root', root], { encoding: 'utf8', input: '' });
+  assert.match(init.stdout, /added 1 missing \.gitignore rule/);
+  // What the old doctor asked: true, and no help - the files stay in the index.
+  const ci = spawnSync('git', ['-C', root, 'check-ignore', '-q', '--no-index', '.pipeline/injections.jsonl']);
+  assert.equal(ci.status, 0, 'check-ignore --no-index no longer says ignored - the red proof has moved');
+  assert.ok(tracked(root).length > 0, 'the files are still tracked');
+  fs.appendFileSync(path.join(root, '.pipeline', 'injections.jsonl'), '{"more":1}\n');
+  assert.notEqual(git(root, 'status', '--porcelain', '--untracked-files=no').trim(), '', 'a hook write turns the tree dirty');
+});
+
+test('the doctor says WARN with the exact command, `mem init` names it, and after it the finding is ok', (t) => {
+  const root = committedBeforeTheRule(t);
+  const init = spawnSync(process.execPath, [MEM, 'init', '--root', root], { encoding: 'utf8', input: '' });
+  assert.match(init.stdout, /still TRACKED/);
+  assert.match(init.stdout, /git rm --cached -r \.pipeline/);
+  const f = doctor.checkGitignoreEffective(root);
+  assert.equal(f.level, 'warn', JSON.stringify(f));
+  assert.match(JSON.stringify(f), /STILL TRACKS 10 file/);
+  assert.match(JSON.stringify(f), /git rm --cached -r \.pipeline/);
+  // The repair, once.
+  git(root, 'rm', '--cached', '-r', '-q', '.pipeline');
+  git(root, 'commit', '-q', '-m', 'untrack the runtime folder');
+  assert.equal(doctor.checkGitignoreEffective(root).level, 'good');
+  assert.equal(tracked(root).length, 0);
+  assert.ok(fs.existsSync(path.join(root, '.pipeline', 'injections.jsonl')), 'the files stay on the disk');
+  const again = spawnSync(process.execPath, [MEM, 'init', '--root', root], { encoding: 'utf8', input: '' });
+  assert.doesNotMatch(again.stdout, /still TRACKED/);
+});
+
+test('a clean memory: no hint, the finding is ok', (t) => {
+  const root = memory(t);
+  const init = spawnSync(process.execPath, [MEM, 'init', '--root', root], { encoding: 'utf8', input: '' });
+  assert.doesNotMatch(init.stdout, /TRACKED/);
+  assert.equal(doctor.checkGitignoreEffective(root).level, 'good');
+});
