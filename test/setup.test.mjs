@@ -30,10 +30,19 @@ test('setup names only what it can actually verify', () => {
   const r = run(['setup', '--help']);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /claude/);
+  // A listed target is a word of its own at the start of a help line. `codex-cloud`
+  // is not `codex`: it writes a skill INSIDE the memory, and test/codex-cloud-skill
+  // checks every tool it names against the MCP tool list - it guesses no config.
+  const listed = (out, name) =>
+    out.split('\n').some((line) => new RegExp(`^ {2,4}${name}(?![\\w-])`).test(line));
   for (const guessed of ['cursor', 'windsurf', 'codex', 'gemini']) {
-    assert.ok(!r.stdout.includes(`    ${guessed}`),
+    assert.ok(!listed(r.stdout, guessed),
       `${guessed} is listed as supported but nothing here can verify its config`);
   }
+  // positive control: the matcher does see a bare target, and does not see a longer name
+  assert.ok(listed('    codex  some agent\n', 'codex'));
+  assert.ok(listed('  codex  some agent\n', 'codex'));
+  assert.ok(!listed('    codex-cloud  OpenAI Codex Cloud\n', 'codex'));
 });
 
 test('an unsupported agent fails loudly instead of doing something plausible', () => {
