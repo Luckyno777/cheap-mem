@@ -30,7 +30,7 @@
 import * as dueCore from './due.mjs';
 import * as addressee from './addressee.mjs';
 import * as bidi from './bidi.mjs';
-import { maskText } from './outputguard.mjs';
+import { maskText, markerSafeEnd } from './outputguard.mjs';
 import { clockFor, systemZone } from './appointment-time.mjs';
 
 /** At most this many duties of the human are listed one by one; the rest is counted. */
@@ -50,11 +50,8 @@ export function safeText(text, max = TITLE_MAX) {
   const masked = maskText(String(text ?? '')).replace(/\s+/g, ' ').trim();
   let cut = masked;
   if (masked.length > max) {
-    let end = Math.max(0, max - 1);
     // A cut that falls inside a [REDACTED:...] marker moves to the marker's start: no half marker, no stump.
-    for (const m of masked.matchAll(/\[REDACTED(?::[^\]]*)?\]/g)) {
-      if (end > m.index && end < m.index + m[0].length) end = m.index;
-    }
+    const end = markerSafeEnd(masked, Math.max(0, max - 1));
     cut = masked.slice(0, end).replace(/[\uD800-\uDBFF]$/, '');
     cut = `${cut.trimEnd()}…`;
   }
