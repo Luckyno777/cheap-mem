@@ -35,7 +35,7 @@ import { writeAtomic } from './atomicwrite.mjs';
 export const SKILL_REL = '.agents/skills/mem/SKILL.md';
 
 /** The five lines that open exactly one folder under `.agents/`, and the comment above them. */
-export const IGNORE_EXCEPTION = Object.freeze([
+const IGNORE_EXCEPTION = Object.freeze([
   '# Codex Cloud reads repository skills from .agents/skills (added by `mem setup codex-cloud`).',
   '# Narrow on purpose: only .agents/skills/mem/ is tracked, the rest of .agents/ stays ignored.',
   '!/.agents/',
@@ -68,7 +68,7 @@ const lf = (s) => s.replace(/\r\n/g, '\n');
  * Does git ignore this path in this memory? `true`, `false`, or `null` when it cannot be asked
  * (no git on the PATH, or the memory is not a git repository).
  */
-export function isIgnored(root, rel) {
+function isIgnored(root, rel) {
   const r = spawnSync('git', ['check-ignore', '-q', '--', rel], { cwd: root, stdio: 'ignore' });
   if (r.error) return null;
   if (r.status === 0) return true;

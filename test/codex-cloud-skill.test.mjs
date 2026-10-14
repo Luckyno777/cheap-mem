@@ -47,7 +47,7 @@ const START_FILE = read(START_REL);
 const START = START_FILE.match(/```text\n([\s\S]*?)\n```/)?.[1] ?? '';
 const MCP_DOC = read('docs/mcp-setup.md');
 const DOC = section(MCP_DOC, 'OpenAI Codex Cloud') ?? '';
-const HOUSE_RULES = read('HOUSE-RULES.md');
+const SERVED_RULES = read('HOUSE-RULES.md');
 
 const CLOSE_TAGS = ['codex-cloud', 'session-close', 'no-raw-capture'];
 const tmp = [];
@@ -274,7 +274,7 @@ test('the command prints the text of start-skill.md and nothing else as the star
 test('the four moments: the skill and HOUSE-RULES.md name the same four, in the same order', () => {
   const moments = ['Before you touch a file or a component', 'Before you propose an approach',
     'After a failure, before the second attempt', 'When something surprises you'];
-  assert.ok(inOrder(HOUSE_RULES, moments), 'HOUSE-RULES.md no longer names the four moments in this order');
+  assert.ok(inOrder(SERVED_RULES, moments), 'HOUSE-RULES.md no longer names the four moments in this order');
   assert.ok(inOrder(SKILL, moments), 'the skill no longer names the four moments in this order');
   // each moment calls the tool that belongs to it
   const file = norm(SKILL.slice(SKILL.indexOf(moments[0]), SKILL.indexOf(moments[1])));
