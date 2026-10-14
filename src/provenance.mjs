@@ -93,7 +93,12 @@ export function provenance(root, { now = Date.now(), limit = LIMIT_MINUTES } = {
   // `null` means the lag cannot be told (no remote tracking, ...).
   const { behind } = behindOrigin(root);
 
-  const dirty = (git(root, 'status', '--porcelain') ?? '') !== '';
+  // TRACKED changes only: that is what stops the recall hook's pull (bin/mem-retrieve: "only tracked changes
+  // count, untracked files never block a fast-forward"). Untracked files are the normal state of a memory in
+  // use - the journal under `.pipeline/`, the once-per-file marks under `.mem/` - and "tree dirty - the hook does
+  // NOT pull then" would be false for them. Found when this module got its first hook caller (2026-10-14): every
+  // memory read as dirty. The doctor's own `git` finding keeps its wider view of the tree.
+  const dirty = (git(root, 'status', '--porcelain', '--untracked-files=no') ?? '') !== '';
 
   return {
     ...base,

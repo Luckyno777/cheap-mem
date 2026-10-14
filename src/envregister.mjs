@@ -94,6 +94,7 @@ export const REGISTER = Object.freeze([
   sw('CLAUDE_TRANSCRIPT_PATH', PATH, 'not set (the hook input names the transcript)', 'The session transcript the capture hook reads, when the hook input does not name one.'),
 
   // --- switches that change what happens ---------------------------------------
+  sw('MEM_CLONE_GATE', SWITCH, 'on', 'With `0` the recall hook never adds the "which clone answered" line when the clone is stale (src/clonegate.mjs).'),
   sw('MEM_HOOK_OFF', SWITCH, 'off (all hook stages active)', `Emergency stop for the whole hook chain in one session: ${OFF('every hook stage')}. A session without hooks has no memory.`),
   sw('MEM_RETRIEVE_OFF', SWITCH, 'off', OFF('The recall hook (the relevant entries shown on a question)')),
   sw('MEM_RETRIEVE_NO_PULL', SWITCH, 'off (the hook pulls when the clone is older than `MEM_RETRIEVE_FRESH_MIN`)', 'With `1` the recall hook never runs `git pull` first.'),
@@ -270,6 +271,7 @@ export const REGISTER = Object.freeze([
   sw('MEM_RH_TURNS', INTERNAL, 'set by the recall hook script', 'Recall hook: directory of the once-per-turn claims.'),
   sw('MEM_RH_WORKFLOW', INTERNAL, 'set by the recall hook script', 'Recall hook: the workflow hint found for the question.'),
   sw('MEM_SS_START_MS', INTERNAL, 'set by the installer hook', 'Session-start hook (Windows): start time.'),
+  sw('MEM_SS_PROV', INTERNAL, 'set by the session-start hook', 'Session-start hook: the provenance module ("which clone answers") to import.'),
   sw('MEM_SS_SRC', INTERNAL, 'set by the installer hook', 'Session-start hook (Windows): injection module to import.'),
   sw('MEM_SS_INPUT', INTERNAL, 'set by the installer hook', 'Session-start hook (Windows): the hook input JSON.'),
   sw('MEM_ERRSIG', INTERNAL, 'set by the hook script', 'Swallowed-failure hook (Windows): path of the error-signature module.'),

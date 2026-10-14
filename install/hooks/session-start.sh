@@ -214,6 +214,29 @@ if [ -d "$CHEAP_MEM_ROOT/.git" ] \
   fi
 fi
 
+# Where the code lives: the memory itself, or the separate checkout the installer told us about
+# (CHEAP_MEM_CODE) - the journal line at the end and the clone line below load src/ from there.
+for MEM_SS_CODE in "${CHEAP_MEM_CODE:-}" "$CHEAP_MEM_ROOT"; do
+  [ -n "$MEM_SS_CODE" ] && [ -f "$MEM_SS_CODE/src/injection.mjs" ] && break
+  MEM_SS_CODE=""
+done
+
+# --- Which clone answers (D-B: src/provenance.mjs as a gate) -----------
+#
+# This memory exists more than once - a clone on the server, one per container, one per cloud session -
+# and they all look alike and answer willingly. One line names the one that answers HERE: its directory, its
+# state and age, how far behind origin, whether the tree is dirty (then the recall hook does not pull). Always,
+# at the start: that is where the question is answered before anybody asks it. During the session the recall
+# hook adds the same line only when the clone is STALE (src/clonegate.mjs). Best-effort and silent when the
+# code is not there: a missing line is not "fresh", and the next lines say what is attached.
+if [ -n "$MEM_SS_CODE" ] && [ -f "$MEM_SS_CODE/src/provenance.mjs" ]; then
+  mem_clone_line="$(MEM_SS_PROV="$MEM_SS_CODE/src/provenance.mjs" node -e '
+    import(require("node:url").pathToFileURL(process.env.MEM_SS_PROV).href).then((m) => {
+      process.stdout.write(m.asLine(m.provenance(process.env.CHEAP_MEM_ROOT)));
+    }).catch(() => {});' 2>/dev/null || true)"
+  [ -n "$mem_clone_line" ] && echo "$mem_clone_line"
+fi
+
 echo ""
 if [ -f "$CHEAP_MEM_ROOT/FACTS.md" ]; then
   echo "=== FACTS (always loaded) ==="
@@ -323,10 +346,6 @@ fi
 # null (delivered); bytes and hits are not counted here (the block is
 # printed in several pieces — not measured is not 0). Best-effort and
 # silent: a measurement must not stop what it measures.
-for MEM_SS_CODE in "${CHEAP_MEM_CODE:-}" "$CHEAP_MEM_ROOT"; do
-  [ -n "$MEM_SS_CODE" ] && [ -f "$MEM_SS_CODE/src/injection.mjs" ] && break
-  MEM_SS_CODE=""
-done
 if [ -n "$MEM_SS_CODE" ]; then
   MEM_SS_START_MS="$MEM_SS_START_MS" MEM_SS_INPUT="$MEM_SS_IN" MEM_SS_SRC="$MEM_SS_CODE/src/injection.mjs" \
     node -e '

@@ -15,6 +15,8 @@
 # Env:
 #   CHEAP_MEM_ROOT        absolute path to the memory (as the installer sets it)
 #   MEM_RETRIEVE_OFF=1    turn recall off for this session
+#   MEM_CLONE_GATE=0      never put the "which clone answered" line above a recall
+#                         from a STALE clone (src/clonegate.mjs; default: show it, at most every 30 min)
 #   MEM_HOOK_OFF=1        turn ALL cheap-mem hooks off (shared with the others)
 #   MEM_RETRIEVE_MIN      minimum BM25 score to show (default 5.0)
 #   MEM_RETRIEVE_TOP      at most this many hits (default 3)

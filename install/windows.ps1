@@ -316,6 +316,29 @@ try {
 & git -C `$env:CHEAP_MEM_ROOT pull --ff-only `$memRemote `$memBranch 2>&1 | Select-Object -Last 1
 Write-Host ''
 
+# --- Which clone answers (D-B: src/provenance.mjs as a gate) -----------
+#
+# One line naming the clone that answers HERE: directory, state and age, how far behind
+# origin, whether the tree is dirty. Always, at the start; during the session the recall hook adds
+# the same line only when the clone is STALE (src/clonegate.mjs). Same as
+# install/hooks/session-start.sh. Best-effort and silent.
+try {
+  `$provSrc = Join-Path `$env:CHEAP_MEM_ROOT 'src\provenance.mjs'
+  if (-not (Test-Path `$provSrc) -and `$env:CHEAP_MEM_CODE) {
+    `$provSrc = Join-Path `$env:CHEAP_MEM_CODE 'src\provenance.mjs'
+  }
+  if (Test-Path `$provSrc) {
+    `$env:MEM_SS_PROV = ([System.Uri]::new([System.IO.Path]::GetFullPath(`$provSrc))).AbsoluteUri
+    `$provScript = @'
+      import(process.env.MEM_SS_PROV).then((m) => {
+        process.stdout.write(m.asLine(m.provenance(process.env.CHEAP_MEM_ROOT)));
+      }).catch(() => {});
+'@
+    `$provLine = (& node -e `$provScript 2>`$null) -join ''
+    if (`$provLine) { Write-Host `$provLine }
+  }
+} catch { }
+
 `$facts = Join-Path `$env:CHEAP_MEM_ROOT 'FACTS.md'
 if (Test-Path `$facts) {
   Write-Host '=== FACTS (always loaded) ==='

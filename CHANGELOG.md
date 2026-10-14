@@ -14,6 +14,23 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Added - the gate "which clone answered" (D-B follow-up; lucky-mem decision 2villa33pdtl)
+
+`src/provenance.mjs` was reached by one caller, the doctor finding `provenance` (and `checkBehind`'s lag count) - which speaks when somebody asks. The case it
+was written for is the one where nobody does: a session that works for hours against a frozen clone because the recall hook's detached pull keeps failing.
+Now the session start (shell and Windows) prints one line naming the clone that answers - directory, head, age, commits behind origin, whether tracked files
+are changed - always, and the recall hook (`src/clonegate.mjs`) puts the same line under its header when, and only when, the clone is STALE (older than 90 minutes
+AND behind origin or unable to tell; old but level with origin stays quiet, as the sibling house's decision demands), at most every 30 minutes, the verdict
+cached 5 minutes in `.pipeline/clone-gate.json` (`provenance()` costs a median 24 ms of git processes - fine once, too much on every prompt of a hook that
+answers in 60 ms against a warm server). `MEM_CLONE_GATE=0` turns it off. A directory that is no git tree is left alone and gets no cache file. Without a line
+the recall text is byte-identical to the old one. Found while wiring it: `dirty` counted UNTRACKED files, so every memory in use (journal under `.pipeline/`,
+marks under `.mem/`) read as "tree dirty - the hook does NOT pull then", which is false - the hook's pull is blocked by tracked changes only
+(`bin/mem-retrieve`). `provenance()` now asks `git status --untracked-files=no`. Limits, said out loud: no network (a clone whose fetches ALL fail keeps its
+last view of origin and reads as level; `git fetch` touches `FETCH_HEAD` even when it fails - measured - so that file cannot tell either).
+`test/clone-gate.test.mjs`: the line shows once and waits, the cache holds for 5 minutes, fresh/no-git/off show nothing and write nothing, an old clone level
+with origin stays quiet, the recall text is byte-identical without a line, the real hook shows it on a stale clone and not on a fresh one (mutation caught), the session
+start prints it for both.
+
 ### Fixed - the warm recall server answers under the CALLER's switches (D4 follow-up; lucky-mem 484e11b75)
 
 The server runs the same `find` handler as the direct path, but inside its own process: `MEM_RETRIEVE_REQUEST_FRAME`, `MEM_SEARCH_LEVERS` and
