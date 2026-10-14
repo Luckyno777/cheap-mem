@@ -44,6 +44,10 @@ const MASKED = [
   ['single quotes (Python repr)', `{'password': '${PHRASE}', 'user': 'bob'}`, PHRASE],
   ['quoted value in an env file', `export DB_PASSWORD='${PHRASE}'\necho done`, PHRASE],
   ['YAML key, double-quoted value', `password: "${PHRASE}" # note`, PHRASE],
+  ['key behind the opening quote of a JSON string, value escaped once (env line)', `{"env":"PASSWORD=${BS}"${PHRASE}${BS}""}`, PHRASE],
+  ['same, a command line with more behind it', `{"cmd":"password=${BS}"${PHRASE}${BS}" run"}`, PHRASE],
+  ['same, the key is the first thing in the string', `"password: ${BS}"${PHRASE}${BS}""`, PHRASE],
+  ['same, escaped twice', `{"a":"{${BS}"msg${BS}":${BS}"PASSWORD=${BS}${BS}${BS}"${PHRASE}${BS}${BS}${BS}"${BS}"}"}`, PHRASE],
   ['passphrase (new key word)', `{"passphrase": "two words ${TAIL}"}`, TAIL],
   ['api-key as a kebab key', `{"api-key": "${PHRASE}"}`, PHRASE],
   ['cut text: no closing quote', `{"password": "${PHRASE}`, PHRASE],
@@ -72,6 +76,8 @@ const KEPT = [
   ['a code literal at the end of a line', "const cases = [['export DB_PASSWORD=', 'x'],\n  ['y', 'z']];"],
   ['a sentence under a key with the keyword at its front', `{"token_system_is_a_facade": "${PHRASE} and then some more words after it, all of them plain"}`],
   ['a long sentence behind a bare keyword key', `secrets: '${'plain words in a row '.repeat(5)}'`],
+  ['a GitHub Actions reference', 'token: "${{ secrets.GITHUB_TOKEN }}"'],
+  ['a nested-bracket reference in JSON', '{"token": "${{ secrets.DEPLOY_KEY }}"}'],
   ['a short word', '{"password": "ab cd"}'],
   ['a raw line break inside the value (not JSON)', `{"password": "one two\nthree four"}`],
 ];
@@ -95,6 +101,11 @@ test('masked: the text around the value is untouched, the key and the quotes sta
   assert.doesNotThrow(() => JSON.parse(redact(`{"password": "pa${BS}${Q}ss word", "n": 1}`).text));
 });
 
+test('the code-literal guard holds (and only for an unescaped quote: the escaped forms are in the masked list)', () => {
+  const lit = "assert.ok(code.indexOf('FOO_TOKEN=') < code.indexOf('node '), 'the line');";
+  assert.equal(redact(lit).text, lit);
+});
+
 test('kept: values without a secret key, prose, placeholders, markers alone', () => {
   for (const [name, text] of KEPT) assert.equal(redact(text).text, text, `${name}: changed`);
 });
@@ -104,14 +115,23 @@ test('key=value with blanks in the value is NOT widened: the value ends at the b
   assert.equal(redact('the password=short and the rest').text, 'the password=short and the rest');
 });
 
-test('the cap: the first 4096 characters AND the rest up to the closing quote fall; without a closing quote, 4096', () => {
+test('the cap: the first 4096 characters AND the rest up to the closing quote fall; without a closing quote, to the end of the text or line', () => {
   const long = `${PHRASE} `.repeat(400);
   assert.ok(long.length > 4096 + 100);
   const closed = redact(`{"password": "${long}", "after": "ok"}`).text;
   assert.equal(closed, `{"password": "${MARK('json-secret')}", "after": "ok"}`, 'no stump of a long value');
-  const open = redact(`{"password": "${'ab '.repeat(3000)}`).text; // 9000 characters, 3000 words: quoted key, so no prose exception
-  assert.ok(open.startsWith(`{"password": "${MARK('json-secret')}`));
-  assert.ok(open.length < 4096 + 40 + 9000 && open.length > 4000, `the rest after the cap stays: ${open.length}`);
+  // No closing quote: all of it falls (to the end of the text, or of the line), however long, and masking twice is masking once.
+  for (const n of [4097, 5000, 20000]) {
+    const value = 'ab '.repeat(Math.ceil(n / 3)).slice(0, n);
+    for (const [name, text, expected] of [
+      ['to the end of the text', `{"password": "${value}`, `{"password": "${MARK('json-secret')}`],
+      ['to the end of the line', `{"password": "${value}\nnext "x"`, `{"password": "${MARK('json-secret')}\nnext "x"`],
+    ]) {
+      const once = redact(text).text;
+      assert.equal(once, expected, `${n} characters, ${name}`);
+      assert.equal(redact(once).text, once, `${n} characters, ${name}: not idempotent`);
+    }
+  }
   // A closing quote far beyond the cap still ends the value; what follows it is not touched.
   const huge = redact(`{"token": "${'x y '.repeat(50000)}", "keep": "this"}`).text;
   assert.equal(huge, `{"token": "${MARK('json-secret')}", "keep": "this"}`);

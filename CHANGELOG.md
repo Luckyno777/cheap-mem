@@ -216,7 +216,8 @@ behind it stayed), `PASSWORD='two words'` (only the first word fell: `[REDACTED:
   inside it included. Found by a scan in code (`redactJsonStrings`), not a pattern, because "not escaped" is a count of
   backslashes; a JSON object carried as a string inside a JSON line (`\"password\": \"...\"`) is read at its own nesting level.
   No cap on a string that ends (a cap would leave the tail of a long value behind). If no closing quote follows (cut text), the
-  next 4096 characters fall. Single-quoted values count too (`'password': '...'`, `PASSWORD='...'`). Linear: forward only,
+  value runs to the end of the line behind a quoted key, to the end of the text behind a bare key; the cap of 4096 bounds only
+  what is judged (placeholder, prose and suffix exceptions), never how much falls, so masking twice is masking once. Single-quoted values count too (`'password': '...'`, `PASSWORD='...'`). Linear: forward only,
   a failed search for a closing quote is remembered per quote kind (`test/redaction-linear.test.mjs`, 1 MB shapes).
 - **`key=value`.** A value that begins with a marker is no longer harmless while a stump follows it (`api_key=[REDACTED:x]T`); the
   same in the `x-api-key` rule (the value runs through markers) and in the signed-URL rule. A value of markers alone stays as it is
@@ -229,9 +230,18 @@ behind it stayed), `PASSWORD='two words'` (only the first word fell: `[REDACTED:
 - **False-alarm guards**, each measured on the corpus (docs, tests, src, bin, bench, README, 244,000 lines): a code literal that ends
   with the equals sign (`indexOf('FOO_TOKEN=')`), a key that continues for more than 12 characters behind the keyword with a prose
   value (`"token_system_is_a_facade": "<paragraph>"`), a bare key with a sentence of twelve words (`secrets: '...'`), a quote on
-  a later line behind a bare key, a whole placeholder (`your password`, `<your password here>`), a pagination cursor. The gaps these
+  a later line behind a bare key, a whole placeholder (`your password`, `<your password here>`, `${{ secrets.X }}`), a pagination
+  cursor. The code-literal guard holds for an unescaped quote only: `{"env":"PASSWORD=\"...\""}` (a command line inside a JSON
+  string, the usual shape in a transcript) is a value. Chosen on purpose, and a false alarm in the safe direction: a sentence under
+  a quoted secret key falls (`{"token_budget": "ten thousand words per day"}`, `{"password_hint": "..."}`, `{"secret": "see the
+  vault"}`, YAML `token: "..."` with a plain word). The gaps these
   leave: a passphrase of twelve plain words behind a bare key; a phrase behind a key with a long suffix; a kebab key (`secret-value`)
   needs a credential-shaped value, as before.
+- **Not covered, named** (the next order builds the key words and the object fields; none of it is new, all of it was open on 7a46a3a):
+  Unicode quotation marks and `&quot;` as the quote; YAML block values (`password: |`); a raw line break inside a value; key words
+  that are not in the list (`pwd`, `pin`, `passcode`, `credentials`, `authorization`, `kennwort`, `passwort`); and object fields
+  without a key context: `redactObject`, `redactEntry` and `maskEntry` look at each string alone, so `{password: "..."}` as a REAL
+  field is not masked (the raw capture of `tool_use.input` in `src/raw.mjs` is the main case); only a key written in the text is.
 - Corpus before/after: two lines changed, both fixtures that hold a plaintext word behind `secret` (the old rule had masked only
   the first word). `test/redaction-json-string.test.mjs` (red on 7a46a3a); Parity: lm=open.
 

@@ -420,9 +420,11 @@ function isHarmless(s) {
 // - **Nesting.** A JSON object carried as a string inside a JSON log line has `\"` where the inner one has `"` (up to
 //   three backslashes in front of the opening quote, as `json-secret` allows). The closing quote has the same
 //   backslashes in front of it, and an inner escaped quote has more; the run is compared modulo 2, 4 or 8.
-// - **No cap on the string, a cap on the missing end.** A string that ends is masked to its end, however long (a cap would
-//   leave the tail of a long value behind). If no closing quote follows (cut text), the next JSON_STRING_CAP characters
-//   fall; what lies beyond is no longer taken for the value.
+// - **No cap on how much falls.** A string that ends is masked to its end, however long (a cap would leave the tail of a long
+//   value behind). Without a closing quote (cut text) the value runs to the end of the line behind a quoted key, to the end of
+//   the text behind a bare key that met no line break. JSON_STRING_CAP bounds only what is JUDGED (the placeholder, prose and
+//   suffix exceptions look at values up to that length); a longer value is masked without them. A head masked and a tail left
+//   would not be idempotent: the second pass would take more.
 // - **Linear.** The head is the bounded pattern `json-secret` uses. The scan moves forward only; a search that found no
 //   closing quote of a kind is not repeated for that kind (`failedFrom`), and a masked value is not scanned again.
 // - **Quotes.** A double-quoted value under any key; a single-quoted value too (shell and Python spelling). The value has to
@@ -432,7 +434,7 @@ function isHarmless(s) {
 const JSON_STRING_CAP = 4096;
 const JSON_SUFFIX_MAX = 12;
 const JSON_HEAD = new RegExp(`(?<![A-Za-z0-9_])((["']?)[A-Za-z0-9_]{0,64}(?:${JSON_KEY_WORDS})([A-Za-z0-9_-]{0,64})(\\\\{0,3}["']?)${SP}*${SEP}${SP}*)(\\\\{0,3})(["'])`, 'gi');
-const BRACKET_WHOLE = /^(?:<[^<>]{0,200}>|\{\{[^{}]{0,200}\}\}|\$\{[^{}]{0,200}\}|\[[^[\]]{0,200}\])$/;
+const BRACKET_WHOLE = /^(?:<[^<>]{0,200}>|\{\{[^{}]{0,200}\}\}|\$\{\{?[^{}]{0,200}\}\}?|\[[^[\]]{0,200}\])$/;
 const PLACEHOLDER_PHRASE = new RegExp(`^${PLACEHOLDER_WORD}[ _-]${GENERIC_WORD.replace('api[_-]?key', 'api[ _-]?key')}$`, 'i');
 
 const PROSE_WORDS = 12;
@@ -508,7 +510,8 @@ function redactJsonStrings(text, counter) {
     // `indexOf('FOO_TOKEN=')`: a key that no quote closes, with a quote of the same kind in front of it (its own opening
     // one, or the one before an unquoted key), sits INSIDE a string literal, and the quote after the `=` closes it. That is
     // code, not a value.
-    if (!/["']/.test(keyClose) && (m[2] || text[m.index - 1]) === quote) continue;
+    // Only for an unescaped quote: a key behind the opening `"` of a JSON string, with the value written `\"`, is a value.
+    if (r0 === 0 && !/["']/.test(keyClose) && (m[2] || text[m.index - 1]) === quote) continue;
     const kind = `${quote}${r0}`;
     let found = failedFrom.get(kind);
     if (found === undefined || start >= found.to) {
@@ -520,7 +523,9 @@ function redactJsonStrings(text, counter) {
     // not a string value, it stays with `json-secret` above.
     if (found.close < 0 && found.lineEnd && !/["']/.test(keyClose)) continue;
     const close = found.close;
-    const end = close >= 0 ? close - r0 : Math.min(found.to, start + JSON_STRING_CAP);
+    // No closing quote: the value runs to where the search ended (the line end behind a quoted key, else the text end). The
+    // cap bounds what is JUDGED below, never how much falls: a masked head with an open tail would not be idempotent.
+    const end = close >= 0 ? close - r0 : found.to;
     if (end <= start) continue;
     const value = text.slice(start, end);
     if (isHarmlessKey(head)) continue;
