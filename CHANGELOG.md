@@ -14,6 +14,20 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Fixed - the warm recall server answers under the CALLER's switches (D4 follow-up; lucky-mem 484e11b75)
+
+The server runs the same `find` handler as the direct path, but inside its own process: `MEM_RETRIEVE_REQUEST_FRAME`, `MEM_SEARCH_LEVERS` and
+`MEM_RETRIEVE_TIE` came from the environment the SERVER was started with, not from the hook that asked. The same hook with the same switch answered
+differently with and without a server (measured on a scratch memory, "explain the empty query guard to me", `MEM_RETRIEVE_REQUEST_FRAME=0`: direct
+1.7 / 1.3, server 1.8 / 1.4). The sibling house fixed the same class for the request frame and its candidate cap (484e11b75); cheap-mem has no env-driven
+candidate cap (its MMR pool is a constant, `mmrPoolFor`), so the request frame, the levers and the tie cut are what carried over. The client now sends
+the value of each switch (`null` for one it does not have: the caller's absence wins), the server evaluates the question under that environment
+(`COMMANDS.find({ rest, args, env })`). `MEM_EXPAND` shapes the index the server holds in memory and cannot be overridden per call: a different value is
+REFUSED and the hook asks the direct path. An older client (no environment in the request) is answered as before.
+Measured on the hook path, 11 runs each (scratch memory, 4 cores): `path: server` 11 of 11 in the journal with the server up, `path: direct` 11 of 11
+with `MEM_RECALL_SERVER=0`, the 22 outputs byte-identical; median 603 ms with the server, 686 ms without (the node starts around the search dominate).
+`test/recall-server-env.test.mjs`: red on the base for four of six probes.
+
 ### Fixed - a HOME with a space no longer breaks the default memory search (D5)
 
 Six bash hooks (`mem-before-edit`, `mem-retrieve`, `mem-after-failure`, `mem-catch-fail`, `mem-stop`, `mem-subagent-start`) looked for the memory with
