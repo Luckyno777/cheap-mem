@@ -473,6 +473,11 @@ function prepare(d) {
   // H11: the card of every open duty / open question / waiting question that has one (agent work has none: src/cardfeed.mjs).
   D._card = new Map();
   for (const list of [d.openDuties, d.openQuestions, d.waitingQuestions]) for (const p of list || []) if (p?.card) D._card.set(p.id, p.card);
+  // card-group-cm: whom each open item is owed to (human | agent | unassigned), named by the server from the configuration.
+  D._owner = new Map();
+  for (const list of [d.openDuties, d.openQuestions, d.waitingQuestions]) for (const p of list || []) if (p?.owner) D._owner.set(p.id, p.owner);
+  // The moment each open duty is overdue from (ms, from the server's due core; absent: no readable due date).
+  D._dueAt = new Map((d.openDuties || []).filter((p) => Number.isFinite(p.dueAt)).map((p) => [p.id, p.dueAt]));
   // board-tempo-cm: for a large store the first answer carries only the
   // newest entries (`d.parts.entries`); the rest comes page by page
   // (loadEntriesPart). A list that is already complete stays until the one of
@@ -950,6 +955,13 @@ const CARD_STAGE = { written: 'written on the entry', addendum: 'added later fro
 const plain = (v) => String(v ?? '').replace(/[\p{Cc}\p{Cf}]/gu, '');
 const ce = (v) => esc(plain(v));
 const cardForYou = (c) => Boolean(c) && c.kind !== 'do-it';
+// WHO the item belongs to decides the group, not who wrote its card: a duty owed to the configured human is for the human even
+// when its card is a replacement card (kind do-it); a duty owed to an agent is agent work. Only an item owed to nobody falls
+// back to the kind of its card (decide / approve: for you; a task: agent work). The names come from the server (`owner`).
+const itemForYou = (id) => {
+  const o = D._owner?.get(id);
+  return o === 'human' || (o !== 'agent' && cardForYou(D._card?.get(id)));
+};
 function cardEvidenceItem(raw) {
   const s = String(raw ?? '');
   if (/^https?:\/\/[^\s<>"']+$/i.test(s)) return `<a href="${ce(s)}" target="_blank" rel="noopener noreferrer">${ce(s)}</a>`;
@@ -990,11 +1002,15 @@ function cardHtml(c, { foot = '' } = {}) {
     + (foot ? `<div class="dcard-foot">${foot}</div>` : '')
     + `</article>`;
 }
-// "For you" against "Agent work": a card of kind decide / approve goes to the person; a task (kind do-it) and every item
-// without a card (owed to an agent, src/cardfeed.mjs) is agent work. `render(e, card)` makes one item; `limit` cuts the total.
+// "For you" against "Agent work": an item owed to the human goes to the person whatever its card; one owed to an agent is agent
+// work (it gets no card, src/cardfeed.mjs); one owed to nobody goes by its card: decide / approve for the person, a task not.
+// `render(e, card)` makes one item; `limit` cuts the total.
 function workGroupsHtml(es, { limit = Infinity, render }) {
   const mine = []; const rest = [];
-  for (const e of es) (cardForYou(D._card?.get(e.id)) ? mine : rest).push(e);
+  for (const e of es) (itemForYou(e.id) ? mine : rest).push(e);
+  // What is for the person goes by its deadline (overdue first, then due today, later, then no or an unreadable one in list order),
+  // so a limit (the overview's three) cuts the least urgent; agent work keeps the list order.
+  mine.splice(0, mine.length, ...byDeadline(mine.map((e) => ({ e, dueAt: D._dueAt?.get(e.id) }))).map((x) => x.e));
   let left = limit;
   const part = (name, list, hint) => {
     const shown = list.slice(0, Math.max(0, left));
@@ -1002,7 +1018,12 @@ function workGroupsHtml(es, { limit = Infinity, render }) {
     if (!shown.length) return '';
     return `<section class="dgroup" data-card-group="${name}"><div class="label" style="margin:16px 0 6px">${name === 'you' ? 'For you' : 'Agent work'} (${num(list.length)})</div>${hint ? `<p class="small quiet" style="margin-bottom:8px">${hint}</p>` : ''}${shown.map((e) => render(e, D._card?.get(e.id) || null)).join('')}</section>`;
   };
-  return part('you', mine, '') + part('agent', rest, 'Tasks and agent postings: nothing for you to decide.');
+  // "Nothing for you to decide" is true of what is owed to an agent. An item owed to nobody (no addressee, or a name the
+  // configuration does not know - a typo too) is not known to be agent work, so the hint says that instead.
+  const unowned = rest.some((e) => D._owner?.get(e.id) === 'unassigned');
+  return part('you', mine, '') + part('agent', rest, unowned
+    ? 'Tasks and agent postings. Nobody owns some of these yet: they may still be waiting for you.'
+    : 'Tasks and agent postings: nothing for you to decide.');
 }
 const confirmAnswerBtn = (id) => (catMayClick()
   ? btn('Confirm answer', 'question-confirm', `data-id="${esc(id)}" ${state.readonly ? 'disabled' : ''}`, 'small ghost')
@@ -1037,10 +1058,11 @@ function todayDecisionsPart(list) {
   const row = (dt) => (dt.card
     ? cardHtml(dt.card, { foot: `${dt.due ? `<span class="small quiet">Due ${esc(dueShown(dt.due))}</span> ${dueChip(dt.dueState)}` : ''}${open(dt.id, 'Open entry ↗', 'btn small ghost')}` })
     : `<button class="attention" data-entry="${esc(dt.id)}"><span class="sym">↗</span><div><strong>${esc(dt.title)}</strong><p>Duty${dt.due ? ' · due ' + esc(dueShown(dt.due)) : ''} ${dueChip(dt.dueState)}</p></div><span class="arrow">↗</span></button>`);
-  const mine = byDeadline(list.filter((dt) => cardForYou(dt.card))); const rest = byDeadline(list.filter((dt) => !cardForYou(dt.card)));
-  const group = (name, label, items, hint) => (items.length
-    ? `<section class="dgroup" data-card-group="${name}"><div class="label" style="margin:16px 0 6px">${label} (${num(items.length)})</div>${hint ? `<p class="small quiet" style="margin-bottom:8px">${hint}</p>` : ''}${items.map(row).join('')}</section>` : '');
-  return group('you', 'For you', mine) + group('agent', 'Agent work', rest, 'Tasks and agent postings: nothing for you to decide.');
+  // The list is the server's "open duties addressed to the configured human" (src/humandecisions.mjs): every item of it is for
+  // the person, whether its card is a decision or a replacement card for a task. Agent work is not part of this list.
+  const mine = byDeadline(list);
+  return mine.length
+    ? `<section class="dgroup" data-card-group="you"><div class="label" style="margin:16px 0 6px">For you (${num(mine.length)})</div>${mine.map(row).join('')}</section>` : '';
 }
 // Q7 (src/deadlines.mjs): the due dates of the open duties. The part is a summary, no second list: every duty of the human
 // already stands as a card under "Decisions for you" (with its due chip, overdue ones first), so this part only counts - what

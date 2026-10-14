@@ -155,10 +155,19 @@ test('M10-3: server hangs -> direct, total time stays inside the ONE budget', as
   const w = place.place(root, {});
   fs.mkdirSync(w.dir, { recursive: true, mode: 0o700 });
   fs.writeFileSync(w.key, 'x'.repeat(64), { mode: 0o600 });
-  // Accepts connections (the kernel does, through the backlog, while
-  // spawnSync blocks this loop) and never answers.
-  const hang = net.createServer(() => {});
-  await new Promise((r) => hang.listen(w.socket, r));
+  // A server in its OWN process that accepts connections and never answers. In this process
+  // spawnSync would block the loop: a Unix socket still accepts through the kernel backlog, a
+  // Windows pipe does not, and the probe measured a dead server there instead of a hanging one
+  // (CI run 980, windows node 20: 'server-error').
+  const hang = spawn(process.execPath, ['-e',
+    `require('net').createServer(() => {}).listen(${JSON.stringify(w.socket)}, () => console.log('up'))`],
+  { stdio: ['ignore', 'pipe', 'ignore'] });
+  let up = '';
+  hang.stdout.on('data', (b) => { up += b; });
+  for (const until = Date.now() + 15000; !/up/.test(up) && Date.now() < until && hang.exitCode == null;) {
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  assert.match(up, /up/, 'the hanging server listens');
   if (w.marker) fs.writeFileSync(w.marker, `${w.socket}\n`); // Windows: a pipe is no file, the marker is what the hook sees
   try {
     const r = hook(root, 's-b', { MEM_RETRIEVE_TIME: '3', MEM_RECALL_SERVER_WAIT_MS: '60000' });
@@ -169,7 +178,11 @@ test('M10-3: server hangs -> direct, total time stays inside the ONE budget', as
     const l = lines(root);
     assert.equal(l[1].path, 'direct');
     assert.equal(l[1].path_reason, 'server-timeout');
-  } finally { await new Promise((r) => hang.close(r)); }
+  } finally {
+    const gone = new Promise((r) => { if (hang.exitCode != null) r(); else hang.once('exit', r); });
+    hang.kill();
+    await gone;
+  }
 });
 
 test('M10-4: a new entry after the start -> the server delivers the new state', async () => {
