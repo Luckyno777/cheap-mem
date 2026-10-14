@@ -14,6 +14,7 @@ import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import * as tasks from '../src/tasks.mjs';
 import { personCookie } from './person-session.mjs';
+import { removeTree } from './fixture/cleanup.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SERVE = path.join(HERE, '..', 'bin', 'mem-serve');
@@ -33,7 +34,8 @@ function world() {
   fs.writeFileSync(path.join(r, 'global', 'errors.jsonl'), `${one}\n`.repeat(8));
   return r;
 }
-const gone = (r) => fs.rmSync(r, { recursive: true, force: true });
+// the cancelled task's child may still hold files on Windows for a moment (CI run 980: ENOTEMPTY)
+const gone = (r) => removeTree(r);
 async function ended(root, id) {
   for (const started = Date.now(); Date.now() - started < 20000;) {
     const b = tasks.read(root, id);
