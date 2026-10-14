@@ -30,6 +30,7 @@ import * as bridgefields from '../src/bridgefields.mjs';
 import * as memory from '../src/memory.mjs';
 import * as codexcloud from '../src/codexcloud.mjs';
 import { removeTree } from './fixture/cleanup.mjs';
+import { germanHits, asProse, GERMAN_WORDS } from './english-dictionary.mjs';
 import {
   namedTools, unknownTools, calls, wrongCalls, section, frontmatter, hasSentence, mutate, inOrder, norm,
 } from './fixture/codex-cloud-skill.mjs';
@@ -347,8 +348,10 @@ test('docs/mcp-setup.md "OpenAI Codex Cloud": there, honest about its evidence, 
 test('shipped files carry no participant name and no German; the package ships install/codex', () => {
   for (const [name, text] of [[SKILL_REL, SKILL], [START_REL, START_FILE], ['docs section', DOC]]) {
     assert.doesNotMatch(text, /\bLucky\b/, `${name}: a person's name in a shipped file`);
-    assert.doesNotMatch(text, /\b(und|nicht|oder|Datei|Gedaechtnis)\b/, `${name}: German`);
+    assert.deepEqual(text.split('\n').filter((line) => germanHits(asProse(line)).length >= 2), [], `${name}: German lines`);
   }
+  // positive control: the German detector used above does see a German line
+  assert.ok(germanHits(asProse(GERMAN_WORDS.slice(0, 3).join(' '))).length >= 2);
   const pkg = JSON.parse(read('package.json'));
   assert.ok(pkg.files.includes('install/'), 'install/ is not in the package');
   assert.ok(!pkg.files.some((f) => f.startsWith('!') && f.includes('install')), 'something under install/ is excluded from the package');
