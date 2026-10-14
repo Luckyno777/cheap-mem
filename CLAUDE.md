@@ -7,13 +7,14 @@ installation — it is the tool that creates memories.
 
 - `bin/mem`            — the CLI's entry point (Node, ESM, no dependencies):
                          argument pre-scan, the help block, dispatch to the
-                         ONE command group a start needs (lazy import, with
-                         `src/cli/command-index.mjs` naming the group of each
-                         command). About 220 lines, and it stays
+                         ONE command group a start needs (lazy import; the
+                         command index below names each command's group).
+                         About 221 lines, and it stays
                          that way — a handler that lands back in here
                          belongs in its group. It was 4503 before the
                          split on 2026-09-18, the largest file here.
 - the CLI's own modules, under `src/cli/`:
+  - `command-index.mjs` — which group holds which command (data, no imports)
   - `commands/`        — the 87 handlers, in six groups cut by the
                          QUESTION a command answers: write, search,
                          capture, agents, setup, admin
