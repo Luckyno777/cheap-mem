@@ -592,6 +592,8 @@ mem hooks install --pre-push   also warn (never block) when a push to the defaul
 mem doctor                     is this memory healthy?
 mem doctor --alarm             ONLY what is down right now; silent when
                                nothing is. The session-start hook prints it.
+mem doctor --full              also run the concurrent-append probe (writer threads);
+                               without it that one finding says "not measured"
 
 mem serve [--port N]           the dashboard at ONE fixed link.
           [--allow-writes]     The console is the only place anything can
@@ -987,6 +989,7 @@ noticing.
 ```bash
 mem doctor            # says which layer owns each guarantee
 mem doctor --strict   # for CI: an UNVERIFIABLE guarantee is a failure
+mem doctor --full     # also the concurrent-append probe (--strict includes it); without it: "not measured"
 mem doctor --alarm    # only level ERROR, one line each — nothing when nothing is red
 mem epoch show        # has the memory gone BACKWARDS since this machine looked?
 ```

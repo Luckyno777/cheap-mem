@@ -400,7 +400,7 @@ export function runAppendAtomicityProbe(root, opts = {}) {
  * does not make the verdict any less strict.
  */
 export function checkAppendAtomicity(root, opts = {}) {
-  const { probe: probeFn = runAppendAtomicityProbe, fsTypeOf = null, ...probeOpts } = opts;
+  const { probe: probeFn = runAppendAtomicityProbe, fsTypeOf = null, measure = true, ...probeOpts } = opts;
   let fsType = null;
   try {
     if (fsTypeOf) {
@@ -430,8 +430,19 @@ export function checkAppendAtomicity(root, opts = {}) {
       + 'tmpfs, …), or serialise writers if it must stay on this mount.');
   }
 
-  const probe = probeFn(root, probeOpts);
   const fsNote = fsType ? ` [filesystem: ${fsType}]` : ' [filesystem name unavailable]';
+
+  // `measure: false` (cli-speed-cm TB7: `mem doctor` without `--full`). The probe starts
+  // six writer threads and was the slowest single part of a doctor run. NOT measuring is
+  // not a pass: the answer is the third state, with the way to get the real one, and it
+  // never reads as `ok` on the strength of the filesystem's name alone.
+  if (!measure) {
+    return check('append-atomicity', LAYER.OS, null,
+      `not measured on this run - the concurrent-append probe (writer threads) only runs with \`mem doctor --full\`${fsNote}`,
+      'Run `mem doctor --full` (or `--strict`, which includes it) to measure concurrent O_APPEND writes on this mount.');
+  }
+
+  const probe = probeFn(root, probeOpts);
 
   if (!probe.measured) {
     return check('append-atomicity', LAYER.OS, null,
@@ -504,7 +515,8 @@ export function checkEnvironment(root, opts = {}) {
   return [
     checkMergeDriver(root),
     checkPreCommitHook(root),
-    checkAppendAtomicity(root),
+    // `full: false` skips only the measuring probe (see checkAppendAtomicity); the default measures.
+    checkAppendAtomicity(root, { measure: opts.full !== false }),
     checkClock(root, opts),
   ];
 }

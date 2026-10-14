@@ -14,6 +14,21 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Changed / Performance - `mem doctor` runs the concurrent-append probe only with `--full` (and `--strict`) and says so when it did not (cli-speed-cm TB7; cheap-mem only)
+
+The probe of `env/append-atomicity` starts six writer threads on the memory's mount and was the slowest single part of a doctor run:
+9 fresh processes took 167 to 445 ms for it (median 320 ms), and under load one ran past its own 400 ms limit and reported UNKNOWN anyway.
+Without `--full` that one finding now reads `not measured on this run ... only runs with mem doctor --full` at level UNKNOWN, the third state, with
+the way to the real answer in its advice; it never reads `ok`. A filesystem whose name is documented as unsafe is still a failure without the probe
+(that answer needs no measuring). `--strict` includes the probe, because there an unverifiable guarantee is a failure and the documented CI call
+`mem doctor --strict` must not turn red for a check it skipped. `--alarm` lists only errors and no longer measures tearing on every start. The library
+default is unchanged: `doctor.checkAll(root)` measures, `checkAll(root, { full: false })` does not; the dashboard and `mem today` still call it as before.
+Measured, interleaved against the commit before, child CPU time (wall time on this shared host is too noisy: load 6 to 31),
+`mem doctor --quiet`: 300 entries 580 -> 290 ms (-50 %), 1,000 entries 620 -> 350 ms (-44 %), 20,000 entries 1,710 -> 1,450 ms (-15 %). The index was
+already loaded once per run (counted: the cache manifest is read once, each document shard once); there was nothing to save there. Tested structurally
+(`test/doctor-full.test.mjs`: the probe directory is created 0 times without `--full`, once with it). The output differs in exactly one finding
+and in `mem doctor --help`; golden over a 400-entry scratch memory otherwise identical.
+
 ### Performance - `mem retrieve` derives the retirements once and reads the log twice (cli-speed-cm TB6; cheap-mem only)
 
 On a 20,000-entry scratch memory (5.2 MB) one `retrieve` took 1,080 ms (7 fresh processes, warm index cache). `retrieve` derived the log's

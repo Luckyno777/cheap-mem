@@ -47,9 +47,13 @@ export const COMMANDS = {
   doctor: async ({ args }) => {
     if (isHelp(args)) {
       out([
-        'mem doctor [--quiet] [--strict] [--alarm]',
+        'mem doctor [--quiet] [--strict] [--alarm] [--full]',
         '',
         '  --quiet   hide what is fine',
+        '  --full    also run the concurrent-append probe (six writer threads on',
+        '            this mount, the slowest part of a run). Without it that one',
+        '            finding, env/append-atomicity, says "not measured" (unknown),',
+        '            never ok. --strict includes it.',
         '  --alarm   ONLY level ERROR, one line each, nothing when quiet.',
         '            For a start banner. exit 1 if anything is red.',
         '  --strict  an UNVERIFIABLE guarantee counts as a failure.',
@@ -64,7 +68,7 @@ export const COMMANDS = {
       ].join('\n'));
       return;
     }
-    checkFlags(args, ['quiet', 'strict', 'alarm'], 'doctor');
+    checkFlags(args, ['quiet', 'strict', 'alarm', 'full'], 'doctor');
     const root = findRoot(args);
     // **No `requireConfig` here, deliberately (2026-09-20).**
     //
@@ -85,7 +89,9 @@ export const COMMANDS = {
     // A check that cannot fail is not a check. Taking the gate away
     // costs nothing: `checkAll` runs on a bare directory and reports
     // `config: error` by itself — verified before this change.
-    const result = doctor.checkAll(root);
+    // The append probe runs on `--full`, and under `--strict`: there an unverifiable guarantee is a
+    // failure, so leaving the probe out would turn the documented CI command red.
+    const result = doctor.checkAll(root, { full: Boolean(args.full || args.strict) });
 
     // The automatic tick (P21, 2026-09-20): every `mem doctor` run that
     // comes back with no ERROR advances the rollback watermark to the
