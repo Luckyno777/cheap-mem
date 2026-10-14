@@ -13,7 +13,9 @@
  *
  * **What it touches, and what not.** Only files INSIDE the memory root: the
  * skill, and a narrow `.gitignore` exception, and the latter only when git says
- * `.agents/` is ignored there (an ordinary memory does not ignore it). It never
+ * `.agents/` is ignored there (an ordinary memory does not ignore it). The one
+ * exception to "inside": the check of that exception (and `--dry-run`) briefly
+ * makes a throw-away repository under `os.tmpdir()` and removes it again. It never
  * writes under the home directory, never commits, never pushes, and it does not
  * overwrite a skill file that differs from the shipped one unless told to.
  *
@@ -202,6 +204,16 @@ export function install(root, pkgRoot, { dryRun = false, force = false } = {}) {
     }
   }
 
+  // Which folders on the way to the skill are not there yet: a failed write has to take back exactly those.
+  const madeDirs = [];
+  for (const p of [path.join(root, '.agents'), path.join(root, '.agents', 'skills'), path.dirname(target)]) {
+    if (!fs.existsSync(p)) madeDirs.push(p);
+  }
+  // Deepest first, and only if empty (`rmdirSync` refuses a folder with anything in it): never a folder that was there before.
+  const removeMadeDirs = () => {
+    for (const p of [...madeDirs].reverse()) { try { fs.rmdirSync(p); } catch { /* not empty, or gone: leave it */ } }
+  };
+
   // 3. Do it (or say what would be done).
   let changed = false;
   const restoreGi = () => {
@@ -242,6 +254,7 @@ export function install(root, pkgRoot, { dryRun = false, force = false } = {}) {
     if (!dryRun) {
       try { writeAtomic(target, wanted); } catch (e) {
         if (changed) restoreGi();
+        removeMadeDirs();
         return { ok: false, lines: [`codex-cloud: cannot write ${target}: ${e.message}`, '  .gitignore was put back as it was.'], changed: false };
       }
     }

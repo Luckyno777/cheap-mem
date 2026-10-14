@@ -661,6 +661,65 @@ test('mem setup codex-cloud: SKILL.md as a directory is refused', () => {
   assert.match(r.stdout + r.stderr, /not a regular file/);
 });
 
+/** The whole tree under `dir` (without .git): every folder, and every file with its bytes. Compared before and after. */
+function treeOf(dir) {
+  const out = [];
+  const walk = (d, rel) => {
+    for (const name of fs.readdirSync(d).sort()) {
+      if (rel === '' && name === '.git') continue;
+      const full = path.join(d, name);
+      const r = rel === '' ? name : `${rel}/${name}`;
+      if (fs.lstatSync(full).isDirectory()) { out.push(`dir ${r}`); walk(full, r); } else out.push(`file ${r} ${fs.readFileSync(full).toString('hex')}`);
+    }
+  };
+  walk(dir, '');
+  return out;
+}
+
+/** Run `install` while the final rename onto SKILL.md fails (injected: no modes, so it works for root and on Windows alike). */
+function installWithFailingSkillWrite(root) {
+  const target = path.join(root, '.agents', 'skills', 'mem', 'SKILL.md');
+  const real = fs.renameSync;
+  let hits = 0;
+  fs.renameSync = function patched(from, to, ...rest) {
+    if (path.resolve(String(to)) === target) { hits += 1; throw Object.assign(new Error('EIO: injected write failure'), { code: 'EIO' }); }
+    return real.call(this, from, to, ...rest);
+  };
+  let r;
+  try { r = codexcloud.install(root, ROOT, {}); } finally { fs.renameSync = real; }
+  return { r, hits };
+}
+
+for (const c of [
+  { name: 'nothing there before', git: false, pre: [] },
+  { name: 'git ignores .agents/ through .gitignore, which was changed first and must be put back', git: true, gitignore: 'node_modules/\n.agents/\n', pre: [] },
+  { name: 'git ignores .agents/ and there was no .gitignore at all', git: true, exclude: '.agents/\n', pre: [] },
+  { name: '.agents and .agents/skills were there before (with another tool\'s file), only mem/ is new', git: false, pre: ['.agents/other-tool.json', '.agents/skills/'] },
+  { name: '.agents/skills/mem was there before, empty', git: false, pre: ['.agents/skills/mem/'] },
+]) {
+  test(`mem setup codex-cloud: a failed SKILL.md write leaves the tree as it was - ${c.name}`, { skip: c.git && !haveGit && 'git is not available' }, () => {
+    const root = scratch('rollback');
+    if (c.git) assert.equal(spawnSync('git', ['init', '-q'], { cwd: root }).status, 0);
+    if (c.gitignore) fs.writeFileSync(path.join(root, '.gitignore'), c.gitignore);
+    if (c.exclude) fs.appendFileSync(path.join(root, '.git', 'info', 'exclude'), c.exclude);
+    for (const p of c.pre) {
+      const full = path.join(root, ...p.split('/'));
+      if (p.endsWith('/')) fs.mkdirSync(full, { recursive: true });
+      else { fs.mkdirSync(path.dirname(full), { recursive: true }); fs.writeFileSync(full, '{"keep":"me"}\n'); }
+    }
+    const before = treeOf(root);
+    const { r, hits } = installWithFailingSkillWrite(root);
+    assert.equal(hits, 1, 'the injected failure never fired: the probe would prove nothing');
+    assert.equal(r.ok, false);
+    assert.match(r.lines.join('\n'), /cannot write .*SKILL\.md/);
+    assert.deepEqual(treeOf(root), before, 'the tree after the failed run differs from the tree before it');
+    // positive control: the same memory takes the skill once the failure is gone, so the rollback above was not a refusal in disguise
+    const again = codexcloud.install(root, ROOT, {});
+    assert.equal(again.ok, true, again.lines.join('\n'));
+    assert.ok(fs.existsSync(path.join(root, '.agents', 'skills', 'mem', 'SKILL.md')));
+  });
+}
+
 test('mem setup codex-cloud: .agents/skills as a symbolic link is refused, whether it leads out of the memory or stays inside', (t) => {
   for (const where of ['outside', 'inside']) {
     const m = memory2();
