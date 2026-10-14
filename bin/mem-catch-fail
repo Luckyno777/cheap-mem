@@ -53,10 +53,23 @@ _sig='(not ok|(Uncaught[[:space:]]+)?[A-Za-z]*Error:|FAIL([^A-Za-z0-9_]|$)|fatal
 [[ "$IN" =~ $_start$_sig ]] || exit 0
 unset _start _sig
 
-PROBE="${MEM_RETRIEVE_ROOTS:-$HOME/cheap-mem}"
+PROBE="${MEM_RETRIEVE_ROOTS:-${HOME:-}/cheap-mem}"
+# D5 (2026-10-14): the roots to try are an ARRAY. This used to be an unquoted
+# `$PROBE` in the loop below, so a HOME with a space in it ("/home/Max Muster")
+# split the DEFAULT root in two and the hook found no memory - silently, exit 0.
+# The documented list stays whitespace-separated; the whole value is tried
+# first (it may be ONE path that has a space), then its words. `read -a` does
+# not glob, the unquoted expansion did. test/hook-spaces.test.mjs.
+PROBE_LIST=()
+if [ -n "${MEM_RETRIEVE_ROOTS:-}" ]; then
+  PROBE_LIST+=("$MEM_RETRIEVE_ROOTS")
+  read -r -a PROBE_WORDS <<< "$MEM_RETRIEVE_ROOTS"
+  PROBE_LIST+=(${PROBE_WORDS[@]+"${PROBE_WORDS[@]}"})
+elif [ -n "${HOME:-}" ]; then
+  PROBE_LIST+=("$HOME/cheap-mem")
+fi
 ROOT=""
-# shellcheck disable=SC2086
-for k in "${CHEAP_MEM_ROOT:-}" $PROBE; do
+for k in "${CHEAP_MEM_ROOT:-}" ${PROBE_LIST[@]+"${PROBE_LIST[@]}"}; do
   [ -z "$k" ] && continue
   k="$(to_slashes "$k")"
   [ -f "$k/.mem/config.json" ] && { ROOT="$k"; break; }

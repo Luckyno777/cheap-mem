@@ -14,6 +14,17 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Fixed - a HOME with a space no longer breaks the default memory search (D5)
+
+Six bash hooks (`mem-before-edit`, `mem-retrieve`, `mem-after-failure`, `mem-catch-fail`, `mem-stop`, `mem-subagent-start`) looked for the memory with
+`for k in "$CHEAP_MEM_ROOT" $PROBE` - an unquoted `$PROBE`, default `$HOME/cheap-mem`. With `HOME=/home/Max Muster` that is two words, no memory, and the hook
+exits 0 in silence (installed hooks bake `CHEAP_MEM_ROOT` in and never noticed; a hand-run hook and a fresh machine did). The roots are an array now: the
+whole `MEM_RETRIEVE_ROOTS` / `MEM_STOP_ROOTS` value is tried first (one path may hold a space), then its whitespace-separated words, and `read -a` does not glob
+where the unquoted expansion did. The PowerShell twins try the whole value before splitting it, and `mem-digest.ps1` passes the daily gold spawn ONE quoted
+argument string (an `-ArgumentList` array of paths is joined with bare spaces on Windows PowerShell 5.1, and the catch around it hid the failure). Inventory
+by `shellcheck` 0.11.0 over every hook plus grep: these were the only unquoted path expansions; kept on purpose and named in `test/hook-spaces.test.mjs`:
+`$CMD` (a configured command line with flags) and `$RECORD_PATHS` (two repo-relative constants). Red on the old loop, mutation caught, end to end from a HOME with a space.
+
 ### Fixed - the session start and the recall hook follow the branch the memory tracks (D4; lucky-mem parity)
 
 `install/hooks/session-start.sh` (and the inline Windows hook in `install/windows.ps1`) fetched `origin main`, checked out `main` and pulled,

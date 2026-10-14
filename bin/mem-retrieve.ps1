@@ -108,7 +108,9 @@ function Get-ProbeRoots {
   if ($env:MEM_RETRIEVE_ROOTS.Contains(';')) {
     return $env:MEM_RETRIEVE_ROOTS -split ';' | Where-Object { $_ }
   }
-  return $env:MEM_RETRIEVE_ROOTS -split '\s+' | Where-Object { $_ }
+  # D5: the WHOLE value first (it may be one path with a space in it, e.g.
+  # C:\Users\Max Muster\memory), then its whitespace-separated words.
+  return @($env:MEM_RETRIEVE_ROOTS) + ($env:MEM_RETRIEVE_ROOTS -split '\s+' | Where-Object { $_ })
 }
 
 $Root = $null
