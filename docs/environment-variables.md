@@ -164,6 +164,7 @@ A variable that is not in the table is not a switch: there is none.
 | `MEM_WATCH_HANDLER` | `bin/mem-handle-post` next to the watcher | The program the watcher starts for a new letter. |
 | `MEM_WATCH_LOG` | `<root>/.mem/watch.log` | Log file of `bin/mem-watch`. |
 | `MEM_WORKFLOW_MARKS` | `<root>/.mem/workflow-marks` | Directory of the per-session marks of the workflow hint. |
+| `NODE_COMPILE_CACHE` | the hooks set `<user cache>/cheap-mem/node-cc` (Node 22.1 and later) | Node's own compile-cache directory. A value you set wins; the hooks only fill it in when it is empty, under your user cache (never in the memory), so each hook start finds the translated code of `src/` again. |
 
 ### Connections — servers, ports, remotes
 

@@ -89,6 +89,7 @@ if [ ! -t 0 ]; then STDIN_JSON="$(cat 2>/dev/null || true)"; fi
 if [ -f "$HERE/_portable.sh" ]; then
   # shellcheck source=bin/_portable.sh
   . "$HERE/_portable.sh"
+  mem_compile_cache  # R6: V8 compile cache in the user's cache dir, before the first node start
 else
   mem_cap_kind=none
   capped() { shift; "$@"; }

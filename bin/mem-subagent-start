@@ -25,6 +25,7 @@ to_slashes() { printf '%s' "${1//\\//}"; }
 SELF_DIR="$(cd "$(dirname "$(to_slashes "$0")")" && pwd)"
 # shellcheck source=bin/_portable.sh
 . "$SELF_DIR/_portable.sh"
+mem_compile_cache  # R6: V8 compile cache in the user's cache dir, before the first node start
 
 PROBE="${MEM_STOP_ROOTS:-$HOME/cheap-mem}"
 

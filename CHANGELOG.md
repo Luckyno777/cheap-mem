@@ -14,6 +14,18 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Performance - the hooks keep a V8 compile cache, in the user's cache (R6; lucky-mem e146b45ce, c0b14705c)
+
+Every hook call is a new node process that translates `src/*.mjs` from scratch. The hook shells (`mem-before-edit`, `mem-retrieve`,
+`mem-after-failure`, `mem-catch-fail`, `mem-subagent-start`, `mem-stop`, the session start, and their PowerShell twins) now set
+`NODE_COMPILE_CACHE` to `<user cache>/cheap-mem/node-cc` - `${XDG_CACHE_HOME:-~/.cache}` on Linux, `~/Library/Caches` on macOS,
+`%LOCALAPPDATA%` on Windows - **not** in the memory (a git repository that travels between machines). A value the user set stays;
+a directory that cannot be made means no cache and an unchanged hook; Node before 22.1 ignores the variable and runs cleanly without.
+`test/hook-compile-cache.test.mjs`: source order (set before the first node, comments do not count), a real run fills the user cache
+and leaves nothing in the memory, the user's value wins, an unmakeable directory is harmless, every platform branch of
+`mem_compile_cache` (Linux with/without `XDG_CACHE_HOME`, macOS, Git Bash, no HOME); red on the old hook, mutation caught.
+New variable in the register: `NODE_COMPILE_CACHE` (and `XDG_CACHE_HOME`, `LOCALAPPDATA` as standard OS variables).
+
 ### Performance - the before-edit hook runs in ONE node process (TB5; lucky-mem f17d5fa3d)
 
 `bin/mem-before-edit` and its PowerShell twin cut one recall into a dozen `node -e` snippets plus a full `node bin/mem component`

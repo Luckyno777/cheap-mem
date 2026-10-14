@@ -135,6 +135,49 @@ capped() {
   "$@"
 }
 
+# --- A compile cache for the hooks' node starts (R6) ----------------
+#
+# Every hook call is a NEW node process, and each one translates the
+# `src/*.mjs` it imports from scratch. `NODE_COMPILE_CACHE` (Node >= 22.1)
+# keeps the translated code in a directory and reads it back at the next
+# start. Measured 2026-10-14 on the before-edit hook, now one start
+# (Linux 6.18, 4 cores, Node 22.22, median of 15): see CHANGELOG.
+#
+# **Where it lives: the USER's cache, not the memory.** The memory is a git
+# repository that travels between machines; a directory of machine code for
+# one Node version has no business in it (the sibling house keeps it under
+# the memory's `.pipeline/`, which it ignores - here the user cache is the
+# honest place, and one cache serves every memory on the machine):
+#
+#   Linux / other   ${XDG_CACHE_HOME:-$HOME/.cache}/cheap-mem/node-cc
+#   macOS           $HOME/Library/Caches/cheap-mem/node-cc
+#   Git Bash (Win)  $LOCALAPPDATA/cheap-mem/node-cc
+#
+# **A value the user set stays** (NODE_COMPILE_CACHE already in the
+# environment). **The cache only speeds up:** if the directory cannot be
+# made (no HOME, read-only, disk full) the hook runs without it - a hook
+# that falls silent over a cache is worse than one that needs 20 ms more.
+# Node 20 does not know the variable and ignores it. A relative
+# XDG_CACHE_HOME is ignored, as the specification says.
+mem_compile_cache() {
+  [ -n "${NODE_COMPILE_CACHE:-}" ] && return 0
+  local base="" dir
+  case "$(uname -s 2> /dev/null)" in
+    Darwin) [ -n "${HOME:-}" ] && base="$HOME/Library/Caches" ;;
+    MINGW* | MSYS* | CYGWIN*) base="${LOCALAPPDATA:-}"; base="${base//\\//}" ;;
+    *)
+      case "${XDG_CACHE_HOME:-}" in
+        /*) base="$XDG_CACHE_HOME" ;;
+        *) [ -n "${HOME:-}" ] && base="$HOME/.cache" ;;
+      esac ;;
+  esac
+  [ -n "$base" ] || return 0
+  dir="$base/cheap-mem/node-cc"
+  [ -d "$dir" ] || (umask 077; mkdir -p "$dir") 2> /dev/null || return 0
+  [ -d "$dir" ] && export NODE_COMPILE_CACHE="$dir"
+  return 0
+}
+
 # --- An exclusive claim --------------------------------------------
 #
 # flock on FD 9 where it exists; a directory otherwise. `mkdir` is

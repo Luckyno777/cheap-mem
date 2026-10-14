@@ -124,6 +124,7 @@ esac
 # the cap only keeps a hung git from lingering.
 # shellcheck source=bin/_portable.sh
 . "$HOOK_DIR/_portable.sh"
+mem_compile_cache  # R6: V8 compile cache in the user's cache dir, before the first node start
 
 # --- Keep the clone from going stale --------------------------------
 #

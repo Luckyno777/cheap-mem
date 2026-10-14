@@ -260,6 +260,24 @@ if (-not `$memRoot) {
 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
 
+# R6: a V8 compile cache for the node starts below, in the USER's cache (never
+# in the memory). Same rule as the other Windows hooks: a value already in the
+# environment stays; a directory that cannot be made means no cache.
+if (-not `$env:NODE_COMPILE_CACHE) {
+  try {
+    `$ccBase = `$null
+    if (`$env:LOCALAPPDATA) { `$ccBase = `$env:LOCALAPPDATA }
+    elseif (`$IsMacOS -and `$HOME) { `$ccBase = Join-Path `$HOME 'Library/Caches' }
+    elseif (`$env:XDG_CACHE_HOME -and [System.IO.Path]::IsPathRooted(`$env:XDG_CACHE_HOME)) { `$ccBase = `$env:XDG_CACHE_HOME }
+    elseif (`$HOME) { `$ccBase = Join-Path `$HOME '.cache' }
+    if (`$ccBase) {
+      `$ccDir = Join-Path (Join-Path `$ccBase 'cheap-mem') 'node-cc'
+      New-Item -ItemType Directory -Force -Path `$ccDir -ErrorAction Stop | Out-Null
+      `$env:NODE_COMPILE_CACHE = `$ccDir
+    }
+  } catch { }
+}
+
 if (Test-Path (Join-Path `$env:CHEAP_MEM_ROOT 'bin\mem')) {
   Write-Host '=== cheap-mem attached ==='
 } else {

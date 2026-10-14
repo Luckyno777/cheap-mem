@@ -52,7 +52,7 @@ export const KINDS = Object.freeze({
  * They are read, but nobody configures cheap-mem through them.
  */
 export const STANDARD = Object.freeze([
-  'HOME', 'USER', 'USERNAME', 'LOGNAME', 'USERPROFILE', 'APPDATA', 'PATH', 'TMPDIR', 'SSH_CONNECTION',
+  'HOME', 'USER', 'USERNAME', 'LOGNAME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'XDG_CACHE_HOME', 'PATH', 'TMPDIR', 'SSH_CONNECTION',
 ]);
 
 const sw = (name, kind, def, meaning) => ({ name, kind, default: def, meaning });
@@ -163,6 +163,7 @@ export const REGISTER = Object.freeze([
   sw('MEM_DOCTOR_FULLREAD_FACTOR', TUNING, '5', 'Factor of source bytes to heap limit above which whole-corpus doctor findings say "not measurable" instead of dying.'),
   sw('MEM_SKILLUSAGE_DAYS', TUNING, '30', 'Days of capture coverage `mem skills usage` needs before it gives a verdict.'),
   sw('MEM_SKILLUSAGE_TIME_MS', TUNING, '8000', 'Time cap, in milliseconds, for reading the captures.'),
+  sw('NODE_COMPILE_CACHE', PATH, 'the hooks set `<user cache>/cheap-mem/node-cc` (Node 22.1 and later)', 'Node\'s own compile-cache directory. A value you set wins; the hooks only fill it in when it is empty, under your user cache (never in the memory), so each hook start finds the translated code of `src/` again.'),
   sw('MEM_ANSWER_CHECK_PATTERNS', PATH, 'not set (`.mem/answer-check-patterns.json` or the built-ins)', 'A JSON file of the answer-check patterns.'),
   sw('MEM_TZ', IDENTITY, '`config.timezone`, else the system zone', 'Time zone for dates `mem` prints.'),
   sw('CHEAP_MEM_TZ', IDENTITY, '`config.timezone`, else the system zone', 'Time zone for appointments (input and output; UTC is stored).'),

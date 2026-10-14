@@ -30,6 +30,25 @@
 
 $ErrorActionPreference = 'Continue'
 
+# R6: V8 compile cache for this hook's node starts, in the USER's cache
+# (never in the memory repo). The why is in bin/_portable.sh
+# (mem_compile_cache): a value already in the environment stays, a
+# directory that cannot be made means no cache - never a silent hook.
+if (-not $env:NODE_COMPILE_CACHE) {
+  try {
+    $CcBase = $null
+    if ($env:LOCALAPPDATA) { $CcBase = $env:LOCALAPPDATA }
+    elseif ($IsMacOS -and $HOME) { $CcBase = Join-Path $HOME 'Library/Caches' }
+    elseif ($env:XDG_CACHE_HOME -and [System.IO.Path]::IsPathRooted($env:XDG_CACHE_HOME)) { $CcBase = $env:XDG_CACHE_HOME }
+    elseif ($HOME) { $CcBase = Join-Path $HOME '.cache' }
+    if ($CcBase) {
+      $CcDir = Join-Path (Join-Path $CcBase 'cheap-mem') 'node-cc'
+      New-Item -ItemType Directory -Force -Path $CcDir -ErrorAction Stop | Out-Null
+      $env:NODE_COMPILE_CACHE = $CcDir
+    }
+  } catch { }
+}
+
 if ($env:MEM_AFTER_FAILURE_OFF -eq '1') { exit 0 }
 if ($env:MEM_HOOK_OFF -eq '1') { exit 0 }
 

@@ -78,6 +78,7 @@ fi
 
 # shellcheck source=bin/_portable.sh
 . "$HOOK_DIR/_portable.sh"
+mem_compile_cache  # R6: V8 compile cache in the user's cache dir, before the first node start
 
 # --- The exact check + the query to search for (node, past the sieve) -
 PARSED="$(printf '%s' "$IN" | MEM_ERRSIG="$TOOL_ROOT/src/errorsignature.mjs" node -e '

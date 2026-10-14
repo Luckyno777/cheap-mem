@@ -40,6 +40,25 @@
 
 $ErrorActionPreference = 'Continue'
 
+# R6: V8 compile cache for this hook's node starts, in the USER's cache
+# (never in the memory repo). The why is in bin/_portable.sh
+# (mem_compile_cache): a value already in the environment stays, a
+# directory that cannot be made means no cache - never a silent hook.
+if (-not $env:NODE_COMPILE_CACHE) {
+  try {
+    $CcBase = $null
+    if ($env:LOCALAPPDATA) { $CcBase = $env:LOCALAPPDATA }
+    elseif ($IsMacOS -and $HOME) { $CcBase = Join-Path $HOME 'Library/Caches' }
+    elseif ($env:XDG_CACHE_HOME -and [System.IO.Path]::IsPathRooted($env:XDG_CACHE_HOME)) { $CcBase = $env:XDG_CACHE_HOME }
+    elseif ($HOME) { $CcBase = Join-Path $HOME '.cache' }
+    if ($CcBase) {
+      $CcDir = Join-Path (Join-Path $CcBase 'cheap-mem') 'node-cc'
+      New-Item -ItemType Directory -Force -Path $CcDir -ErrorAction Stop | Out-Null
+      $env:NODE_COMPILE_CACHE = $CcDir
+    }
+  } catch { }
+}
+
 # **Which exit did it take?** `MEM_BEFORE_EDIT_TRACE=1` makes every
 # early exit name itself on stderr. Nothing is printed without it, and
 # stdout is never touched - the hook's contract is unchanged.

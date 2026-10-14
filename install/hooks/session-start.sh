@@ -68,6 +68,30 @@ fi
 CHEAP_MEM_ROOT="$mem_root"
 export CHEAP_MEM_ROOT
 
+# R6: a V8 compile cache for the node starts below (context, habits, alarm,
+# today, journal - five in a row). Inline twin of bin/_portable.sh
+# `mem_compile_cache` (this hook is installed alone): in the USER's cache,
+# never in the memory; a value the user set stays; a directory that cannot
+# be made means no cache, never a silent hook. test/hook-compile-cache.test.mjs
+# holds both to the same directory.
+if [ -z "${NODE_COMPILE_CACHE:-}" ]; then
+  mem_cc_base=""
+  case "$(uname -s 2>/dev/null)" in
+    Darwin) [ -n "${HOME:-}" ] && mem_cc_base="$HOME/Library/Caches" ;;
+    MINGW*|MSYS*|CYGWIN*) mem_cc_base="${LOCALAPPDATA:-}"; mem_cc_base="${mem_cc_base//\\//}" ;;
+    *)
+      case "${XDG_CACHE_HOME:-}" in
+        /*) mem_cc_base="$XDG_CACHE_HOME" ;;
+        *) [ -n "${HOME:-}" ] && mem_cc_base="$HOME/.cache" ;;
+      esac ;;
+  esac
+  if [ -n "$mem_cc_base" ]; then
+    mem_cc_dir="$mem_cc_base/cheap-mem/node-cc"
+    [ -d "$mem_cc_dir" ] || (umask 077; mkdir -p "$mem_cc_dir") 2>/dev/null
+    [ -d "$mem_cc_dir" ] && export NODE_COMPILE_CACHE="$mem_cc_dir"
+  fi
+fi
+
 # **"attached" only when the tool is reachable (Z1c, external brief
 # 2026-09-30).** The header used to be printed as soon as a memory
 # directory was found. With a memory that has no `bin/mem` (a checkout
