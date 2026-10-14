@@ -74,11 +74,12 @@ test('numbers and booleans under a secret key are masked; null, empty and blank 
 });
 
 test('counters are not secrets: max_tokens, tokens_used, usage.input_tokens stay; singular token and authToken do not', () => {
-  const keep = { max_tokens: 4096, tokens_used: 1234, token_count: 5, maxTokens: 9, totalTokens: 10, numTokens: 3, token_limit: 7, usage: { input_tokens: 12, output_tokens: 3, cache_read_input_tokens: 0 }, tokens: 55, tokens_ok: true };
+  const keep = { max_tokens: 4096, tokens_used: 1234, token_count: 5, maxTokens: 9, totalTokens: 10, numTokens: 3, token_limit: 7, usage: { input_tokens: 12, output_tokens: 3, cache_read_input_tokens: 0 }, tokens: 55 };
   assert.deepEqual(maskEntry(keep), keep);
   assert.deepEqual(redaction.redactObject(keep), keep);
-  assert.deepEqual(maskEntry({ tokens_used: '1234', max_tokens: '4,096' }), { tokens_used: '1234', max_tokens: '4,096' });
-  // a string that is no number under a counter key is still masked
+  // a counter is a NUMBER: a digit string, a boolean or a list of numbers under a counter key is a value (review 2026-10-14)
+  assert.deepEqual(maskEntry({ tokens_used: '1234', max_tokens: '4,096', token_count: true, tokens: [1, 2] }),
+    { tokens_used: MARK, max_tokens: MARK, token_count: MARK, tokens: [MARK, MARK] });
   assert.deepEqual(maskEntry({ tokens: 'abc123def456' }), { tokens: MARK });
   assert.deepEqual(maskEntry({ token: 1234, authToken: 1234, access_token: 1 }), { token: MARK, authToken: MARK, access_token: MARK });
 });
@@ -87,6 +88,31 @@ test('a plural or a counter word is a count: "secrets": 120 and password_length:
   const keep = { secrets: 120, passwords: 3, api_keys: 2, password_length: 12, secret_count: 4, token_limit_per_min: 10, tokensUsed: 5 };
   assert.deepEqual(maskEntry(keep), keep);
   assert.deepEqual(maskEntry({ secret: 120, password: 12 }), { secret: MARK, password: MARK });
+});
+
+test('a digit string under a counter-looking key is a value; a counter is a single number (review 2026-10-14)', () => {
+  const closed = [
+    { passwords: ['1234', '5678'] }, { secrets: '123456' }, { tokens: '123456' }, { password_len: '123456' },
+    { api_key_count: '99887766' }, { token_count: '4111 1111 1111 1111' }, { passwords: [1234, 5678] }, { secret_count: true },
+  ];
+  for (const c of closed) {
+    for (const r of [maskEntry(c), redaction.redactObject(c), redaction.redactEntry(c, { secrets: [] }).object]) {
+      assert.ok(!/\d{4}/.test(JSON.stringify(r)), `value left: ${JSON.stringify(c)} => ${JSON.stringify(r)}`);
+    }
+  }
+  // the corpus case stays free: one number under a plural
+  assert.deepEqual(maskEntry({ kinds: 24, secrets: 120, caughtByRedaction: 1 }), { kinds: 24, secrets: 120, caughtByRedaction: 1 });
+});
+
+test('object-only key words: pin, pwd, passcode, credential(s), privateKey, accessKey, access-key; a fetch option stays', () => {
+  const c = { pin: '1234', userPin: 4321, pin_code: 'a b', pwd: 'x y', passcode: 99, credential: 'ab', credentials: 'u:p', privateKey: 'k k', accessKey: 'a1', 'access-key': 'a2', clientSecret: 's s' };
+  for (const r of [maskEntry(c), redaction.redactObject(c)]) {
+    for (const k of Object.keys(c)) assert.equal(r[k], MARK, `${k} => ${JSON.stringify(r[k])}`);
+  }
+  assert.deepEqual(maskEntry({ credentials: 'include' }), { credentials: 'include' });
+  assert.deepEqual(maskEntry({ credentials: 'same-origin', pinned: true, pinball: 'x', spin: 'y', pins: 'z' }), { credentials: 'same-origin', pinned: true, pinball: 'x', spin: 'y', pins: 'z' });
+  // the text rule is unchanged: a bare `pin` as text is no finding
+  assert.equal(redaction.redact('{"pin": "1234"}').text, '{"pin": "1234"}');
 });
 
 test('a key that goes on long behind its keyword spares prose, like the text rule, and masks the rest', () => {
@@ -220,6 +246,12 @@ test('Bearer, Basic and the Token header scheme: a value behind one or more mark
     assert.equal(redaction.redact(r).text, r, `not idempotent: ${t}`);
     assert.equal(maskText(maskText(t)), maskText(t));
   }
+  // two markers in a row inside the value, with a stump behind them
+  for (const t of [`Bearer ${VALUE}[REDACTED:x][REDACTED:y]${VALUE}`, `Basic ${VALUE}[REDACTED:x][REDACTED:y]${VALUE}`, `Authorization: Token ${VALUE}[REDACTED:x][REDACTED:y][REDACTED:z]${VALUE}`]) {
+    const r = redaction.redact(t).text;
+    assert.ok(!r.includes(VALUE.slice(0, 12)) && !r.includes(VALUE.slice(-12)), `value left: ${t} => ${r}`);
+    assert.equal(redaction.redact(r).text, r);
+  }
   // a value behind the marker AND a stump after the value: the stump is part of it
   assert.ok(!redaction.redact(`Bearer ${VALUE}[REDACTED:x]ZZZZ`).text.includes('ZZZZ'));
 });
@@ -240,10 +272,32 @@ test('a very long key is judged in linear time', () => {
   }
 });
 
+test('an object key made of one long run of punctuation is judged in linear time (review 2026-10-14)', { timeout: 120000 }, () => {
+  // the small shapes first: a regression is red at once (about 1.4 s and 5.6 s each), not after minutes on the 1 MB ones
+  const keys = ['='.repeat(5e4) + 'x', ' \\'.repeat(5e4) + 'x', '='.repeat(1e6) + 'x', ' \\'.repeat(5e5) + 'x', '\\'.repeat(1e6) + 'x', ':'.repeat(1e6) + 'x',
+    '"'.repeat(1e6) + 'x', "'".repeat(1e6) + 'x', ' '.repeat(5e5) + 'x', '=\\'.repeat(2e5)];
+  for (const key of keys) {
+    for (const [name, f] of [['redactObject', (o) => redaction.redactObject(o)], ['maskEntry', (o) => maskEntry(o)], ['redactEntry', (o) => redaction.redactEntry(o, { secrets: [] }).object],
+      ['scanObject', (o) => redaction.scanObject(o)], ['isHarmlessKey', () => redaction.isHarmlessKey(key)]]) {
+      const t = performance.now();
+      f({ [key]: 'a b' });
+      const ms = performance.now() - t;
+      assert.ok(ms < 2500, `${name}: ${ms.toFixed(0)} ms on a key of ${key.length} characters starting ${JSON.stringify(key.slice(0, 4))}`);
+    }
+  }
+  // a key past the cap is a secret in doubt
+  assert.deepEqual(maskEntry({ ['k'.repeat(2000)]: 'a b' }), { ['k'.repeat(2000)]: MARK });
+  // the loop trims what the old class trimmed
+  assert.equal(redaction.isHarmlessKey('"nextPageToken":  '), true);
+  assert.equal(redaction.isHarmlessKey('\\"next_token\\"='), true);
+  assert.equal(redaction.isHarmlessKey('"authToken":'), false);
+});
+
 test('Bearer/Basic stay linear with many markers and many schemes', () => {
   const markers = '[REDACTED:x]'.repeat(40000);
   for (const text of [`Bearer ${markers}`, `Bearer ${markers}!`, 'Bearer [REDACTED:x]a '.repeat(40000), `Basic ${markers}`, `Authorization: Token ${markers}`,
-    'Bearer '.repeat(100000), `Bearer ${'[REDACTED:x]'.repeat(10)}`.repeat(30000), `Bearer a${'[REDACTED:x]b'.repeat(40000)}`]) {
+    'Bearer '.repeat(100000), `Bearer ${'[REDACTED:x]'.repeat(10)}`.repeat(30000), `Bearer a${'[REDACTED:x]b'.repeat(40000)}`, `Bearer a${'[REDACTED:x]'.repeat(80000)}!`,
+    `Bearer a${'[REDACTED:x][REDACTED:y]b'.repeat(30000)}`, `${'Bearer a[REDACTED:x][REDACTED:y] '.repeat(30000)}`]) {
     const t = performance.now();
     redaction.redact(text);
     const ms = performance.now() - t;
@@ -260,7 +314,7 @@ test('red proof: the old tree left every one of these open; positive control: it
     const old = await import(pathToFileURL(path.join(dir, 'src', 'redaction.mjs')).href);
     const oldGuard = await import(pathToFileURL(path.join(dir, 'src', 'outputguard.mjs')).href);
     // the objects: the old walk looked at each string alone
-    const objects = [{ password: PHRASE }, { token: 'abc123def456' }, { env: { API_KEY: 'k1' } }, { headers: { Authorization: 'Basic abc' } }, { password: 123456 }, { x: { y: { secret: 'a b' } } }];
+    const objects = [{ passwords: ['1234', '5678'] }, { token_count: '4111 1111 1111 1111' }, { pin: '1234' }, { privateKey: 'k k' }, { password: PHRASE }, { token: 'abc123def456' }, { env: { API_KEY: 'k1' } }, { headers: { Authorization: 'Basic abc' } }, { password: 123456 }, { x: { y: { secret: 'a b' } } }];
     for (const o of objects) {
       assert.ok(!JSON.stringify(old.redactObject(o)).includes(MARK), `the old redactObject masked ${JSON.stringify(o)}`);
       assert.ok(!JSON.stringify(oldGuard.maskEntry(o)).includes(MARK), `the old maskEntry masked ${JSON.stringify(o)}`);

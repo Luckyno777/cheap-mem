@@ -158,9 +158,9 @@ export const PATTERNS = Object.freeze([
   // value may also run THROUGH a marker (`<20+>[REDACTED:x]Z`), a stump after it counts. The whole run falls as one marker;
   // a value of markers alone is not a match (idempotence: the second pass finds nothing new). `Authorization: Token <v>`
   // is the same header scheme and has no pattern of its own elsewhere: narrowly, behind the header name only.
-  ['bearer',          new RegExp(`\\b[Bb]earer\\s+(?:[A-Za-z0-9._~+/-]{20,}=*|(?:${MARKER})+[A-Za-z0-9_~+/-][A-Za-z0-9._~+/-]*=*)(?:${MARKER}[A-Za-z0-9._~+/-]+=*)*`, 'g')],
-  ['bearer',          new RegExp(`(?<=\\bAuthorization${SP}{0,4}${SEP}${SP}{0,4})Token\\s+(?:[A-Za-z0-9._~+/-]{20,}=*|(?:${MARKER})+[A-Za-z0-9_~+/-][A-Za-z0-9._~+/-]*=*)(?:${MARKER}[A-Za-z0-9._~+/-]+=*)*`, 'gi')],
-  ['basic-auth',      new RegExp(`\\b[Bb]asic\\s+(?:[A-Za-z0-9+/]{20,}=*|(?:${MARKER})+[A-Za-z0-9+/][A-Za-z0-9+/]*=*)(?:${MARKER}[A-Za-z0-9+/]+=*)*`, 'g')],
+  ['bearer',          new RegExp(`\\b[Bb]earer\\s+(?:[A-Za-z0-9._~+/-]{20,}=*|(?:${MARKER})+[A-Za-z0-9_~+/-][A-Za-z0-9._~+/-]*=*)(?:(?:${MARKER})+[A-Za-z0-9._~+/-]+=*)*`, 'g')],
+  ['bearer',          new RegExp(`(?<=\\bAuthorization${SP}{0,4}${SEP}${SP}{0,4})Token\\s+(?:[A-Za-z0-9._~+/-]{20,}=*|(?:${MARKER})+[A-Za-z0-9_~+/-][A-Za-z0-9._~+/-]*=*)(?:(?:${MARKER})+[A-Za-z0-9._~+/-]+=*)*`, 'gi')],
+  ['basic-auth',      new RegExp(`\\b[Bb]asic\\s+(?:[A-Za-z0-9+/]{20,}=*|(?:${MARKER})+[A-Za-z0-9+/][A-Za-z0-9+/]*=*)(?:(?:${MARKER})+[A-Za-z0-9+/]+=*)*`, 'g')],
   // Scheme bounded (2026-09-26): unbounded, it restarted at every word
   // boundary of a long run like 'a.b-c+d...' and went quadratic (lucky-mem
   // measured 64,000 chars in 1718 ms). Real schemes are short.
@@ -305,8 +305,24 @@ const HARMLESS_KEY = [
 
 /** Does this key name something that grants no access? See HARMLESS_KEY. */
 export function isHarmlessKey(name) {
-  const bare = String(name ?? '').trim().replace(/^["'\s]+/, '').replace(/[\\"'\s:=]+$/, '');
+  const bare = trimKeyTail(String(name ?? '').trim().replace(/^["'\s]+/, ''));
   return HARMLESS_KEY.some((r) => r.test(bare));
+}
+
+/**
+ * The key without the quotes, colons, equals signs, backslashes and blanks that trail it. A loop, not `.replace(/[...]+$/, '')`:
+ * that pattern restarts at every character of a run and fails at the `$` each time, quadratic (a 50,000-character run of `=`
+ * in an object key took 1.4 s, `' \\'` repeated 5.6 s, 1 MB about nine minutes; found in review 2026-10-14).
+ */
+function trimKeyTail(s) {
+  let end = s.length;
+  while (end > 0) {
+    const c = s.charCodeAt(end - 1);
+    // \ " ' : = and the blanks `\s` knows (the loop is the same set as the class it replaces)
+    if (c === 92 || c === 34 || c === 39 || c === 58 || c === 61 || /\s/.test(s[end - 1])) end -= 1;
+    else break;
+  }
+  return end === s.length ? s : s.slice(0, end);
 }
 
 /**
@@ -463,7 +479,7 @@ function isProse(value) {
  * one: a header name is a key, not a vocabulary entry.
  */
 function isKebabKey(key) {
-  return /[A-Za-z0-9]-[A-Za-z0-9]/.test(key.replace(/[\\"'\s:=]+$/, '').replace(/(?:x-)?api-key/gi, 'apikey'));
+  return /[A-Za-z0-9]-[A-Za-z0-9]/.test(trimKeyTail(key).replace(/(?:x-)?api-key/gi, 'apikey'));
 }
 
 function harmlessString(value) {
@@ -684,53 +700,77 @@ export function redact(text) {
 // secret shape (measured 2026-10-14; the gap was named in docs/security-model.md T3). Nested it is the raw capture's
 // normal case: `tool_use.input` is `{headers: {Authorization: ...}}`, `{env: {API_KEY: ...}}`.
 //
-// Rule: a string under a secret's key falls WHOLE, however deep the key sits; a number or a boolean under it too (a numeric
-// PIN is a password). `null`, `undefined` and the empty or blank string stay (nothing to hide), and so does a value that is
-// markers alone (idempotence). The key list is `JSON_KEY_WORDS`, the very list of `json-secret` (no second copy), tested
-// anywhere in the key; only a header name is added for objects: `authorization` / `proxy-authorization`, exactly (the
-// header carries the credential and its name has no keyword; the text rule cannot name it without catching every
-// `authorization_url`).
+// Rule: a string under a secret's key falls WHOLE, however deep the key sits; a number or a boolean directly under it too (a
+// numeric PIN is a password). `null`, `undefined` and the empty or blank string stay (nothing to hide), and so does a value
+// that is markers alone (idempotence). The key list is `JSON_KEY_WORDS`, the very list of `json-secret` (no second copy),
+// tested anywhere in the key, also with camelCase and hyphens read as `_` (`privateKey`, `access-key`). Added for OBJECTS
+// only (the text rule stays as it is): the whole words `pin`, `pwd`, `passcode`, `credential(s)` in a key, and the header
+// name `authorization` / `proxy-authorization`, exactly (the header carries the credential and its name has no keyword; the
+// text rule cannot name it without catching every `authorization_url`).
 //
 // - **The context is inherited** by the STRINGS below a secret key: `{secrets: {A: "x"}}`, `{token: ["a", "b"]}`,
 //   `{password: {value: "x"}}`. A nested key can add a context, never remove one. A number or boolean is masked only
 //   where the key stands directly over it (or over the array that holds it): `{"github-token": {n: 5, caught: 5}}`, a
 //   table of counts named after a kind of key (docs/value-report/secrets.json), keeps its numbers.
 // - **Pagination cursors stay** (`isHarmlessKey`: `nextPageToken`), as in the text rule.
-// - **Counters are not secrets.** `max_tokens: 4096`, `tokens_used: 1234`, `usage: {input_tokens: 12}` carry the word
-//   `token` and are LLM token counts. A key that stops matching once its counter words (`tokens` plural, `token_count`,
-//   `token_limit`, `max_token` ...) are taken out is a counter key: a number, a boolean or a string of digits under it
-//   stays; any other string under it is masked as before. `token: 1234` (singular) and `authToken: 1234` are masked.
+// - **A counter is a NUMBER under a counter key, nothing else (review 2026-10-14).** `max_tokens: 4096`, `tokens_used: 1234`,
+//   `usage: {input_tokens: 12}`, `password_length: 12`, `"secrets": 120` carry a keyword and are counts. A key is a counter key
+//   when it stops matching once its counter words are taken out: `count`, `limit`, `used`, `len`, `length`, `total`, `num`,
+//   `max_`/`min_` and the like behind a keyword, or the plural of a keyword (`tokens`, `secrets`; the plural is what keeps
+//   `"secrets": 120` of docs/value-report/secrets.json free: a plural is a table or a count, and a number is all it spares).
+//   What stays is a single number (type `number`) directly under the key. A digit STRING does not (`"password_len": "123456"`,
+//   `"token_count": "4111 1111 1111 1111"` are values), neither does a boolean, a number inside an array
+//   (`"passwords": [1234, 5678]`) or any string (`"secrets": "123456"`). `token: 1234` and `authToken: 1234` are no counters.
 // - **`password_hint` is masked.** The key holds the word, and a hint is where people write the password down
 //   ("dog's name + 1"); the text rule masks it, too. Readability costs less than a leaked phrase.
 // - **No kebab exception.** The text rule skips `'secret-leak': 'slug'` unless the value is credential-shaped; an object
 //   field has no such vocabulary map to protect, and the sure side is to mask.
+// - **`credentials` is also a fetch option.** `credentials: 'include'` (`same-origin`, `omit`) is not a secret and stays; any
+//   other value under that key is masked.
+// - **A very long key is a secret in doubt.** A key past KEY_MAX characters is not read at all (its words, its tail): its
+//   strings and the numbers directly under it fall. Reading is bounded and linear, a run of quotes or equals signs or
+//   backslashes in a key cannot make it quadratic (`trimKeyTail`, review 2026-10-14).
 // - **Bounded.** A cycle, a depth over WALK_MAX_DEPTH and a walk past WALK_MAX_NODES end in a marker instead of a crash.
 const SECRET_KEY = new RegExp(JSON_KEY_WORDS, 'i');
 const AUTH_HEADER_KEY = /^(?:proxy-)?authorization$/i;
-const COUNTER_WORDS = new RegExp(`(?:${JSON_KEY_WORDS})(?:s|[_-]?(?:count|counts|limit|limits|budget|usage|used|len|length|total|num|number|ids?))|(?:max|min|num|total)[_-]?token`, 'gi');
+const EXTRA_KEY_WORDS = new Set(['pin', 'pwd', 'passcode']);
+const CREDENTIAL_WORDS = new Set(['credential', 'credentials']);
+const FETCH_CREDENTIALS = /^(?:same-origin|include|omit)$/;
+const COUNTER_WORDS = new RegExp(`(?:${JSON_KEY_WORDS})(?:s|[_-]?(?:count|counts|limit|limits|budget|usage|used|len|length|total|num|number))|(?:max|min|num|total)[_-]?token`, 'gi');
 const SECRET_KEY_ALL = new RegExp(JSON_KEY_WORDS, 'gi');
-const KEY_NOISE = /[\u00AD\u200B-\u200F\u2060\uFEFF]/g;
-const DIGITS_ONLY = /^\s*[+-]?\d[\d.,_\s]*$/;
+const KEY_NOISE = /[­​-‏⁠﻿]/g;
+const KEY_MAX = 512;
 const WALK_MAX_DEPTH = 64;
 const WALK_MAX_NODES = 2_000_000;
+const RANK = { counter: 1, cred: 2, 'secret-long': 3, secret: 4 };
 
 /**
- * `'secret'`, `'secret-long'`, `'counter'` or `null`: what a field NAME says about the value under it. `secret-long` is a key
- * that goes on for more than JSON_SUFFIX_MAX characters behind its keyword (`token_system_is_a_facade`): like the text rule,
- * it spares a string that reads as prose (twelve words, no credential shape), and masks everything else.
+ * `'secret'`, `'secret-long'`, `'cred'`, `'counter'` or `null`: what a field NAME says about the value under it.
+ * `secret-long` is a key that goes on for more than JSON_SUFFIX_MAX characters behind its keyword (`token_system_is_a_facade`):
+ * like the text rule, it spares a string that reads as prose (twelve words, no credential shape), and masks everything else.
+ * `cred` is `credential(s)`: a secret, except the three values of the fetch option. `counter` is a keyword whose counter
+ * words are taken out (see above): it spares a number.
  */
 function secretKeyKind(key) {
   if (typeof key !== 'string' || !key) return null;
+  if (key.length > KEY_MAX) return 'secret';
   // Zero-width characters and full-width letters spell a key the list does not know; read the key the way it looks.
   const k = key.normalize('NFKC').replace(KEY_NOISE, '');
   if (isHarmlessKey(k)) return null;
   if (AUTH_HEADER_KEY.test(k.trim())) return 'secret';
-  if (!SECRET_KEY.test(k)) return null;
-  if (!SECRET_KEY.test(k.replace(COUNTER_WORDS, '_'))) return 'counter';
+  // camelCase and hyphens read as `_`: `privateKey`, `accessKey`, `access-key`. The plain key is tried too (`passWord`).
+  const n = k.replace(/([a-z0-9])([A-Z])/g, '$1_$2').replace(/-/g, '_');
+  const words = n.toLowerCase().split(/[^a-z0-9]+/);
+  const base = SECRET_KEY.test(n) ? n : k;
+  if (!SECRET_KEY.test(base)) {
+    if (words.some((w) => EXTRA_KEY_WORDS.has(w))) return 'secret';
+    return words.some((w) => CREDENTIAL_WORDS.has(w)) ? 'cred' : null;
+  }
+  if (!SECRET_KEY.test(base.replace(COUNTER_WORDS, '_'))) return 'counter';
   // The suffix is counted from the LAST keyword (the text rule's key takes as much prefix as it can). One pass, linear.
   let end = 0;
-  for (const m of k.matchAll(SECRET_KEY_ALL)) end = m.index + m[0].length;
-  return k.length - end > JSON_SUFFIX_MAX ? 'secret-long' : 'secret';
+  for (const m of base.matchAll(SECRET_KEY_ALL)) end = m.index + m[0].length;
+  return base.length - end > JSON_SUFFIX_MAX ? 'secret-long' : 'secret';
 }
 
 const KEY_MARK = '[REDACTED:json-secret]';
@@ -744,19 +784,22 @@ const MARKER_ALONE = new RegExp(`^(?:${MARKER}|\\s)*$`);
 export function walkSecrets(root, leaf, { plainOnly = false, onKeyMask = null } = {}) {
   const path = new Set();
   let nodes = 0;
+  // `ctx`: the strongest kind of key above (null for none). `direct`: what the key DIRECTLY over this value says
+  // ('secret', 'counter' or false); it is passed on through an array, never through an object.
   const rec = (v, depth, ctx, direct) => {
     if (typeof v === 'string') {
       if (ctx === null) return leaf(v);
       if (!v.trim() || MARKER_ALONE.test(v)) return leaf(v);
-      if (ctx === 'counter' && DIGITS_ONLY.test(v)) return leaf(v);
+      if (ctx === 'cred' && FETCH_CREDENTIALS.test(v)) return leaf(v);
       if (ctx === 'secret-long' && v.length <= JSON_STRING_CAP && /\s/.test(v) && isProse(v)) return leaf(v);
       if (onKeyMask) onKeyMask();
       return KEY_MARK;
     }
     if (typeof v === 'number' || typeof v === 'boolean' || typeof v === 'bigint') {
       // A number or boolean is masked only when the secret's key stands DIRECTLY over it (or over the array that holds it):
-      // `{"github-token": {"n": 5, "caught": 5}}` is a table of counts that happens to be named after a kind of key.
-      if (!direct) return v;
+      // `{"github-token": {"n": 5, "caught": 5}}` is a table of counts that happens to be named after a kind of key. Under a
+      // counter key a single number stays; a boolean or a number in an array does not.
+      if (!direct || (direct === 'counter' && typeof v === 'number')) return v;
       if (onKeyMask) onKeyMask();
       return KEY_MARK;
     }
@@ -770,13 +813,16 @@ export function walkSecrets(root, leaf, { plainOnly = false, onKeyMask = null } 
     if (depth >= WALK_MAX_DEPTH || nodes > WALK_MAX_NODES) return '[REDACTED:depth]';
     path.add(v);
     try {
-      if (Array.isArray(v)) return v.map((x) => rec(x, depth + 1, ctx, direct));
+      if (Array.isArray(v)) {
+        // a counter's number is one number, not a list of them
+        const inner = direct === 'counter' ? 'secret' : direct;
+        return v.map((x) => rec(x, depth + 1, ctx, inner));
+      }
       const out = {};
       for (const [k, x] of Object.entries(v)) {
         const kind = secretKeyKind(k);
-        const next = kind === 'secret' || ctx === 'secret' ? 'secret'
-          : kind === 'secret-long' || ctx === 'secret-long' ? 'secret-long' : (kind ?? ctx);
-        const r = rec(x, depth + 1, next, kind === 'secret' || kind === 'secret-long');
+        const next = kind !== null && (ctx === null || RANK[kind] > RANK[ctx]) ? kind : ctx;
+        const r = rec(x, depth + 1, next, kind === null ? false : (kind === 'counter' ? 'counter' : 'secret'));
         if (k === '__proto__') Object.defineProperty(out, k, { value: r, enumerable: true, writable: true, configurable: true });
         else out[k] = r;
       }
