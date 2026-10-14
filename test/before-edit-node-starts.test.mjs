@@ -6,7 +6,7 @@
 // so the cost lands in the middle of the work. It is ONE start now.
 //
 // The count is taken the same way on every platform: NODE_OPTIONS carries a
-// `--require` of a tiny counter that appends a line per process, and every
+// `--import` (a file URL: a Windows backslash path in NODE_OPTIONS is read as escapes) of a tiny counter that appends a line per process, and every
 // child node inherits it — no wrapper script on PATH, no /tmp, no POSIX tool.
 // The number is a ratchet: it is allowed to fall, never to grow again.
 //
@@ -21,6 +21,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import { tempDir } from './temp-dir.mjs';
 import { waitForRebuildIdle } from '../src/component-table.mjs';
 import * as memory from '../src/memory.mjs';
@@ -45,14 +46,14 @@ function world(t) {
 function counter(t) {
   const dir = tempDir('cm-bens-cnt-', t);
   const file = path.join(dir, 'starts.txt');
-  const req = path.join(dir, 'count.cjs');
+  const req = path.join(dir, 'count.mjs');
   // The detached rebuild of a STALE component table (src/component-table.mjs) is a start of its own that no
   // hook can avoid when the table is stale; it carries CM_REBUILD_LOCK and is labelled, not counted.
-  fs.writeFileSync(req, "require('node:fs').appendFileSync(process.env.CM_COUNT_FILE, "
-    + "(process.env.CM_REBUILD_LOCK ? 'rebuild ' : 'start ') + process.argv.slice(1, 3).join(' ') + '\\n');\n");
+  fs.writeFileSync(req, "import fs from 'node:fs';\n"
+    + "fs.appendFileSync(process.env.CM_COUNT_FILE, (process.env.CM_REBUILD_LOCK ? 'rebuild ' : 'start ') + process.argv.slice(1, 3).join(' ') + '\\n');\n");
   fs.writeFileSync(file, '');
   return {
-    env: { CM_COUNT_FILE: file, NODE_OPTIONS: `--require="${req}"` },
+    env: { CM_COUNT_FILE: file, NODE_OPTIONS: `--import ${pathToFileURL(req).href}` },
     reset: () => fs.writeFileSync(file, ''),
     n: () => fs.readFileSync(file, 'utf8').split('\n').filter((l) => l.startsWith('start ')).length, dump: () => fs.readFileSync(file, 'utf8'),
   };

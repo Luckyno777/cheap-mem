@@ -48,6 +48,9 @@ function home(t) {
 function run(hookPath, root, h, extra = {}, input = null, session = `s-cc-${Math.random().toString(36).slice(2)}`) {
   const env = { ...process.env, CHEAP_MEM_ROOT: root, HOME: h, USERPROFILE: h, MEM_HOOK_OFF: '', MEM_BEFORE_EDIT_OFF: '', ...extra };
   for (const k of ['NODE_COMPILE_CACHE', 'XDG_CACHE_HOME', 'LOCALAPPDATA']) if (!(k in extra)) delete env[k];
+  // Git Bash reports MINGW*: its cache lives under LOCALAPPDATA, so there the scratch home gets one of its own
+  // (deleting it would leave the hook no base at all - and the test nothing to look at).
+  if (process.platform === 'win32' && !('LOCALAPPDATA' in extra)) env.LOCALAPPDATA = cacheBase(h);
   const r = spawnSync('bash', [hookPath], {
     input: input ?? JSON.stringify({ session_id: session, tool_name: 'Edit', tool_input: { file_path: '/p/install/claude-code.sh' } }),
     encoding: 'utf8', timeout: 60000, env,
@@ -55,7 +58,9 @@ function run(hookPath, root, h, extra = {}, input = null, session = `s-cc-${Math
   waitForRebuildIdle(root);
   return r;
 }
-const ccDir = (h) => path.join(h, '.cache', 'cheap-mem', 'node-cc');
+/** Where the hook shells put their cache base for a scratch HOME: Linux/macOS-style `.cache`, Git Bash on Windows LOCALAPPDATA. */
+const cacheBase = (h) => (process.platform === 'win32' ? path.join(h, 'AppData', 'Local') : path.join(h, '.cache'));
+const ccDir = (h) => path.join(cacheBase(h), 'cheap-mem', 'node-cc');
 const nothingInMemory = (root) => {
   assert.equal(fs.existsSync(path.join(root, '.pipeline', 'node-cc')), false, 'a cache directory appeared in the memory');
   const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]));
@@ -101,14 +106,14 @@ test('RED PROOF: the old hook leaves no cache behind; the current one fills the 
   const h0 = home(t);
   const r0 = run(oldHook, root, h0);
   assert.equal(r0.status, 0, r0.stderr);
-  assert.equal(fs.existsSync(path.join(h0, '.cache')), false, 'the old hook already made a cache directory - the red proof no longer holds');
+  assert.equal(fs.existsSync(cacheBase(h0)), false, 'the old hook already made a cache directory - the red proof no longer holds');
 
   const hook = toolDir(t, fs.readFileSync(path.join(REPO, 'bin', 'mem-before-edit'), 'utf8'), { core: true });
   const h1 = home(t);
   const r1 = run(hook, root, h1);
   assert.equal(r1.status, 0, r1.stderr);
   assert.match(r1.stdout, /memory knows/, 'the hook must still answer');
-  assert.ok(fs.statSync(ccDir(h1), { throwIfNoEntry: false })?.isDirectory(), 'no cache directory under $HOME/.cache/cheap-mem/node-cc');
+  assert.ok(fs.statSync(ccDir(h1), { throwIfNoEntry: false })?.isDirectory(), 'no cache directory under <cache base>/cheap-mem/node-cc');
   if (CAN) assert.ok(fs.readdirSync(ccDir(h1)).length > 0, 'node wrote nothing into the cache');
   else {
     assert.doesNotMatch(r1.stderr, /node:internal|Error|ERR_|compile cache/i, r1.stderr);
@@ -125,7 +130,7 @@ test('MUTATION: the hook without its call leaves no cache directory', (t) => {
   const h = home(t);
   const r = run(hook, root, h);
   assert.equal(r.status, 0, r.stderr);
-  assert.equal(fs.existsSync(path.join(h, '.cache')), false, 'without the call a cache directory appeared anyway');
+  assert.equal(fs.existsSync(cacheBase(h)), false, 'without the call a cache directory appeared anyway');
 });
 
 test('a value the user set stays, and our directory is not made then', (t) => {
@@ -134,7 +139,7 @@ test('a value the user set stays, and our directory is not made then', (t) => {
   const h = home(t);
   const r = run(path.join(REPO, 'bin', 'mem-before-edit'), root, h, { NODE_COMPILE_CACHE: own });
   assert.equal(r.status, 0, r.stderr);
-  assert.equal(fs.existsSync(path.join(h, '.cache')), false, 'a user value was overridden (our directory was made)');
+  assert.equal(fs.existsSync(cacheBase(h)), false, 'a user value was overridden (our directory was made)');
   if (CAN) assert.ok(fs.readdirSync(own).length > 0, 'node should have written into the user directory');
   else assert.deepEqual(fs.readdirSync(own), []);
 });
@@ -142,7 +147,8 @@ test('a value the user set stays, and our directory is not made then', (t) => {
 test('a directory that cannot be made: the hook answers all the same', (t) => {
   const root = world(t);
   const h = home(t);
-  fs.writeFileSync(path.join(h, '.cache'), 'a file where a directory has to be');
+  fs.mkdirSync(path.dirname(cacheBase(h)), { recursive: true });
+  fs.writeFileSync(cacheBase(h), 'a file where a directory has to be');
   const r = run(path.join(REPO, 'bin', 'mem-before-edit'), root, h);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /memory knows/, 'the hook fell silent over a cache');
