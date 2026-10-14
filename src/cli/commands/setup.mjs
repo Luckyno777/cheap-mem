@@ -305,7 +305,7 @@ export const COMMANDS = {
       out('Note: the MCP server needs @modelcontextprotocol/sdk, which is not');
       out('installed (it is an optional peer — 28 MB the rest of cheap-mem does');
       out('not need). The hooks above work without it. To add the MCP tools:');
-      out('  npm install -g @modelcontextprotocol/sdk');
+      out('  npm install -g "@modelcontextprotocol/sdk@^1.30.0"');
       out(`  ${mcpCmd}`);
       out('');
       out('Check it took: mem doctor   (the stop-hook and git-hook findings)');

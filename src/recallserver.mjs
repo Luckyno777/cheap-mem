@@ -131,6 +131,70 @@ function someoneListens(socket) {
   });
 }
 
+/**
+ * Remove pinning links (`recall.sock.hold.<pid>.<hex>`) that a start left behind when it was killed during the probe.
+ * Only names of exactly that shape, only files of our own uid, only those whose pid is not alive (a concurrent starter's
+ * link is in use right now), in our own socket directory.
+ */
+function sweepHolds(socket) {
+  const dir = path.dirname(socket);
+  const prefix = `${path.basename(socket)}.hold.`;
+  let names;
+  try { names = fs.readdirSync(dir); } catch { return; }
+  const uid = typeof process.getuid === 'function' ? process.getuid() : null;
+  for (const name of names) {
+    if (!name.startsWith(prefix)) continue;
+    const m = /^(\d+)\.[0-9a-f]{8}$/.exec(name.slice(prefix.length));
+    if (!m) continue;
+    const pid = Number(m[1]);
+    if (pid === process.pid) continue;
+    let alive = true;
+    try { process.kill(pid, 0); } catch (e) { alive = e?.code === 'EPERM'; }
+    if (alive) continue;
+    const full = path.join(dir, name);
+    try {
+      const st = fs.lstatSync(full);
+      if (uid !== null && st.uid !== uid) continue;
+      if (!st.isSocket()) continue;
+      fs.rmSync(full, { force: true });
+    } catch { /* gone, or not ours to remove */ }
+  }
+}
+
+/** Device and inode of a path (`lstat`, follows no link), or null. */
+function socketStand(p) {
+  try {
+    const st = fs.lstatSync(p, { bigint: true });
+    return { dev: Number(st.dev), ino: Number(st.ino), socket: st.isSocket(), born: st.ctimeNs };
+  } catch { return null; }
+}
+
+/**
+ * Close the server without taking a FOREIGN socket away. `server.close()` unlinks the bound NAME in libuv, without
+ * asking whose file stands there (measured on Node 22 by the sibling house, R3 lever 9). `mine` is device and inode
+ * of this server's own socket from right after `listen`; when another file stands at the path now (a newer server
+ * took the name), it is put aside for the duration of the (synchronous) call and put back after.
+ */
+function closeServer(server, socket, mine) {
+  return new Promise((resolve) => {
+    let aside = null;
+    if (mine) {
+      const now = socketStand(socket);
+      if (now && (now.dev !== mine.dev || now.ino !== mine.ino)) {
+        aside = `${socket}.foreign.${process.pid}.${crypto.randomBytes(4).toString('hex')}`;
+        try { fs.renameSync(socket, aside); } catch { aside = null; }
+      }
+    }
+    try { server.close(() => resolve()); } catch { resolve(); }
+    if (aside) {
+      try {
+        if (fs.existsSync(socket)) fs.rmSync(aside, { force: true }); // an even newer one took the name meanwhile: it counts
+        else fs.renameSync(aside, socket);
+      } catch { /* stays behind as a leftover */ }
+    }
+  });
+}
+
 function same(a, b) {
   const x = Buffer.from(String(a ?? ''), 'utf8');
   const y = Buffer.from(String(b ?? ''), 'utf8');
@@ -169,16 +233,55 @@ export async function start(root, {
     return { running: false, reason: e.message };
   }
   // POSIX: a socket file may be there, live or dead. Windows: a pipe leaves no file, so ask the pipe
-  // itself (a missing pipe answers at once with an error). Without this a second server on Windows
-  // replaced the live one's key file below, then failed to listen and removed it: the first server
-  // kept running, but no client could authenticate to it any more.
+  // itself (a missing pipe answers at once with an error).
   const win = process.platform === 'win32';
   if (win || fs.existsSync(where.socket)) {
-    if (await someoneListens(where.socket)) {
-      say(`not started: a server already listens on ${where.socket}`);
-      return { running: false, reason: 'busy' };
+    // R3 lever 9b: take device and inode of what stands at the path BEFORE the probe. Only a SOCKET that nobody
+    // listens on is "a dead server's leftover"; a regular file, a directory or a link belongs to somebody else: no
+    // start over it, and it is not touched. (A check taken AFTER the probe would see a socket another starter has just
+    // bound in the meantime and take it for the dead one.)
+    const before = win ? null : socketStand(where.socket);
+    if (before && !before.socket) {
+      const reason = `${where.socket} exists and is not a socket - not touched`;
+      say(`not started: ${reason}`);
+      return { running: false, reason };
     }
-    if (!win) { try { fs.rmSync(where.socket, { force: true }); } catch { /* listen will say */ } }
+    // A hard link in our own 0700 directory PINS the dead file's inode for the length of the probe: the number cannot be
+    // handed out again, so a new socket bound meanwhile cannot look like the old one (a freed inode number is reused at
+    // once on some file systems - measured here on ext). If the link cannot be made, device, inode and change time carry
+    // the comparison (a new file has a new change time), a little weaker.
+    sweepHolds(where.socket);
+    let hold = null;
+    let seen = before; // what the removal below is compared with (linking changes the change time: look again after it)
+    if (!win && before) {
+      const name = `${where.socket}.hold.${process.pid}.${crypto.randomBytes(4).toString('hex')}`;
+      try { fs.linkSync(where.socket, name); hold = name; } catch { /* not pinned: the change time stands in */ }
+      if (hold) {
+        const linked = socketStand(hold);
+        // The file that got linked is not the one that was seen (swapped in between): leave it alone.
+        seen = linked && linked.dev === before.dev && linked.ino === before.ino ? linked : null;
+      }
+    }
+    try {
+      if (await someoneListens(where.socket)) {
+        say(`not started: a server already listens on ${where.socket}`);
+        return { running: false, reason: 'busy' };
+      }
+      if (!win) {
+        // Removed only if it is STILL the very file that was seen before the probe. Another one - bound by a server
+        // that is starting right now - is left alone: `listen` below then says busy. With the pinning link device and
+        // inode are enough - and the change time must NOT be compared then: every starter links and unlinks, each of
+        // which changes the shared inode's change time, so with concurrent starters nobody would match and nobody would
+        // clean up. Without the link (`hold` null) the change time is all that tells a new file from the old one.
+        const after = socketStand(where.socket);
+        if (seen && after && after.dev === seen.dev && after.ino === seen.ino
+          && (hold !== null || after.born === seen.born)) {
+          try { fs.rmSync(where.socket, { force: true }); } catch { /* listen will say */ }
+        }
+      }
+    } finally {
+      if (hold) { try { fs.rmSync(hold, { force: true }); } catch { /* a leftover link in our own directory */ } }
+    }
   }
 
   const { COMMANDS } = await import('./cli/commands/search.mjs');
@@ -188,11 +291,10 @@ export async function start(root, {
   const myRoot = realRoot(root);
   let close = null;
 
+  // The key of THIS server. It goes to disk only AFTER a successful `listen` (R3 lever 8): two starts at the same
+  // time used to write the key first, and the one that then lost the socket removed it - the winner was left
+  // listening with no key file, deaf to every client. A start that does not get the socket touches no key.
   const key = crypto.randomBytes(32).toString('hex');
-  const tmp = `${where.key}.${process.pid}.${crypto.randomBytes(4).toString('hex')}`;
-  const fd = fs.openSync(tmp, 'wx', 0o600);
-  try { fs.writeSync(fd, key); } finally { fs.closeSync(fd); }
-  fs.renameSync(tmp, where.key);
 
   // One question after the other: `find` is synchronous at its core, and
   // two interleaved runs would be a state the direct path never has.
@@ -266,9 +368,10 @@ export async function start(root, {
       server.listen(where.socket, () => { server.off('error', reject); resolve(); });
     });
   } catch (e) {
-    try { fs.rmSync(where.key, { force: true }); } catch { /* nothing */ }
-    say(`not started: ${e.message}`);
-    return { running: false, reason: e.message };
+    // Nothing on disk is ours yet: neither the key nor the socket belongs to this start (R3 lever 8).
+    const busy = Boolean(e) && e.code === 'EADDRINUSE';
+    say(`not started: ${busy ? `a server already listens on ${where.socket}` : e.message}`);
+    return { running: false, reason: busy ? 'busy' : e.message };
   }
   if (process.platform !== 'win32') {
     try { fs.chmodSync(where.socket, 0o600); } catch { /* the 0700 directory still guards */ }
@@ -277,6 +380,20 @@ export async function start(root, {
     try { writeAtomic(where.marker, `${where.socket}\n`, { mode: 0o600 }); } catch { /* the client then goes direct */ }
     say('NOTICE: on Windows the key file cannot be protected with POSIX modes (0600/0700 are meaningless); '
       + 'the random key is the guard, and the directory should be private to your account (NTFS ACLs, icacls). Unverified by the product.');
+  }
+  // Device and inode of OUR socket (R3 lever 9): `close` removes only that one.
+  const mySocket = process.platform === 'win32' ? null : socketStand(where.socket);
+  try {
+    const tmp = `${where.key}.${process.pid}.${crypto.randomBytes(4).toString('hex')}`;
+    const fd = fs.openSync(tmp, 'wx', 0o600);
+    try { fs.writeSync(fd, key); } finally { fs.closeSync(fd); }
+    try { fs.renameSync(tmp, where.key); } catch (e) { try { fs.rmSync(tmp, { force: true }); } catch { /* gone */ } throw e; }
+  } catch (e) {
+    // A server nobody can authenticate to is worse than none: take it down again.
+    await closeServer(server, where.socket, mySocket);
+    if (win) { try { fs.rmSync(where.marker, { force: true }); } catch { /* gone */ } }
+    say(`not started: the key could not be stored: ${e.message}`);
+    return { running: false, reason: e.message };
   }
   // The in-process index memo (search.mjs `setProcessMemo`): only a
   // long-lived process turns it on, and this is one. Off again on close.
@@ -288,11 +405,11 @@ export async function start(root, {
     if (closed) { resolve(); return; }
     closed = true;
     searchMod.setProcessMemo(false);
-    server.close(() => resolve());
-    // Only remove what is OURS: another key there belongs to a newer server.
+    // Only remove what is OURS: another key there belongs to a newer server, and the socket is told apart by
+    // device and inode (`closeServer`), not by its name.
     try { if (fs.readFileSync(where.key, 'utf8') === key) fs.rmSync(where.key, { force: true }); } catch { /* gone */ }
-    if (process.platform !== 'win32') { try { fs.rmSync(where.socket, { force: true }); } catch { /* gone */ } }
-    else { try { fs.rmSync(where.marker, { force: true }); } catch { /* gone */ } }
+    if (process.platform === 'win32') { try { fs.rmSync(where.marker, { force: true }); } catch { /* gone */ } }
+    closeServer(server, where.socket, mySocket).then(resolve);
   });
   return { running: true, where, close, server };
 }

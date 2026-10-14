@@ -242,6 +242,35 @@ for (const [name, build] of Object.entries(builders)) {
   });
 }
 
+// card-group-cm: every open item says whom it is owed to, so the page groups by the owner and not by the kind of its card.
+for (const [name, build] of Object.entries(builders)) {
+  test(`${name} build: every open duty and question carries its owner (human | agent | unassigned), from the configuration`, (t) => {
+    const w = world(t, { human: 1, agent: 1, unassigned: 1, questions: 1 });
+    const d = build(w);
+    const owner = (id) => d.openDuties.find((x) => x.id === id)?.owner;
+    assert.equal(owner('ph0000'), 'human');
+    assert.equal(owner('pa0000'), 'agent');
+    assert.equal(owner('pu0000'), 'unassigned');
+    // the human's duty has a replacement card of kind do-it and is still owed to the human (the case the page used to file as agent work)
+    assert.equal(d.openDuties.find((x) => x.id === 'ph0000').card.kind, 'do-it');
+    assert.equal(d.openQuestions.find((x) => x.id === 'qu0000').owner, 'unassigned');
+  });
+
+  test(`${name} build: an open duty carries \`dueAt\` (ms, from the due core) when its due date is readable, else null`, (t) => {
+    const w = world(t, { human: 1 });
+    fs.appendFileSync(path.join(w, 'global', 'duties.jsonl'), [
+      { id: 'pd0001', ts: '2026-10-01T00:00:00Z', title: 'Dated duty', who: 'user', due: '2026-10-05' },
+      { id: 'pd0002', ts: '2026-10-01T00:00:00Z', title: 'Duty with a nonsense date', who: 'user', due: 'soon' },
+    ].map((z) => `${JSON.stringify(z)}\n`).join(''));
+    const d = build(w);
+    const at = (id) => d.openDuties.find((x) => x.id === id).dueAt;
+    assert.equal(typeof at('pd0001'), 'number');
+    assert.equal(new Date(at('pd0001')).toISOString().slice(0, 10) >= '2026-10-05', true, 'overdue from the end of the day');
+    assert.equal(at('pd0002'), null, 'an unreadable date is unknown, never a guessed one');
+    assert.equal(at('ph0000'), null, 'no due date: null');
+  });
+}
+
 // --- the allocation, pure --------------------------------------------------------------------------------------
 
 test('cardfeed.ownerKind: the human, a known agent, anything else is unassigned; no name stands in the module', () => {

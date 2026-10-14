@@ -32,7 +32,7 @@ hosted MCP connector, and nothing makes the model use it. The habit that hooks g
   a differing skill file is left alone without `--force`; everything that can be refused is checked before anything is written
   (a symbolic link - also a dangling one - at the skill, on the way to it or at `.gitignore`, a directory where a file belongs, an
   unreadable `.gitignore`), the `.gitignore` rules are tried in a throw-away repository first (so `--dry-run` is not more optimistic
-  than the real run) and undone if git still ignores the skill, and an empty `.gitignore` comes back as an empty file; keeps the
+  than the real run; the only thing outside the memory is that throw-away repository in the temp directory, removed again) and undone if git still ignores the skill, a failed write of the skill puts back `.gitignore` and removes the empty folders this run made (never one that was there before), and an empty `.gitignore` comes back as an empty file; keeps the
   line ending and the mode of an existing `.gitignore`; commits, pushes and writes under the home directory never. Deliberately not an MCP
   tool: the connector is how a remote agent writes entries, not a door for writing files into the checkout.
 - **`docs/mcp-setup.md`**, section "OpenAI Codex Cloud": the hosted connector (writing must be allowed, HTTP starts read-only),
@@ -40,6 +40,69 @@ hosted MCP connector, and nothing makes the model use it. The habit that hooks g
 - **`test/codex-cloud-skill.test.mjs`**: every tool and parameter that the skill, the Start text or the doc names is looked
   up in the tool list the server itself answers with (not copied); the core sentences against softening; size; the four
   moments against `HOUSE-RULES.md`; a positive control (a renamed tool turns it red); the command against scratch memories.
+
+### Security - recall server: concurrent starts no longer leave it deaf; a stop takes only its own socket (lucky-mem R3; both houses)
+
+Two recall servers started at the same time: both wrote the key file before `listen`, the loser failed with EADDRINUSE and
+removed the key again, and the server that held the socket had no key file - no client could authenticate, the hook fell back
+to the direct path for good. Red on the previous tip with two real `bin/mem-recall-server.mjs` processes: 6 of 6 rounds deaf, the
+loser exited 1 (the keeper then stays off). Now the key is written only after `listen`, the loser reports `busy` (exit
+`BUSY_RC`, the keeper retries), `close()` removes only the socket it recorded by device and inode (an old server no longer
+takes a newer one's socket away), and the stale-socket clean-up touches only a socket nobody listens on, never a regular file.
+The clean-up looks at the file (device, inode, change time) BEFORE it asks whether anybody listens, pins the dead file's inode with
+a hard link in the server's own 0700 directory for the length of the probe (a freed inode number is handed out again at once on
+some file systems - measured on ext in this container: 300 of 300 - so device and inode alone cannot tell a new socket from the
+dead one), and removes it only if it is still that very file afterwards. Without hard links the change time stands in.
+The pinning links of a start that was killed during the probe (`recall.sock.hold.<pid>.<hex>`) are swept at the next start: only that
+name, only sockets of the same uid, only for dead pids.
+
+**Operator effect:** a regular file (or directory, or link) where the socket belongs now ends the server's start with exit code 1
+(`not started: <path> exists and is not a socket - not touched`) instead of being deleted. The keeper treats exit 1 as a real
+start failure and does not restart it, so the recall server stays off until someone moves the file away; the hook meanwhile
+searches directly, as without a server. A concurrent second start exits with `BUSY_RC` (76), which the keeper retries.
+`test/recall-server-concurrent-cm.test.mjs`.
+
+### Security - the MCP SDK peer range carries the floor the suite runs on (lucky-mem F14)
+
+`peerDependencies["@modelcontextprotocol/sdk"]` is `^1.30.0` (was `^1.0.0`), in `package.json` and the lock's root entry; every
+install line names the range, quoted for `cmd.exe`. The request-body limit of the bridge is its own code and does not depend on the
+SDK version. `test/mcp-sdk-floor-cm.test.mjs`.
+
+### Security - start-up notice for a door with no token, and a wider list of proxy headers (lucky-mem A14)
+
+A reverse proxy on this machine with no configuration (nginx defaults: connects from 127.0.0.1, `Host` = upstream, no forwarding
+header) passes every "is this local" check, so a door with no token serves whoever reaches the proxy, and the bridge with
+`CHEAP_MEM_MCP_READONLY=0` lets them write. Nothing is refused (a configured host name without a token is a tested setup), but
+the bridge and the viewer now print `NOTICE: no token: anything that reaches this port through a local reverse proxy counts as
+local - set a token before putting a proxy in front` at start. The proxy-header detection also covers the families `x-forwarded-*`,
+`x-real-*`, `cf-*` and `via`, `true-client-ip`, `cdn-loop`, `fastly-client-ip`, `x-client-ip`, `x-cluster-client-ip`,
+`x-original-forwarded-for`: a request with one of them is not local. The notice is printed by `serve()` itself, so `mem serve` shows it as
+well as `bin/mem-serve`. `test/service-door-cm.test.mjs`.
+
+### Security - guards for the service doors (lucky-mem A3, A5, A7, A8, A13; no defect found here)
+
+Probes, not fixes: unparseable request targets and headers end neither service, the Host check covers every route of the viewer,
+the bridge remembers nothing per process, the body limit is 1 MiB in bytes, and the loopback allow list refuses SIIT/NAT64/6to4
+forms. `test/service-door-cm.test.mjs`.
+
+### Dashboard - "For you" is what is owed to the human, and it goes by deadline (2026-10-13)
+
+A duty of the configured human whose card was a replacement card (kind do-it) stood under "Agent work - nothing for you
+to decide" on Today, in "Your next look" and in the duties list, because the page grouped by the kind of the card only.
+Red in a real Chromium on `eddad97`, then fixed. `test/card-group-browser.test.mjs`.
+
+- **Grouping by addressee.** Each open duty and question of the dashboard data carries `owner` (`human` | `agent` |
+  `unassigned`, from the configuration, `cardfeed.ownerKind`; no name in the code). "For you" is everything owed to the
+  human, whatever its card; "Agent work" is what is owed to an agent. Owed to nobody: the kind of the card still decides.
+  Today lists only what is addressed to the human, so everything there is "For you".
+- **By deadline.** "Your next look" (three items) and the duties list order "For you" like the Today card: overdue first,
+  then due today, later, then no or an unreadable date in list order. Each open duty carries `dueAt` from the due core
+  (`humandecisions.dueAtOf`, in the house zone); the page never reads the due field. Before, the overdue duty was cut
+  from the three while one due in thirty days was shown. "Agent work" keeps the list order.
+- **Honest hint.** When "Agent work" holds an item owed to nobody (no addressee, or an unknown name, a typo too), the hint
+  says "Nobody owns some of these yet" instead of "nothing for you to decide". No third group yet.
+- **Open.** The light-theme colour of the group heading reaches only 4.2 to 4.4 : 1 (existing `--quiet`), see
+  `docs/dashboard.md`.
 
 ### Security / Privacy — no entry text goes to an embedding vendor; Voyage and OpenAI removed (2026-10-13; breaking for users of `voyage` / `openai`)
 
@@ -230,6 +293,52 @@ the ratchet `test/mask-before-cut-ratchet.test.mjs`.
 - **An open PEM block** (header and key material, no END line: a text cut inside the key) is masked by `redaction.mjs` too; before,
   ~1990 characters of a key survived `questiontext.prepare` (cut at 8000 before it redacts, a cost bound), and any window that
   ended inside a block. A header alone in prose is not touched.
+
+### Security - a secret that is a phrase, or that a marker cut in two, falls whole (torn-marker finding, 2026-10-13)
+
+Measured on the previous tip (7a46a3a), all open: `{"password": "correct horse battery staple"}` and `{"api_key": "Ab3x Ab3xK9mQAb3xK9mQ"}`
+(`json-secret` took a value without blanks only), `{"api_key": "T [REDACTED:x] T"}`, `api_key=[REDACTED:x]T`,
+`x-api-key: [REDACTED:x]T`, `X-Amz-Signature=[REDACTED:x]T` (a value that BEGINS with a marker counted as a placeholder, the stump
+behind it stayed), `PASSWORD='two words'` (only the first word fell: `[REDACTED:env-secret] words`).
+
+- **JSON string values.** Under a secret key (the `json-secret` key list, now with `passphrase` and `api-key`/`x-api-key`) the WHOLE string
+  value falls, from the opening quote to the closing quote of the same kind that is not escaped: blanks, `\"` and markers
+  inside it included. Found by a scan in code (`redactJsonStrings`), not a pattern, because "not escaped" is a count of
+  backslashes; a JSON object carried as a string inside a JSON line (`\"password\": \"...\"`) is read at its own nesting level.
+  No cap on a string that ends (a cap would leave the tail of a long value behind). If no closing quote follows (cut text), the
+  value runs to the end of the line behind a quoted key, to the end of the text behind a bare key; the cap of 4096 bounds only
+  what is judged (placeholder, prose and suffix exceptions), never how much falls, so masking twice is masking once. Single-quoted values count too (`'password': '...'`, `PASSWORD='...'`). Linear: forward only,
+  a failed search for a closing quote is remembered per quote kind (`test/redaction-linear.test.mjs`, 1 MB shapes).
+- **`key=value`.** A value that begins with a marker is no longer harmless while a stump follows it (`api_key=[REDACTED:x]T`); the
+  same in the `x-api-key` rule (the value runs through markers) and in the signed-URL rule. A value of markers alone stays as it is
+  (idempotent), as do markers followed only by closing punctuation or by a delimiter the value rules do not stop at themselves
+  (a backslash, `%26`).
+- **Not widened, on purpose.** An unquoted `key=value` with blanks in the value (`password=correct horse`) still ends at the blank:
+  there the blank is the end of the value in prose and in shell (`export TOKEN=abc run it`), and widening would eat the sentence.
+  `api_key=T [REDACTED:x] T` keeps its `T` (a single character is below every minimum). Quoted values are delimited, so they are
+  taken whole.
+- **False-alarm guards**, each measured on the corpus (docs, tests, src, bin, bench, README, 244,000 lines): a code literal that ends
+  with the equals sign (`indexOf('FOO_TOKEN=')`), a key that continues for more than 12 characters behind the keyword with a prose
+  value (`"token_system_is_a_facade": "<paragraph>"`), a bare key with a sentence of twelve words (`secrets: '...'`), a quote on
+  a later line behind a bare key, a whole placeholder (`your password`, `<your password here>`, `${{ secrets.X }}`), a pagination
+  cursor. The code-literal guard holds for an unescaped quote only: `{"env":"PASSWORD=\"...\""}` (a command line inside a JSON
+  string, the usual shape in a transcript) is a value. Chosen on purpose, and a false alarm in the safe direction: a sentence under
+  a quoted secret key falls (`{"token_budget": "ten thousand words per day"}`, `{"password_hint": "..."}`, `{"secret": "see the
+  vault"}`, YAML `token: "..."` with a plain word). A bare key whose quote never closes and whose rest of the text is longer than the cap of 4096
+  (a stray quote in a long line of prose, `Note: password: "see below. ..."`) is skipped, not masked: it would take the whole rest of the
+  text; short, it falls to the end of the text. A bracket value is a placeholder or reference only without a credential-shaped run
+  in it (`<Ab3x...>`, `{{Ab3x...}}`, `${{ Ab3x... }}` fall; some of these were open on 7a46a3a already), and a template reference is a
+  dotted name, optionally called or piped (`${{ secrets.GITHUB_TOKEN }}`, `{{ lookup('env','X') }}`). `${{ horse battery staple }}` is
+  NOT a reference (words, no name or call), so it falls: indistinguishable from a phrase secret, and the safe direction. The gaps these
+  leave: a passphrase of twelve plain words behind a bare key; a phrase behind a key with a long suffix; a kebab key (`secret-value`)
+  needs a credential-shaped value, as before.
+- **Not covered, named** (the next order builds the key words and the object fields; none of it is new, all of it was open on 7a46a3a):
+  Unicode quotation marks and `&quot;` as the quote; YAML block values (`password: |`); a raw line break inside a value; key words
+  that are not in the list (`pwd`, `pin`, `passcode`, `credentials`, `authorization`, `kennwort`, `passwort`); and object fields
+  without a key context: `redactObject`, `redactEntry` and `maskEntry` look at each string alone, so `{password: "..."}` as a REAL
+  field is not masked (the raw capture of `tool_use.input` in `src/raw.mjs` is the main case); only a key written in the text is.
+- Corpus before/after: two lines changed, both fixtures that hold a plaintext word behind `secret` (the old rule had masked only
+  the first word). `test/redaction-json-string.test.mjs` (red on 7a46a3a); Parity: lm=open.
 
 ### Security - a placeholder is a placeholder only as a whole value (both houses, owner decision 2026-10-13)
 

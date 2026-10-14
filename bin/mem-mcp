@@ -54,7 +54,7 @@ try {
 } catch {
   process.stderr.write(
     'cheap-mem: the MCP server needs @modelcontextprotocol/sdk, which is not installed.\n'
-    + '  npm install -g @modelcontextprotocol/sdk     (or locally, next to cheap-mem)\n'
+    + '  npm install -g "@modelcontextprotocol/sdk@^1.30.0"     (or locally, next to cheap-mem)\n'
     + '\nEverything else — capture, search, digest — works without it.\n');
   process.exit(1);
 }
@@ -2327,6 +2327,8 @@ async function startHttp(pkg) {
   });
   process.stderr.write(`cheap-mem MCP (http): http://${cfg.host}:${cfg.port}/mcp\n`);
   process.stderr.write(`  agent=${resolveAgent()} profile=${PROFILE} token=${cfg.token ? 'set' : 'none (plain loopback only; a request with a proxy header is refused)'}\n`);
+  { const notice = webauth.openDoorNotice({ token: cfg.token, hosts: cfg.hosts, origins: cfg.origins });
+    if (notice) process.stderr.write(`  NOTICE: ${notice}\n`); }
   markRunningIfPossible();
 
   const stop = () => network.close(() => process.exit(0));

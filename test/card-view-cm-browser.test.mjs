@@ -87,11 +87,13 @@ test('the duties list: one card per item, For you apart from Agent work, origin 
     assert.equal(await q('[data-card-group="agent"]').count(), 1);
     const you = await q('[data-card-group="you"]').innerText();
     const agent = await q('[data-card-group="agent"]').innerText();
-    assert.match(you, /for you \(9\)/i);
-    assert.match(agent, /agent work \(2\)/i);
+    assert.match(you, /for you \(10\)/i);
+    assert.match(agent, /agent work \(1\)/i);
     assert.match(agent, /Guard for race at src\/lock\.mjs/, 'an agent posting is under Agent work');
-    assert.match(agent, /Rename the folder old-notes/, 'a task (kind do-it) is under Agent work');
-    assert.doesNotMatch(you, /Guard for race|Rename the folder/, 'neither is under For you');
+    // card-group-cm: whom the task is owed to decides, not its card: a task of the human (kind do-it) is for the human
+    assert.match(you, /Rename the folder old-notes/, 'a task owed to the human is under For you');
+    assert.doesNotMatch(you, /Guard for race/, 'the agent posting is not under For you');
+    assert.doesNotMatch(agent, /Rename the folder/, 'the human\'s task is not agent work');
 
     // Every card: a heading with the question, the options as a list, a No / not-now option, nothing preselected.
     const n = await q('.dcard').count();
@@ -181,7 +183,7 @@ test('the overview: Today and "Your next look" carry the same cards; the waiting
   await scenario(t, { hash: '' }, async (page, errors) => {
     const next = page.locator('.home-layout article.pad');
     const nt = await next.innerText();
-    assert.match(nt, /for you \(9\)/i);
+    assert.match(nt, /for you \(10\)/i);
     assert.match(nt, /Which of the four open points from the decision form do you want first\?/);
     assert.ok(!/\bGLOBAL · USER\b/i.test(nt), 'no bare project and owner line instead of a card');
     assert.equal(await next.locator('.dcard').count(), 3, 'three cards at most, as the 3 items before');
@@ -194,8 +196,9 @@ test('the overview: Today and "Your next look" carry the same cards; the waiting
     assert.match(await proj.innerText(), /Garden planner\. Reason: Three captures on two days\./);
     assert.equal(await proj.locator('[data-action="project-confirm"][data-value="garden-plan"], .mono:has-text("mem project confirm garden-plan")').count(), 1);
     assert.equal(await today.locator('.dcard:has-text("Take over project hand-made?")').count(), 1);
-    // The agent posting has no card: a row under Agent work, with the owner.
-    assert.match(await today.locator('[data-card-group="agent"]').innerText(), /Rename the folder old-notes/);
+    // The task owed to the human (kind do-it) is a card under For you; Today lists what is owed to the human only, so no agent work.
+    assert.match(await today.locator('[data-card-group="you"]').first().innerText(), /Rename the folder old-notes/);
+    assert.equal(await today.locator('[data-card-group="agent"]').count(), 0);
     assert.deepEqual(errors, []);
   });
 });
