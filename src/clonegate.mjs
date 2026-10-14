@@ -35,6 +35,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import * as provenance from './provenance.mjs';
 import { writeAtomic } from './atomicwrite.mjs';
+import { maskText } from './outputguard.mjs';
+import * as bidi from './bidi.mjs';
 
 /** The verdict is worked out again after this long. */
 export const CHECK_EVERY_MS = 5 * 60 * 1000;
@@ -42,6 +44,17 @@ export const CHECK_EVERY_MS = 5 * 60 * 1000;
 export const SHOW_EVERY_MS = 30 * 60 * 1000;
 /** Where the verdict is kept, relative to the memory root. */
 export const CACHE_FILE = path.join('.pipeline', 'clone-gate.json');
+
+/**
+ * N2: the line comes out of a FILE in the clone (`.pipeline/clone-gate.json`), which anybody who can write there can
+ * change - and it goes into the model's context. It is shown only in the shape `provenance.asLine` makes ("Memory: ..."),
+ * on one line, without control characters, bidi marks or secret shapes, at most 300 characters; anything else is not shown.
+ */
+function cleanLine(raw) {
+  if (typeof raw !== 'string' || !raw.startsWith('Memory: ')) return null;
+  const one = raw.replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ').trim().slice(0, 300);
+  return maskText(bidi.visible(one)) || null;
+}
 
 function readCache(file) {
   try {
@@ -68,12 +81,17 @@ export function gate(root, { env = process.env, now = Date.now() } = {}) {
   }
   let line = null;
   if (c.state === provenance.STATE.STALE && (c.shown > now || now - c.shown >= SHOW_EVERY_MS)) {
-    line = c.line;
+    line = cleanLine(c.line);
     c.shown = now;
     dirty = true;
   }
   if (dirty) {
-    try { fs.mkdirSync(path.dirname(file), { recursive: true }); writeAtomic(file, JSON.stringify(c)); } catch { /* a cache that cannot be written is a cache that is missing */ }
+    try { fs.mkdirSync(path.dirname(file), { recursive: true }); writeAtomic(file, JSON.stringify(c)); }
+    catch {
+      // N1: a verdict that cannot be remembered cannot be throttled: it would be shown on EVERY prompt. Show nothing -
+      // the session start and `mem doctor` still name the clone; a hint that repeats every turn is skipped by the third.
+      line = null;
+    }
   }
   return { line, state: c.state };
 }
