@@ -348,82 +348,100 @@ test('no-jump: a quiet refetch alone (without render()) does not replace #screen
 
 // --- Point 4: paused while the tab is not visible ---------------------------
 
+// One place for the two numbers the probes below couple to the product's
+// test interval. TEMPO is what the dashboard script is told through
+// CHEAP_MEM_SERVE_TEMPO_TEST_MS (its 5000/20000 ms refetch interval);
+// SLACK is the rounding the cadence check forgives (a timer never fires
+// early by more than a few ms). Nothing below types 150 or 140 any more.
+const TEMPO = 150;
+const SLACK = 10;
+const VISIBLE_ENV = { CHEAP_MEM_SERVE_CACHE_SYNC_TEST_MS: '0', CHEAP_MEM_SERVE_TEMPO_TEST_MS: String(TEMPO) };
+
+// Page-side record of every /dashboard.json call: start time, answer time
+// (response head), and how many started synchronously inside a dispatch we
+// flag. The wrapper returns the very promise fetch() returned, so it
+// changes nothing for the page.
+// Only `fetch` is counted: dashboard.js polls /dashboard.json with nothing
+// else (no XHR, EventSource or sendBeacon -- grep the script before adding
+// one). A URL object as `input` is counted too (`href`), as is a Request
+// (`url`); a plain string is the product's own form.
+async function recordFetches(page) {
+  await page.addInitScript(() => {
+    const realFetch = window.fetch;
+    const w = { inDispatch: false, sync: 0, starts: [], answers: [] };
+    window.__noJump = w;
+    window.fetch = function (input, ...rest) {
+      const url = input instanceof URL ? input.href : typeof input === 'string' ? input : input?.url || '';
+      const p = realFetch.call(this, input, ...rest);
+      if (url.includes('/dashboard.json')) {
+        w.starts.push(performance.now());
+        if (w.inDispatch) w.sync += 1;
+        p.then(() => w.answers.push(performance.now()), () => {});
+      }
+      return p;
+    };
+  });
+}
+// The store keeps changing for the WHOLE probe (like the green probe above
+// and the real VM), so every answer stays "not fresh" and the quiet refetch
+// chain stays alive on its own. Without this the chain ended by itself as
+// soon as one answer came back fresh (one single write before hiding, one
+// while hidden): the "no fetch while hidden" check then passed even with
+// the hidden-tab guard removed -- it could not see a silent timer, because
+// there was none to see (mutation check 2026-10-14: guard and clearTimeout
+// removed, probe stayed green).
+function keepChanging(r) {
+  let writing = true;
+  const writer = (async () => {
+    let n = 0;
+    while (writing) {
+      memory.logEntry(r, 'learning', { agent: 'builder', title: 'Keep changing ' + (n += 1), text: 'While the probe waits.' });
+      await new Promise((res) => setTimeout(res, 80));
+    }
+  })();
+  return async () => { writing = false; await writer; };
+}
+
 test('no-jump: no quiet refetch timer while the tab is not visible; exactly one call on becoming visible', async (t) => {
   const browser = await B.need(t);
   if (!browser) return;
   const r = await root('cm-no-jump-visible-');
-  await withServer(r, {
-    CHEAP_MEM_SERVE_CACHE_SYNC_TEST_MS: '0',
-    CHEAP_MEM_SERVE_TEMPO_TEST_MS: '150',
-  }, async (base) => {
+  await withServer(r, VISIBLE_ENV, async (base) => {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     let dashboardFetches = 0;
     page.on('request', (req) => { if (req.url().includes('/dashboard.json')) dashboardFetches += 1; });
-    // Page-side record of every /dashboard.json call: start time, answer
-    // time (response head), and how many started synchronously inside a
-    // dispatch we flag (see "Becoming visible" below). The wrapper returns
-    // the very promise fetch() returned, so it changes nothing for the page.
-    await page.addInitScript(() => {
-      const realFetch = window.fetch;
-      const w = { inDispatch: false, sync: 0, starts: [], answers: [] };
-      window.__noJump = w;
-      window.fetch = function (input, ...rest) {
-        const url = typeof input === 'string' ? input : input?.url || '';
-        const p = realFetch.call(this, input, ...rest);
-        if (url.includes('/dashboard.json')) {
-          w.starts.push(performance.now());
-          if (w.inDispatch) w.sync += 1;
-          p.then(() => w.answers.push(performance.now()), () => {});
-        }
-        return p;
-      };
-    });
-    // The store keeps changing for the WHOLE probe (like the green probe
-    // above and the real VM), so every answer stays "not fresh" and the
-    // quiet refetch chain stays alive on its own. Without this the chain
-    // ended by itself as soon as one answer came back fresh (one single
-    // write before hiding, one while hidden): the "no fetch while hidden"
-    // check then passed even with the hidden-tab guard removed -- it could
-    // not see a silent timer, because there was none to see (mutation
-    // check 2026-10-14: guard and clearTimeout removed, probe stayed green).
-    let writing = true;
-    const writer = (async () => {
-      let n = 0;
-      while (writing) {
-        memory.logEntry(r, 'learning', { agent: 'builder', title: 'Keep changing ' + (n += 1), text: 'While the probe waits.' });
-        await new Promise((res) => setTimeout(res, 80));
-      }
-    })();
+    await recordFetches(page);
+    const stopWriter = keepChanging(r);
     try {
       await primeNotFresh(base, r);
       await pageReady(page, base);
       // Let one cycle get going, then simulate "not visible".
-      await page.waitForTimeout(400);
+      await page.waitForTimeout(TEMPO * 3);
       await page.evaluate(() => {
         Object.defineProperty(document, 'hidden', { value: true, configurable: true });
         document.dispatchEvent(new Event('visibilitychange'));
       });
-      // Hide first, then count: a tick that started BEFORE hiding (150 ms
-      // test interval) is allowed and must not count as "fetch while
-      // hidden" (cm suite red 2026-09-29, 5 instead of 4). If the product
-      // keeps scheduling after that answer, the 700 ms check below still
-      // catches it.
-      await page.waitForTimeout(300);
+      // Hide first, then count: a tick that started BEFORE hiding (one test
+      // interval) is allowed and must not count as "fetch while hidden"
+      // (cm suite red 2026-09-29, 5 instead of 4). If the product keeps
+      // scheduling after that answer, the check below still catches it.
+      // (An answer that arrives only AFTER hiding is the next probe.)
+      await page.waitForTimeout(TEMPO * 2);
       const fetchesBeforePause = dashboardFetches;
-      await page.waitForTimeout(700); // well beyond the test interval (150 ms)
+      await page.waitForTimeout(TEMPO * 5); // well beyond the test interval
       assert.equal(dashboardFetches, fetchesBeforePause, 'no fetch while the tab is not visible');
       // Becoming visible -> EXACTLY ONE immediate, quiet fetch. "Immediate"
       // is measured IN THE PAGE, not by a Node-side stopwatch: the fetches
       // that the product starts synchronously inside the dispatch of the
       // visibilitychange event (loadData() calls fetch() before its first
       // await). A Node-side `waitForTimeout(60)` then `count == before + 1`
-      // is a race against the 150 ms test interval: under CPU load the
-      // evaluate round trip and the timer overshoot by hundreds of ms, the
-      // regular tick (a legitimate, later fetch -- see the comment above)
-      // lands inside the window and is counted as a "second immediate"
-      // call (6 instead of 5; measured: 8 of 20 runs red under 4 CPU
-      // burners, always the extra fetch was the timer tick ~158 ms after
-      // the answer to the immediate call, never a second immediate one).
+      // is a race against the test interval: under CPU load the evaluate
+      // round trip and the timer overshoot by hundreds of ms, the regular
+      // tick (a legitimate, later fetch -- see the comment above) lands
+      // inside the window and is counted as a "second immediate" call (6
+      // instead of 5; measured: 8 of 20 runs red under 4 CPU burners,
+      // always the extra fetch was the timer tick ~158 ms after the answer
+      // to the immediate call, never a second immediate one).
       const visible = await page.evaluate(() => {
         Object.defineProperty(document, 'hidden', { value: false, configurable: true });
         const w = window.__noJump;
@@ -439,22 +457,96 @@ test('no-jump: no quiet refetch timer while the tab is not visible; exactly one 
       assert.equal(visible.sync, 1, 'exactly one fetch immediately (synchronously) on becoming visible');
       // Whatever follows is the usual cadence and must never be a second
       // immediate call: every later fetch starts a full test interval
-      // (150 ms; 140 for timer rounding) after the answer to the previous
-      // one. A deferred duplicate (setTimeout 0, a second listener, a fetch
-      // before the first answer) breaks this regardless of how slow the
-      // machine is -- a slow machine only delays fetches, it never moves
-      // one closer to the previous answer.
-      await page.waitForTimeout(400);
+      // (TEMPO, minus SLACK for timer rounding) after the answer to the
+      // previous one. A deferred duplicate (setTimeout 0, a second
+      // listener, a fetch before the first answer) breaks this regardless
+      // of how slow the machine is -- a slow machine only delays fetches,
+      // it never moves one closer to the previous answer.
+      // The window is not a fixed stopwatch only: after TEMPO * 3 it also
+      // waits (at most 3 s) until a cadence fetch after the immediate one
+      // has been answered, so it covers at least one tick. If the chain
+      // legitimately ended (a fresh answer), that wait simply times out
+      // and the check runs on what there is. Known limit: a duplicate that
+      // the page itself starves of animation frames under heavy load (a
+      // requestAnimationFrame-scheduled one) can come later than this
+      // window -- rAF starvation under load; that case is missed (never
+      // reported red by mistake).
+      await page.waitForTimeout(TEMPO * 3);
+      await page.waitForFunction((at) => {
+        const w = window.__noJump;
+        return w.starts.some((x) => x > at && w.answers.some((ans) => ans > x));
+      }, visible.at, { timeout: 3000 }).catch(() => {});
       const log = await page.evaluate(() => ({ starts: window.__noJump.starts, answers: window.__noJump.answers }));
       const later = log.starts.filter((s) => s > visible.at);
       for (const s of later) {
         const prev = log.answers.filter((a) => a > visible.at && a <= s).pop();
         assert.ok(prev !== undefined, `a fetch at ${s} ms started before any answer arrived (a second immediate call)`);
-        assert.ok(s - prev >= 140, `a fetch at ${s} ms started only ${s - prev} ms after the previous answer (a second immediate call, not the usual 150 ms cadence)`);
+        assert.ok(s - prev >= TEMPO - SLACK, `a fetch at ${s} ms started only ${s - prev} ms after the previous answer (a second immediate call, not the usual ${TEMPO} ms cadence)`);
       }
     } finally {
-      writing = false;
-      await writer;
+      await stopWriter();
+      await page.close();
+    }
+  });
+});
+
+test('no-jump: an answer that arrives only AFTER the tab was hidden arms no new refetch timer', async (t) => {
+  const browser = await B.need(t);
+  if (!browser) return;
+  const r = await root('cm-no-jump-late-');
+  await withServer(r, VISIBLE_ENV, async (base) => {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    let dashboardFetches = 0;
+    page.on('request', (req) => { if (req.url().includes('/dashboard.json')) dashboardFetches += 1; });
+    await recordFetches(page);
+    // The repeat guard `!document.hidden` (dashboard.js, end of
+    // loadDataRun) protects exactly this case, which clearTimeout in the
+    // visibilitychange listener cannot: the request was already IN FLIGHT
+    // when the tab was hidden, so there was no timer to clear; its answer
+    // arrives hidden and, not fresh, would arm a new timer -- a silent
+    // chain in a hidden tab (mutation 2026-10-14: guard removed alone,
+    // clearTimeout kept -> the other probe stayed green, 3 of 3).
+    // Deterministic, no race against a tick: ONE request is held in the
+    // route, the tab is hidden while it is held, then it is released with
+    // `cache.fresh` forced to false (a fresh answer would end the chain
+    // by itself and hide the missing guard).
+    let holdNext = false;
+    let held = null;
+    let heldArrived;
+    const heldSeen = new Promise((res) => { heldArrived = res; });
+    await page.route('**/dashboard.json', async (route) => {
+      if (!holdNext) { await route.continue(); return; }
+      holdNext = false;
+      held = route;
+      heldArrived();
+    });
+    const stopWriter = keepChanging(r);
+    try {
+      await primeNotFresh(base, r);
+      await pageReady(page, base);
+      // The held request must be the page's LIVE one (a newer call aborts
+      // an older one -- F18), so no other call may start in between: ask
+      // for it ourselves, and check below that its answer really arrived.
+      holdNext = true;
+      await page.evaluate(() => { window.loadData({ quiet: true }); });
+      await Promise.race([heldSeen, new Promise((_, rej) => setTimeout(() => rej(new Error('the held request never reached the route')), 20000))]);
+      await page.evaluate(() => {
+        Object.defineProperty(document, 'hidden', { value: true, configurable: true });
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      const answersBefore = await page.evaluate(() => window.__noJump.answers.length);
+      const resp = await held.fetch();
+      const body = await resp.json();
+      body.cache = { ...body.cache, fresh: false };
+      await held.fulfill({ response: resp, json: body });
+      await page.waitForFunction((n) => window.__noJump.answers.length > n, answersBefore, { timeout: 20000 });
+      // Let the page finish with that answer (json, prepare), then count.
+      await page.waitForTimeout(TEMPO);
+      const fetchesAfterAnswer = dashboardFetches;
+      await page.waitForTimeout(TEMPO * 8); // several ticks of the test interval
+      assert.equal(dashboardFetches, fetchesAfterAnswer, 'no fetch in the hidden tab after a not fresh answer that arrived while hidden');
+    } finally {
+      await stopWriter();
       await page.close();
     }
   });
