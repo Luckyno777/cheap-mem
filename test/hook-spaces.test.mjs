@@ -82,7 +82,7 @@ for (const [name, rootsVar] of Object.entries(HOOKS)) {
     assert.equal(find(snippet, { HOME: '/nonexistent' }), '', 'no memory: ROOT stays empty');
     assert.equal(find(snippet, {}), '', 'HOME unset (set -u): no crash, no memory');
     // The roots variable must not be globbed: a `*` in it is a character, not a pattern.
-    assert.equal(find(snippet, { HOME: '/nonexistent', [rootsVar]: `${sl(base)}/*` }), '', 'a glob in the roots variable was expanded');
+    assert.equal(find(snippet, { HOME: '/nonexistent', [rootsVar]: `${sl(base)}/${'*'}` }), '', 'a glob in the roots variable was expanded');
   });
 }
 

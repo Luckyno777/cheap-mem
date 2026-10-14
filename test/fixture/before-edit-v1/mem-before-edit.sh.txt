@@ -88,8 +88,8 @@ PROBE="${MEM_RETRIEVE_ROOTS:-$HOME/cheap-mem}"
 # **Backslashes become slashes before anything is looked up.**
 #
 # On Windows the agent hands this hook a native path —
-# `C:\Users\x\AppData\Local\Temp\mem`. bash then tests
-# `[ -f "C:\Users\x\.mem/config.json" ]`, finds nothing, and the hook
+# `C:\Home\x\AppData\Local\Temp\mem`. bash then tests
+# `[ -f "C:\Home\x\.mem/config.json" ]`, finds nothing, and the hook
 # exits 0 in silence: no memory, no output, no error. From the outside
 # that is indistinguishable from "nothing to say about this file", so
 # the hook did nothing on Windows for as long as it has existed and
@@ -99,7 +99,7 @@ PROBE="${MEM_RETRIEVE_ROOTS:-$HOME/cheap-mem}"
 # answers with 440 characters; addressed with backslashes it answers
 # with nothing and exits 0.
 #
-# Git Bash resolves `C:/Users/...` perfectly well, so one substitution
+# Git Bash resolves `C:/Home/...` perfectly well, so one substitution
 # is the whole repair. It is a no-op on Linux and macOS, where a
 # backslash in a path is a legal character but never a separator in any
 # path this hook is handed.
@@ -324,7 +324,7 @@ PTR="$HOOK_DIR/../src/pointer.mjs"
 # **And the path must be converted to Windows form first.** The file URL
 # alone was not enough, and the 2026-09-16 run said why:
 #
-#     mark: MARK=C:/Users/RUNNER~1/... exists=no level=0 ahead={}
+#     mark: MARK=C:/Home/RUNNER~1/... exists=no level=0 ahead={}
 #
 # `ahead={}` and `level=0` are literally the catch fallbacks. MARK is a
 # Windows form (from $ROOT), while HOOK_DIR comes from `pwd`, which

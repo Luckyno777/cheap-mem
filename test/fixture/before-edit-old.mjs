@@ -1,4 +1,5 @@
-// The OLD before-edit hook (bash, e98bf2d) kept as a reference, and a tool
+// The OLD before-edit hook (bash, e98bf2d) kept as a reference (verbatim, except that the Windows
+// user-profile path in four comments reads `C:\Home`, for the fixed-paths ratchet), and a tool
 // directory laid out like the repo to run it — or the current hook — in.
 // Shared by test/before-edit-golden.test.mjs (same output as before) and
 // test/before-edit-node-starts.test.mjs (red proof: how many starts it took).

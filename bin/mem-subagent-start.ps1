@@ -65,7 +65,7 @@ function Get-ProbeRoots {
     return $env:MEM_STOP_ROOTS -split ';' | Where-Object { $_ }
   }
   # D5: the WHOLE value first (it may be one path with a space in it, e.g.
-  # C:\Users\Max Muster\memory), then its whitespace-separated words.
+  # D:\Max Muster\memory), then its whitespace-separated words.
   return @($env:MEM_STOP_ROOTS) + ($env:MEM_STOP_ROOTS -split '\s+' | Where-Object { $_ })
 }
 

@@ -88,7 +88,7 @@ const EXCEPTIONS = {
   'C:\\Users\\': {
     'src/doctor.mjs': { max: 2, why: WHY_WIN_EXAMPLE },
     'src/redaction.mjs': { max: 1, why: WHY_WIN_EXAMPLE },
-    'bin/mem-before-edit': { max: 4, why: WHY_WIN_EXAMPLE },
+    'bin/mem-before-edit': { max: 3, why: WHY_WIN_EXAMPLE },
     'bin/mem-before-edit.ps1': { max: 1, why: WHY_WIN_EXAMPLE },
     'bin/mem-retrieve.ps1': { max: 1, why: WHY_WIN_EXAMPLE },
     'bin/mem-stop.ps1': { max: 1, why: WHY_WIN_EXAMPLE },

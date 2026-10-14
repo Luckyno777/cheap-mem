@@ -166,7 +166,7 @@ test('mem_compile_cache by platform: Linux with and without XDG_CACHE_HOME, macO
   assert.equal(probe('uname() { echo Linux; }', { HOME: h, XDG_CACHE_HOME: 'relative/dir' }), `${h}/.cache/cheap-mem/node-cc`, 'a relative XDG_CACHE_HOME is ignored');
   assert.equal(probe('uname() { echo Darwin; }', { HOME: h }), `${h}/Library/Caches/cheap-mem/node-cc`);
   // Git Bash: backslashes of LOCALAPPDATA become slashes (the directory is made relative to the scratch cwd here).
-  assert.equal(probe('uname() { echo MINGW64_NT-10.0; }', { HOME: h, LOCALAPPDATA: 'C:\\Users\\x\\AppData\\Local' }), 'C:/Users/x/AppData/Local/cheap-mem/node-cc');
+  assert.equal(probe('uname() { echo MINGW64_NT-10.0; }', { HOME: h, LOCALAPPDATA: 'D:\\data\\x\\Local' }), 'D:/data/x/Local/cheap-mem/node-cc');
   assert.equal(probe('uname() { echo MINGW64_NT-10.0; }', { HOME: h }), '', 'Git Bash without LOCALAPPDATA: no cache, no error');
   assert.equal(probe('uname() { echo Linux; }', {}), '', 'no HOME: no cache, no error');
   if (process.platform !== 'win32') assert.equal((fs.statSync(`${h}/.cache/cheap-mem/node-cc`).mode & 0o077), 0, 'the cache directory must be private');

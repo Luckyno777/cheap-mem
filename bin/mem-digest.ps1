@@ -79,7 +79,7 @@ if ($env:MEM_GOLD_DAILY -ne 'no') {
     $GoldOut = Join-Path ([System.IO.Path]::GetTempPath()) "cheap-mem-gold-$PID.out"
     $GoldErr = "$GoldOut.err"
     # D5: one PRE-QUOTED argument string. An -ArgumentList array is joined with plain spaces on Windows
-    # PowerShell 5.1, so a $Mem or $Root with a space in it (C:\Users\Max Muster\...) fell apart here -
+    # PowerShell 5.1, so a $Mem or $Root with a space in it (D:\Max Muster\...) fell apart here -
     # and the failure is swallowed by the catch below, so the daily gold run silently never ran.
     $GoldArgs = '"{0}" --root "{1}" gold miss daily' -f $Mem, $Root
     $GoldProc = Start-Process -FilePath 'node' -ArgumentList $GoldArgs `
