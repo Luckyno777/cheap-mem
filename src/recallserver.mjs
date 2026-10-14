@@ -216,18 +216,36 @@ export async function start(root, {
       say(`not started: ${reason}`);
       return { running: false, reason };
     }
-    if (await someoneListens(where.socket)) {
-      say(`not started: a server already listens on ${where.socket}`);
-      return { running: false, reason: 'busy' };
-    }
-    if (!win) {
-      // Removed only if it is STILL the very file that was seen before the probe. Another one - bound by a server
-      // that is starting right now - is left alone: `listen` below then says busy. A freed inode number is handed out
-      // again at once on most file systems, so the change time counts too (a new file has a new one).
-      const after = socketStand(where.socket);
-      if (before && after && after.dev === before.dev && after.ino === before.ino && after.born === before.born) {
-        try { fs.rmSync(where.socket, { force: true }); } catch { /* listen will say */ }
+    // A hard link in our own 0700 directory PINS the dead file's inode for the length of the probe: the number cannot be
+    // handed out again, so a new socket bound meanwhile cannot look like the old one (a freed inode number is reused at
+    // once on some file systems - measured here on ext). If the link cannot be made, device, inode and change time carry
+    // the comparison (a new file has a new change time), a little weaker.
+    let hold = null;
+    let seen = before; // what the removal below is compared with (linking changes the change time: look again after it)
+    if (!win && before) {
+      const name = `${where.socket}.hold.${process.pid}.${crypto.randomBytes(4).toString('hex')}`;
+      try { fs.linkSync(where.socket, name); hold = name; } catch { /* not pinned: the change time stands in */ }
+      if (hold) {
+        const linked = socketStand(hold);
+        // The file that got linked is not the one that was seen (swapped in between): leave it alone.
+        seen = linked && linked.dev === before.dev && linked.ino === before.ino ? linked : null;
       }
+    }
+    try {
+      if (await someoneListens(where.socket)) {
+        say(`not started: a server already listens on ${where.socket}`);
+        return { running: false, reason: 'busy' };
+      }
+      if (!win) {
+        // Removed only if it is STILL the very file that was seen before the probe. Another one - bound by a server
+        // that is starting right now - is left alone: `listen` below then says busy.
+        const after = socketStand(where.socket);
+        if (seen && after && after.dev === seen.dev && after.ino === seen.ino && after.born === seen.born) {
+          try { fs.rmSync(where.socket, { force: true }); } catch { /* listen will say */ }
+        }
+      }
+    } finally {
+      if (hold) { try { fs.rmSync(hold, { force: true }); } catch { /* a leftover link in our own directory */ } }
     }
   }
 

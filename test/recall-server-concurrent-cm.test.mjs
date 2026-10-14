@@ -213,36 +213,36 @@ test('positive control: the socket of a server that died is taken over (a stale 
   }
 });
 
-test('R3 lever 9b (race): a socket bound by another starter between the probe and the clean-up is not taken for the dead one', async (t) => {
+/**
+ * The race of lever 9b: a dead socket file stands at the path; at the moment the probe finds nobody home, another starter
+ * clears the file and binds a new socket of its own. `pin` = whether the late starter may pin the dead inode with a hard
+ * link; `linkWorks: false` makes the link fail (a file system without hard links) to test the fallback.
+ */
+async function raceOnce(t, { linkWorks }) {
   const root = memoryRoot(t);
   const w = place.place(root, {});
-  if (WIN) {
-    // A named pipe is no file: there is no path to look at twice, and nothing to race on.
-    assert.equal(w.marker !== null && w.socket.startsWith('\\\\.\\pipe\\'), true, 'on Windows the socket is a pipe name');
-    return;
-  }
   await leaveStaleSocket(root);
   assert.ok(fs.existsSync(w.socket), 'precondition: a dead server\'s socket file');
-  // The "winner": another starter that, at the moment our probe finds nobody home, clears the dead file and binds a
-  // new socket of its own. Injected into the very tick the probe's connect fails in.
+  const staleIno = fs.lstatSync(w.socket).ino;
   const winner = net.createServer((c) => { c.end('winner\n'); });
   const realConnect = net.connect;
+  const realLink = fs.linkSync;
   let fired = false;
+  let winnerIno = null;
   net.connect = function patched(...args) {
     const c = realConnect.apply(this, args);
     if (!fired) {
       fired = true;
-      c.once('error', () => { fs.rmSync(w.socket, { force: true }); winner.listen(w.socket); });
+      c.once('error', () => { fs.rmSync(w.socket, { force: true }); winner.listen(w.socket); winnerIno = fs.lstatSync(w.socket).ino; });
     }
     return c;
   };
-  const restore = () => { net.connect = realConnect; };
+  if (!linkWorks) fs.linkSync = () => { const e = new Error('hard links are not supported here'); e.code = 'EPERM'; throw e; };
+  const restore = () => { net.connect = realConnect; fs.linkSync = realLink; };
   const s = await startIn(root).finally(restore);
   try {
     assert.equal(fired, true, 'the injection point was reached (otherwise the probe proves nothing)');
     assert.ok(fs.existsSync(w.socket), 'the winner\'s socket was removed by the late starter');
-    // (The winner's new socket usually gets the freed inode NUMBER of the dead one back: identity by inode alone is
-    // not enough here, which is why the clean-up also compares the change time.)
     assert.equal(s.running, false, 'the late starter must not run over the winner');
     assert.equal(s.reason, 'busy');
     const talked = await new Promise((resolve) => {
@@ -254,8 +254,28 @@ test('R3 lever 9b (race): a socket bound by another starter between the probe an
       c.on('error', (e) => resolve(`error ${e.code}`));
     });
     assert.equal(talked, 'winner\n', 'the winner still answers at its path');
+    assert.deepEqual(fs.readdirSync(w.dir).filter((n) => n.includes('.hold.')), [], 'the pinning link is removed again');
+    return { staleIno, winnerIno };
   } finally {
     if (s.running) await s.close();
     await new Promise((r) => winner.close(r));
   }
+}
+
+test('R3 lever 9b (race): a socket bound by another starter between the probe and the clean-up is not taken for the dead one', async (t) => {
+  if (WIN) {
+    // A named pipe is no file: there is no path to look at twice, and nothing to race on.
+    const w = place.place(memoryRoot(t), {});
+    assert.equal(w.marker !== null && w.socket.startsWith('\\\\.\\pipe\\'), true, 'on Windows the socket is a pipe name');
+    return;
+  }
+  const { staleIno, winnerIno } = await raceOnce(t, { linkWorks: true });
+  // The dead file's inode NUMBER is pinned by the hard link while the probe runs, so the winner's new socket cannot get it
+  // back (on file systems that hand a freed number out again at once this is what tells the two files apart for certain).
+  assert.notEqual(winnerIno, staleIno, 'the dead inode was not pinned: the winner\'s socket got the same inode number');
+});
+
+test('R3 lever 9b (race), no hard links available: device, inode and change time still tell the winner\'s socket from the dead one', async (t) => {
+  if (WIN) { t.diagnostic('Windows: no socket file, see the test above'); return; }
+  await raceOnce(t, { linkWorks: false }); // the inode number may well be reused here; the change time carries it
 });

@@ -22,8 +22,10 @@ to the direct path for good. Red on the previous tip with two real `bin/mem-reca
 loser exited 1 (the keeper then stays off). Now the key is written only after `listen`, the loser reports `busy` (exit
 `BUSY_RC`, the keeper retries), `close()` removes only the socket it recorded by device and inode (an old server no longer
 takes a newer one's socket away), and the stale-socket clean-up touches only a socket nobody listens on, never a regular file.
-The clean-up looks at the file (device, inode, change time) BEFORE it asks whether anybody listens and removes it only if it is
-still that very file afterwards.
+The clean-up looks at the file (device, inode, change time) BEFORE it asks whether anybody listens, pins the dead file's inode with
+a hard link in the server's own 0700 directory for the length of the probe (a freed inode number is handed out again at once on
+some file systems - measured on ext in this container: 300 of 300 - so device and inode alone cannot tell a new socket from the
+dead one), and removes it only if it is still that very file afterwards. Without hard links the change time stands in.
 
 **Operator effect:** a regular file (or directory, or link) where the socket belongs now ends the server's start with exit code 1
 (`not started: <path> exists and is not a socket - not touched`) instead of being deleted. The keeper treats exit 1 as a real
