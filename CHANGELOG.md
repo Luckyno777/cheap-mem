@@ -61,8 +61,9 @@ and nested the way the raw capture sees them (`tool_use.input`): `{headers: {Aut
   (`"passwords": [1234, 5678]`) under such a key is a value and falls (review finding 2026-10-14). `token: 1234` and `authToken: 1234` fall. Pagination cursors
   (`nextPageToken`) stay, as in the text rule; a key that runs on long behind its keyword spares a prose string (`token_system_is_a_facade`), as the text
   rule does. `password_hint` is masked (a hint is where the password gets written down). Object-only key words (the text rule is unchanged):
-  `pin`, `pwd`, `passcode`, `credential(s)` (the fetch option values `include`/`same-origin`/`omit` stay), and `privateKey`/`accessKey`/`access-key`
-  (camelCase and hyphen read as `_`). **Linear keys:** a key is read in linear time (a loop replaces `.replace(/[...]+$/, '')`, which was quadratic on a run
+  `pin`, `pwd`, `passcode`, `credential(s)` (the fetch option values `include`/`same-origin`/`omit` stay, whole values only; the counter rule applies:
+  `pin_count: 3`, `passcode_length: 6` are free numbers), and `privateKey`/`accessKey`/`access-key` (camelCase and hyphen match the list; a suffix is
+  counted in the key as written, so a camel key is never read looser than its snake form). **Linear keys:** a key is read in linear time (a loop replaces `.replace(/[...]+$/, '')`, which was quadratic on a run
   of quotes, equals signs or backslashes: 1.4 s for 50,000 of them, minutes for 1 MB) and a key past 512 characters is a secret in doubt, not read at all.
   Bounded: a cycle ends in `[REDACTED:cycle]`, a depth over 64 or more than 2,000,000 nodes in `[REDACTED:depth]`; no crash.
 - **Bearer / Basic / `Authorization: Token`.** One or more markers directly behind the scheme no longer end the pattern; the value after them

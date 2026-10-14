@@ -731,15 +731,22 @@ export function redact(text) {
 //   strings and the numbers directly under it fall. Reading is bounded and linear, a run of quotes or equals signs or
 //   backslashes in a key cannot make it quadratic (`trimKeyTail`, review 2026-10-14).
 // - **Bounded.** A cycle, a depth over WALK_MAX_DEPTH and a walk past WALK_MAX_NODES end in a marker instead of a crash.
-const SECRET_KEY = new RegExp(JSON_KEY_WORDS, 'i');
+// The key list as the object rule reads it: the words with an underscore also match as camelCase or with a hyphen
+// (`privateKey`, `access-key`, `clientSecret`, `refreshToken`). Derived from JSON_KEY_WORDS, not a second list, and read on the
+// key AS WRITTEN, so a suffix is counted in the key's own characters (a camel cut that inserted `_` made `tokenValueForApi`
+// look longer than it is and let a prose string through; review 2026-10-14).
+const KEY_WORDS_FLEX = JSON_KEY_WORDS.replace(/private_key|access_key|client_secret|refresh_token/g, (w) => w.replace('_', '[_-]?'));
+const SECRET_KEY = new RegExp(KEY_WORDS_FLEX, 'i');
 const AUTH_HEADER_KEY = /^(?:proxy-)?authorization$/i;
 const EXTRA_KEY_WORDS = new Set(['pin', 'pwd', 'passcode']);
 const CREDENTIAL_WORDS = new Set(['credential', 'credentials']);
 const FETCH_CREDENTIALS = /^(?:same-origin|include|omit)$/;
-const COUNTER_WORDS = new RegExp(`(?:${JSON_KEY_WORDS})(?:s|[_-]?(?:count|counts|limit|limits|budget|usage|used|len|length|total|num|number))|(?:max|min|num|total)[_-]?token`, 'gi');
-const SECRET_KEY_ALL = new RegExp(JSON_KEY_WORDS, 'gi');
-const KEY_NOISE = /[­​-‏⁠﻿]/g;
+const COUNTER_WORDS = new RegExp(`(?:${KEY_WORDS_FLEX})(?:s|[_-]?(?:count|counts|limit|limits|budget|usage|used|len|length|total|num|number))|(?:max|min|num|total)[_-]?token`, 'gi');
+const SECRET_KEY_ALL = new RegExp(KEY_WORDS_FLEX, 'gi');
+const COUNTER_SUFFIX_WORDS = new Set(['count', 'counts', 'limit', 'limits', 'budget', 'usage', 'used', 'len', 'length', 'total', 'num', 'number', 'max', 'min']);
+const KEY_NOISE = /[\u00AD\u200B-\u200F\u2060\uFEFF]/g;
 const KEY_MAX = 512;
+const CAMEL_CUT = /([a-z0-9])([A-Z])/g;
 const WALK_MAX_DEPTH = 64;
 const WALK_MAX_NODES = 2_000_000;
 const RANK = { counter: 1, cred: 2, 'secret-long': 3, secret: 4 };
@@ -758,19 +765,23 @@ function secretKeyKind(key) {
   const k = key.normalize('NFKC').replace(KEY_NOISE, '');
   if (isHarmlessKey(k)) return null;
   if (AUTH_HEADER_KEY.test(k.trim())) return 'secret';
-  // camelCase and hyphens read as `_`: `privateKey`, `accessKey`, `access-key`. The plain key is tried too (`passWord`).
-  const n = k.replace(/([a-z0-9])([A-Z])/g, '$1_$2').replace(/-/g, '_');
-  const words = n.toLowerCase().split(/[^a-z0-9]+/);
-  const base = SECRET_KEY.test(n) ? n : k;
-  if (!SECRET_KEY.test(base)) {
-    if (words.some((w) => EXTRA_KEY_WORDS.has(w))) return 'secret';
-    return words.some((w) => CREDENTIAL_WORDS.has(w)) ? 'cred' : null;
+  if (!SECRET_KEY.test(k)) {
+    // The whole words `pin`, `pwd`, `passcode`, `credential(s)`: split at `_`, `-` and camelCase. The same counter rule as
+    // for the list: `pin_count`, `passcode_length`, `max_pin` are counts (every other word is a counter word).
+    const words = k.replace(CAMEL_CUT, '$1_$2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+    const hit = words.some((w) => EXTRA_KEY_WORDS.has(w) || CREDENTIAL_WORDS.has(w));
+    if (!hit) return null;
+    const rest = words.filter((w) => !EXTRA_KEY_WORDS.has(w) && !CREDENTIAL_WORDS.has(w));
+    if (rest.length > 0 && rest.every((w) => COUNTER_SUFFIX_WORDS.has(w))) return 'counter';
+    return words.some((w) => EXTRA_KEY_WORDS.has(w)) ? 'secret' : 'cred';
   }
-  if (!SECRET_KEY.test(base.replace(COUNTER_WORDS, '_'))) return 'counter';
+  // The counter words are read on the camel-cut key (`tokenSystem` is `token` + `System`, not the plural `tokenS`); the cut can only
+  // make a counter harder to see, never easier. The suffix below is counted on the key as written.
+  if (!SECRET_KEY.test(k.replace(CAMEL_CUT, '$1_$2').replace(COUNTER_WORDS, '_'))) return 'counter';
   // The suffix is counted from the LAST keyword (the text rule's key takes as much prefix as it can). One pass, linear.
   let end = 0;
-  for (const m of base.matchAll(SECRET_KEY_ALL)) end = m.index + m[0].length;
-  return base.length - end > JSON_SUFFIX_MAX ? 'secret-long' : 'secret';
+  for (const m of k.matchAll(SECRET_KEY_ALL)) end = m.index + m[0].length;
+  return k.length - end > JSON_SUFFIX_MAX ? 'secret-long' : 'secret';
 }
 
 const KEY_MARK = '[REDACTED:json-secret]';

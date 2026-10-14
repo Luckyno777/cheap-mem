@@ -110,9 +110,33 @@ test('object-only key words: pin, pwd, passcode, credential(s), privateKey, acce
     for (const k of Object.keys(c)) assert.equal(r[k], MARK, `${k} => ${JSON.stringify(r[k])}`);
   }
   assert.deepEqual(maskEntry({ credentials: 'include' }), { credentials: 'include' });
+  // only the three whole values: anything that merely starts with one, or contains it, is a value (review 2026-10-14)
+  assert.deepEqual(maskEntry({ credentials: 'include-my-secret-abc123def456' }), { credentials: MARK });
+  assert.deepEqual(maskEntry({ credentials: 'includes' }), { credentials: MARK });
+  assert.deepEqual(maskEntry({ credentials: 'xinclude' }), { credentials: MARK });
+  assert.deepEqual(maskEntry({ credentials: 'omit\nsecret' }), { credentials: MARK });
   assert.deepEqual(maskEntry({ credentials: 'same-origin', pinned: true, pinball: 'x', spin: 'y', pins: 'z' }), { credentials: 'same-origin', pinned: true, pinball: 'x', spin: 'y', pins: 'z' });
   // the text rule is unchanged: a bare `pin` as text is no finding
   assert.equal(redaction.redact('{"pin": "1234"}').text, '{"pin": "1234"}');
+});
+
+test('a camelCase key is never read looser than as written: the suffix is counted in the key\'s own characters (review 2026-10-14)', () => {
+  const prose = 'The study declares ten variables and uses many hex literals, variables cover roughly seven percent of the color decisions, and it is declared and never used by anyone.';
+  for (const key of ['tokenValueForApi', 'tokenValueForApp', 'secretKeyForApi', 'passwordHashForApp', 'privateKeyForApp', 'accessKeyForApi']) {
+    assert.deepEqual(maskEntry({ [key]: prose }), { [key]: MARK }, key);
+    assert.deepEqual(redaction.redactObject({ [key]: prose }), { [key]: MARK }, key);
+  }
+  // a really long suffix still spares prose, as in the text rule
+  assert.deepEqual(maskEntry({ token_system_is_a_facade: prose }), { token_system_is_a_facade: prose });
+  assert.deepEqual(maskEntry({ tokenSystemIsAFacadeForEverything: prose }), { tokenSystemIsAFacadeForEverything: prose });
+});
+
+test('pin, pwd, passcode and credential(s) follow the counter rule: a count is a single number, a value is not', () => {
+  const free = { pin_count: 3, passcode_length: 6, max_pin: 4, pwd_len: 8, credentials_count: 2, credentialCount: 1, pinLimit: 3 };
+  assert.deepEqual(maskEntry(free), free);
+  assert.deepEqual(redaction.redactObject(free), free);
+  assert.deepEqual(maskEntry({ pin_count: '1234', passcode_length: true, pin: 3, credentials_count: [1, 2], pin_code: 4 }),
+    { pin_count: MARK, passcode_length: MARK, pin: MARK, credentials_count: [MARK, MARK], pin_code: MARK });
 });
 
 test('a key that goes on long behind its keyword spares prose, like the text rule, and masks the rest', () => {
