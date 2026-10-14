@@ -3824,7 +3824,13 @@ function authorityProjection(e) {
  * records. Bauplan measurement (5,000,000 entries, 1.33 KB/entry):
  * ~6.4 GB.
  *
- * **Why three passes over the same files, not one.** `retiredMap`'s own
+ * **Since cli-speed-cm (TB6) the third pass is folded into the first**
+ * (see the body: the retiring lines are kept, slim, while the first read
+ * runs; two reads of the files instead of three, 47 of 141 ms at 20,000
+ * entries). The three-pass account below is the algorithm; the third step
+ * now runs over the kept lines instead of a third read.
+ *
+ * **Why passes over the same files, not one array.** `retiredMap`'s own
  * algorithm needs two things from the corpus: (a) every line that
  * carries `retires_id`/`closes_id`/`replaces_id` (there are always few
  * of these — see `state.mjs`'s header comment, "the clever path… tested
@@ -3849,7 +3855,7 @@ function authorityProjection(e) {
  *      was never actually tested against (see the bauplan note this
  *      was built from).
  *
- * Trade made explicit: three sequential reads of the same bytes instead
+ * Trade made explicit: sequential reads of the same bytes instead
  * of one, for a memory footprint that no longer grows with the corpus —
  * see the ladder in the build report for the honest before/after on
  * both axes. `iterLogFile` is used for every pass, so no single pass
@@ -3860,13 +3866,23 @@ function authorityProjection(e) {
  * it, exactly like the function it replaces.
  */
 export function retiredMapFromFiles(absPaths) {
+  // cli-speed-cm TB6: two reads, not three. The first read now also keeps the
+  // lines `applyRetirement` acts on (the ones that carry `retires_id`,
+  // `closes_id` or `replaces_id`; it ignores every other line), so the
+  // third read of the files is gone. What is kept is a slim copy of each
+  // of them in file order: the fields `applyRetirement` and
+  // `authority.mayChangeState` read, never the body of a correction. The
+  // buffer grows with the number of RETIREMENT lines, as `wanted` does,
+  // not with the number of entries, which is what P11 set out to keep.
   const wanted = new Set();
+  const retiring = [];
   for (const abs of absPaths) {
     for (const e of iterLogFile(abs)) {
       if (!e) continue;
       // Y4: every field `authority.mayChangeState` judges needs its target.
       for (const f of authority.STATE_FIELDS) if (e[f]) wanted.add(e[f]);
       if (e.retires_id && e.state === 'superseded' && e.by_id) wanted.add(e.by_id);
+      if (e.retires_id || e.closes_id || e.replaces_id) retiring.push(retiringLine(e));
     }
   }
 
@@ -3880,10 +3896,28 @@ export function retiredMapFromFiles(absPaths) {
   }
 
   const map = new Map();
-  for (const abs of absPaths) {
-    for (const e of iterLogFile(abs)) applyRetirement(map, byId, e);
-  }
+  for (const e of retiring) applyRetirement(map, byId, e);
   return map;
+}
+
+/**
+ * The slim copy of a retiring line that `retiredMapFromFiles` keeps between
+ * its two reads: everything `applyRetirement` reads off the line itself,
+ * plus the fields `authority.mayChangeState` reads off it as the CLAIM
+ * (the same ones {@link authorityProjection} keeps for a target). `text`
+ * only where `applyRetirement` can use it (a tombstone or a closing: its
+ * `why ?? text`), never for a correction, whose text is its new content.
+ * `test/p11-equivalence.test.mjs` and `test/retrieve-once.test.mjs` hold
+ * the result equal to `retiredMap` over the whole entries.
+ */
+function retiringLine(e) {
+  const slim = {
+    ...authorityProjection(e),
+    retires_id: e.retires_id, closes_id: e.closes_id, replaces_id: e.replaces_id,
+    state: e.state, by_id: e.by_id, why: e.why,
+  };
+  if (e.retires_id || e.closes_id) slim.text = e.text;
+  return slim;
 }
 
 /**

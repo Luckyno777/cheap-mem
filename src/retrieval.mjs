@@ -414,7 +414,14 @@ export function retrieve(root, query, capability, {
   // mask-ok: the QUERY the caller typed (a bound on search cost), not entry text
   const useQuery = qCapped ? q.slice(0, limits.queryChars) : q;
 
-  const idx = index ?? loadIndex(root);
+  // Derived ONCE per call, from the log, with no query parameter. A
+  // function that reads the log itself cannot be handed a subset — which
+  // is how the first status bug happened. The index load below is given
+  // this very state instead of deriving its own (cli-speed-cm TB6: the
+  // log's retirements were read twice per retrieve, 141 ms each on a
+  // 20,000-entry scratch memory).
+  const state = deriveState(root);
+  const idx = index ?? loadIndex(root, { derivedState: state });
   const want = Math.min(Math.max(1, Number(top) || 1), limits.maxResults);
 
   // This run's generation. It binds the cursor to a snapshot — see
@@ -623,10 +630,7 @@ export function retrieve(root, query, capability, {
   // this, because everything in it is already curated gold.
 
 
-  // Derived ONCE per call, from the log, with no query parameter. A
-  // function that reads the log itself cannot be handed a subset — which
-  // is how the first status bug happened.
-  const state = deriveState(root);
+  // `state` was derived once, above, before the index load (see there).
 
   const claims = [];
   const seenBody = new Map();

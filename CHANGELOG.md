@@ -14,6 +14,21 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Performance - `mem retrieve` derives the retirements once and reads the log twice (cli-speed-cm TB6; cheap-mem only)
+
+On a 20,000-entry scratch memory (5.2 MB) one `retrieve` took 1,080 ms (7 fresh processes, warm index cache). `retrieve` derived the log's
+retirements for its own claims, and `loadIndex` derived them again for the index's retired flags (141 ms each at that size), each
+time in three passes over the typed logs. Now `retrieve` derives once and hands the state to the index load
+(`loadIndex(root, { derivedState })`; the state is still read from the log in this very call, never stored), and
+`retiredMapFromFiles` keeps the few retirement lines (slim copies, not correction bodies) during its first read, so the files are read twice, not
+three times. `docSimilarity` takes an optional per-ranking Map of norms (MMR compared the same vectors again and again and normed both in every
+comparison; the value is unchanged to the last bit). Measured against the commit before (TB4 only), 15 interleaved runs, medians, load about
+5 on 4 cores: 20,000 entries 898 -> 681 ms (-24 %), 5,000 entries 416 -> 355 ms (-15 %), 300 entries 184 -> 184 ms (no gain: below the
+size where the log reads matter, which is why the order's threshold decides by size). In process, repeated: 611 -> 455 ms at 20,000. Structurally:
+`retrieve` opens the typed logs 12 times instead of 21 on the test world (`test/retrieve-once.test.mjs`, which also counts the norms: 30 instead of 1,800
+for 30 vectors compared 900 times). Ranking and claims unchanged: byte-identical `--json` over a 400-entry scratch memory with discards, dones, a supersession,
+corrections and a refused (disputed) override, for `retrieve` with `--top`, `--as-of`, `--with-disputed`, `--type`, and for `find`.
+
 ### Performance - a CLI start loads the group of its command, not all six (cli-speed-cm TB4; counterpart in lucky-mem open)
 
 `bin/mem` imported the six command groups statically, so `mem version` compiled the code of all 87 handlers to run one. Measured

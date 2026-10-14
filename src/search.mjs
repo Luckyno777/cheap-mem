@@ -1283,15 +1283,28 @@ function bm25Term(index, doc, term, rare = null) {
  * deterministic, no embeddings — it reuses the same weighted term maps
  * BM25 already builds, so feeding MMR costs nothing extra.
  */
-export function docSimilarity(aW, bW) {
+export function docSimilarity(aW, bW, norms = null) {
   if (!aW || !bW || aW.size === 0 || bW.size === 0) return 0;
-  let na = 0; for (const v of aW.values()) na += v * v;
-  let nb = 0; for (const v of bW.values()) nb += v * v;
+  // `norms`: an optional Map the CALLER owns for the length of one ranking, weights -> sum of squares.
+  // MMR compares the same few vectors against each other over and over; norming each
+  // one per comparison was a pass over both maps every time (cli-speed-cm TB6). The sum is
+  // taken in the same order either way, so the value is bit for bit the one without the memo.
+  const na = sumOfSquares(aW, norms);
+  const nb = sumOfSquares(bW, norms);
   if (na === 0 || nb === 0) return 0;
   const [small, big] = aW.size <= bW.size ? [aW, bW] : [bW, aW];
   let dot = 0;
   for (const [t, v] of small) { const w = big.get(t); if (w) dot += v * w; }
   return dot / (Math.sqrt(na) * Math.sqrt(nb));
+}
+
+function sumOfSquares(w, norms) {
+  let n = norms?.get(w);
+  if (n === undefined) {
+    n = 0; for (const v of w.values()) n += v * v;
+    norms?.set(w, n);
+  }
+  return n;
 }
 
 /**
@@ -2004,8 +2017,9 @@ export function search(index, query, {
   const maxScore = hits.length ? hits[0].score : 0;
   const kept = hits.filter((t) => maxScore === 0 || t.score / maxScore >= minScore);
   // MMR sees a bounded pool, not every hit above the floor (mmrPoolFor).
+  const norms = new Map();   // one ranking's norms, dropped with it (see docSimilarity)
   const out = (mmr && kept.length > 1)
-    ? mmrRerank(kept.slice(0, mmrPoolFor(top, true)), { lambda: mmrLambda, top, simOf: (a, b) => docSimilarity(a.__w, b.__w) })
+    ? mmrRerank(kept.slice(0, mmrPoolFor(top, true)), { lambda: mmrLambda, top, simOf: (a, b) => docSimilarity(a.__w, b.__w, norms) })
     : kept.slice(0, top);
   // The scored candidates were slim (score + document reference); only the
   // answer is turned into full hits, in the field order of old.
@@ -2541,8 +2555,11 @@ function docCountsMatch(documents, files) {
  * still active, to suppress it) needs the same correction, and costs
  * nothing extra since the whole log is read regardless.
  */
-function reconcileRetired(root, index) {
-  const state = deriveState(root);
+function reconcileRetired(root, index, derived = null) {
+  // `derived`: the caller already derived the state from the log in THIS call (`retrieve()` does,
+  // for its own claims) and hands it down, so a retrieve reads the log's retirements once, not twice
+  // (cli-speed-cm TB6). It is the same fresh read, never a stored one.
+  const state = derived ?? deriveState(root);
   for (const doc of index.documents) {
     const id = doc.entry?.id;
     const info = id ? state.get(id) : null;
@@ -2784,7 +2801,7 @@ function loadMemoized(root, opts) {
       memo.delete(key);   // rewritten, shrunk, deleted, or too far behind: the normal way
       m = null;
     } else if (grown.added > 0) {
-      reconcileRetired(root, m.base);
+      reconcileRetired(root, m.base, opts.derivedState);
       memoFilesUpdate(m, now, grown);
       m.gen += 1;
       m.revealed = null;
@@ -2796,7 +2813,7 @@ function loadMemoized(root, opts) {
   }
 
   if (!m) {
-    const r = loadIndexCached(root, { language, wantState: true });
+    const r = loadIndexCached(root, { language, wantState: true, derivedState: opts.derivedState });
     const { state, ...base } = r;
     m = {
       root, base, files: state.files, fullAt: state.fullAt, gen: 0,
@@ -2871,7 +2888,7 @@ export function loadIndex(root, opts = {}) {
   return index;
 }
 
-function loadIndexCached(root, { fresh = false, language = 'en', wantState = false } = {}) {
+function loadIndexCached(root, { fresh = false, language = 'en', wantState = false, derivedState = null } = {}) {
   // With MEM_EXPAND=1 the index carries `asked_as`: its own cache directory.
   const cacheDir = path.join(root, CACHE_DIR + expand.cacheSuffix());
   const legacyCachePath = path.join(root, CACHE_FILE);
@@ -2971,7 +2988,7 @@ function loadIndexCached(root, { fresh = false, language = 'en', wantState = fal
 
         if (grown && grown.added === 0) {
           return {
-            ...reconcileRetired(root, index),
+            ...reconcileRetired(root, index, derivedState),
             fromCache: true, appended: 0, graphsStale: false, cacheStatus: 'hit',
             ...(wantState ? { state: { files: res.files, fullAt } } : {}),
           };
@@ -2996,7 +3013,7 @@ function loadIndexCached(root, { fresh = false, language = 'en', wantState = fal
           // approximation nobody declares is how a memory starts giving
           // two different answers to the same question.
           return {
-            ...reconcileRetired(root, index),
+            ...reconcileRetired(root, index, derivedState),
             fromCache: true,
             appended: grown.added,
             graphsStale: grown.added > 0,
