@@ -1,0 +1,542 @@
+#!/usr/bin/env bash
+# mem-before-edit — recall DURING the work, not only on a user's message.
+#
+# `mem-retrieve` hangs on UserPromptSubmit. It therefore fires exactly
+# when the person types something, and stays silent through all the time
+# in between — which is when the building actually happens. Errors and
+# decisions are not born while reading a question; they are born while
+# changing a file.
+#
+# Measured 2026-09-08 against four defects from one Windows install:
+# for THREE of them an entry already existed naming the very file that
+# was being touched. None was shown, because between the person's
+# message and the write there is no event a hook hangs on.
+#
+# So: PreToolUse on Edit|Write|NotebookEdit — and Bash when the command
+# writes a file (src/bashtargets.mjs) — and the query is the PATH.
+#
+# --- Why literal and not ranked --------------------------------------
+#
+# A ranked search on a path ALWAYS returns something: the fragments are
+# rare, so the scores are high, even when no entry ever mentioned the
+# file. A block that shows up on every edit is skipped after the third
+# time — the same lesson mem-retrieve carries as its score bar.
+#
+# `--literal` is sharper: only entries that really name the path match.
+# If none does, nothing is printed. That is the property this can be
+# falsified by — for an invented path it MUST stay silent.
+#
+# --- Two outputs, on purpose -----------------------------------------
+#
+# `additionalContext` is the documented way to feed text into the turn;
+# Claude Code's built-in hook reference lists it generally under
+# `hookSpecificOutput` and marks only permissionDecision,
+# permissionDecisionReason and updatedInput as "PreToolUse only". That
+# it takes effect ON PreToolUse is documented but not measured by us.
+# So a `systemMessage` goes out as well — documented for all hooks and
+# visible to the person. If one channel is ignored, the hit is still
+# seen instead of vanishing quietly.
+#
+# Env:
+#   CHEAP_MEM_ROOT          absolute path to the memory
+#   MEM_BEFORE_EDIT_OFF=1   turn this hook off
+#   MEM_HOOK_OFF=1          turn ALL cheap-mem hooks off
+#   MEM_BEFORE_EDIT_TOP     at most this many hits (default 3)
+#   MEM_BEFORE_EDIT_MARKS   where the once-per-file marks live
+#   MEM_RETRIEVE_ROOTS      space-separated fallback roots to probe
+
+set -u
+
+# Backslashes become slashes before a path is used as a path.
+#
+# On Windows every path handed to a hook is native: the memory root,
+# and `$0` itself. bash then finds nothing where something is, and the
+# hook exits 0 without a word — indistinguishable from "nothing to
+# report". Two places per hook needed this, and five hooks carried the
+# same copy. Git Bash resolves `C:/…` fine; on Linux and macOS the
+# substitution changes nothing.
+to_slashes() { printf '%s' "${1//\\//}"; }
+
+# **Which exit did it take?** `MEM_BEFORE_EDIT_TRACE=1` makes every
+# early exit name itself on stderr. Nothing is printed without it, and
+# stdout is never touched — the hook's contract is unchanged.
+#
+# This exists because two plausible causes were repaired, both of them
+# real bugs verified on Linux, and neither was the reported failure:
+# the hook kept exiting 0 in silence on Windows. Guessing a third time
+# would cost another round trip. A branch that says its own name costs
+# one line.
+trace() { [ "${MEM_BEFORE_EDIT_TRACE:-}" = "1" ] && printf 'mem-before-edit: exit at %s\n' "$1" >&2; return 0; }
+# The same trace, but for a midpoint state instead of an exit.
+# `trace` prints "exit at ..." — at a point that does NOT exit, that
+# would be a false statement in its own diagnostic tool.
+note() { [ "${MEM_BEFORE_EDIT_TRACE:-}" = "1" ] && printf 'mem-before-edit: %s\n' "$1" >&2; return 0; }
+[ "${MEM_BEFORE_EDIT_OFF:-}" = "1" ] && { trace "off-switch"; exit 0; }
+[ "${MEM_HOOK_OFF:-}" = "1" ] && { trace "hook-off"; exit 0; }
+
+# Hook time starts here — the journal line carries it (`duration_ms`).
+if [ -n "${EPOCHREALTIME:-}" ]; then
+  _s="${EPOCHREALTIME%.*}"; _f="${EPOCHREALTIME#*.}"
+  MEM_BE_START_MS="${_s}${_f:0:3}"
+  unset _s _f
+else
+  MEM_BE_START_MS="$(( $(date +%s) * 1000 ))"
+fi
+
+PROBE="${MEM_RETRIEVE_ROOTS:-$HOME/cheap-mem}"
+
+# **Backslashes become slashes before anything is looked up.**
+#
+# On Windows the agent hands this hook a native path —
+# `C:\Users\x\AppData\Local\Temp\mem`. bash then tests
+# `[ -f "C:\Users\x\.mem/config.json" ]`, finds nothing, and the hook
+# exits 0 in silence: no memory, no output, no error. From the outside
+# that is indistinguishable from "nothing to say about this file", so
+# the hook did nothing on Windows for as long as it has existed and
+# nobody could tell.
+#
+# Reproduced without Windows: the same memory, addressed with slashes,
+# answers with 440 characters; addressed with backslashes it answers
+# with nothing and exits 0.
+#
+# Git Bash resolves `C:/Users/...` perfectly well, so one substitution
+# is the whole repair. It is a no-op on Linux and macOS, where a
+# backslash in a path is a legal character but never a separator in any
+# path this hook is handed.
+
+ROOT=""
+# shellcheck disable=SC2086
+for k in "${CHEAP_MEM_ROOT:-}" $PROBE; do
+  [ -z "$k" ] && continue
+  k="$(to_slashes "$k")"
+  [ -f "$k/.mem/config.json" ] && { ROOT="$k"; break; }
+done
+[ -z "$ROOT" ] && { trace "no-root (CHEAP_MEM_ROOT=${CHEAP_MEM_ROOT:-} PROBE=$PROBE)"; exit 0; }
+
+# Two shapes, same as the other hooks: the memory may carry the tool
+# itself, or the tool lives in a separate checkout next to this script.
+# `$0` is a path from outside too, and on Windows it carries
+# backslashes: `dirname "D:\a\repo\bin\mem-before-edit"` returns `.`,
+# so HOOK_DIR became the CURRENT directory instead of bin/. The tool
+# next to the hook was then not found and the hook exited 0 in
+# silence — the same failure as the root lookup, one line further on.
+HOOK_DIR="$(cd "$(dirname "$(to_slashes "$0")")" && pwd)"
+if [ -f "$ROOT/bin/mem" ]; then
+  RUN_MEM=(node "$ROOT/bin/mem")
+  TOOL_ROOT="$ROOT"
+elif [ -f "$HOOK_DIR/mem" ]; then
+  RUN_MEM=(node "$HOOK_DIR/mem" --root "$ROOT")
+  TOOL_ROOT="$(dirname "$HOOK_DIR")"
+else
+  trace "no-tool (ROOT=$ROOT HOOK_DIR=$HOOK_DIR)"
+  exit 0
+fi
+
+# shellcheck source=bin/_portable.sh
+. "$HOOK_DIR/_portable.sh"
+
+IN="$(cat)"
+
+# --- The journal line (X2b) ----------------------------------------------
+#
+# The before-edit occasion had a name in the journal vocabulary
+# (`before-edit`, and a latency budget) and no writer: nothing booked it,
+# so "did the hook run, and what did it find?" had no answer. From here
+# every run that gets as far as a query books ONE line — what it showed,
+# or why nothing (the nothing is booked too). No sources: this hook works
+# on the rendered text, not on entries, so nothing downstream can say
+# which shown entry was touched afterwards (not measured, not 0).
+#
+#   journal_book <reason|-> <hits> <bytes>
+#
+# Best-effort and silent: a measurement must not stop what it measures.
+journal_book() {
+  [ -f "$TOOL_ROOT/src/injection.mjs" ] || return 0
+  # `$4` (optional): the ids of the solutions shown below errors (L3), comma separated.
+  MEM_J_ROOT="$ROOT" MEM_J_SRC="$TOOL_ROOT/src/injection.mjs" MEM_J_SESSION="${SESSION:-}" \
+    MEM_J_REASON="$1" MEM_J_HITS="$2" MEM_J_BYTES="$3" MEM_J_IDS="${4:-}" MEM_J_START="$MEM_BE_START_MS" \
+    MEM_J_FILE="${QUERY:-}" MEM_J_TOOL="${TOOL_NAME:-}" \
+    node -e '
+      import(require("node:url").pathToFileURL(process.env.MEM_J_SRC).href).then((m) => {
+        const start = Number(process.env.MEM_J_START);
+        const reason = process.env.MEM_J_REASON;
+        m.book(process.env.MEM_J_ROOT, {
+          session: process.env.MEM_J_SESSION && process.env.MEM_J_SESSION !== "none" ? process.env.MEM_J_SESSION : null,
+          occasion: m.OCCASION.BEFORE_EDIT, reason: reason === "-" ? null : reason,
+          bytes: Number(process.env.MEM_J_BYTES), hits: Number(process.env.MEM_J_HITS),
+          searched: null, sources: [],
+          ids: (process.env.MEM_J_IDS || "").split(",").filter(Boolean),
+          file: process.env.MEM_J_FILE || undefined, tool: process.env.MEM_J_TOOL || undefined,
+          durationMs: Number.isFinite(start) && start > 0 ? Date.now() - start : null,
+        });
+      }).catch(() => {});' >/dev/null 2>&1 || true
+}
+
+# **Bash, too — but only a command that WRITES a file.** `sed -i`,
+# `tee`, `> file`, `cp`, `mv` change a file exactly like Edit does, and
+# until 2026-10-01 they got no recall at all. Bash fires far more often
+# than Edit, so a pure-text prefilter runs FIRST, in bash, before any
+# node start: no `>` left after dropping `N>&M` and `>/dev/null`, and no
+# tee/sed/cp/mv word anywhere -> silent exit, no journal line. The
+# prefilter may be falsely POSITIVE (then src/bashtargets.mjs finds no
+# target and the hook exits the same way), never falsely negative for
+# a shape the reader knows. Which words count as a written file is
+# decided in ONE place, src/bashtargets.mjs — see there for why it
+# drops directories, extension-less words and expansions.
+IS_BASH=""
+if printf '%s' "$IN" | grep -qE '"tool_name"[[:space:]]*:[[:space:]]*"Bash"'; then
+  IS_BASH=1
+  # **The command guard (lever-5 port), before the workflows and independent
+  # of any written file.** An error of the class `mishandling` may carry a
+  # `command_pattern`; src/commandguard.mjs warns once per session and
+  # error when the command matches, and never blocks. The node start is
+  # paid only when (a) a line of `.pipeline/command-guard/words.txt` (first
+  # wording of each pattern) stands in the hook JSON (grep -F), or (b) the
+  # booklet is missing or older than an error drawer AND some drawer holds
+  # a `"command_pattern"` (node then rebuilds it). Nothing armed: a few
+  # stat calls, no process. May be falsely positive, never falsely negative
+  # (except two spaces in the raw text, see the module head).
+  CGD="$TOOL_ROOT/src/commandguard.mjs"
+  cg_needed() {
+    local dir="$ROOT/.pipeline/command-guard" f sz stale=""
+    if [ -f "$dir/rules.json" ]; then
+      for f in "$ROOT/global/errors.jsonl" "$ROOT"/projects/*/errors.jsonl; do
+        # Strictly newer = stale. bash 3.2 (macOS /bin/bash) compares mtimes in
+        # whole seconds, so a drawer appended in the same second as the booklet
+        # does NOT look newer; the size decides that case (sizes.txt, written by
+        # the build; the drawers are append-only so a change changes the size).
+        # A tie alone must not count as stale: the booklet is normally built
+        # right after the drawer, and a tie-as-stale started node on every
+        # command (macOS, test "prefilter: node starts only on a keyword hit").
+        # A missing sizes.txt (older booklet) is stale: one node start, which
+        # writes it.
+        [ -f "$f" ] || continue
+        if [ "$f" -nt "$dir/rules.json" ] || [ ! -f "$dir/sizes.txt" ]; then stale=1; break; fi
+        sz="$(wc -c < "$f" | tr -d ' ')"
+        if ! grep -qxF "$sz ${f#"$ROOT"/}" "$dir/sizes.txt"; then stale=1; break; fi
+      done
+      if [ -z "$stale" ]; then
+        [ -s "$dir/words.txt" ] && printf '%s' "$IN" | grep -qFf "$dir/words.txt"
+        return
+      fi
+    fi
+    grep -qs '"command_pattern"' "$ROOT/global/errors.jsonl" "$ROOT"/projects/*/errors.jsonl
+  }
+  if [ -f "$CGD" ] && cg_needed; then
+    CG_OUT="$(printf '%s' "$IN" | CHEAP_MEM_ROOT="$ROOT" capped 5 node "$CGD" bash 2>/dev/null)"
+    if [ -n "$CG_OUT" ]; then
+      printf '%s' "$CG_OUT"
+      trace "command-guard"
+      exit 0
+    fi
+  fi
+  # **Workflows first (wf-bc B3 port), independent of any written file.**
+  # `npm test` or `git rebase` write no file, so the prefilter below
+  # would leave silently before a workflow's `tool_patterns` were ever
+  # looked at. A workflow hit goes out at once, with its own journal
+  # line (src/workflowdetect.mjs decides and books); no hit falls through
+  # unchanged. The node start is paid only when some workflow drawer
+  # holds a `tool_patterns` field at all — a grep, no process.
+  WFD="$TOOL_ROOT/src/workflowdetect.mjs"
+  if [ -f "$WFD" ] && grep -qs '"tool_patterns"' "$ROOT/global/workflows.jsonl" "$ROOT"/projects/*/workflows.jsonl; then
+    WF_OUT="$(printf '%s' "$IN" | CHEAP_MEM_ROOT="$ROOT" capped 5 node "$WFD" bash 2>/dev/null)"
+    if [ -n "$WF_OUT" ]; then
+      printf '%s' "$WF_OUT"
+      trace "workflow"
+      exit 0
+    fi
+  fi
+  STRIPPED="$(printf '%s' "$IN" | sed -E 's/[0-9]*>&[0-9-]+//g; s/&?>>?[[:space:]]*\/dev\/null//g')"
+  if ! printf '%s' "$STRIPPED" | grep -q '>' \
+     && ! printf '%s' "$STRIPPED" | grep -qE '(^|[^A-Za-z0-9_-])(tee|sed|cp|mv)($|[^A-Za-z0-9_-])'; then
+    trace "bash-not-a-write"
+    exit 0
+  fi
+fi
+BT="$TOOL_ROOT/src/bashtargets.mjs"
+command -v cygpath >/dev/null 2>&1 && BT="$(cygpath -m "$BT")"
+case "$BT" in
+  /*) BT_URL="file://$BT" ;;
+  *)  BT_URL="file:///$BT" ;;
+esac
+
+READING="$(printf '%s' "$IN" | node -e '
+  let d=""; process.stdin.on("data",c=>d+=c).on("end",async()=>{
+    let j; try { j = JSON.parse(d); } catch { process.exit(0); }
+    let p = j?.tool_input?.file_path ?? j?.tool_input?.notebook_path ?? "";
+    // Bash: the first file the command writes (src/bashtargets.mjs).
+    // One path per call, like Edit — the others in the same command go
+    // unasked rather than flooding one tool call with three blocks.
+    if (!p && j?.tool_name === "Bash") {
+      try {
+        const bt = await import(process.argv[1]);
+        p = bt.writeTargets(String(j?.tool_input?.command ?? ""))[0] ?? "";
+      } catch { p = ""; }
+    }
+    if (!p) process.exit(0);
+    // The query is the path, but not all of it: an absolute path never
+    // appears in an entry (it belongs to one machine), the last two
+    // segments do — `install/claude-code.sh`, `src/search.mjs`. That is
+    // how people write about code.
+    const parts = String(p).split(/[\\/]/).filter(Boolean);
+    const query = parts.slice(-2).join("/");
+    if (query.length < 4) process.exit(0);
+    process.stdout.write(JSON.stringify({ query, session: String(j.session_id ?? "none"), tool: String(j.tool_name ?? "") }));
+  })' "$BT_URL" 2>/dev/null)"
+[ -z "$READING" ] && { trace "no-readable-path${IS_BASH:+ (bash: no written file)}"; exit 0; }
+
+field() { printf '%s' "$READING" | node -e "let d=\"\";process.stdin.on(\"data\",c=>d+=c).on(\"end\",()=>process.stdout.write(String(JSON.parse(d).$1 ?? \"\")))" 2>/dev/null; }
+QUERY="$(field query)"
+SESSION="$(field session)"
+# L1: the tool that set the hook off goes into the journal line next to the file (`QUERY`, two segments, relative).
+TOOL_NAME="$(field tool)"
+[ -z "$QUERY" ] && { trace "no-query"; exit 0; }
+
+# Once per file per session — but not SILENTLY.
+#
+# This used to be `[ -e "$MARKS/$SAFE" ] && exit 0`: the second edit to
+# the same file got nothing. That is not neutral. Silence reads as
+# "there is nothing about this file", and that was wrong — there was
+# something, it had just been shown. And when a NEW error about the
+# same file is logged during the session (the normal case while working
+# on a file), the mark hid it until the session ended.
+#
+# Now three states: show / pointer / show again. Proven, not assumed:
+# the memory appends, so content can only change by growing. An equal
+# watermark means a provably equal result — the pointer then costs no
+# lookup at all.
+SAFE="$(printf '%s' "${SESSION}__${QUERY}" | tr -c 'A-Za-z0-9_.-' '_')"
+MARKS="${MEM_BEFORE_EDIT_MARKS:-$ROOT/.mem/before-edit}"
+mkdir -p "$MARKS" 2>/dev/null || { trace "marks-dir (MARKS=$MARKS)"; exit 0; }
+MARK="$MARKS/$SAFE.json"
+PTR="$HOOK_DIR/../src/pointer.mjs"
+# **As a file URL, not as a path.** An ESM specifier is a URL. On Linux
+# this goes unnoticed, because `/home/...` happens to also be a valid
+# absolute specifier. On Windows `D:/a/...` is not — Node reads `D:` as
+# a URL SCHEME and throws ERR_UNSUPPORTED_ESM_URL_SCHEME. All six calls
+# below catch the error with `.catch()` and write an empty state, so the
+# whole pointer-and-mark mechanism sat idle there: the hook re-displayed
+# the full block on EVERY edit, instead of setting a pointer the second
+# time, and never wrote a mark at all. Measured on 2026-09-16 on the
+# Windows runner (before-edit.test.mjs:131 and :174), mechanism
+# reproduced locally.
+#
+# **And the path must be converted to Windows form first.** The file URL
+# alone was not enough, and the 2026-09-16 run said why:
+#
+#     mark: MARK=C:/Users/RUNNER~1/... exists=no level=0 ahead={}
+#
+# `ahead={}` and `level=0` are literally the catch fallbacks. MARK is a
+# Windows form (from $ROOT), while HOOK_DIR comes from `pwd`, which
+# under Git Bash yields the MSYS form `/d/a/...`. That became
+# `file:///d/a/...`, and a Windows node then looks for `\d\a\...` on the
+# current drive. Finds nothing, catches it, stays silent.
+#
+# `cygpath` is the translator and, at the same time, the most reliable
+# sign of Windows — the same spot and the same reasoning as in
+# install/claude-code.sh, where `-m` was chosen for exactly this reason:
+# forward slashes that bash reads and that survive as an unescaped URL.
+PTR_FS="$PTR"
+command -v cygpath >/dev/null 2>&1 && PTR_FS="$(cygpath -m "$PTR")"
+case "$PTR_FS" in
+  /*) PTR_URL="file://$PTR_FS" ;;
+  *)  PTR_URL="file:///$PTR_FS" ;;
+esac
+
+# The attachment module (L3, src/recallattach.mjs: the solution of an error stands
+# directly below it), reached the same way as pointer.mjs.
+RA="$HOOK_DIR/../src/recallattach.mjs"
+RA_FS="$RA"
+command -v cygpath >/dev/null 2>&1 && RA_FS="$(cygpath -m "$RA")"
+case "$RA_FS" in
+  /*) RA_URL="file://$RA_FS" ;;
+  *)  RA_URL="file:///$RA_FS" ;;
+esac
+
+LEVEL="$(MEM_ROOT_ARG="$ROOT" node -e '
+  import(process.argv[1]).then((p) => {
+    process.stdout.write(String(p.watermark(process.env.MEM_ROOT_ARG).bytes));
+  }).catch(() => process.stdout.write("0"));' "$PTR_URL" 2>/dev/null)"
+[ -z "$LEVEL" ] && LEVEL=0
+
+AHEAD="$(MEM_MARK="$MARK" MEM_LEVEL="$LEVEL" node -e '
+  import(process.argv[1]).then((p) => {
+    const m = p.readMark(process.env.MEM_MARK);
+    const d = p.decide({ mark: m, levelNow: Number(process.env.MEM_LEVEL) });
+    process.stdout.write(JSON.stringify({ ...d, count: m?.shown ?? 0 }));
+  }).catch(() => process.stdout.write("{}"));' "$PTR_URL" 2>/dev/null)"
+
+# **The mark path could say nothing about itself up to this point.**
+# readMark and writeMark catch every error ("Never fails outward"), and
+# the trace only covered the early EXITS. If the decision came out
+# wrong, the hook then ran through cleanly, printed the full block, and
+# stderr was empty — exactly the state on 2026-09-16 on the Windows
+# runner, where `exit=0, stderr: (empty)` was all that two failing
+# assertions had to go on.
+#
+# A branch that makes a decision must be able to name it behind the
+# flag. Otherwise it cannot be told apart from "there is nothing to
+# decide".
+note "mark: PTR_URL=$PTR_URL MARK=$MARK exists=$([ -f "$MARK" ] && echo yes || echo no) level=$LEVEL ahead=$AHEAD"
+
+if printf '%s' "$AHEAD" | grep -q '"action":"pointer"'; then
+  journal_book already-shown 0 0
+  printf '%s' "$AHEAD" | MEM_Q="$QUERY" node -e '
+    let d=""; process.stdin.on("data",c=>d+=c).on("end",()=>{
+      import(process.argv[1]).then((p) => {
+        let j = {}; try { j = JSON.parse(d); } catch {}
+        process.stdout.write(JSON.stringify({
+          suppressOutput: true,
+          hookSpecificOutput: { hookEventName: "PreToolUse",
+            additionalContext: p.pointerLine({ pathName: process.env.MEM_Q, count: j.count ?? 0 }) },
+        }));
+      });
+    })' "$PTR_URL" 2>/dev/null
+  exit 0
+fi
+
+# `component --hook` instead of `find --literal`: the same literal
+# strictness, but across BOTH spellings of a file, and over the CACHED
+# component table first (src/component-table.mjs — R-Tab port) rather
+# than a full-corpus scan on every single edit.
+#
+# Measured on 2026-09-08 across 805 path mentions in the reference
+# corpus: 22 % of components appear in more than one form, almost always
+# only with or without a path prefix. What this hook saw with two
+# segments alone:
+#
+#     bin/capture.sh          3 of 11
+#     .claude/stop.sh         0 of 10
+#     hooks/stop.sh           6 of 10
+#
+# So it ran at a third of its reach — and this is the hook that fires
+# DURING THE WORK. A base-name hit only counts when the entry names it
+# without a prefix or with the same one (src/component.mjs);
+# `projects/x/events.jsonl` answers no question about
+# `global/events.jsonl`.
+#
+# `--hook` (unlike plain `--json`) reads the component table READ-ONLY:
+# on a fresh table it ranks guard/fix marks above a bare mention (for
+# errors) and hands back the table's rows — including a `// error: <id>`
+# guard mark in a test file, which a literal text scan of the ERROR
+# entry itself can never see (the mark lives in the TEST file, not the
+# entry's own text). On a stale/missing table it falls back to the
+# unchanged live search AND kicks off a background rebuild — it never
+# rebuilds inline, a full build is far too slow for this hook's budget.
+# A search that failed or ran into its cap books as `rebuild` (the index
+# did not answer in time) — the closest reason in the closed vocabulary.
+HITS="$(capped 5 "${RUN_MEM[@]}" component "$QUERY" --hook --json 2>/dev/null)" || { journal_book rebuild 0 0; trace "search-failed"; exit 0; }
+[ -z "$HITS" ] && { journal_book empty 0 0; trace "no-hits"; exit 0; }
+
+PICK="$(printf '%s' "$HITS" | CHEAP_MEM_ROOT="$ROOT" MEM_BEFORE_EDIT_TOP="${MEM_BEFORE_EDIT_TOP:-3}" node -e '
+  let d=""; process.stdin.on("data",c=>d+=c).on("end",async()=>{
+    let j; try { j = JSON.parse(d); } catch { process.exit(0); }
+    // L3: the solution of a shown error, one line directly below it. A failure here
+    // is an extra and leaves the lines as they were.
+    let att = null;
+    // Imported only when an error hit stands among the hits: nothing extra is loaded otherwise.
+    try {
+      if ((j.hits || []).some((h) => /[\\/]errors\.jsonl$/.test(String(h.source || "")))) {
+        att = (await import(process.argv[1])).attacher(process.env.CHEAP_MEM_ROOT, j.hits || []);
+      }
+    } catch { att = null; }
+    // Only the lanes that WARN. A thought or an event about this file
+    // does not change how it should be changed; an error, a decision
+    // and a learning do.
+    // Either separator. The pattern demanded a forward slash, so on
+    // Windows — where the source carries backslashes — it matched
+    // nothing, the selection came out empty and the hook exited in
+    // silence. Same family as everything else here: a separator
+    // written into a pattern that has to read a real path.
+    const warning = /[\\/](errors|decisions|learnings)\.jsonl$/;
+    // A workflow whose `path_patterns` name this file says HOW a change
+    // here goes. Only as a component-table row of role `works-on`: that
+    // role is written for VISIBLE workflows alone (in force, issued by a
+    // human, not a draft — src/workflowdetect.mjs); a workflow that merely
+    // mentions the path, or a live-search fallback hit, stays out.
+    const isWorkflow = (h) => /[\\/]workflows\.jsonl$/.test(String(h.source || "")) && h.form === "works-on";
+    const out = [];
+    for (const h of (j.hits || [])) {
+      const wf = isWorkflow(h);
+      if (!wf && !warning.test(String(h.source || ""))) continue;
+      const day = String(h.ts || "").slice(0, 10);
+      const text = String(h.label || "").trim();
+      if (text) {
+        out.push(`  ${day}  ${wf ? "(workflow) " : ""}${text}`);
+        const a = att && att(h);
+        if (a) out.push(a.line);
+      }
+      if (out.filter((l) => !l.startsWith("  \u21b3")).length >= Number(process.env.MEM_BEFORE_EDIT_TOP)) break;
+    }
+    // Open duties and released procedures for this file, each capped
+    // by `mem component --hook` itself (errorcontext.beforeEditDuties):
+    // what is still OWED here, and the norm in force. A closed duty or
+    // a proposed/withdrawn rule never arrives in these lists.
+    for (const [kind, list] of [["open duty", j.duties], ["procedure", j.procedures]]) {
+      for (const h of (Array.isArray(list) ? list : [])) {
+        const text = String(h.label || "").trim();
+        if (text) out.push(`  ${String(h.ts || "").slice(0, 10)}  (${kind}) ${text}`);
+      }
+    }
+    process.stdout.write(out.join("\n"));
+  })' "$RA_URL" 2>/dev/null)"
+
+# Hits, but none in a lane that warns: the search ran and there was
+# nothing to say — `empty`, not silence.
+[ -z "$PICK" ] && { journal_book empty 0 0; trace "no-pick"; exit 0; }
+
+# Second round: the watermark grew, so the FINGERPRINT decides. An
+# entry about a different file moves the level but changes nothing
+# about this answer — then it stays a pointer.
+# A solution line (L3) hangs on its error and is not an entry of its own.
+ARROW=$'\xe2\x86\xb3'
+COUNT="$(printf '%s' "$PICK" | grep -v "^  $ARROW" | grep -c . || true)"
+VERDICT="$(printf '%s' "$PICK" | MEM_MARK="$MARK" MEM_LEVEL="$LEVEL" node -e '
+  let d=""; process.stdin.on("data",c=>d+=c).on("end",()=>{
+    import(process.argv[1]).then((p) => {
+      const m = p.readMark(process.env.MEM_MARK);
+      const f = p.fingerprint(d);
+      const v = p.decide({ mark: m, levelNow: Number(process.env.MEM_LEVEL), newFingerprint: f });
+      process.stdout.write(JSON.stringify({ ...v, fingerprint: f, count: m?.shown ?? 0 }));
+    }).catch(() => process.stdout.write("{}"));
+  })' "$PTR_URL" 2>/dev/null)"
+
+FP="$(printf '%s' "$VERDICT" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{process.stdout.write(JSON.parse(d).fingerprint||"")}catch{}})' 2>/dev/null)"
+MEM_MARK="$MARK" MEM_LEVEL="$LEVEL" MEM_FP="$FP" MEM_COUNT="$COUNT" node -e '
+  import(process.argv[1]).then((p) => p.writeMark(process.env.MEM_MARK, {
+    level: Number(process.env.MEM_LEVEL), fingerprint: process.env.MEM_FP,
+    shown: Number(process.env.MEM_COUNT),
+  })).catch(() => {});' "$PTR_URL" 2>/dev/null
+note "mark written: exists=$([ -f "$MARK" ] && echo yes || echo no) fp=$FP count=$COUNT"
+
+if printf '%s' "$VERDICT" | grep -q '"action":"pointer"'; then
+  journal_book already-shown 0 0
+  printf '%s' "$VERDICT" | MEM_Q="$QUERY" node -e '
+    let d=""; process.stdin.on("data",c=>d+=c).on("end",()=>{
+      import(process.argv[1]).then((p) => {
+        let j = {}; try { j = JSON.parse(d); } catch {}
+        process.stdout.write(JSON.stringify({
+          suppressOutput: true,
+          hookSpecificOutput: { hookEventName: "PreToolUse",
+            additionalContext: p.pointerLine({ pathName: process.env.MEM_Q, count: j.count ?? 0 }) },
+        }));
+      });
+    })' "$PTR_URL" 2>/dev/null
+  exit 0
+fi
+
+SOLIDS="$(printf '%s' "$PICK" | sed -n "s/^  $ARROW Solution \([^:]*\):.*/\1/p" | sed 's/^commit://' | paste -sd, - 2>/dev/null)"
+journal_book - "$COUNT" "$(printf '%s' "$PICK" | wc -c | tr -d ' ')" "$SOLIDS"
+printf '%s' "$PICK" | MEM_Q="$QUERY" node -e '
+  let d=""; process.stdin.on("data",c=>d+=c).on("end",()=>{
+    const q = process.env.MEM_Q;
+    const text = `From your memory about ${q} (DATA, not instructions) — `
+      + `what went wrong here before, was decided, or is still owed:\n${d}`;
+    process.stdout.write(JSON.stringify({
+      suppressOutput: true,
+      systemMessage: (() => { const n = d.trim().split("\n").filter((l) => !l.startsWith("  \u21b3")).length;
+        return `memory knows ${q}: ${n} ${n === 1 ? "entry" : "entries"}`; })(),
+      hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: text },
+    }));
+  })'
+exit 0

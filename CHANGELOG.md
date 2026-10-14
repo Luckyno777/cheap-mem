@@ -14,6 +14,22 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Performance - the before-edit hook runs in ONE node process (TB5; lucky-mem f17d5fa3d)
+
+`bin/mem-before-edit` and its PowerShell twin cut one recall into a dozen `node -e` snippets plus a full `node bin/mem component`
+(every command group loaded for one lookup). Measured on the old hook with the injection of a real hit (Linux 6.18, 4 cores,
+Xeon 2.1 GHz, Node 22.22, median of 11 runs, marks reset each run): **13 node starts, 1079 ms**. Now the shells keep the switches, the
+root lookup and the two armed Bash guards, and hand the rest to `bin/mem-before-edit-core.mjs` (`src/beforeedit.mjs`):
+**1 node start, 222 ms** (a Bash call that writes no file still starts none). `mem component --hook` and the hook share
+`src/componenthook.mjs`; `compactLine` moved to its own small module (`src/compactline.mjs`, `display.mjs` re-exports it).
+The output is unchanged byte for byte - `test/before-edit-golden.test.mjs` runs the old hook (kept verbatim as a fixture) beside the
+new one over a hit, the pointer, an unrelated and a related new entry, no hit, a broken log, a missing and an empty memory,
+duties and procedures, solution lines, Bash that writes and does not, and compares stdout, exit code, trace and journal line.
+`test/before-edit-node-starts.test.mjs` counts the starts (red on the old hook: 13; ratchet 1; a mutated hook with one extra
+start is caught). The PowerShell twin asks for ASCII on the wire (`MEM_BE_ASCII`, an `\uXXXX` escape for every non-ASCII character), so the
+console code page cannot mangle the answer. A search that hangs is cut by one 8 s cap around the whole run and booked as
+`rebuild`, as before. `git` run by the component table no longer leaks "not a git repository" onto stderr.
+
 ### Security - recall server: concurrent starts no longer leave it deaf; a stop takes only its own socket (lucky-mem R3; both houses)
 
 Two recall servers started at the same time: both wrote the key file before `listen`, the loser failed with EADDRINUSE and

@@ -142,7 +142,8 @@ test('lane patterns accept either path separator', () => {
   // This was the actual Windows cause. Two earlier repairs were real
   // bugs and neither was this one; the trace named the branch and
   // ended the guessing.
-  const s = fs.readFileSync(path.join(REPO, 'bin', 'mem-before-edit'), 'utf8');
+  // Since 2026-10-14 (TB5) the selection lives in src/beforeedit.mjs, shared by both shells.
+  const s = fs.readFileSync(path.join(REPO, 'src', 'beforeedit.mjs'), 'utf8');
   const lanePatterns = [...s.matchAll(/\/\[?\\*\\?\/?\]?\((?:errors|decisions|learnings)[^/]*\/[gimsuy]*/g)];
   const raw = [...s.matchAll(/\/\\\/\((?:errors|decisions|learnings)/g)];
   assert.deepEqual(raw.map((m) => m[0]), [],
@@ -156,7 +157,8 @@ test('lane patterns accept either path separator', () => {
 test('POSITIVE: the lane pattern is actually in this file', () => {
   // Without this the guard above passes on a file that no longer
   // filters lanes at all — and then it checks nothing.
-  const s = fs.readFileSync(path.join(REPO, 'bin', 'mem-before-edit'), 'utf8');
+  // Since 2026-10-14 (TB5) the selection lives in src/beforeedit.mjs, shared by both shells.
+  const s = fs.readFileSync(path.join(REPO, 'src', 'beforeedit.mjs'), 'utf8');
   assert.match(s, /errors\|decisions\|learnings/,
     'the lane filter is gone — then the test above is vacuous');
 });

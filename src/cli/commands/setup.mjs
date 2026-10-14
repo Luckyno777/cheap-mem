@@ -28,9 +28,9 @@ import * as guardgaps from '../../guardgaps.mjs';
 import * as source from '../../source.mjs';
 import * as component from '../../component.mjs';
 import * as componentTable from '../../component-table.mjs';
+import * as componentHook from '../../componenthook.mjs';
 import * as capability from '../../capability.mjs';
 import * as board from '../../board.mjs';
-import * as errorcontext from '../../errorcontext.mjs';
 import { PKG_ROOT, out, die, warn, checkFlags, numberFlag, isHelp, findRoot, requireConfig } from '../shell.mjs';
 import { compactLine, countLines } from '../display.mjs';
 import { maskText } from '../../outputguard.mjs';
@@ -1312,38 +1312,12 @@ export const COMMANDS = {
       return;
     }
     if (args.hook) {
-      const cap = args.project
-        ? capability.grantProject(String(args.project), { subject: 'cli' })
-        : capability.grantAll('cli');
-      const res = componentTable.beforeEditHits(root, p, { cap: top });
-      const usedTable = res.hits !== null;
-      const hits = res.hits ?? component.find(root, p, cap);
+      // The lookup and the `--json` object are src/componenthook.mjs — the
+      // before-edit hook calls the same two functions inside its own process.
+      const look = componentHook.lookup(root, p, { top, project: args.project });
+      const { res, usedTable, hits } = look;
       if (args.json) {
-        // Open duties and released procedures for this file, from the
-        // FULL hit list (not the `--top` slice): the hook shows them in
-        // their own capped section, see errorcontext.beforeEditDuties().
-        const owed = errorcontext.beforeEditDuties(root, p, hits, {
-          project: args.project ? String(args.project) : undefined,
-        });
-        const row = (e) => ({ id: e.id, ts: e.ts ?? null, source: e._source ?? null,
-          label: compactLine(e, { root }) || '' });
-        out(JSON.stringify({
-          path: p,
-          forms: component.forms(p),
-          n: hits.length,
-          duties: owed.duties.map(row),
-          procedures: owed.procedures.map(row),
-          table: { state: res.tableState, usedTable, backgroundRebuild: res.backgroundRebuild },
-          hits: hits.slice(0, top).map((h) => ({
-            score: null,
-            form: h._form,
-            source: h._source,
-            line: h._line,
-            ts: h.ts ?? null,
-            raw: false,
-            label: compactLine(h) || '',
-          })),
-        }));
+        out(JSON.stringify(componentHook.asJson(root, p, look, { top, project: args.project })));
         return;
       }
       if (!hits.length) {
