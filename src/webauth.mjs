@@ -75,11 +75,18 @@ export function bearerFrom(req) {
 /**
  * Headers a proxy or tunnel (cloudflared, a reverse proxy) sets. A browser attached directly to the port and a local
  * tool (curl, the probes) never set them.
+ *
+ * **Names and families (lucky-mem A14 follow-up).** This stays a block list - no list can know every proxy - but a wide
+ * one: whole families by prefix (`x-forwarded-*`, `x-real-*`, `cf-*`) and the single names common proxies, CDNs and
+ * load balancers add (`via`, `true-client-ip`, `cdn-loop`, `fastly-client-ip`, `x-client-ip`, `x-cluster-client-ip`,
+ * `x-original-forwarded-for`). It only ever takes trust AWAY: a header a client forges costs it the local standing.
+ * What it cannot see is a proxy that adds none of them (nginx with its defaults): see {@link openDoorNotice}.
  */
-const PROXY_HEADERS = Object.freeze([
-  'cf-connecting-ip', 'cf-ray', 'cf-visitor', 'cf-access-jwt-assertion',
-  'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto', 'x-real-ip', 'forwarded',
+const PROXY_HEADER_NAMES = Object.freeze([
+  'forwarded', 'via', 'true-client-ip', 'cdn-loop', 'fastly-client-ip', 'x-client-ip', 'x-cluster-client-ip',
+  'x-original-forwarded-for',
 ]);
+const PROXY_HEADER_PREFIXES = Object.freeze(['x-forwarded-', 'x-real-', 'cf-']);
 
 /**
  * Is the peer this machine? With `strict`, also: does the request NOT come through a tunnel or proxy?
@@ -101,7 +108,29 @@ export function remoteIsLoopback(req, { strict = false } = {}) {
 /** Does the request carry a header only a proxy or tunnel sets? (The name only: the value is never looked at or printed.) */
 export function hasProxyHeader(req) {
   const headers = req?.headers ?? {};
-  return PROXY_HEADERS.some((h) => headers[h] !== undefined);
+  return Object.keys(headers).some((raw) => {
+    const h = String(raw).toLowerCase();
+    return PROXY_HEADER_NAMES.includes(h) || PROXY_HEADER_PREFIXES.some((p) => h.startsWith(p));
+  });
+}
+
+/**
+ * The start-up notice for a door with no token and no login (the bridge over HTTP always, the viewer with its login off).
+ * `null` when a token or a login stands behind the door.
+ *
+ * Without a credential the only thing that keeps a stranger out is "the connection is from this machine, and no proxy
+ * header says otherwise". A reverse proxy on this machine in front of the port - nginx with its defaults sets `Host` to
+ * the upstream `127.0.0.1:<port>` and adds no forwarding header - passes every one of those checks, so whoever reaches the
+ * proxy is served as local (and on the bridge with `CHEAP_MEM_MCP_READONLY=0`, may write). That cannot be detected from
+ * here; it can be said. Nothing is refused: a configured host name without a token is a tested, deliberate setup.
+ */
+export function openDoorNotice({ token = '', login = false, hosts = [], origins = [] } = {}) {
+  if (token || login) return null;
+  const names = [...hosts, ...origins.map((o) => { try { return new URL(o).host; } catch { return String(o); } })];
+  const named = names.some((n) => !hostAllowed(n, []));
+  return 'no token: anything that reaches this port through a local reverse proxy counts as local - '
+    + 'set a token before putting a proxy in front'
+    + (named ? ' (a non-loopback host name is configured, so a proxy in front is the expected setup here)' : '');
 }
 
 /**

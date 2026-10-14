@@ -1767,6 +1767,8 @@ if (isMain(import.meta.url)) {
       `cheap-mem console on http://${cfg.host}:${bound.port}/ `
       + `(root ${root}, ${cfg.token ? 'token set' : 'localhost only'}`
       + `, writing ${writegate.read(root, gateOpts(cfg)).state})\n`);
+    const notice = webauth.openDoorNotice({ token: cfg.token, login: cfg.login === true, hosts: cfg.hosts, origins: cfg.origins });
+    if (notice) process.stderr.write(`NOTICE: ${notice}\n`);
   }).catch((e) => {
     process.stderr.write(`${e.message}\n`);
     process.exit(1);

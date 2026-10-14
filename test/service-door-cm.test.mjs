@@ -175,13 +175,23 @@ for (const mode of [
     const s = await startViewer(root, mode.env);
     t.after(s.stop);
 
-    // Positive control: with a loopback Host the same probe DOES see the marker (otherwise "no leak" means nothing).
-    const seen = [];
+    // What must never reach a foreign Host on ANY route, public-by-design or not: entry text, the workspace name
+    // (the configuration's `name`), the content of the sign-in setup code (login ON writes one under `.pipeline/`).
+    const NAME = 'doortest';
+    let setupCode = null;
+    if (mode.env.CHEAP_MEM_SERVE_LOGIN === 'on') {
+      try { setupCode = fs.readFileSync(path.join(root, '.pipeline', 'serve-setup-code'), 'utf8').trim(); } catch { setupCode = null; }
+      assert.ok(setupCode && setupCode.length >= 6, 'positive control: the setup code exists on disk, so "never shown" can be tested');
+    }
+    // Positive control: with a loopback Host the same probe DOES see the marker and the name (otherwise "no leak" means nothing).
+    const seen = []; let sawName = false;
     for (const p of [...s.mod.PATHS]) {
       const r = await rawRequest(s.port, 'GET', p + QUERY, `127.0.0.1:${s.port}`, mode.headers);
       if (r.body.includes(MARK)) seen.push(p);
+      if (r.body.includes(NAME)) sawName = true;
     }
     assert.ok(seen.length >= 1, 'positive control: some route must show the marker to a loopback Host, or the probe sees nothing');
+    assert.ok(sawName, 'positive control: some route shows the workspace name to a loopback Host');
 
     const routes = [...s.mod.PATHS];
     assert.ok(routes.length >= 30, `the inventory is suspiciously small (${routes.length})`);
@@ -191,6 +201,9 @@ for (const mode of [
         for (const host of ['evil.example', `evil.example:${s.port}`]) {
           const r = await rawRequest(s.port, method, p + QUERY, host, mode.headers);
           assert.ok(!r.body.includes(MARK), `${method} ${p} (Host ${host}) gave out entry text`);
+          assert.ok(!r.body.includes(NAME), `${method} ${p} (Host ${host}) gave out the workspace name`);
+          if (setupCode) assert.ok(!r.body.includes(setupCode) && !JSON.stringify(r.headers).includes(setupCode), `${method} ${p} (Host ${host}) gave out the setup code`);
+          if (r.status === 200) assert.equal(r.headers['set-cookie'], undefined, `${method} ${p} (Host ${host}) set a cookie for a foreign Host`);
           assert.equal(r.headers['access-control-allow-origin'], undefined, `${method} ${p} sent a CORS header`);
           if (r.status === 200) answered.push(p);
         }
@@ -237,6 +250,97 @@ test('A13/F04: checkEndpoint refuses SIIT/NAT64 literals in URL form and never r
     const r = await loopback.checkEndpoint(u, { lookup });
     assert.equal(r.ok, true, `positive control: ${u}`);
   }
+});
+
+test('A13/F04: URL spellings of an address are judged by what the URL parser makes of them - and connected to as that address', async () => {
+  const lookup = async () => [{ address: '127.0.0.1' }];
+  // Spellings of 127.0.0.1 and of localhost: accepted, and the caller gets the NORMAL literal to connect to.
+  for (const u of ['http://127.1:11434', 'http://0x7f.1:11434', 'http://2130706433:11434', 'http://017700000001:11434', 'http://LOCALHOST:11434']) {
+    const r = await loopback.checkEndpoint(u, { lookup });
+    assert.equal(r.ok, true, `${u} is loopback under another spelling`);
+    assert.equal(r.address, '127.0.0.1', `${u}: the connection goes to the normalised literal, not to the spelling`);
+    assert.equal(r.port, 11434);
+  }
+  // The same trick for addresses that are not this machine: refused, whatever the spelling.
+  for (const u of ['http://0xa9.0xfe.0xa9.0xfe', 'http://2852039166', 'http://0x0a.1', 'http://10.1', 'http://0', 'http://localhost.:11434', 'http://LOCALHOST.evil.example:11434']) {
+    const r = await loopback.checkEndpoint(u, { lookup });
+    assert.equal(r.ok, false, `${u} must be refused`);
+  }
+});
+
+// --- A14: the proxy-header families and the start-up notice -------------------------------------------------
+
+test('A14: every proxy/CDN header (names and families) takes the local standing away in strict mode; unrelated headers do not', async () => {
+  const webauth = await import('../src/webauth.mjs');
+  const fake = (headers) => ({ socket: { remoteAddress: '127.0.0.1' }, headers });
+  const names = ['forwarded', 'via', 'true-client-ip', 'cdn-loop', 'fastly-client-ip', 'x-client-ip', 'x-cluster-client-ip',
+    'x-original-forwarded-for', 'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto', 'x-forwarded-port', 'x-forwarded-server',
+    'x-forwarded-prefix', 'x-real-ip', 'x-real-port', 'cf-connecting-ip', 'cf-ray', 'cf-visitor', 'cf-ipcountry', 'cf-worker',
+    'cf-access-jwt-assertion', 'CF-Connecting-IP', 'X-Forwarded-For', 'Via'];
+  assert.equal(webauth.remoteIsLoopback(fake({}), { strict: true }), true, 'positive control: plain loopback is local');
+  assert.equal(webauth.remoteIsLoopback(fake({ accept: '*/*', 'user-agent': 'curl', origin: 'http://x', host: '127.0.0.1', 'x-request-id': '1', 'content-type': 'application/json', 'if-none-match': 'x', 'x-realm': 'y' }), { strict: true }), true,
+    'unrelated headers (also near-misses like x-realm and x-request-id) do not count');
+  for (const h of names) {
+    assert.equal(webauth.remoteIsLoopback(fake({ [h]: 'x' }), { strict: true }), false, `${h} must take the local standing away`);
+    assert.equal(webauth.hasProxyHeader(fake({ [h]: '' })), true, `${h} (empty value) is still a proxy header`);
+    assert.equal(webauth.remoteIsLoopback(fake({ [h]: 'x' })), true, `${h}: not strict (login stands behind the door) changes nothing`);
+  }
+});
+
+test('A14: the notice text - none behind a token or a login, always without; stronger with a configured public name', async () => {
+  const { openDoorNotice } = await import('../src/webauth.mjs');
+  assert.equal(openDoorNotice({ token: 'a-token-value' }), null);
+  assert.equal(openDoorNotice({ login: true }), null);
+  const plain = openDoorNotice({});
+  assert.match(plain, /no token: anything that reaches this port through a local reverse proxy counts as local - set a token before putting a proxy in front/);
+  assert.doesNotMatch(plain, /host name is configured/);
+  assert.equal(openDoorNotice({ hosts: ['localhost', '127.0.0.1:8849', '[::1]'] }), plain, 'loopback names are no public name');
+  assert.match(openDoorNotice({ hosts: ['memory.example.org'] }), /host name is configured/);
+  assert.match(openDoorNotice({ origins: ['https://memory.example.org'] }), /host name is configured/);
+  assert.equal(openDoorNotice({ token: 'a-token-value', hosts: ['memory.example.org'] }), null, 'a token silences it whatever is configured');
+});
+
+/** Start a service from its own entry point, collect stderr, stop it by its handle. */
+async function startService(t, script, args, env, readyRe) {
+  const child = spawn(process.execPath, [script, ...args], { cwd: ROOT, stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, MEM_RECALL_SERVER: '0', ...env } });
+  let err = '';
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', (c) => { err += c; });
+  t.after(async () => {
+    if (child.exitCode !== null) return;
+    const gone = new Promise((r) => child.once('exit', r));
+    child.kill('SIGTERM');
+    await Promise.race([gone, new Promise((r) => setTimeout(r, 3000))]);
+  });
+  const until = Date.now() + 20000;
+  while (Date.now() < until && child.exitCode === null && !readyRe.test(err)) await new Promise((r) => setTimeout(r, 40));
+  await new Promise((r) => setTimeout(r, 300)); // the notice follows the ready line by a write
+  return () => err;
+}
+
+test('A14: the bridge says so on stderr without a token, and not with one', async (t) => {
+  const root = memoryRoot(t);
+  const without = await startService(t, MCP, ['--http'], { CHEAP_MEM_ROOT: root, CHEAP_MEM_MCP_PORT: String(await freePort()), CHEAP_MEM_MCP_HOSTS: 'memory.example.org' }, /cheap-mem MCP \(http\)/);
+  assert.match(without(), /NOTICE: no token: anything that reaches this port through a local reverse proxy counts as local/);
+  assert.match(without(), /host name is configured/);
+  const token = ['bridge', 'probe', 'credential', 'x'.repeat(24)].join('-');
+  const withTok = await startService(t, MCP, ['--http'], { CHEAP_MEM_ROOT: root, CHEAP_MEM_MCP_PORT: String(await freePort()), CHEAP_MEM_MCP_TOKEN: token }, /cheap-mem MCP \(http\)/);
+  assert.match(withTok(), /token=set/, 'positive control: the service did start with its token');
+  assert.doesNotMatch(withTok(), /NOTICE/);
+});
+
+test('A14: the viewer says so on stderr with the login off and no token, and not with a token or with the login on', async (t) => {
+  const root = memoryRoot(t);
+  const base = { CHEAP_MEM_ROOT: root, CHEAP_MEM_SERVE_HOST: '127.0.0.1' };
+  const off = await startService(t, SERVE, [], { ...base, CHEAP_MEM_SERVE_PORT: String(await freePort()), CHEAP_MEM_SERVE_LOGIN: 'off' }, /cheap-mem console on/);
+  assert.match(off(), /NOTICE: no token: anything that reaches this port through a local reverse proxy counts as local/);
+  const token = ['viewer', 'probe', 'credential', 'x'.repeat(24)].join('-');
+  const tok = await startService(t, SERVE, [], { ...base, CHEAP_MEM_SERVE_PORT: String(await freePort()), CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: token }, /cheap-mem console on/);
+  assert.match(tok(), /token set/, 'positive control: the viewer did start with its token');
+  assert.doesNotMatch(tok(), /NOTICE/);
+  const on = await startService(t, SERVE, [], { ...base, CHEAP_MEM_SERVE_PORT: String(await freePort()), CHEAP_MEM_SERVE_LOGIN: 'on' }, /cheap-mem console on/);
+  assert.match(on(), /cheap-mem console on/, 'positive control: the viewer did start with its login');
+  assert.doesNotMatch(on(), /NOTICE/);
 });
 
 test('A14: the socket-address half of the strict loopback test is an allow list of three literals', async () => {
