@@ -73,10 +73,13 @@ import * as raw from './raw.mjs';
 import * as modelcost from './modelcost.mjs';
 import * as effect from './effect.mjs';
 import * as today from './today.mjs';
+import * as humandecisions from './humandecisions.mjs';
+import { zoneOf } from './appointments.mjs';
 import { maskText, maskEntry } from './outputguard.mjs';
 import * as decisioncard from './decisioncard.mjs';
 import * as cardstore from './cardstore.mjs';
 import * as cardfeed from './cardfeed.mjs';
+import * as addressee from './addressee.mjs';
 import * as release from './release.mjs';
 import * as checkrecord from './checkrecord.mjs';
 import * as latencybudget from './latencybudget.mjs';
@@ -868,6 +871,10 @@ export function collectDashboard(root, {
   const alloc = cardfeed.allocation(root);
   const openDuties = [];
   const openQuestions = [];
+  // The house zone, read once (config.timezone, CHEAP_MEM_TZ, system) - the same reading as the day part's. Not readable: no
+  // `dueAt` anywhere (unknown, never a guessed UTC day), the page keeps the list order.
+  let dueZone;
+  try { dueZone = zoneOf(root, env); } catch { dueZone = undefined; }
   // Q7: the duty drawers ONCE for the whole build — the list below, the card "Today" and the part "Deadlines" read this one fold.
   let dutiesFold;
   try { dutiesFold = dutiesOpen(root); } catch (e) { dutiesFold = { error: e }; }
@@ -877,7 +884,12 @@ export function collectDashboard(root, {
       if (!p?.id) continue;
       const who = p.who ?? p.owner ?? p.to ?? null;
       openDuties.push({
-        id: p.id, who, due: dueCore.dueText(p),
+        // `owner`: whom the duty is owed to (human | agent | unassigned), named by the configuration - the page groups by it,
+        // not by the kind of the card (a replacement card of the human's duty is kind do-it and is still for the human).
+        id: p.id, who, owner: alloc.ownerOf(addressee.ofDuty(p)), due: dueCore.dueText(p),
+        // The moment it is overdue from (ms), from the core (humandecisions.dueAtOf -> due.parseDue), for ordering by deadline;
+        // null: no due date, an unreadable one, or no readable zone. The page never reads the due field itself.
+        dueAt: dueZone !== undefined && dueCore.dueValue(p) !== null ? humandecisions.dueAtOf(dueCore.dueValue(p), dueZone) : null,
         card: alloc.card('openDuties', who, () => decisioncard.cardOf(p, { type: 'duty', context: cardContext })),
       });
     }
@@ -886,7 +898,7 @@ export function collectDashboard(root, {
   const questionPost = (q, list) => {
     const e = q.snapshot ?? q;
     const who = question.whoOf(e);
-    return { id: q.id, who, card: alloc.card(list, who, () => decisioncard.cardOf(e, { type: 'question', context: cardContext })) };
+    return { id: q.id, who, owner: alloc.ownerOf(addressee.ofQuestion({ who })), card: alloc.card(list, who, () => decisioncard.cardOf(e, { type: 'question', context: cardContext })) };
   };
   try {
     for (const q of questionsOpen(root)) if (q?.id) openQuestions.push(questionPost(q, 'openQuestions'));

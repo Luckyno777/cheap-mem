@@ -14,6 +14,25 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Dashboard - "For you" is what is owed to the human, and it goes by deadline (2026-10-13)
+
+A duty of the configured human whose card was a replacement card (kind do-it) stood under "Agent work - nothing for you
+to decide" on Today, in "Your next look" and in the duties list, because the page grouped by the kind of the card only.
+Red in a real Chromium on `eddad97`, then fixed. `test/card-group-browser.test.mjs`.
+
+- **Grouping by addressee.** Each open duty and question of the dashboard data carries `owner` (`human` | `agent` |
+  `unassigned`, from the configuration, `cardfeed.ownerKind`; no name in the code). "For you" is everything owed to the
+  human, whatever its card; "Agent work" is what is owed to an agent. Owed to nobody: the kind of the card still decides.
+  Today lists only what is addressed to the human, so everything there is "For you".
+- **By deadline.** "Your next look" (three items) and the duties list order "For you" like the Today card: overdue first,
+  then due today, later, then no or an unreadable date in list order. Each open duty carries `dueAt` from the due core
+  (`humandecisions.dueAtOf`, in the house zone); the page never reads the due field. Before, the overdue duty was cut
+  from the three while one due in thirty days was shown. "Agent work" keeps the list order.
+- **Honest hint.** When "Agent work" holds an item owed to nobody (no addressee, or an unknown name, a typo too), the hint
+  says "Nobody owns some of these yet" instead of "nothing for you to decide". No third group yet.
+- **Open.** The light-theme colour of the group heading reaches only 4.2 to 4.4 : 1 (existing `--quiet`), see
+  `docs/dashboard.md`.
+
 ### Security / Privacy — no entry text goes to an embedding vendor; Voyage and OpenAI removed (2026-10-13; breaking for users of `voyage` / `openai`)
 
 Owner decision (2026-10-13), both houses: no text goes to an embedding third party, not even masked. External embedding paths

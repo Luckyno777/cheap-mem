@@ -40,7 +40,7 @@ function shelfOf(root, cards) {
 const TITLE_SHOWN = 200;
 
 /** The moment a due value is overdue from, in ms; null when it cannot be read (the core says so, nothing is guessed here). */
-function dueAtOf(value, zone) {
+export function dueAtOf(value, zone) {
   const p = dueCore.parseDue(value, { zone });
   return p.ok ? p.overdueFromMs : null;
 }

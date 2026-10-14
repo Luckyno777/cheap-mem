@@ -63,6 +63,8 @@ export function allocation(root, { max = CARD_LIST_MAX } = {}) {
   const omitted = Object.fromEntries(LISTS.map((l) => [l, 0]));
   return {
     omitted,
+    /** `human` | `agent` | `unassigned` for an addressee, by the SAME participants the cards were allocated with. */
+    ownerOf: (who) => ownerKind(who, p),
     card(list, who, make) {
       if (ownerKind(who, p) === 'agent') return null;
       if ((given[list] ?? 0) >= max) { omitted[list] = (omitted[list] ?? 0) + 1; return null; }
