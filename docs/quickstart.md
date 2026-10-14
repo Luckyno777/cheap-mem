@@ -195,6 +195,10 @@ mem doctor --strict  # is the memory healthy, and which layer owns each guarante
 
 See [docs/mcp-setup.md](mcp-setup.md) for per-model setup:
 - Claude Code / Claude Desktop / Cursor / OpenAI Codex CLI: MCP
+- OpenAI Codex Cloud (a hosted environment with no hooks, reported by Codex, not verified here): `mem setup codex-cloud
+  --dry-run` shows what it would put into the memory (the `$mem` skill) and prints the
+  text for the environment field "Start skill"; the section "OpenAI Codex Cloud" in
+  [mcp-setup.md](mcp-setup.md) says what else it needs (a hosted connector that allows writing)
 - Gemini CLI / Mistral CLI: shell integration
 
 ## Next steps
