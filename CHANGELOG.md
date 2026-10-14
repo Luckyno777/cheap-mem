@@ -22,6 +22,13 @@ to the direct path for good. Red on the previous tip with two real `bin/mem-reca
 loser exited 1 (the keeper then stays off). Now the key is written only after `listen`, the loser reports `busy` (exit
 `BUSY_RC`, the keeper retries), `close()` removes only the socket it recorded by device and inode (an old server no longer
 takes a newer one's socket away), and the stale-socket clean-up touches only a socket nobody listens on, never a regular file.
+The clean-up looks at the file (device, inode, change time) BEFORE it asks whether anybody listens and removes it only if it is
+still that very file afterwards.
+
+**Operator effect:** a regular file (or directory, or link) where the socket belongs now ends the server's start with exit code 1
+(`not started: <path> exists and is not a socket - not touched`) instead of being deleted. The keeper treats exit 1 as a real
+start failure and does not restart it, so the recall server stays off until someone moves the file away; the hook meanwhile
+searches directly, as without a server. A concurrent second start exits with `BUSY_RC` (76), which the keeper retries.
 `test/recall-server-concurrent-cm.test.mjs`.
 
 ### Security - the MCP SDK peer range carries the floor the suite runs on (lucky-mem F14)
@@ -29,6 +36,16 @@ takes a newer one's socket away), and the stale-socket clean-up touches only a s
 `peerDependencies["@modelcontextprotocol/sdk"]` is `^1.30.0` (was `^1.0.0`), in `package.json` and the lock's root entry; every
 install line names the range, quoted for `cmd.exe`. The request-body limit of the bridge is its own code and does not depend on the
 SDK version. `test/mcp-sdk-floor-cm.test.mjs`.
+
+### Security - start-up notice for a door with no token, and a wider list of proxy headers (lucky-mem A14)
+
+A reverse proxy on this machine with no configuration (nginx defaults: connects from 127.0.0.1, `Host` = upstream, no forwarding
+header) passes every "is this local" check, so a door with no token serves whoever reaches the proxy, and the bridge with
+`CHEAP_MEM_MCP_READONLY=0` lets them write. Nothing is refused (a configured host name without a token is a tested setup), but
+the bridge and the viewer now print `NOTICE: no token: anything that reaches this port through a local reverse proxy counts as
+local - set a token before putting a proxy in front` at start. The proxy-header detection also covers the families `x-forwarded-*`,
+`x-real-*`, `cf-*` and `via`, `true-client-ip`, `cdn-loop`, `fastly-client-ip`, `x-client-ip`, `x-cluster-client-ip`,
+`x-original-forwarded-for`: a request with one of them is not local. `test/service-door-cm.test.mjs`.
 
 ### Security - guards for the service doors (lucky-mem A3, A5, A7, A8, A13; no defect found here)
 
