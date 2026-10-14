@@ -516,12 +516,27 @@ test('no-jump: an answer that arrives only AFTER the tab was hidden arms no new 
     // Deterministic, no race against a tick: ONE request is held in the
     // route, the tab is hidden while it is held, then it is released with
     // `cache.fresh` forced to false (a fresh answer would end the chain
-    // by itself and hide the missing guard).
+    // by itself and hide the missing guard); the same goes for every later
+    // answer (see the route).
+    // The real answer with `cache.fresh` forced to false.
+    const notFresh = async (route) => {
+      const resp = await route.fetch();
+      const body = await resp.json();
+      body.cache = { ...body.cache, fresh: false };
+      await route.fulfill({ response: resp, json: body });
+    };
     let held = null;
     let heldArrived;
     const heldSeen = new Promise((res) => { heldArrived = res; });
     await page.route('**/dashboard.json', async (route) => {
-      if (route.request().headers()['x-no-jump-hold'] !== '1') { await route.continue(); return; }
+      if (route.request().headers()['x-no-jump-hold'] !== '1') {
+        // Every other answer is also made "not fresh", so a chain that a
+        // missing guard would start can never end by itself on a fresh
+        // answer (that made the first version of this probe catch the
+        // missing guard only 1 time in 3).
+        try { await notFresh(route); } catch { /* the page aborted it (a newer call) */ }
+        return;
+      }
       held = route;
       heldArrived();
     });
@@ -542,16 +557,15 @@ test('no-jump: an answer that arrives only AFTER the tab was hidden arms no new 
       });
       await Promise.race([heldSeen, new Promise((_, rej) => setTimeout(() => rej(new Error('the held request never reached the route')), 20000))]);
       const answersBefore = await page.evaluate(() => window.__noJump.answers.length);
-      const resp = await held.fetch();
-      const body = await resp.json();
-      body.cache = { ...body.cache, fresh: false };
-      await held.fulfill({ response: resp, json: body });
+      await notFresh(held);
+      // The count is taken the moment the answer is released, not after a
+      // stopwatch: the held call was the ONLY one in flight (the hide step
+      // above cleared the timer), so every fetch from here on is one the
+      // product started because of this answer -- in the correct code none.
+      const fetchesAtRelease = dashboardFetches;
       await page.waitForFunction((n) => window.__noJump.answers.length > n, answersBefore, { timeout: 20000 });
-      // Let the page finish with that answer (json, prepare), then count.
-      await page.waitForTimeout(TEMPO);
-      const fetchesAfterAnswer = dashboardFetches;
       await page.waitForTimeout(TEMPO * 8); // several ticks of the test interval
-      assert.equal(dashboardFetches, fetchesAfterAnswer, 'no fetch in the hidden tab after a not fresh answer that arrived while hidden');
+      assert.equal(dashboardFetches, fetchesAtRelease, 'no fetch in the hidden tab after a not fresh answer that arrived while hidden');
     } finally {
       await stopWriter();
       await page.close();
