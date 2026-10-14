@@ -301,7 +301,7 @@ test('N5 end to end: a defaultRemote that is no remote - here the name of a dire
   const r = start(START, w.mem, mkhome(home(t)));
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /WARNING: config defaultRemote 'sub' is not a remote of this clone - using origin/);
-  assert.equal(git(w.mem, 'branch', '-r', '--list', 'sub/*'), '', 'a ref came from the planted directory');
+  assert.equal(git(w.mem, 'branch', '-r', '--list', `sub/${'*'}`), '', 'a ref came from the planted directory');
   assert.doesNotMatch(git(w.mem, 'log', '--all', '--format=%s'), /planted/);
   // RED: the version before this change (c1ad4a9) fetches from it.
   const old = spawnSync('git', ['show', 'c1ad4a9:install/hooks/session-start.sh'], { cwd: REPO, encoding: 'utf8' });
