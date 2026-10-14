@@ -168,7 +168,13 @@ test('M10-3: server hangs -> direct, total time stays inside the ONE budget', as
     assert.ok(r.ms < 4500, `total ${r.ms} ms`);
     const l = lines(root);
     assert.equal(l[1].path, 'direct');
-    assert.equal(l[1].path_reason, 'server-timeout');
+    // The hanging server lives in THIS process, whose loop spawnSync blocks. A Unix socket still
+    // accepts through the kernel backlog, so the client waits and times out. A Windows pipe is only
+    // accepted by the (blocked) loop, so the client may be refused instead (CI run 980, windows
+    // node 20: 'server-error'). Either way the hook falls back to the direct path inside the budget,
+    // which is what this probe is about; on POSIX the reason stays exact.
+    const reasons = process.platform === 'win32' ? ['server-timeout', 'server-error'] : ['server-timeout'];
+    assert.ok(reasons.includes(l[1].path_reason), `path_reason ${l[1].path_reason}`);
   } finally { await new Promise((r) => hang.close(r)); }
 });
 
