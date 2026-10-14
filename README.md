@@ -757,7 +757,12 @@ Either way it is idempotent — run it again after moving the memory and
 it re-points. It drops 7 hooks into `~/.claude/hooks/` and merges
 the needed permissions into `~/.claude/settings.json`:
 
-- **SessionStart** — prints `FACTS.md` + context at the top of a session.
+- **SessionStart** — prints `FACTS.md` + context at the top of a session,
+  and one line naming the clone that answers (directory, head, age,
+  commits behind origin). It brings the clone up to date on the branch
+  the memory *tracks* (`defaultBranch` / `defaultRemote` in
+  `.mem/config.json`, `main` / `origin` when absent) — never a branch the
+  config did not name.
 - **UserPromptSubmit** — on *every* message, recalls matching memory
   (no model, a few ms) and feeds it to the turn as context. This is the
   difference between a memory you *can* query and one that just
@@ -766,6 +771,9 @@ the needed permissions into `~/.claude/settings.json`:
   worktree it does not pull at all (agents control their own state); it
   leaves a note in the git dir, `mem-retrieve-worktree-no-pull`, and the
   recall runs as usual.
+  When the clone that answers is stale (older than 90 minutes and behind
+  origin, or unable to tell), a recall carries one line saying so, at most
+  every 30 minutes (`MEM_CLONE_GATE=0` turns it off).
 - **PreToolUse** (Edit/Write/NotebookEdit, and Bash commands that write a
   file via `sed -i`, `tee`, `>`, `cp` or `mv`) — before a file is changed,
   searches the memory for that PATH, literally, and shows the errors,
@@ -773,6 +781,10 @@ the needed permissions into `~/.claude/settings.json`:
   procedures for it. Once per file per session.
   Literal, not ranked: if no entry names the file, nothing is shown —
   a hint that appears on every edit gets skipped after the third time.
+  The whole lookup runs in one `node` process (`bin/mem-before-edit-core.mjs`),
+  and every hook shares a V8 compile cache in your user cache directory
+  (`~/.cache/cheap-mem/node-cc`, `~/Library/Caches/...`, `%LOCALAPPDATA%\...`;
+  never in the memory; your own `NODE_COMPILE_CACHE` wins).
 
   This is the moment the hook above misses. `UserPromptSubmit` fires
   only when the person types; the building happens in between. Measured

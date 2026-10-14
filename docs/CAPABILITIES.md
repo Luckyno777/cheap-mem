@@ -73,6 +73,7 @@ directory. The section number in brackets is where it is explained.
 | `backlinks.mjs` | an incrementally maintained index — id -> every entry that points at it by a declared edge, across every drawer and project (E1.4); read by `getEntryFast()` and `mem-serve` |
 | `basis.mjs` | on what basis a statement stands: stated, measured, inferred, guessed — a mark, never a number |
 | `bashtargets.mjs` | which files a shell command WRITES (`sed -i`, `tee`, `> file`, `cp`, `mv`), read deterministically for the before-edit hook on Bash; directories, extension-less words, expansions, `/dev` and `/tmp` give no target |
+| `beforeedit.mjs` | the before-edit hook's whole job in ONE node process (TB5): read the touched path (Bash: the first file the command writes), the watermark and the once-per-file mark, the `mem component --hook` lookup, the pick of errors/decisions/learnings, open duties, released procedures and solution lines, the second decision, the mark and the journal line. `bin/mem-before-edit` and its `.ps1` twin keep the switches, the root lookup and the two armed Bash guards and start `bin/mem-before-edit-core.mjs` once (13 node starts -> 1, byte-identical answer); `MEM_BE_ASCII` is the PowerShell twin's pure-ASCII wire |
 | `bidi.mjs` | the nine Trojan-Source bidi-override characters (CVE-2021-42574), neutralised at display time — `mem find`, `mem browse`, `mem context`, the retrieval hook |
 | `board.mjs` | the operating state on one screen (10.17) |
 | `bodyfields.mjs` | O2: the ONE source for which fields carry an entry's content, per type and in reading order — every display and the set of indexed fields read it; a leaf with no imports |
@@ -86,11 +87,14 @@ directory. The section number in brackets is where it is explained.
 | `checkrecord.mjs` | the tracked, append-only proof (`checked.jsonl`) that a full `node --test` run was green for a given tree — one tier, no local machine-only stamp (Bauplan P1) |
 | `claim.mjs` | taking over a message with an expiry: append-only claim/done/failed lines, first unexpired claim counts, a second one stays visibly invalid, resumption after expiry; git is not a lock (X4) |
 | `clihelp.mjs` | what the CLI dispatches, what its help advertises, and where the two have drifted apart |
+| `clonegate.mjs` | the gate "which clone answered": one line (`provenance.asLine`) under the recall header when the answering clone is STALE (older than 90 min AND behind origin or unable to tell), at most every 30 minutes, the verdict cached 5 minutes in `.pipeline/clone-gate.json`; a non-git directory is left alone; `MEM_CLONE_GATE=0` |
 | `clock.mjs` | clock skew between writers, measured from the log itself, never used to reorder anything |
 | `closingreport.mjs` | X2b: the task-end occasion — the Stop hook reports the open duties written in this session (a systemMessage, never a block; capped, once per duty; filtered from `today.decisionsForHuman`, no second count) |
 | `commandguard.mjs` | the command guard (lever-5 port): an error of the class `mishandling` may carry a `command_pattern` (`mem log error ... --command-pattern "git add -A$"`); the before-edit hook on Bash warns once per session and error when a command matches, never blocks, behind a shell prefilter that starts node only on a keyword hit; derived booklet under `.pipeline/command-guard/`; `mem command-guard build\|show\|check\|seed` (10.30) |
+| `compactline.mjs` | the one-line rendering of an entry (`compactLine`) — behind `mem find`, `mem when`, `mem component`, the hooks and the bridge; its own small module so the before-edit hook does not load the CLI's display layer for it (`src/cli/display.mjs` re-exports it) |
 | `component-table.mjs` | an offline-built register — every git-tracked path and exported symbol to the entries that mention/guard/fix it — so `mem component --table`/`--hook` (the pre-edit hook) can look up instead of scanning; R-Tab parity with lucky-mem |
 | `component.mjs` | one file, across both spellings (10.14) |
+| `componenthook.mjs` | what `mem component <path> --hook` answers, as two functions (`lookup`, `asJson`): the CLI handler and the before-edit hook's single node process call the same ones |
 | `config.mjs` | participants, defaults, the memory's own settings |
 | `console.mjs` | the console: state, settings, connections (7.4) |
 | `dashboard.mjs` | the old desk's data collector, still the first pass under the dashboard's data (7.5) |
