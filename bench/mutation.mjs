@@ -250,7 +250,7 @@ export const MUTANTS=[
 
  { name:'SEM merge driver matched anywhere, not as a whole line',
    file:'src/environment.mjs',
-   from:'  const ok = anyTrimmedLine(text, /^\\*\\.jsonl\\s+merge=union$/);',
+   from:"  const ok = attributesOf(text, '*.jsonl').get('merge') === 'union';",
    to:'  const ok = /jsonl/.test(text);  // MUTANT',
    tests:['test/environment.test.mjs'] },
 

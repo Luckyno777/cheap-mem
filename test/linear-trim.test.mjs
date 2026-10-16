@@ -12,7 +12,7 @@
 //
 // **A child per probe.** A site that is still quadratic would hold this process for minutes, and a synchronous pattern cannot
 // be interrupted from inside; the child is killed after `GIVE_UP_MS` and the probe reports "did not finish". The ceiling is
-// generous (the machine may be loaded; the child takes the best of three runs); the old state needs minutes for the same
+// generous (the machine may be loaded; the child takes the best of three runs, at two sizes); the old state needs minutes for the same
 // input, so these probes turn red there instead of passing. That is checked, not assumed: the probe list was run against
 // the state before the repair and every repaired site was killed or over the ceiling there.
 //
@@ -26,7 +26,14 @@ import { PROBES, MB } from './helpers/linear-probes.mjs';
 import { tempDir } from './temp-dir.mjs';
 
 const CHILD = path.join(path.dirname(fileURLToPath(import.meta.url)), 'helpers', 'linear-probes.mjs');
-const CEILING_MS = 500;
+// A coarse ceiling, generous: a slow runner may take ten times what a laptop takes; the old state takes minutes. The finer test is
+// the ratio: the probe measures 1 MB and a quarter of it, linear time makes the big run about 4 times the small one, quadratic
+// about 16. Below `RATIO_FROM_MS` the clock says too little to read a ratio from (and a quadratic site would be far above it);
+// the small run counts at least `SMALL_FLOOR_MS`, so a fast small run does not turn a normal jitter into a ratio.
+const CEILING_MS = 2000;
+const RATIO_FROM_MS = 100;
+const SMALL_FLOOR_MS = 25;
+const RATIO_MAX = 9;
 const GIVE_UP_MS = 20000;
 
 // The child's scratch directories live under one directory of ours (`os.tmpdir()` reads these variables on every platform),
@@ -49,15 +56,19 @@ function runProbe(name, scratch) {
 
 test('the probes feed the sites 1 MB', () => {
   assert.equal(MB, 1e6);
-  assert.ok(Object.keys(PROBES).length >= 15, 'a probe was dropped');
+  assert.ok(Object.keys(PROBES).length >= 17, 'a probe was dropped');
 });
 
 for (const name of Object.keys(PROBES)) {
-  test(`linear: ${name}, under ${CEILING_MS} ms`, { timeout: GIVE_UP_MS + 10000 }, async (t) => {
+  test(`linear: ${name}`, { timeout: GIVE_UP_MS + 10000 }, async (t) => {
     const r = await runProbe(name, tempDir('cm-linear-run-', t));
     assert.equal(r.gaveUp, false, `did not finish in ${GIVE_UP_MS} ms - the site is quadratic`);
     assert.equal(r.error, null, `the site threw: ${r.error}`);
     assert.equal(r.ok, true, 'the site gave a different answer than on a normal input');
     assert.ok(r.ms < CEILING_MS, `${Math.round(r.ms)} ms (ceiling ${CEILING_MS}) - the site backtracks`);
+    if (r.ms >= RATIO_FROM_MS) {
+      const ratio = r.ms / Math.max(r.smallMs, SMALL_FLOOR_MS);
+      assert.ok(ratio < RATIO_MAX, `1 MB took ${Math.round(r.ms)} ms, a quarter of it ${Math.round(r.smallMs)} ms: ${ratio.toFixed(1)} times (linear is about 4, quadratic about 16)`);
+    }
   });
 }

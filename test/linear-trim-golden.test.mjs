@@ -10,13 +10,19 @@
 // seeded: a red run repeats.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import * as lineartext from '../src/lineartext.mjs';
 import * as inbox from '../src/inbox.mjs';
 import * as repetitionhint from '../src/repetitionhint.mjs';
 import * as agentledger from '../src/agentledger.mjs';
 import * as component from '../src/component.mjs';
 import * as gauges from '../src/gauges.mjs';
+import * as environment from '../src/environment.mjs';
+import * as githook from '../src/cli/githook.mjs';
 import { maskText } from '../src/outputguard.mjs';
+import { tempDir } from './temp-dir.mjs';
 
 /** A small seeded generator (mulberry32). */
 function rng(seed) {
@@ -86,39 +92,67 @@ test('trimEndNewlines is the pattern /\\n*$/', () => {
   }
 });
 
-// ---- .gitattributes: the rule is read line by line ---------------------------------------------------------------------
+// ---- .gitattributes: read the way git reads it ---------------------------------------------------------------------------
+//
+// The truth is `git check-attr`. The old multiline patterns were not the truth: `*.jsonl merge=union eol=lf` on ONE line is both
+// rules to git and was "union missing" to the pattern, so `mem init` appended a second rule to a file that had it (found by the
+// reviewer, 2026-10-16). The words come out as `set`, `unset`, the value; a name that is not an attribute name drops the line.
 
-const OLD_UNION = /^\s*\*\.jsonl\s+merge=union\s*$/m;
-const OLD_EOL = /^\s*\*\.jsonl\s+(?:\S+\s+)*eol=lf(?:\s|$)/m;
-const NEW_UNION = /^\*\.jsonl\s+merge=union$/;
-const NEW_EOL = /^\*\.jsonl\s+(?:\S+\s+)*eol=lf(?:\s|$)/;
-// whole lines, so that no rule is split over a line break (the one case on which old and new differ, tested below)
-const RULE_LINES = [
-  '*.jsonl merge=union', '  *.jsonl\tmerge=union  ', '*.jsonl text eol=lf', '*.jsonl merge=union eol=lf', '*.jsonl eol=lf',
-  '*.jsonl a b eol=lf # c', '# *.jsonl merge=union', '*.jsonl merge=unionx', '*.txt merge=union', 'x*.jsonl merge=union',
-  '', '   ', '*.jsonl  -text  eol=lf', '*.jsonl eol=lfx', '*.jsonl eol=lf\tfoo', '*.md text',
-  `${BOM}*.jsonl merge=union`, `*.jsonl${NBSP}merge=union`, `*.jsonl merge=union${LS}`,
-];
+const git = (root, ...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+const truthOf = (root, attr) => {
+  const line = git(root, 'check-attr', attr, '--', 'x.jsonl').replace(/\r?\n$/, '');       // "x.jsonl: merge: union" (a value may end in a no-break space)
+  return line.slice(`x.jsonl: ${attr}: `.length);
+};
+const ATTR_CASES = {
+  empty: '', normal: '*.jsonl merge=union\n', crlf: '*.jsonl merge=union\r\n', crlfTwo: '# x\r\n*.jsonl merge=union\r\n*.jsonl eol=lf\r\n',
+  bom: `${BOM}*.jsonl merge=union\n`, tab: '*.jsonl\tmerge=union\n', indent: '   *.jsonl merge=union   \n',
+  twoLines: '*.jsonl\nmerge=union\n', commentAfter: '*.jsonl merge=union # c\n', both: '*.jsonl merge=union eol=lf\n',
+  bothReversed: '*.jsonl eol=lf merge=union\n', eolOnly: '*.jsonl eol=lf\n', eolSplit: '*.jsonl text\neol=lf\n',
+  twoRules: '*.jsonl merge=union\n*.jsonl eol=lf\n', noNewline: '*.jsonl merge=union', blanksBefore: '\n\n\n*.jsonl merge=union\n\n\n',
+  wideGap: '*.jsonl    merge=union\n', textEol: '*.jsonl text eol=lf\n', negated: '*.jsonl -merge\n', taken: '*.jsonl merge=union\n*.jsonl !merge\n',
+  overridden: '*.jsonl merge=union\n*.jsonl merge=binary\n', overriddenBack: '*.jsonl merge=binary\n*.jsonl merge=union\n',
+  bare: '*.jsonl merge\n', eolCrlf: '*.jsonl eol=lf\n*.jsonl eol=crlf\n', nbsp: `*.jsonl merge=union${NBSP}\n`,
+  otherPattern: '*.json merge=union\n', lonelyCr: '*.jsonl merge=union\r*.md text\r', other: '*.md text\n',
+};
 
-test('the .gitattributes rules: read by line, the answer of the multiline patterns on every file of whole lines', () => {
-  const next = rng(4);
-  for (let i = 0; i < 5000; i += 1) {
-    let text = '';
-    const n = Math.floor(next() * 7);
-    for (let j = 0; j < n; j += 1) {
-      text += RULE_LINES[Math.floor(next() * RULE_LINES.length)] + ['\n', '\r\n', '\r', '\n\n'][Math.floor(next() * 4)];
+test('attributesOf: merge and eol as git check-attr says them, on every shape of a .gitattributes', (t) => {
+  const root = tempDir('cm-attr-', t);
+  git(root, 'init', '-q');
+  for (const [name, content] of Object.entries(ATTR_CASES)) {
+    fs.writeFileSync(path.join(root, '.gitattributes'), content);
+    const attrs = lineartext.attributesOf(content, '*.jsonl');
+    for (const attr of ['merge', 'eol']) {
+      assert.equal(attrs.get(attr) ?? 'unspecified', truthOf(root, attr), `${name}: ${attr}`);
     }
-    if (next() < 0.3) text = text.replace(/[\r\n]+$/, '');
-    assert.equal(lineartext.anyTrimmedLine(text, NEW_UNION), OLD_UNION.test(text), `union: ${JSON.stringify(text)}`);
-    assert.equal(lineartext.anyTrimmedLine(text, NEW_EOL), OLD_EOL.test(text), `eol: ${JSON.stringify(text)}`);
   }
 });
 
-test('the .gitattributes rules: ONE deliberate difference - a rule split over two lines is no rule', () => {
-  const split = '*.jsonl\nmerge=union\n';
-  assert.equal(OLD_UNION.test(split), true, 'the old pattern let the blank in the middle be a line break');
-  assert.equal(lineartext.anyTrimmedLine(split, NEW_UNION), false);
-  assert.equal(lineartext.anyTrimmedLine('*.jsonl merge=union\n', NEW_UNION), true, 'control: the whole line is a rule');
+test('checkMergeDriver and writeMergeDriver: the truth is git, the second call changes nothing', (t) => {
+  const root = tempDir('cm-attr-', t);
+  git(root, 'init', '-q');
+  const file = path.join(root, '.gitattributes');
+  for (const [name, content] of Object.entries(ATTR_CASES)) {
+    if (name === 'empty') continue;                       // no file content to start from: writeMergeDriver writes the whole note
+    fs.writeFileSync(file, content);
+    const union = truthOf(root, 'merge') === 'union';
+    assert.equal(environment.checkMergeDriver(root).ok, union, `${name}: the check says what git says`);
+    githook.writeMergeDriver(root);
+    assert.equal(truthOf(root, 'merge'), 'union', `${name}: after the write git has the union driver`);
+    assert.equal(truthOf(root, 'eol'), 'lf', `${name}: and the line endings pinned`);
+    assert.equal(environment.checkMergeDriver(root).ok, true, `${name}: and the check agrees`);
+    const written = fs.readFileSync(file, 'utf8');
+    assert.equal(githook.writeMergeDriver(root).added, 0, `${name}: a second call adds nothing`);
+    assert.equal(fs.readFileSync(file, 'utf8'), written, `${name}: and does not touch the file`);
+  }
+});
+
+test('writeMergeDriver: a file that has both rules in ONE line is left alone (the reviewer\'s case)', (t) => {
+  const root = tempDir('cm-attr-', t);
+  git(root, 'init', '-q');
+  fs.writeFileSync(path.join(root, '.gitattributes'), '*.jsonl merge=union eol=lf\n');
+  assert.equal(githook.writeMergeDriver(root).added, 0);
+  assert.equal(fs.readFileSync(path.join(root, '.gitattributes'), 'utf8'), '*.jsonl merge=union eol=lf\n');
+  assert.equal(environment.checkMergeDriver(root).ok, true);
 });
 
 // ---- the sentence that names the right way -----------------------------------------------------------------------------
@@ -218,11 +252,83 @@ test('gauges: a digit run in front of the redirect, and the ampersand form, as b
   }
 });
 
-test('gauges.pathsOf: a command of normal length gives the paths the pattern gave', () => {
-  const m = gauges.pathsOf('Bash', { command: 'cat src/a.mjs && node bin/mem find x.md' });
-  assert.deepEqual(m, ['src/a.mjs', 'bin/mem', 'x.md']);
-  const oldPaths = (c) => c.match(/[\w./@-]*\/[\w./@-]+|\b[\w-]+\.(mjs|js|ts|md|json|jsonl|yaml|yml|sh|py)\b/g) ?? [];
-  for (const c of corpus(12, ['src/', 'a.mjs', ' ', 'x', '-', '.', '/', '@', 'file.md', '\n', '"', 'b.sh'], { count: 3000, maxParts: 10 })) {
-    assert.deepEqual(gauges.pathsOf('Bash', { command: c }), oldPaths(c), JSON.stringify(c));
+const OLD_PATHS = /[\w./@-]*\/[\w./@-]+|\b[\w-]+\.(mjs|js|ts|md|json|jsonl|yaml|yml|sh|py)\b/g;
+const oldPaths = (c) => c.match(OLD_PATHS) ?? [];
+
+test('gauges.pathsOf: the paths the pattern found, on every command - and a long path stays whole', () => {
+  assert.deepEqual(gauges.pathsOf('Bash', { command: 'cat src/a.mjs && node bin/mem find x.md' }), ['src/a.mjs', 'bin/mem', 'x.md']);
+  const alphabet = ['src/', 'a.mjs', ' ', 'x', 'x', '-', '.', '/', '@', 'file.md', '.md', '.json', '.jsonl', 'json', '_', '\n', '"', 'b.sh', 'é', '1', '.js-', 'ts', '-a', 'a-'];
+  for (const [seed, maxParts] of [[12, 10], [13, 24]]) {
+    for (const c of corpus(seed, alphabet, { count: 12000, maxParts })) {
+      assert.deepEqual(gauges.pathsOf('Bash', { command: c }), oldPaths(c), JSON.stringify(c));
+    }
+  }
+  // the paths the bound of 512 characters cut or lost (the review's measures): all of them come back whole
+  const deep = `/home/user/${'d/'.repeat(300)}file.mjs`;
+  for (const command of [`cat ${deep}`, `cat ${'a'.repeat(600)}/x.md`, `cat a.md ${'z'.repeat(520)} b.md`, `echo ${'/x'.repeat(260)}`, `cat ${'a'.repeat(605)}.md`]) {
+    assert.deepEqual(gauges.pathsOf('Bash', { command }), oldPaths(command), command.slice(0, 40));
+  }
+  assert.equal(gauges.pathsOf('Bash', { command: `cat ${deep}` })[0], deep);
+  assert.equal(gauges.pathsOf('Bash', { command: `cat ${'a'.repeat(605)}.md` })[0], `${'a'.repeat(605)}.md`);
+});
+
+test('lineartext.jsonlPlaces: the places of the pattern, on every text - and a long path stays whole', () => {
+  const OLD = /[A-Za-z0-9_./\\-]+\.jsonl:\d+/g;
+  const alphabet = ['a', 'b', '/', '\\', '.', '-', '_', '.jsonl:', '.jsonl', ':', '1', '23', ' ', 'x.jsonl:4', 'global/errors.jsonl:7', 'é', '\n', '.jsonl:x'];
+  for (const text of corpus(14, alphabet, { count: 20000, maxParts: 12 })) {
+    assert.deepEqual(lineartext.jsonlPlaces(text), (text.match(OLD) ?? []), JSON.stringify(text));
+  }
+  const long = `${'d/'.repeat(300)}errors.jsonl:12`;
+  assert.deepEqual(lineartext.jsonlPlaces(`see ${long} here`), [long]);
+  assert.deepEqual(lineartext.jsonlPlaces('a.jsonl:1.jsonl:2'), 'a.jsonl:1.jsonl:2'.match(OLD) ?? []);
+});
+
+// ---- the lead words in front of a command (commandguard) ---------------------------------------------------------------------
+
+import * as commandguard from '../src/commandguard.mjs';
+
+const OLD_LEAD_WORD = /(?<![^\s;&|({`])(?:(?:sudo|time|nohup|exec|command|xargs)(?: -\S+)*|[A-Za-z_][A-Za-z0-9_]*=\S*)$/;
+function oldAtCommandStart(text, pos) {
+  let before = text.slice(0, pos).replace(/ +$/, '');
+  for (let i = 0; i < 6; i += 1) {
+    const m = before.match(OLD_LEAD_WORD);
+    if (!m) break;
+    before = before.slice(0, m.index).replace(/ +$/, '');
+  }
+  if (before === '' || /[;&|({`]$/.test(before)) return true;
+  return /(?:^|\s)-[A-Za-z]*c ["']$/.test(before);
+}
+function oldHits(text, pattern) {
+  const [rawFirst, ...more] = pattern;
+  const bare = rawFirst.endsWith('$');
+  const first = bare ? rawFirst.slice(0, -1) : rawFirst;
+  let pos = text.indexOf(first);
+  let found = false;
+  while (pos !== -1 && !found) {
+    const end = pos + first.length;
+    const endGood = bare ? /^ *(?:$|[;&|)}])/.test(text.slice(end)) : end >= text.length || /[\s;&|)}`"']/.test(text[end]);
+    if (endGood && oldAtCommandStart(text, pos)) found = true;
+    else pos = text.indexOf(first, pos + 1);
+  }
+  return found && more.every((w) => text.includes(w));
+}
+
+test('commandguard.hits: the answer of the pattern version, on every command, normalised or not', () => {
+  const alphabet = ['git push', 'git', ' ', ' ', ' ', '-', '-u', ';', '&', '|', '(', '{', '`', '"', "'", 'c', 'sudo', 'time', 'exec', 'nohup',
+    'xargs', 'command', 'a=b', 'A_1=', '=', 'x', 'bash -c ', '\t', '\n', NBSP, 'sudoers', '-c', ' -c "', ')', '}', '$'];
+  for (const seed of [15, 16, 17]) {
+    for (const raw of corpus(seed, alphabet, { count: 6000, maxParts: 14 })) {
+      for (const text of [raw, commandguard.normalise(raw)]) {
+        for (const pattern of [['git push'], ['git push$'], ['git', 'x'], ['xargs$'], ['exec'], ['-c']]) {
+          assert.equal(commandguard.hits(text, pattern), oldHits(text, pattern), `${JSON.stringify(text)} ${JSON.stringify(pattern)}`);
+        }
+      }
+    }
+  }
+  // the lead words themselves, one by one
+  for (const [command, expected] of [['sudo -E -H git push', true], ['FOO=1 BAR=2 git push', true], ['echo x && git push', true], ['xgit push', false],
+    ['bash -c "git push"', true], ['git status; git push', true], ['echo git push', false], ['time -p nohup git push', true], ['echo ab=c git push', false]]) {
+    assert.equal(commandguard.hits(commandguard.normalise(command), ['git push']), expected, command);
+    assert.equal(oldHits(commandguard.normalise(command), ['git push']), expected, `old: ${command}`);
   }
 });

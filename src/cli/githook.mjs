@@ -21,7 +21,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import * as observations from '../observations.mjs';
 import { PKG_ROOT } from './shell.mjs';
 import { writeAtomic } from '../atomicwrite.mjs';
-import { trimEndNewlines, anyTrimmedLine } from '../lineartext.mjs';
+import { trimEndNewlines, attributesOf } from '../lineartext.mjs';
 
 export function canExecuteIn(dir) {
   // Windows has no execve and no noexec mounts: git for Windows starts
@@ -287,10 +287,11 @@ export function writeMergeDriver(root) {
   // was already in place or had just been created.
   if (!fs.existsSync(p)) { fs.writeFileSync(p, note, 'utf8'); return { added: 1, path: p }; }
   const cur = fs.readFileSync(p, 'utf8');
-  // Line by line (src/lineartext.mjs): `.gitattributes` comes with the cloned repository, and `^\s*` in a multiline pattern
-  // is quadratic on a file of blank lines.
-  const hasUnion = anyTrimmedLine(cur, /^\*\.jsonl\s+merge=union$/);
-  const hasEol = anyTrimmedLine(cur, /^\*\.jsonl\s+(?:\S+\s+)*eol=lf(?:\s|$)/);
+  // Read by line and by word (src/lineartext.mjs), as git reads it: `.gitattributes` comes with the cloned repository, and `^\s*`
+  // in a multiline pattern is quadratic on a file of blank lines. `merge=union eol=lf` on one line is both rules.
+  const attrs = attributesOf(cur, '*.jsonl');
+  const hasUnion = attrs.get('merge') === 'union';
+  const hasEol = attrs.get('eol') === 'lf';
   if (hasUnion && hasEol) return { added: 0, path: p };
   const add = hasUnion ? [
     '# The hash chain is computed over LF bytes: never let git turn them into CRLF.',

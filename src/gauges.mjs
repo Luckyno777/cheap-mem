@@ -58,7 +58,6 @@
  */
 
 import { frozenSet } from './frozenset.mjs';
-import { boundRuns } from './entity.mjs';
 
 /** How a shell command is classified. Closed list. */
 export const COMMAND_KIND = Object.freeze({
@@ -184,6 +183,55 @@ export function isMemorySearch(name, input) {
   return /\bmem\b[^|;&]*\b(find|browse|context)\b/.test(c) || /cheap-mem\/bin\/mem\b/.test(c);
 }
 
+const isWordChar = (c) => (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c === 95;
+// `[\w./@-]`: a character that may stand in a path
+const isPathChar = (c) => isWordChar(c) || c === 46 || c === 47 || c === 64 || c === 45;
+const FILE_EXTENSION = /(?:mjs|js|ts|md|json|jsonl|yaml|yml|sh|py)\b/y;
+
+/**
+ * The paths in a shell command: the same strings as
+ * `command.match(/[\w./@-]*\/[\w./@-]+|\b[\w-]+\.(mjs|js|ts|md|json|jsonl|yaml|yml|sh|py)\b/g)`, in one pass. That pattern is
+ * quadratic on a long run of path characters (the first alternative walks the run for a slash from every start, the second
+ * tries every word boundary in `a-a-a-...`). Read run by run: a run of path characters that holds a slash with a character
+ * behind it is ONE path, the whole run (the first alternative starts at its first character and takes it all); a run without
+ * is searched for `name.extension` words, each found at its leftmost word boundary, the next search starting behind the last.
+ */
+function pathsInCommand(command) {
+  const out = [];
+  const n = command.length;
+  const wordAt = (i) => i >= 0 && i < n && isWordChar(command.charCodeAt(i));
+  let i = 0;
+  while (i < n) {
+    if (!isPathChar(command.charCodeAt(i))) { i += 1; continue; }
+    let end = i;
+    let slash = -1;
+    while (end < n && isPathChar(command.charCodeAt(end))) {
+      if (slash === -1 && command.charCodeAt(end) === 47) slash = end;
+      end += 1;
+    }
+    if (slash !== -1 && slash <= end - 2) { out.push(command.slice(i, end)); i = end; continue; }
+    // no slash with a character behind it: only `name.extension` words are left in this run
+    let j = i;
+    while (j < end) {
+      const c = command.charCodeAt(j);
+      if (!(isWordChar(c) || c === 45)) { j += 1; continue; }
+      const segStart = j;
+      while (j < end && (isWordChar(command.charCodeAt(j)) || command.charCodeAt(j) === 45)) j += 1;
+      if (j >= end || command.charCodeAt(j) !== 46) continue;
+      FILE_EXTENSION.lastIndex = j + 1;
+      const m = FILE_EXTENSION.exec(command);
+      if (m === null) continue;
+      let q = segStart;
+      while (q < j && wordAt(q - 1) === wordAt(q)) q += 1;          // the leftmost word boundary inside the name
+      if (q === j) continue;
+      out.push(command.slice(q, j + 1 + m[0].length));
+      j += 1 + m[0].length;
+    }
+    i = end;
+  }
+  return out;
+}
+
 /**
  * Which file paths a call touches — roughly, but without guessing:
  * only what looks like a path.
@@ -194,10 +242,7 @@ export function pathsOf(name, input) {
   if (input?.path) out.push(String(input.path));
   if (input?.notebook_path) out.push(String(input.notebook_path));
   if (name === 'Bash' && input?.command) {
-    // `boundRuns`: the first alternative is quadratic on a long unbroken run of path characters (see src/entity.mjs).
-    const m = boundRuns(String(input.command))
-      .match(/[\w./@-]*\/[\w./@-]+|\b[\w-]+\.(mjs|js|ts|md|json|jsonl|yaml|yml|sh|py)\b/g);
-    if (m) out.push(...m);
+    for (const path of pathsInCommand(String(input.command))) out.push(path);   // a loop: a spread of 200,000 paths overflows the stack
   }
   return out;
 }
