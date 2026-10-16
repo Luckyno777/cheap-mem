@@ -14,6 +14,54 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Fixed / Performance - dashboard tempo: the stamp ignores every derived cache, "Confirm answer" is fresh at once, a waiting part retry is dropped (dashboard-tempo-cm, port of the sibling's D-C, H7 and R4)
+
+Inventory first, against the sibling's building blocks (deferred parts, page versions, cache with a generation stamp,
+full-build line, the headline, H7, R4). Already in cheap-mem and NOT built again: deferred parts with a bounded retry
+(0d74136), page files with a version mark (`?v=`, immutable, ETag, gzip), the cache with stamp, TTL from the end of the
+build and the minimum gap, the head on disk, the placeholder and the quick head, the full-build line (64 MB, then the
+compact build) and the doctor's full-build and full-read switches, live parts after a write of your own (d068d4d), full
+width (ef130c1), browser probes that wait for an end state (startView, e1c24d6). The sibling's incremental usage table
+has no counterpart here (cheap-mem has no usage bonus in the ranking). Built:
+
+- **The stamp (R4).** One search with `MEM_EXPAND=1` wrote `.mem/search-index-expand`, which the stamp counted: the
+  dashboard took the store as changed and rebuilt. The same for the component table the pre-edit hook rebuilds (with its
+  lock and log), the time track (with its build lock), the drawer locks and the scratch names of an atomic write.
+  `isDerived()` strips the expand suffix and the scratch forms; DERIVED names the rest. `recallserver.codeState()` adds
+  the newest ctime: a change of the same size with the mtime set back went unseen. Probe
+  `test/dash-stamp-r4-cm.test.mjs`, red 3 of 7 on dc6b69d.
+- **"Confirm answer" (H7).** The task `question-confirm` was rebuild-only: after the click the page read the stored
+  state, the question still "answered, waiting for you", the button still there, also after a reload. Now it names the
+  live part `questions` (the open and the waiting questions through `dashboardData.questionLists`, the one place the
+  build calls too). 107 ms median on 5000 entries with 60 questions against 5.7 s for the full build (load about 15,
+  4 cores). A compact store keeps its stored lists and says why. Probe `test/dash-confirm-fresh-cm.test.mjs` (module,
+  data route, browser with the rebuild held 120 s), red 4 of 4 on dc6b69d.
+- **An unreadable question drawer (review).** `question.all()` skipped a drawer it could not read (`catch { continue; }`):
+  with `global/questions.jsonl` a folder (EISDIR; on Windows also a file a scanner holds) the new live part reported no
+  error and open 0 / waiting 0, so after a confirm every question vanished silently as a fresh state. It now throws the
+  `memory.ReadError` that names the drawer (a missing drawer still reads as none). Every caller says it: the live part
+  names it in `live_errors` and keeps the stored lists, the dashboard and board tiles read "not measurable", the
+  per-project counts are `null` (the page says "questions unknown"), `mem questions` and `mem questions confirm` exit 1
+  with the message and write nothing, the MCP tool returns it as an error. Probe `test/question-unreadable-cm.test.mjs`
+  (a real folder in place of the drawer), red 4 of 5 on 764e829.
+- **A waiting part retry.** When a newer data load starts its own round of parts, the retry still waiting from the round
+  before is dropped (it fetched every part a second time; seen once on a cold start whose first answer was the quick
+  head, 0 of 7 further cold starts). Probe `test/dash-later-once-cm-browser.test.mjs`, red on dc6b69d.
+
+Measured with `bench/board-tempo.mjs --browser --warm 5` on a synthetic store of 5000 entries (`bench/scale.mjs`), the
+head on disk removed before each run, 5 runs each, median, load 11.7-17.6 on 4 cores:
+
+| | first display, cold | done, cold | first display, warm (25) | done, warm (25) |
+|---|---|---|---|---|
+| base dc6b69d (run 1, load median 12.7) | 1045 ms | 10.49 s | 1179 ms | 4.99 s |
+| base dc6b69d (run 2, load median 14.1) | 1035 ms | 10.50 s | 1138 ms | 5.21 s |
+| this branch (load median 12.0) | 758 ms | 9.85 s | 400 ms | 4.88 s |
+
+The differences lie within the scatter of the runs (cold done 9.6-11.1 s on the base, 9.1-11.5 s here; warm first
+display is bimodal, about 0.3 s or 1.2-2.5 s, in both): these changes do not make the measured page faster on this store,
+and none of them was meant to. They remove rebuilds and requests that a real store with document expansion, a busy
+pre-edit hook or a quick head at the start pays for.
+
 ### Security - round 3 of the own-tool rule: the Windows start hook's provenance block, the provisioning variable, two honest limits (tool-trust-cm, review)
 
 - **The Windows start hook imported `<memory>\src\provenance.mjs` without the switch.** The block "Which clone answers" in the generated hook took the memory's module first and ran it with `node -e`; the file
