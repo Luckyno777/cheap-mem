@@ -41,6 +41,7 @@
 // in front, and let that (or the token) be the door.
 
 import http from 'node:http';
+import { hardenServer, MAX_CONNECTIONS } from '../src/http-limits.mjs';
 import { fileURLToPath } from 'node:url';
 import { isMain } from '../src/ismain.mjs';
 import path from 'node:path';
@@ -1719,6 +1720,8 @@ export function serve(root, env = process.env, { allowWrites = false, measure: m
   if (!allowed.ok) throw new Error(allowed.reason);
   const handler = buildHandler(root, cfg, env);
   const server = http.createServer(handler);
+  // Hard limits against slow-header and connection-flood attacks (src/http-limits.mjs): before `listen`.
+  hardenServer(server, { maxConnections: MAX_CONNECTIONS.dashboard });
   // The weekly measurement series (src/measurements.mjs): one line per
   // ISO week, written by THIS process on its own clock — never by a page
   // read. `unref` so a measurement timer never keeps a stopped server alive.
