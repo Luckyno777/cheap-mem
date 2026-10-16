@@ -98,6 +98,7 @@ function asCard(z, project) {
   const F = card.CARD_FIELDS;
   return {
     id: z.id ?? null, target_id: z.target_id, ts: z.ts ?? null, author: authority.authorOf(z), rank: authority.tierOf(z),
+    rank_state: authority.tierState(z).state,
     question: z[F.question], context: z[F.context], options: z[F.options], advice: z[F.advice], evidence: z[F.evidence],
     kind: z[F.kind], project,
   };

@@ -1257,7 +1257,7 @@ async function handleCall(name, args) {
       const list = [...shelf.cards.values()].sort((a, b) => String(a.ts ?? '').localeCompare(String(b.ts ?? '')));
       return textResult([
         `${list.length} card(s) on the shelf${shelf.broken ? `, ${shelf.broken} broken line(s)` : ''}${shelf.unusable ? `, ${shelf.unusable} unusable` : ''}.`,
-        ...list.map((k) => `${k.target_id}  ${k.question}  (by ${k.author ?? 'unknown'}, tier ${k.rank}, ${String(k.ts ?? '').slice(0, 10) || 'no date'})`),
+        ...list.map((k) => `${k.target_id}  ${k.question}  (by ${k.author ?? 'unknown'}, tier ${authority.rankWord(k.rank, k.rank_state)}, ${String(k.ts ?? '').slice(0, 10) || 'no date'})`),
       ].join('\n'));
     }
 

@@ -34,7 +34,7 @@ import * as capability from '../../capability.mjs';
 import * as board from '../../board.mjs';
 import * as codexcloud from '../../codexcloud.mjs';
 import * as owntool from '../../owntool.mjs';
-import { PKG_ROOT, out, die, warn, checkFlags, numberFlag, isHelp, findRoot, requireConfig } from '../shell.mjs';
+import { PKG_ROOT, out, die, warn, checkFlags, numberFlag, isHelp, findRoot, requireConfig, asMeWriter } from '../shell.mjs';
 import { compactLine, countLines } from '../display.mjs';
 import { maskText } from '../../outputguard.mjs';
 import { trackedRuntimeFiles, untrackCommand, describeTracked, trackedNotes, shellHint } from '../../trackedruntime.mjs';
@@ -1270,8 +1270,8 @@ export const COMMANDS = {
     if (isHelp(args) || !rest[0]) {
       out([
         'mem sources add <url|path> [--title "..."] [--tags a,b] [--project x]',
-        '                          [--note "..."] [--max 4000]',
-        'mem sources bridge <source_uri> --tool <name> [--title "..."] [--project x]',
+        '                          [--note "..."] [--max 4000] [--as-me]',
+        'mem sources bridge <source_uri> --tool <name> [--title "..."] [--project x] [--as-me]',
         'mem sources list [--kind file|address|bridge] [--project x]',
         '',
         '  Takes in knowledge that already exists: a pointer, and enough',
@@ -1293,16 +1293,22 @@ export const COMMANDS = {
         '',
         '  The excerpt goes through redaction before anything is written —',
         '  a foreign document is exactly where a credential rides along.',
+        '',
+        '  --as-me stamps the entry with this install\'s own identity (CHEAP_MEM_AGENT, else',
+        '  `mem whoami`) instead of the OS account (`human:<user>`). Refused when neither is',
+        '  set; it sets the name only, never a rank. Put it last: the parser reads the next',
+        '  word as its value.',
       ].join('\n'));
       return;
     }
     const sub = rest[0];
     if (!subs.includes(sub)) die(`sources: '${sub}' unknown. Known: ${subs.join(', ')}`);
     const root = findRoot(args);
-    requireConfig(root);
+    const cfg = requireConfig(root);
 
     if (sub === 'bridge') {
-      checkFlags(args, ['title', 'tags', 'project', 'note', 'max', 'tool', 'root'], 'sources bridge');
+      checkFlags(args, ['title', 'tags', 'project', 'note', 'max', 'tool', 'as-me', 'root'], 'sources bridge');
+      const asMe = asMeWriter(root, cfg, args, 'sources bridge');
       const uri = rest.slice(1).join(' ').trim();
       if (!uri) die('sources bridge: source_uri missing.');
       if (!args.tool || args.tool === true) die('sources bridge: --tool <name> missing.');
@@ -1315,7 +1321,7 @@ export const COMMANDS = {
           tags,
           project: args.project ?? null,
           note: args.note && args.note !== true ? String(args.note) : null,
-          agent: memory.agentDefault(),
+          agent: asMe ?? memory.agentDefault(),
           max: (numberFlag('max', args.max, { min: 1 }) ?? undefined),
         });
       } catch (e) { die(`sources bridge: ${e.message}`); }
@@ -1329,7 +1335,8 @@ export const COMMANDS = {
     }
 
     if (sub === 'add') {
-      checkFlags(args, ['title', 'tags', 'project', 'note', 'max', 'root'], 'sources add');
+      checkFlags(args, ['title', 'tags', 'project', 'note', 'max', 'as-me', 'root'], 'sources add');
+      const asMe = asMeWriter(root, cfg, args, 'sources add');
       const target = rest.slice(1).join(' ').trim();
       if (!target) die('sources add: address or path missing.');
       const tags = args.tags && args.tags !== true
@@ -1341,7 +1348,7 @@ export const COMMANDS = {
           tags,
           project: args.project ?? null,
           note: args.note && args.note !== true ? String(args.note) : null,
-          agent: memory.agentDefault(),
+          agent: asMe ?? memory.agentDefault(),
           max: (numberFlag('max', args.max, { min: 1 }) ?? undefined),
         });
       } catch (e) { die(`sources add: ${e.message}`); }
