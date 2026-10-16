@@ -36,13 +36,13 @@ function world(t) {
 }
 const idsOf = (r) => (r ? r.ids : []);
 
-async function ask(mod, root, env) {
+function ask(mod, root, env) {
   // the PROCESS holds the opposite setting while the call is handed `env`
   const saved = process.env.MEM_RETRIEVE_REQUEST_FRAME;
   process.env.MEM_RETRIEVE_REQUEST_FRAME = env.MEM_RETRIEVE_REQUEST_FRAME === '0' ? '' : '0';
-  try { return idsOf(await mod.forTask(root, { prompt: TASK }, { env: { MEM_RETRIEVE_MIN: '0.1', ...env } })); } finally {
-    if (saved === undefined) delete process.env.MEM_RETRIEVE_REQUEST_FRAME; else process.env.MEM_RETRIEVE_REQUEST_FRAME = saved;
-  }
+  return mod.forTask(root, { prompt: TASK }, { env: { MEM_RETRIEVE_MIN: '0.1', ...env } })
+    .then(idsOf)
+    .finally(() => { if (saved === undefined) delete process.env.MEM_RETRIEVE_REQUEST_FRAME; else process.env.MEM_RETRIEVE_REQUEST_FRAME = saved; });
 }
 
 test('the request frame follows the given env, not the process', async (t) => {
