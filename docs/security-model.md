@@ -397,6 +397,7 @@ every fresh memory started without the guarantee its own design depends on.
 | **T7** | a historical line edited in the working tree, not merely appended to | flagged, first differing line named | `doctor` append-only-git (`checkAppendOnlyGit`) | working tree checked against `git show HEAD:<path>` — old must be a prefix of new | **whoever edits AND commits, or force-pushes rewritten history this clone then pulls, is invisible** — checked against git, deliberately not a second, weaker hash chain (see the long comment on `checkAppendOnlyGit` in `src/doctor.mjs`) |
 | **T3** | Trojan-Source bidi-override characters ([CVE-2021-42574](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2021-42574)) reorder how a body reads in a terminal or an agent's context | neutralised at DISPLAY time | `src/bidi.mjs` — a closed nine-codepoint list (U+202A-U+202E, U+2066-U+2069) | `bidi.visible()` in every render path: `display.compactLine` (`mem find`, `mem component`/pre-edit hook, `mem when`, board), `memory.context()` (SessionStart hook), `browse.fit()` (`mem browse`), and directly in `bin/mem-retrieve`'s per-turn hook (which reads the raw entry, not `compactLine`'s output) | the character is still ON DISK, unmarked, in any consumer that reads the JSONL directly instead of through one of these render paths — e.g. `git show`, a raw `cat`, or a future display path that forgets to call `bidi.visible()` |
 | **T9 model output** | digest emits `authority: user` | demoted to `inferred` | `authority_clamped_from` | write-path ceiling | a writer without the ceiling set is unconstrained |
+| **T10 hostile memory, unattended session** | a push into the memory adds `.claude/settings.json` (a hook) or `.mcp.json`; the next digest, mail-handler or reflector run starts the model command and runs it | the hook never runs, the server never connects | `test/headless-start.test.mjs` (planted hook + server, red on the first version and on the base) | EVERY command starts in a neutral empty directory outside the memory; a command recognised as `claude` also gets `--setting-sources user --strict-mcp-config`; an old claude is refused, never started open (section 11) | an alias or wrapper that runs claude under another name (neutral, but without the flags); a text scanner as ratchet; the memory's `CLAUDE.md` read as context |
 
 ### Closed in the final verification round
 
@@ -708,7 +709,7 @@ Answered by breaking each mechanism on purpose and checking that a test
 notices (`node bench/mutation.mjs`). A mutant that SURVIVES marks a
 guarantee that lives in documentation and nowhere else.
 
-**240 mutants, 240 caught.** Including: supersession always allowed,
+**254 mutants, 254 caught.** Including: supersession always allowed,
 `admits()` always true, the disputed filter removed, deduplication removed,
 resource limits ignored, the redaction class narrowed back to ASCII, broken
 lines silently skipped again, cycles never reported, the merge driver
@@ -728,3 +729,96 @@ graph, dedup normalisation, and retrieval with a bogus capability. Looking
 specifically for the failure that matters here: garbage producing a MORE
 permissive answer rather than an error. Currently clean, and verified to
 have teeth by breaking the capability boundary and confirming it fires.
+
+
+---
+
+## 11. Unattended model sessions (`claude -p` started by cheap-mem itself)
+
+*Stand: Claude Code documentation, 2026-10 (`headless`, `permissions`: "What runs before you
+trust a folder", "Additional directories grant file access, not configuration").*
+
+**The threat.** A cloned or shared memory must never run code. The digest (`bin/mem-digest`), the
+mail handler (`bin/mem-handle-post`, started by `bin/mem-watch` with the memory as its working
+directory) and the reflector (`bin/mem-reflect`, started wherever the Stop hook was called) start
+`claude -p`. Without `--bare`, a `-p` session runs the hooks of the `.claude/settings.json` of its
+working directory and connects the servers of its `.mcp.json` - in a folder nobody trusted, with no
+trust dialog. Whoever can push into the memory (a collaborator, a compromised remote, a merged pull
+request) could plant such a file and have the next watcher or digest tick run it, on the machine and
+with the login of the person who runs the memory.
+
+**The protection, in two layers.** One starter decides it for the shell and the PowerShell side alike
+(`src/headless.mjs`, reached through `bin/mem-headless.mjs`; `mem_headless_plan` in `bin/_portable.sh`,
+`Get-HeadlessPlan` in `bin/_headless.ps1`):
+
+1. **A neutral working directory for EVERY configured command**, recognised or not: an empty folder of ours
+   outside the memory. Hooks and `.mcp.json` are read from the working directory only, with no fall-back to a
+   parent, so this also protects a wrapper, an alias or another agent CLI (`gemini` can load project
+   configuration from the directory it starts in, too). The memory is found through `CHEAP_MEM_ROOT` and
+   absolute paths; the prompts say "your working directory is not the memory" and use `git -C <memory>`.
+2. **For a command recognised as `claude`:** `--setting-sources user --strict-mcp-config`. The session reads the
+   user's own settings (their permissions and hooks stay) and nothing from the project: no
+   `.claude/settings.json`, no `.mcp.json`. Skills, commands and agents of an `--add-dir` folder load through the
+   `project` source, so they are gone as well. No MCP server is configured at all (cheap-mem hands none over).
+   Where the job reads the memory (digest, mail handler; not the reflector, which only calls `git -C` and `mem`
+   by absolute path) the memory comes along as `--add-dir`.
+
+The flags go AFTER the prompt and `--add-dir` is the last thing on the line: it takes a list, and a prompt that
+followed it would be read as a directory.
+
+**The neutral directory.** `<user cache>/cheap-mem/headless-cwd`, or `headless-cwd` under the folder `MEM_HEADLESS_CWD`
+names (then ONLY there; unusable means refused). Whether a place lies inside the memory is decided BEFORE anything is
+made there. An existing folder is reused only when it is a real directory (no symlink), the user's own, mode 0700
+(POSIX) and free of `.claude`, `.mcp.json`, `CLAUDE.md`, `.gemini`, `GEMINI.md`, `AGENTS.md`, `.codex`; otherwise a fresh
+`mkdtemp` folder is made next to it and removed after the job. With no usable cache the fallback is a fresh `mkdtemp`
+folder in the OS temp directory (unpredictable, removed after the job). No place outside the memory: REFUSED.
+
+**Recognising claude.** The words in front are skipped (`env VAR=x`, `sudo`/`doas`, `nice`/`ionice`, `timeout N`,
+`nohup`, `command`, `exec`, `npx`/`bunx`/`pnpm dlx`/`yarn dlx`, `node`), then the program must be `claude`, `claude-code`
+or `@anthropic-ai/claude-code` (directory, extension, `@version` allowed; a quoted first word may hold spaces). An alias
+(`cl`) or a wrapper under another name is NOT recognised: neutral directory, NO flags, and the log says `command not
+recognised as claude: started in a neutral directory without the settings flags; if it runs claude, add
+--setting-sources user --strict-mcp-config`. No flags are guessed for another agent CLI.
+
+**Not chosen.** `--bare` needs an API key (the owner logs in with an account); `disableAllHooks` would also switch
+off the owner's own protective hooks.
+
+**An old claude refuses to start.** A claude without `--setting-sources` stops on the unknown option (a line break
+inside the sentence does not matter). Every job reads that failure, logs one sentence ("this claude does not know
+--setting-sources (too old) ... update claude": digest in `.mem/digest.log`, handler on stderr, reflector on stderr
+with exit 0 so the Stop hook never blocks) and does NOT start again without the flag. No probe call: the first real
+call is the detection. The text goes through a pipe; no temp file is made, so a `TMPDIR` inside the memory cannot
+put one there.
+
+**A custom `MEM_WATCH_HANDLER`.** `bin/mem-watch` still starts it inside the memory (`CHEAP_MEM_ROOT` is in its
+environment): it is your code, and a new working directory would break handlers that rely on this one. The default
+handler moves to the neutral directory itself. A custom handler that starts an agent should ask the starter:
+`node bin/mem-headless.mjs plan --cmd "<command>" --root "$CHEAP_MEM_ROOT"`.
+
+**Residual risk and limits.**
+- The memory's own `CLAUDE.md` stays readable context where a session reads files of the memory
+  (`--add-dir` loads it only with `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1`, which cheap-mem never
+  sets). It is DATA: like every entry it can steer a model, which is why the digest and the reflector
+  write at a lowered authority (`CHEAP_MEM_MAX_AUTHORITY`) and the tools a session may use come from the
+  user's own settings, not from the memory.
+- The documentation says an `--add-dir` folder contributes only `enabledPlugins` and
+  `extraKnownMarketplaces` from its settings, and that a `-p` run does not use marketplace entries of such
+  a folder. cheap-mem relies on that statement; it cannot test it without the real claude.
+- A wrapper that runs claude under a name the recognition does not know is protected by the neutral directory
+  only (it would still read the USER's settings, as every session does). Put the two flags into the wrapper.
+- **The ratchet is a text scanner.** It reads source text for a launch of `claude`, `codex` or `gemini` and for
+  launch lines of the configured command that lack the starter's arguments. A launch spelled so that the name is
+  not visible in the text (`npx @anthropic-ai/claude-code` inside `spawnSync` arguments, a command assembled at
+  run time) is invisible to it. It catches the accident, not an adversary who writes code in this repository.
+- Any other way a model reads and obeys text in the memory (prompt injection through an entry) is
+  section 4, not this one.
+- On Windows the PowerShell half was written and read, and its text is tested; it has not been run on a Windows
+  machine by the people who wrote it.
+
+**Verified by** `test/headless-start.test.mjs`: a stand-in `claude` that, as documented, runs the project hook and
+connects the `.mcp.json` server unless started with `--setting-sources user`. Red on the base (`9ee3441`) for all three
+scripts, and on the first version (`9efe57d`, which recognised only a plain `claude`) for `env claude`, `npx`, `sudo`,
+`nice` and an alias. Green now: flags and neutral directory for every spelling the recognition sees, neutral directory
+and a log sentence for an alias or wrapper. A ratchet finds any `claude`/`codex`/`gemini` launch in `bin/`, `src/`,
+`install/`, `hooks/`, `eval/` outside the starter (named exceptions: `mem setup`'s `claude --version` / `claude mcp add`,
+and `eval/model-call.mjs`, which starts in its own empty directory). Mutants in `bench/mutation.mjs`.

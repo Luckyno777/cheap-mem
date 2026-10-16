@@ -98,6 +98,14 @@ systemctl --user edit cheap-mem-watch
 systemctl --user restart cheap-mem-watch
 ```
 
+The command runs in an empty working directory outside the memory, whatever it is.
+`gemini` (like other agent CLIs) can load project configuration from the directory it
+starts in, so starting it inside a memory that someone else can push to would be a way
+to run code; the neutral directory removes that. The memory is `$CHEAP_MEM_ROOT`, and
+the prompt tells the model to use absolute paths. Only a command recognised as `claude`
+also gets `--setting-sources user --strict-mcp-config`; for another CLI add its own
+equivalent to the command if it has one (see `docs/security-model.md`, section 11).
+
 ## Container / server / no-desktop hosts
 
 `systemd --user` needs a user manager. If you're on a bare server:

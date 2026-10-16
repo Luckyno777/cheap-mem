@@ -264,10 +264,27 @@ STALE_MIN="${MEM_DIGEST_STALE_MIN:-120}"
       try{process.stdout.write(String(JSON.parse(d).reserved.length))}catch{process.stdout.write("0")}})')"
   [ "$N_RESERVED" != "0" ] && note "age reserve: the $N_RESERVED oldest of them first"
 
+  # Every command starts in a neutral empty directory outside the memory, and
+  # a recognised `claude` also gets the isolation flags and `--add-dir` (see
+  # bin/_portable.sh, src/headless.mjs). No safe start, no start.
+  if ! mem_headless_plan "$CMD" "$ROOT"; then
+    note "REFUSED: no safe way to start the model session (the neutral working directory or the isolation flags could not be set up)."
+    note "  Nothing was started. Run: node $HERE/mem-headless.mjs plan --cmd \"$CMD\" --root \"$ROOT\""
+    exit 1
+  fi
+  [ -z "$MEM_HL_NOTE" ] || note "$MEM_HL_NOTE"
+  if [ "$MEM_HL_ISOLATED" = "1" ]; then
+    WHERE_LINE="
+Your working directory is NOT the memory: it is an empty folder, and $ROOT is added to what you may read. Use absolute paths, and run git as: git -C $ROOT <command>."
+  else
+    WHERE_LINE="
+Your working directory is NOT the memory: it is an empty folder, and the memory is $ROOT. Use absolute paths, and run git as: git -C $ROOT <command>."
+  fi
+
   PROMPT="You are the digest for a cheap-mem memory. Read \$ROOT/DIGEST.md first and follow it.
 
 Root: $ROOT
-CLI:  node $MEM --root $ROOT <command>
+CLI:  node $MEM --root $ROOT <command>$WHERE_LINE
 
 Raw material for THIS run (only these, no more):
 $(printf '%s' "$CHOSEN" | sed 's/^/  /')
@@ -377,7 +394,9 @@ condensing enough. Stop after the push."
   # stays directly on $LOG (mem_never_started/anmeldung detection reads
   # that file). `PIPESTATUS[0]`, not the pipeline's own exit value —
   # without that this would read node's exit code, not $CMD's.
-  ( cd "$ROOT" && MEM_HEADLESS=digest capped "$TIMEOUT" $CMD "$PROMPT" --output-format json ) 2>>"$LOG" \
+  # Flags AFTER the prompt, `--add-dir` last (it is variadic). CHEAP_MEM_ROOT lets
+  # `mem` find the memory from the neutral directory.
+  ( cd "${MEM_HL_CWD:-$ROOT}" && CHEAP_MEM_ROOT="$ROOT" MEM_HEADLESS=digest capped "$TIMEOUT" $CMD "$PROMPT" --output-format json ${MEM_HL_ARGS[@]+"${MEM_HL_ARGS[@]}"} ) 2>>"$LOG" \
     | node "$HERE/../src/modelcost.mjs" "$ROOT" digest digest-run >>"$LOG"
   MODEL_EXIT=${PIPESTATUS[0]}
 
@@ -395,11 +414,23 @@ condensing enough. Stop after the push."
     if mem_detour_cmd "$CMD"; then
       note "exit 126 and not one byte written — the CLI never started."
       note "  Retrying once: $MEM_DETOUR_REASON"
-      ( cd "$ROOT" && MEM_HEADLESS=digest capped "$TIMEOUT" "${MEM_START[@]}" "$PROMPT" ) >>"$LOG" 2>&1
+      ( cd "${MEM_HL_CWD:-$ROOT}" && CHEAP_MEM_ROOT="$ROOT" MEM_HEADLESS=digest capped "$TIMEOUT" "${MEM_START[@]}" "$PROMPT" ${MEM_HL_ARGS[@]+"${MEM_HL_ARGS[@]}"} ) >>"$LOG" 2>&1
       MODEL_EXIT=$?
       note "  the detour ended with $MODEL_EXIT"
     else
       note "exit 126 and nothing written, but no detour available: $MEM_DETOUR_REASON"
+    fi
+  fi
+
+  mem_headless_cleanup
+
+  # An old claude does not know `--setting-sources` and stops on the
+  # unknown option. Say so, and do not start it again without the flag.
+  if [ "$MODEL_EXIT" -ne 0 ] && [ "$MEM_HL_ISOLATED" = "1" ]; then
+    OLD_MSG="$(mem_headless_old_claude "$LOG" "$BEFORE_BYTES")"
+    if [ -n "$OLD_MSG" ]; then
+      printf '%s\n' "$OLD_MSG" | while IFS= read -r l; do note "$l"; done
+      exit 1
     fi
   fi
 

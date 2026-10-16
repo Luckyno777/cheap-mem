@@ -14,6 +14,7 @@
 // Red proof against the base (870788f, recorded in the commit): without the copy the stand-in
 // reads the token, the keyed value and the PIN. Positive control: the unmasked transcript IS
 // what the helper is given, and the secrets ARE in it.
+import { spaceFreeBase, slashes } from './helpers/space-free-tmp.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -32,7 +33,7 @@ const KEYED = ['hunter2', 'is-not-a-', 'secret-shape'].join('');
 const PIN = String(4000 + 711);
 const SECRETS = [TOKEN, KEYED, PIN];
 
-function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'cm-reflmask-')); }
+function scratch() { return fs.mkdtempSync(path.join(spaceFreeBase(), 'cm-reflmask-')); }
 
 function memory() {
   const r = scratch();
@@ -53,7 +54,7 @@ function writeTranscript(dir) {
   return p;
 }
 
-// The stand-in model. Run with a RELATIVE script name and the scratch dir as cwd: MEM_REFLECT_CMD is split on
+// The stand-in model. Named by an ABSOLUTE path (the model starts in a neutral directory, not here): MEM_REFLECT_CMD is split on
 // whitespace, and a temp directory may have a space in its path (Windows user names).
 const MODEL = `
 import fs from 'node:fs';
@@ -70,7 +71,7 @@ function reflect(root, transcript, extraEnv = {}, { viaStdin = true } = {}) {
   const res = spawnSync('bash', [REFLECT], {
     input: stdin, encoding: 'utf8', cwd: dir, timeout: 120000,
     env: { ...process.env, CHEAP_MEM_ROOT: root, MEM_HEADLESS: '', MEM_HOOK_OFF: '', MEM_REFLECT_THRESHOLD_BYTES: '1',
-      MEM_REFLECT_CMD: 'node fake-model.mjs', MEM_REFLECT_TIMEOUT: '60', FAKE_MODEL_OUT: out, ...extraEnv },
+      MEM_REFLECT_CMD: `node ${slashes(path.join(dir, 'fake-model.mjs'))}`, MEM_REFLECT_TIMEOUT: '60', FAKE_MODEL_OUT: out, ...extraEnv },
   });
   return { res, out, saw: fs.existsSync(out) ? JSON.parse(fs.readFileSync(out, 'utf8')) : null };
 }
