@@ -934,6 +934,49 @@ export const MUTANTS=[
    from:'  partLaterSkipTimer();\n  const entriesRun1 = loadEntriesPart();',
    to:'  const entriesRun1 = loadEntriesPart();  // MUTANT',
    tests:['test/dash-later-once-cm-browser.test.mjs'] },
+
+ // Round 3 (hooks-harden-cm): the tracked-runtime findings of the gitignore check and `mem init`.
+ { name:'trackedruntime: the finding prints file names out of the index',
+   file:'src/trackedruntime.mjs',
+   from:"  const lead = groups.slice(0, 6).map((g) => `${g.count} in ${g.spec}`).join(', ');",
+   to:"  const lead = files.slice(0, 3).join(', ');  // MUTANT",
+   tests:['test/tracked-names.test.mjs'] },
+
+ { name:'trackedruntime: the star of a glob spec skips line breaks again',
+   file:'src/trackedruntime.mjs',
+   from:"join('[\\\\s\\\\S]*')",
+   to:"join('.*')",
+   tests:['test/gitignore-guards.test.mjs'] },
+
+ { name:'trackedruntime: the component table is not a runtime path',
+   file:'src/trackedruntime.mjs',
+   from:"{ rule: '.mem/component-table.json', spec: '.mem/component-table.json', probe: '.mem/component-table.json',",
+   to:"{ rule: '.mem/component-tableX.json', spec: '.mem/component-tableX.json', probe: '.mem/component-tableX.json',  // MUTANT\n   ",
+   tests:['test/pipeline-ignore.test.mjs'] },
+
+ { name:'trackedruntime: the keyring is not a runtime path',
+   file:'src/trackedruntime.mjs',
+   from:"{ rule: '.mem/keyring.json', spec: '.mem/keyring.json', probe: '.mem/keyring.json',",
+   to:"{ rule: '.mem/keyringX.json', spec: '.mem/keyringX.json', probe: '.mem/keyringX.json',  // MUTANT\n   ",
+   tests:['test/pipeline-ignore.test.mjs'] },
+
+ { name:'doctor gitignore: a tracked runtime file is not looked for',
+   file:'src/doctor.mjs',
+   from:"    if (tracked.length) {\n      // Folders and counts only",
+   to:"    if (false) {  // MUTANT\n      // Folders and counts only",
+   tests:['test/pipeline-ignore.test.mjs','test/tracked-names.test.mjs'] },
+
+ { name:'doctor gitignore: a negated pattern counts as ignored',
+   file:'src/doctor.mjs',
+   from:"cells[i] === '' || cells[i + 2].startsWith('!')",
+   to:"cells[i] === ''",
+   tests:['test/gitignore-guards.test.mjs'] },
+
+ { name:'mem init: a git that cannot list the index stays quiet',
+   file:'src/cli/commands/setup.mjs',
+   from:"if (fs.existsSync(path.join(root, '.git'))) out('  ? tracked runtime files: unknown (git ls-files could not answer)');",
+   to:"if (false) out('  ? tracked runtime files: unknown (git ls-files could not answer)');  // MUTANT",
+   tests:['test/gitignore-guards.test.mjs'] },
 ];
 
 // The modules whose failure is a security or data-integrity failure. The

@@ -85,7 +85,9 @@ Evidence and scope per cell:
   - `installer registers PreToolUse[Edit|Write|NotebookEdit|Bash] -> cheap-mem-pre-edit.sh`
   - `install/hooks/pre-edit.sh`
   - `bin/mem-before-edit`
-  - `bin/mem-before-edit (contains OCCASION.BEFORE_EDIT)`
+  - `bin/mem-before-edit-core.mjs`
+  - `src/beforeedit.mjs`
+  - `src/beforeedit.mjs (contains OCCASION.BEFORE_EDIT)`
 - **claude-code / after-error: full.** Search for known errors and learnings after a Bash, Edit or Write call that really failed (PostToolUseFailure), one journal line per run, and after a failure the exit code hid (exit 0, failure in the output).
   - `installer registers PostToolUseFailure[Bash|Edit|Write] -> cheap-mem-after-failure.sh`
   - `install/claude-code.sh (contains upsertHook('PostToolUseFailure', 'after-failure')`

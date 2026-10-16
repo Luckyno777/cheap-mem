@@ -90,7 +90,7 @@ a caller asks for it. The one mechanism is crypto-shredding (`src/shred.mjs`):
 an entry written with `shred: true` through `memory.appendEntry` has its body
 encrypted with a key of its own, kept in `.mem/keyring.json` outside the
 append-only logs, so deleting the entry means destroying one key without
-rewriting history. There is no CLI switch for it yet. What it protects
+rewriting history. The keyring is the one file that must never be committed (`mem init` ignores it, `mem doctor` is an ERROR when it is tracked) and it does not travel with git: see `docs/security-model.md`, "Unsolved, explicitly". There is no CLI switch for it yet. What it protects
 against, and what stays legible, is in `docs/CAPABILITIES.md` section 10.23. The honest advice stands: use a private repo
 and do not put secrets in.
 

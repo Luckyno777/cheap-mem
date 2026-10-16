@@ -54,6 +54,171 @@ display is bimodal, about 0.3 s or 1.2-2.5 s, in both): these changes do not mak
 and none of them was meant to. They remove rebuilds and requests that a real store with document expansion, a busy
 pre-edit hook or a quick head at the start pays for.
 
+### Security - the shred keyring is ignored by `mem init`, and a tracked one is an ERROR
+
+`.mem/keyring.json` (the keys of `shred: true` entries) had no `.gitignore` rule, and `mem-reflect` and `mem-handle-post` run `git add -A`. A keyring under git history
+defeats the mechanism: destroying a key becomes a new commit, and the old key is recoverable from the commit before (`src/shred.mjs`, `docs/CAPABILITIES.md` 10.23). `mem init` writes the rule
+(and one for the temp file of the atomic keyring write); the doctor finding `gitignore` is an ERROR when the rule is missing and when the file is already TRACKED - then with its own
+sentence: entries shredded so far must NOT count as deleted, `git rm --cached` repairs the index only, the keys stay in the history. Documented in `docs/security-model.md` ("Unsolved,
+explicitly"), `docs/CAPABILITIES.md` 10.23 and `docs/design.md`: the keyring does not travel with git (a second clone reads `unreadable: keyring-absent`), it is a single copy with no backup,
+a lost file makes every shredded-capable entry permanently unreadable, and a restored old copy un-shreds. Distribution and one encrypted backup are manual, outside git.
+`test/pipeline-ignore.test.mjs` (KEYRING).
+
+### Fixed - round 3: negated patterns, hostile names in glob groups, an unknown index, base rules in the table
+
+- **`!` patterns** `git check-ignore -v` answers a match by a negated pattern with a source, and the doctor counted it as ignored: `!.mem/embed.env` at the end of the file read green. A pattern
+  cell that starts with `!` counts as NOT ignored now (ERROR for embed.env and the keyring). `test/gitignore-guards.test.mjs`, red on `57cbf82`.
+- **Glob groups** `specMatcher` used `.` for the star, which skips line breaks: a tracked `.mem/EVIL<newline>FORGED.lock` fell out of every group (`STILL TRACKS 1 ... ()`) and the advice repaired
+  nothing. `[\s\S]*` now, the first rule claims a file, files no group claims are counted as `+N elsewhere` and make the command name every runtime path with `--ignore-unmatch`. Probe with
+  line break, CR, U+2028/U+2029, ESC and U+202E in both glob specs (Windows asserts the refusal of the first ones).
+- **`mem init`** says `tracked runtime files: unknown` when `git ls-files` fails in a repository, instead of staying quiet. A quoted command carries the sentence that it is for bash or PowerShell.
+- **Base rules** `embed.env`, `epoch.json`, `search-index*`, `vectors.db`, `tasks/`, `raw-offsets.json`, `local/`, `digest-*`, `hooks/` are rows of the table: a memory that committed one is reported.
+  A tracked `embed.env` is an ERROR with its own sentence (rotate the keys).
+
+### Fixed - review follow-up: no file name out of the index in the output, and the single runtime files under `.mem/` (B1, B2)
+
+- **B1** `mem init` and the doctor finding `gitignore` printed the first tracked runtime paths raw, from the index. A legal POSIX file name can hold an escape or OSC sequence, a bell,
+  a newline (a forged second line) or a U+202E, and the line goes to a terminal and from there into a model's context. They print folders and counts now
+  (`3 in .pipeline, 1 in .mem/locks`), never a name; the command is built from the table, not from the index. `test/tracked-names.test.mjs` builds such a name at run time
+  (Windows cannot hold a control character in a file name: that branch asserts the refusal and runs the bidi override alone); red on `862d815`, which printed the name.
+- **B2** The same gap for single files. `src/trackedruntime.mjs` is now ONE table (`RUNTIME_RULES`: gitignore rule, pathspec, doctor probe, reason) that `mem init`, the doctor's
+  required paths and the tracked check all read. New: `.mem/component-table.json`, `component-table-rebuild.log` and `.lock`, `backlinks.json`, `dashboard-head.json`, `timetrack/`
+  (derived), `watch.log`, `serve.log`, `.mem/*.lock`, `.mem/*.lock.d/` (logs and locks), and the files the code itself calls gitignored, machine-local or not versioned
+  (`console.json`, `console-log.jsonl`, `measurements.jsonl`, `raw-watermark.json`, `archive.json`, `rule-draft-week`, `embed.json`) or that this repo's own `.gitignore` lists as local state
+  (`inbox-seen.json`, `inbox-whoami`, `reflect-marker/`). Left out on purpose, each with its reason in `test/pipeline-ignore.test.mjs`: `config.json`, `thesaurus.json`,
+  `answer-patterns.json`, `langbridge/` (authored), `rewrites.jsonl`, `bridge-reports.jsonl`, `raw-exclusion-state.json`, `raw/` (`keyring.json` was on this list until round 3: see the Security entry above). An inventory test scans `src/`, `bin/` and `install/` for every `.mem/<name>` and asks git whether a fresh memory ignores it: a new file under `.mem/`
+  is red until it is in the table or on the list.
+  With about 35 paths the doctor asks git ONCE (`check-ignore -v -n --stdin -z`) instead of once per path: median 149 ms -> 7 ms for the finding (7 runs, this machine, loaded).
+
+### Fixed - finish of the hook work: tracked runtime files, a warning without a reason, cut before mask (M1-1, N5-1, N2, #27)
+
+- **M1-1** The doctor finding `gitignore` asked `git check-ignore --no-index`, which answers for the path and not for the index: a memory that had committed `.pipeline/*`
+  before the rule existed got "git ignores all 6 required paths" after `mem init` while the tree stayed dirty and the recall hook's pull stayed blocked. It now also asks
+  `git ls-files -ci --exclude-standard` (`src/trackedruntime.mjs`) and says WARN with the exact command, `git rm --cached -r .pipeline`; `mem init` names the same command.
+  Red on `4229302`: init, write, commit, init - the doctor said ok (`test/pipeline-ignore.test.mjs`).
+- **N5-1** A memory without a remote, with the default `defaultRemote: "origin"` that `mem init` writes, printed `WARNING ... is not a remote of this clone - using origin` at every
+  session start - a warning with no reason, origin stays either way. Now only a value other than `origin` set against a clone that HAS a remote is warned about; a value that is
+  not a plain name is still refused loudly. `bin/_portable.sh`, the inline twin in `install/hooks/session-start.sh`, `install/windows.ps1` (the last one read, not run: no PowerShell here).
+- **N2** The clone gate cut the cached line at 300 characters BEFORE the mask: a token that began at character 280 came out as twenty characters in clear. `cutMasked(line, 300)` now;
+  a raw U+202E in `test/clone-gate.test.mjs` is the escape `\u202e`.
+- **#27** The same gap under `.mem/`: `before-edit/` and `workflow-marks/` (JSON marks per session), `command-guard-marks/` (empty `.warned` files, which git does track), `locks/`
+  (lock files with the pid, host and start time of one machine) and the three `*-turns/` folders (claims taken by `mkdir`: empty folders, which git does not see - the rule keeps it so)
+  are runtime state of one clone. `mem init` writes a rule for each, the doctor asks git about them, and a test holds `RUNTIME_DIRS` together with the register's per-session folders.
+
+### Fixed - review follow-up of the hook work (M2, N1-N3, N5-N7)
+
+- **N3** The touched file's name (last two path segments) left the before-edit hook unmasked: a file `.../ghp_<token>.sh` put the token into the answer, the pointer line,
+  the journal's `file` field, the trace and the name of the once-per-file mark. The answer now passes `maskOutput`; journal field, trace and mark name take the masked query
+  (a masked name is no path name for the journal, so the field is left out). `test/before-edit-mask.test.mjs`, token built at run time, red on `c1ad4a9`.
+- **N1/N2** The clone gate shows nothing when its verdict cannot be written (it could not be throttled and would repeat on every prompt), and shows the cached line only cleaned:
+  `Memory: ...` first, one line, no control or bidi characters, secret shapes masked, at most 300 characters.
+- **N5** A `defaultRemote` that is no remote of the clone (`git remote get-url -- <name>`) is refused like a bad name: `git fetch <name>` reads it as a path or URL - a directory
+  inside the clone was enough (red on `c1ad4a9` in `test/tracked-ref.test.mjs`). The refused value is printed clipped to 40 printable ASCII characters. Shell, inline twin, both PowerShell hooks.
+- **N6** The PowerShell plain-name checks end in `\z`, not `$` (.NET lets `$` match before a trailing newline).
+- **M2** The node-start counter loads with `--import` and a file URL (a backslash path in `NODE_OPTIONS --require` breaks on Windows); the compile-cache probes give the scratch home its own
+  `LOCALAPPDATA` on Windows instead of deleting it.
+- **N7** The figures in the code comments are the CHANGELOG's: 13 starts, median of 11 runs.
+
+### Fixed - a memory's `.gitignore` covers the whole `.pipeline/` folder (review of the hook work, M1)
+
+Only `.pipeline/observations.jsonl` had a line. `.pipeline/injections.jsonl` (the journal, written by every hook call) and the new `.pipeline/clone-gate.json`
+had none, so `git add -A` (mem-reflect, mem-handle-post) tracked them: every hook write made the tree dirty, the recall hook's pull stopped, and two clones
+met in add/add conflicts on files that each describe one machine. Red on `c1ad4a9`: init, write the files, `git add -A` tracks `clone-gate.json` and
+`injections.jsonl`. `.pipeline/` is runtime state of one clone throughout (journals, verdict caches, the recall server's socket and key, the command-guard booklet,
+cost journal, shrink baseline - "runtime state, per machine" in `src/shrink.mjs`), so the rule is the folder, not a list. `mem init` writes it; an existing memory
+gets it by running `mem init` again (the "already initialized" branch repairs the file and says "added 1 missing .gitignore rule"); the doctor finding
+`gitignore` now asks git about `.pipeline/injections.jsonl` and `.pipeline/clone-gate.json` and names that command when they are not ignored. Files that
+a memory already committed stay tracked (git does not untrack by ignoring): `git rm --cached -r .pipeline` once. `test/pipeline-ignore.test.mjs`.
+
+### Added - the gate "which clone answered" (D-B follow-up; lucky-mem decision 2villa33pdtl)
+
+`src/provenance.mjs` was reached by one caller, the doctor finding `provenance` (and `checkBehind`'s lag count) - which speaks when somebody asks. The case it
+was written for is the one where nobody does: a session that works for hours against a frozen clone because the recall hook's detached pull keeps failing.
+Now the session start (shell and Windows) prints one line naming the clone that answers - directory, head, age, commits behind origin, whether tracked files
+are changed - always, and the recall hook (`src/clonegate.mjs`) puts the same line under its header when, and only when, the clone is STALE (older than 90 minutes
+AND behind origin or unable to tell; old but level with origin stays quiet, as the sibling house's decision demands), at most every 30 minutes, the verdict
+cached 5 minutes in `.pipeline/clone-gate.json` (`provenance()` costs a median 24 ms of git processes - fine once, too much on every prompt of a hook that
+answers in 60 ms against a warm server). `MEM_CLONE_GATE=0` turns it off. A directory that is no git tree is left alone and gets no cache file. Without a line
+the recall text is byte-identical to the old one. Found while wiring it: `dirty` counted UNTRACKED files, so every memory in use (journal under `.pipeline/`,
+marks under `.mem/`) read as "tree dirty - the hook does NOT pull then", which is false - the hook's pull is blocked by tracked changes only
+(`bin/mem-retrieve`). `provenance()` now asks `git status --untracked-files=no`. Limits, said out loud: no network (a clone whose fetches ALL fail keeps its
+last view of origin and reads as level; `git fetch` touches `FETCH_HEAD` even when it fails - measured - so that file cannot tell either).
+`test/clone-gate.test.mjs`: the line shows once and waits, the cache holds for 5 minutes, fresh/no-git/off show nothing and write nothing, an old clone level
+with origin stays quiet, the recall text is byte-identical without a line, the real hook shows it on a stale clone and not on a fresh one (mutation caught), the session
+start prints it for both.
+
+### Fixed - the warm recall server answers under the CALLER's switches (D4 follow-up; lucky-mem 484e11b75)
+
+The server runs the same `find` handler as the direct path, but inside its own process: `MEM_RETRIEVE_REQUEST_FRAME`, `MEM_SEARCH_LEVERS` and
+`MEM_RETRIEVE_TIE` came from the environment the SERVER was started with, not from the hook that asked. The same hook with the same switch answered
+differently with and without a server (measured on a scratch memory, "explain the empty query guard to me", `MEM_RETRIEVE_REQUEST_FRAME=0`: direct
+1.7 / 1.3, server 1.8 / 1.4). The sibling house fixed the same class for the request frame and its candidate cap (484e11b75); cheap-mem has no env-driven
+candidate cap (its MMR pool is a constant, `mmrPoolFor`), so the request frame, the levers and the tie cut are what carried over. The client now sends
+the value of each switch (`null` for one it does not have: the caller's absence wins), the server evaluates the question under that environment
+(`COMMANDS.find({ rest, args, env })`). `MEM_EXPAND` shapes the index the server holds in memory and cannot be overridden per call: a different value is
+REFUSED and the hook asks the direct path. An older client (no environment in the request) is answered as before.
+Measured on the hook path, 11 runs each (scratch memory, 4 cores): `path: server` 11 of 11 in the journal with the server up, `path: direct` 11 of 11
+with `MEM_RECALL_SERVER=0`, the 22 outputs byte-identical; median 603 ms with the server, 686 ms without (the node starts around the search dominate).
+`test/recall-server-env.test.mjs`: red on the base for four of six probes.
+
+### Fixed - a HOME with a space no longer breaks the default memory search (D5)
+
+Six bash hooks (`mem-before-edit`, `mem-retrieve`, `mem-after-failure`, `mem-catch-fail`, `mem-stop`, `mem-subagent-start`) looked for the memory with
+`for k in "$CHEAP_MEM_ROOT" $PROBE` - an unquoted `$PROBE`, default `$HOME/cheap-mem`. With `HOME=/home/Max Muster` that is two words, no memory, and the hook
+exits 0 in silence (installed hooks bake `CHEAP_MEM_ROOT` in and never noticed; a hand-run hook and a fresh machine did). The roots are an array now: the
+whole `MEM_RETRIEVE_ROOTS` / `MEM_STOP_ROOTS` value is tried first (one path may hold a space), then its whitespace-separated words, and `read -a` does not glob
+where the unquoted expansion did. The PowerShell twins try the whole value before splitting it, and `mem-digest.ps1` passes the daily gold spawn ONE quoted
+argument string (an `-ArgumentList` array of paths is joined with bare spaces on Windows PowerShell 5.1, and the catch around it hid the failure). Inventory
+by `shellcheck` 0.11.0 over every hook plus grep: these were the only unquoted path expansions; kept on purpose and named in `test/hook-spaces.test.mjs`:
+`$CMD` (a configured command line with flags) and `$RECORD_PATHS` (two repo-relative constants). Red on the old loop, mutation caught, end to end from a HOME with a space.
+
+### Fixed - the session start and the recall hook follow the branch the memory tracks (D4; lucky-mem parity)
+
+`install/hooks/session-start.sh` (and the inline Windows hook in `install/windows.ps1`) fetched `origin main`, checked out `main` and pulled,
+whatever `.mem/config.json` said; the recall hook pulled `origin main` too. Reproduced: a clone on `develop` (config `defaultBranch: develop`,
+the remote also has a `main`) came out of a session start on a NEW local `main` tracking `origin/main` - later writes went to the wrong branch -
+and the recall hook's background pull never brought `develop` forward (the old hook is the red proof in `test/tracked-ref.test.mjs`). Both now ask the
+memory (`defaultRemote` / `defaultBranch`, the keys `mem-watch` reads; `origin`/`main` when absent). The config is data out of a cloned repository:
+only a plain name reaches git (a leading `-`, `..`, `//`, a trailing `/` or `.lock` and anything outside letters, digits and `._-/` are refused
+with a warning and the default stands - a `--upload-pack=...` branch starts nothing). `MEM_RETRIEVE_REMOTE` / `MEM_RETRIEVE_BRANCH` still win.
+The "memory state old" warning names the tracked ref instead of `origin/main`.
+
+### Performance - the hooks keep a V8 compile cache, in the user's cache (R6; lucky-mem e146b45ce, c0b14705c)
+
+Every hook call is a new node process that translates `src/*.mjs` from scratch. The hook shells (`mem-before-edit`, `mem-retrieve`,
+`mem-after-failure`, `mem-catch-fail`, `mem-subagent-start`, `mem-stop`, the session start, and their PowerShell twins) now set
+`NODE_COMPILE_CACHE` to `<user cache>/cheap-mem/node-cc` - `${XDG_CACHE_HOME:-~/.cache}` on Linux, `~/Library/Caches` on macOS,
+`%LOCALAPPDATA%` on Windows - **not** in the memory (a git repository that travels between machines). A value the user set stays;
+a directory that cannot be made means no cache and an unchanged hook; Node before 22.1 ignores the variable and runs cleanly without.
+Measured on the (now single-start) before-edit hook, 15 interleaved runs, median: CPU 161 -> 145 ms per call (about 10 %); the wall figures of that run (256 vs 280 ms) lie inside the
+noise of the loaded box - the sibling house measured about 50 ms on its heavier hook; with one lean start there is less to cache.
+`test/hook-compile-cache.test.mjs`: source order (set before the first node, comments do not count), a real run fills the user cache
+and leaves nothing in the memory, the user's value wins, an unmakeable directory is harmless, every platform branch of
+`mem_compile_cache` (Linux with/without `XDG_CACHE_HOME`, macOS, Git Bash, no HOME); red on the old hook, mutation caught.
+New variable in the register: `NODE_COMPILE_CACHE` (and `XDG_CACHE_HOME`, `LOCALAPPDATA` as standard OS variables).
+
+### Performance - the before-edit hook runs in ONE node process (TB5; lucky-mem f17d5fa3d)
+
+`bin/mem-before-edit` and its PowerShell twin cut one recall into a dozen `node -e` snippets plus a full `node bin/mem component`
+(every command group loaded for one lookup). Measured on the old hook with the injection of a real hit (Linux 6.18, 4 cores,
+Xeon 2.1 GHz, Node 22.22, median of 11 runs, marks reset each run): **13 node starts, 1079 ms**. (Re-measured at the end, old/new/new-with-cache INTERLEAVED, 15 runs each, on a box that other builders were loading: wall 1664 -> 256 ms, CPU user+sys 847 -> 161 ms; the load moves the wall figures, the ratio holds.) Now the shells keep the switches, the
+root lookup and the two armed Bash guards, and hand the rest to `bin/mem-before-edit-core.mjs` (`src/beforeedit.mjs`):
+**1 node start, 222 ms** (a Bash call that writes no file still starts none). `mem component --hook` and the hook share
+`src/componenthook.mjs`; `compactLine` moved to its own small module (`src/compactline.mjs`, `display.mjs` re-exports it).
+The output is unchanged byte for byte - `test/before-edit-golden.test.mjs` runs the old hook (kept verbatim as a fixture) beside the
+new one over a hit, the pointer, an unrelated and a related new entry, no hit, a broken log, a missing and an empty memory,
+duties and procedures, solution lines, Bash that writes and does not, and compares stdout, exit code, trace and journal line.
+`test/before-edit-node-starts.test.mjs` counts the starts (red on the old hook: 13; ratchet 1; a mutated hook with one extra
+start is caught). The PowerShell twin asks for ASCII on the wire (`MEM_BE_ASCII`, an `\uXXXX` escape for every non-ASCII character), so the
+console code page cannot mangle the answer. A search that hangs is cut by one 8 s cap around the whole run and booked as
+`rebuild`, as before. `git` run by the component table no longer leaks "not a git repository" onto stderr.
+
+### Fixed / Security - a failed listen is a message; the listener inventory reads what ships and knows frameworks; the bridge refusal has its own words (serve-token-rest-cm; follow-up to serve-token-refuse-cm)
+
+A taken port killed `bin/mem-serve` (and so `mem serve`) with `Unhandled 'error' event` and a stack, and `mem-mcp --http` with `mem-mcp fatal: Error: listen EADDRINUSE` and a stack. Now both print one line (`webauth.listenFailureMessage`: host and port, what is wrong, `CHEAP_MEM_SERVE_PORT` / `mem serve --port` or `CHEAP_MEM_MCP_PORT` as the way out; permission and address-not-available get their own words) and exit 1; no stack. The dashboard used to create its setup code BEFORE it bound, so a start that failed on a taken port left a `serve-setup-code` file in `.pipeline/` (measured on the old state: the file stayed); it is now written in the listening callback, after the bind. `mem serve` needed no change: it already turned a rejected `serve()` into a message. Probes: `test/serve-listen-error-cm.test.mjs` (port held through port 0 on loopback; exit 1, no stack frame, host and port named, no setup code left; positive control on a free port that DOES make the code).
+The bridge refusal said "no password login stands behind this door"; the bridge has never had a login. `startDecision` takes `hasLogin` (default true; the bridge passes false): the bridge's refusal says the token is its only credential, and its start notice no longer mentions a login.
+The listener inventory (`test/serve-token-refuse-cm.test.mjs`) now (1) reads what `package.json` "files" ships (so `assets/`, `docs/` and the root files; the list is derived, not typed), (2) sees server frameworks without a Node network import (`import express from 'express'; express().listen(8000, '0.0.0.0')`; express, fastify, koa, ws, hono, `@hono/node-server`, restify, polka, `@hapi/hapi`, socket.io, http-server; `.listen(`, `new WebSocketServer(`, hono's `serve(`), (3) sees `Server(` without `new`, `Server as S` imports, `process.getBuiltinModule('node:http')`, `createRequire(...)('node:http')`, the extensions `.mts` `.cts` `.jsx` `.tsx` and the shell/PowerShell extensions `.zsh` `.fish` `.cmd` `.bat` `.psm1`, and (4) sees `node -e` / `--eval` with a server, `php -S`, `ruby -run -e httpd`, `npx http-server`, `SimpleHTTPServer`, and JS that spawns such a command (`spawn('python3', ['-m', 'http.server'])`, `execSync('php -S ...')`, `spawn('node', ['-e', ...])`, `spawn('nc', ['-l', ...])`). Every pattern has a name and a sample; a mutant test switches each name off and its sample must go quiet, and switching all new parts off (the old detector) leaves all 30 new samples unseen. The limit stays: a ratchet against the common shapes, not a proof (a name built at run time, a listener inside a dependency, a framework behind a module not on the list are not seen). No change to the shipped code of the inventory's findings: the real tree still has exactly the two doored services and the three named exemptions.
+
 ### Changed / Security - the HTTP services refuse to start without a token, unless "local, no token" is set on purpose (serve-token-refuse-cm; owner decision 2026-10-14)
 
 `mem serve` (`bin/mem-serve`) and `mem-mcp --http` are the two HTTP services in cheap-mem (the warm recall server is a Unix socket or named pipe with a key file, not a TCP port; `test/serve-token-refuse-cm.test.mjs` pins the list: a file under `bin/`, `src/`, `install/`, `hooks/`, `shared/`, `bench/` or `eval/` that imports `net`, `http`, `https`, `http2`, `tls` or `dgram` (static, dynamic or `require`) and creates a server by any of the common shapes must be one of the two doored services or a named exemption - a ratchet against the common shapes with a counter-probe per pattern, not a proof: a name built at run time is not seen).

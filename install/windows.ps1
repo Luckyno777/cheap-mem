@@ -299,6 +299,25 @@ if (-not `$memRoot) {
 `$mem = Join-Path `$env:CHEAP_MEM_ROOT 'bin\mem'
 if (-not (Test-Path -LiteralPath `$mem) -and `$codeRoot) { `$mem = Join-Path `$codeRoot 'bin\mem' }
 if (`$codeRoot -and (Test-Path -LiteralPath `$codeRoot)) { `$env:CHEAP_MEM_CODE = `$codeRoot }
+
+# R6: a V8 compile cache for the node starts below, in the USER's cache (never
+# in the memory). Same rule as the other Windows hooks: a value already in the
+# environment stays; a directory that cannot be made means no cache.
+if (-not `$env:NODE_COMPILE_CACHE) {
+  try {
+    `$ccBase = `$null
+    if (`$env:LOCALAPPDATA) { `$ccBase = `$env:LOCALAPPDATA }
+    elseif (`$IsMacOS -and `$HOME) { `$ccBase = Join-Path `$HOME 'Library/Caches' }
+    elseif (`$env:XDG_CACHE_HOME -and [System.IO.Path]::IsPathRooted(`$env:XDG_CACHE_HOME)) { `$ccBase = `$env:XDG_CACHE_HOME }
+    elseif (`$HOME) { `$ccBase = Join-Path `$HOME '.cache' }
+    if (`$ccBase) {
+      `$ccDir = Join-Path (Join-Path `$ccBase 'cheap-mem') 'node-cc'
+      New-Item -ItemType Directory -Force -Path `$ccDir -ErrorAction Stop | Out-Null
+      `$env:NODE_COMPILE_CACHE = `$ccDir
+    }
+  } catch { }
+}
+
 if (Test-Path -LiteralPath `$mem) {
   Write-Host '=== cheap-mem attached ==='
 } else {
@@ -313,10 +332,73 @@ if (Test-Path -LiteralPath `$mem) {
   }
 }
 Write-Host ''
-& git -C `$env:CHEAP_MEM_ROOT fetch origin main 2>&1 | Select-Object -Last 1
-& git -C `$env:CHEAP_MEM_ROOT checkout main 2>&1 | Select-Object -Last 1
-& git -C `$env:CHEAP_MEM_ROOT pull --ff-only 2>&1 | Select-Object -Last 1
+# Which remote and branch does this memory TRACK? .mem\config.json says
+# (defaultRemote / defaultBranch, the keys mem-watch reads). This hook used
+# to fetch 'origin main', check out 'main' and pull, whatever the memory said:
+# a clone on 'develop' ended up on a NEW local 'main' (see
+# install/hooks/session-start.sh). Only a plain name goes to git: the config
+# is data out of a cloned repository.
+`$memRemote = 'origin'
+`$memBranch = 'main'
+try {
+  `$trackCfg = Join-Path `$env:CHEAP_MEM_ROOT '.mem\config.json'
+  if (Test-Path -LiteralPath `$trackCfg) {
+    `$trackJson = Get-Content -LiteralPath `$trackCfg -Raw -ErrorAction Stop | ConvertFrom-Json
+    `$r = [string]`$trackJson.defaultRemote
+    `$b = [string]`$trackJson.defaultBranch
+    if (`$r) {
+      # The anchor is \z, not the end-of-line one (in .NET that also matches before a trailing newline). The refused value is printed clipped (40 characters,
+      # printable ASCII only): it is data out of a file.
+      `$rShow = (`$r -replace '[^\x20-\x7e]', '')
+      if (`$rShow.Length -gt 40) { `$rShow = `$rShow.Substring(0, 40) + '...' }
+      if (`$r -match '^[A-Za-z0-9][A-Za-z0-9._-]*\z' -and -not `$r.Contains('..')) {
+        # A name that is no remote of THIS clone would be read by git as a path or URL.
+        & git -C `$env:CHEAP_MEM_ROOT remote get-url -- `$r 2>`$null | Out-Null
+        if (`$LASTEXITCODE -eq 0) { `$memRemote = `$r }
+        else {
+          # N5-1: origin stays either way, so a warning is only for a value somebody SET against a clone that has remotes.
+          `$anyRemote = (& git -C `$env:CHEAP_MEM_ROOT remote 2>`$null | Out-String).Trim()
+          if (`$r -cne 'origin' -and `$anyRemote) { Write-Host "[hook] WARNING: config defaultRemote '`$rShow' is not a remote of this clone - using origin" }
+        }
+      }
+      else { Write-Host "[hook] WARNING: config defaultRemote '`$rShow' is not a plain remote name - using origin" }
+    }
+    if (`$b) {
+      `$bShow = (`$b -replace '[^\x20-\x7e]', '')
+      if (`$bShow.Length -gt 40) { `$bShow = `$bShow.Substring(0, 40) + '...' }
+      if (`$b -match '^[A-Za-z0-9][A-Za-z0-9._/-]*\z' -and -not `$b.Contains('..') -and -not `$b.Contains('//') -and
+          -not `$b.EndsWith('/') -and -not `$b.EndsWith('.lock')) { `$memBranch = `$b }
+      else { Write-Host "[hook] WARNING: config defaultBranch '`$bShow' is not a plain branch name - using main" }
+    }
+  }
+} catch { }
+& git -C `$env:CHEAP_MEM_ROOT fetch `$memRemote `$memBranch 2>&1 | Select-Object -Last 1
+& git -C `$env:CHEAP_MEM_ROOT checkout `$memBranch 2>&1 | Select-Object -Last 1
+& git -C `$env:CHEAP_MEM_ROOT pull --ff-only `$memRemote `$memBranch 2>&1 | Select-Object -Last 1
 Write-Host ''
+
+# --- Which clone answers (D-B: src/provenance.mjs as a gate) -----------
+#
+# One line naming the clone that answers HERE: directory, state and age, how far behind
+# origin, whether the tree is dirty. Always, at the start; during the session the recall hook adds
+# the same line only when the clone is STALE (src/clonegate.mjs). Same as
+# install/hooks/session-start.sh. Best-effort and silent.
+try {
+  `$provSrc = Join-Path `$env:CHEAP_MEM_ROOT 'src\provenance.mjs'
+  if (-not (Test-Path `$provSrc) -and `$env:CHEAP_MEM_CODE) {
+    `$provSrc = Join-Path `$env:CHEAP_MEM_CODE 'src\provenance.mjs'
+  }
+  if (Test-Path `$provSrc) {
+    `$env:MEM_SS_PROV = ([System.Uri]::new([System.IO.Path]::GetFullPath(`$provSrc))).AbsoluteUri
+    `$provScript = @'
+      import(process.env.MEM_SS_PROV).then((m) => {
+        process.stdout.write(m.asLine(m.provenance(process.env.CHEAP_MEM_ROOT)));
+      }).catch(() => {});
+'@
+    `$provLine = (& node -e `$provScript 2>`$null) -join ''
+    if (`$provLine) { Write-Host `$provLine }
+  }
+} catch { }
 
 `$facts = Join-Path `$env:CHEAP_MEM_ROOT 'FACTS.md'
 if (Test-Path `$facts) {

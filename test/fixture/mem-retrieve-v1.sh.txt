@@ -1,0 +1,460 @@
+#!/usr/bin/env bash
+# mem-retrieve — lane 3 of the memory, made automatic.
+#
+# Capture runs on its own (Stop hook). Digest runs on its own (timer).
+# Recall used to depend on the session remembering to type `mem find` —
+# and discipline loses against everything else competing for the
+# context. So this hook does what the other two lanes do: no model,
+# a few milliseconds, on every turn, invisible. It is the difference
+# between "can remember" and "remembers".
+#
+# It reads the Claude Code UserPromptSubmit hook JSON on stdin and, when
+# something in the memory scores above the bar, prints it back as
+# additionalContext — the documented way to feed a turn.
+#
+# Env:
+#   CHEAP_MEM_ROOT        absolute path to the memory (as the installer sets it)
+#   MEM_RETRIEVE_OFF=1    turn recall off for this session
+#   MEM_HOOK_OFF=1        turn ALL cheap-mem hooks off (shared with the others)
+#   MEM_RETRIEVE_MIN      minimum BM25 score to show (default 5.0)
+#   MEM_RETRIEVE_TOP      at most this many hits (default 3)
+#   MEM_RETRIEVE_TIE      relative score spread within which ONE more hit comes
+#                         along when it ties the last one shown (`mem find --recall`,
+#                         src/tiecut.mjs); default 0 = off, the hard cut; 0.01 = 1 %
+#   MEM_RETRIEVE_REQUEST_FRAME=0  search the request frame ("explain", "can you
+#                         show me") like every other word (src/requestframe.mjs)
+#   MEM_RETRIEVE_NO_PULL=1  read only, never refresh the clone
+#   MEM_RETRIEVE_FRESH_MIN  minutes between background pulls (default 10)
+#   MEM_RETRIEVE_REMOTE / _BRANCH  where to pull from (default origin/main)
+#   MEM_RETRIEVE_ROOTS    space-separated fallback roots to probe
+#   MEM_RETRIEVE_TIME     seconds for the search, server AND fallback (default 5)
+#   MEM_RECALL_SERVER=0   never ask the warm recall server (M10), always direct
+#   MEM_RECALL_SERVER_DIR where the server's socket and key live
+#                         (default <root>/.pipeline/recall)
+#   MEM_RECALL_SERVER_WAIT_MS  longest wait for the server (default 2500,
+#                         never beyond the budget)
+
+set -u
+
+# **Hook start, in milliseconds (M10).** The one time budget below (the
+# server attempt AND the direct fallback share MEM_RETRIEVE_TIME) counts
+# from here, and the journal's duration_ms too. `$EPOCHREALTIME` is
+# bash's own (>= 5.0, no fork); `date` only where bash is older.
+if [ -n "${EPOCHREALTIME:-}" ]; then
+  _s="${EPOCHREALTIME%.*}"; _f="${EPOCHREALTIME#*.}"
+  MEM_HOOK_START_MS="${_s}${_f:0:3}"
+  unset _s _f
+else
+  MEM_HOOK_START_MS="$(( $(date +%s) * 1000 ))"
+fi
+export MEM_HOOK_START_MS
+
+# Backslashes become slashes before a path is used as a path.
+#
+# On Windows every path handed to a hook is native: the memory root,
+# and `$0` itself. bash then finds nothing where something is, and the
+# hook exits 0 without a word — indistinguishable from "nothing to
+# report". Two places per hook needed this, and five hooks carried the
+# same copy. Git Bash resolves `C:/…` fine; on Linux and macOS the
+# substitution changes nothing.
+to_slashes() { printf '%s' "${1//\\//}"; }
+[ "${MEM_RETRIEVE_OFF:-}" = "1" ] && exit 0
+[ "${MEM_HOOK_OFF:-}" = "1" ] && exit 0
+
+# CHEAP_MEM_ROOT first — the name the installer injects. The fallback
+# list keeps the hook usable when it is run by hand: only $HOME/cheap-mem,
+# never a path of somebody else's machine (on a shared host a fixed
+# location would read, and the stop hook push, a stranger's memory).
+# A hook that no test can reach is a hook that breaks unnoticed, so the
+# list is overridable via MEM_RETRIEVE_ROOTS.
+PROBE="${MEM_RETRIEVE_ROOTS:-$HOME/cheap-mem}"
+
+ROOT=""
+# shellcheck disable=SC2086
+for k in "${CHEAP_MEM_ROOT:-}" $PROBE; do
+  [ -z "$k" ] && continue
+  k="$(to_slashes "$k")"
+  [ -f "$k/.mem/config.json" ] && { ROOT="$k"; break; }
+done
+[ -z "$ROOT" ] && exit 0
+
+# Locate the mem binary. Two shapes are supported, same as the other
+# hooks: the memory may carry the tool itself ($ROOT/bin/mem, the common
+# case), or the tool lives in a separate code checkout — then the copy
+# next to this very script is the one to use, pointed at the memory with
+# --root. A hook that only knew the first shape would silently do
+# nothing in the second.
+# `$0` is a path from outside too, and on Windows it carries
+# backslashes: `dirname "D:\a\repo\bin\mem-before-edit"` returns `.`,
+# so HOOK_DIR became the CURRENT directory instead of bin/. The tool
+# next to the hook was then not found and the hook exited 0 in
+# silence — the same failure as the root lookup, one line further on.
+HOOK_DIR="$(cd "$(dirname "$(to_slashes "$0")")" && pwd)"
+# TOOL_ROOT travels with RUN_MEM on purpose: `src/bidi.mjs` is TOOL code,
+# not memory data, so it lives beside whichever `bin/mem` is actually
+# about to run, not necessarily beside $ROOT. Getting this wrong is a
+# silent no-op, not a crash — `require()` below is wrapped in a `catch`
+# so a hook can never fail loudly over a missing module, which is
+# exactly why this has to be right the first time: test/retrieve.sh's
+# bidi check (2026-09-19) is what catches it if it is not.
+if [ -f "$ROOT/bin/mem" ]; then
+  RUN_MEM=(node "$ROOT/bin/mem")
+  TOOL_ROOT="$ROOT"
+elif [ -f "$HOOK_DIR/mem" ]; then
+  RUN_MEM=(node "$HOOK_DIR/mem" --root "$ROOT")
+  TOOL_ROOT="$(dirname "$HOOK_DIR")"
+else
+  exit 0
+fi
+
+MIN="${MEM_RETRIEVE_MIN:-5.0}"
+TOP="${MEM_RETRIEVE_TOP:-3}"
+# H5 search lever (src/searchlevers.mjs): shorter lines, so up to five fit
+# the same byte budget. Only the default moves; MEM_RETRIEVE_TOP still wins.
+case ",${MEM_SEARCH_LEVERS:-}," in
+  *,h5,*|*,all,*) TOP="${MEM_RETRIEVE_TOP:-5}" ;;
+esac
+
+# A cap on how long a call may run, portably. GNU `timeout` is not on
+# macOS by default (there it is `gtimeout` from coreutils, if at all).
+# A hard dependency on it made the whole hook silently produce nothing
+# on macOS — find and pull both ran through it and both failed. So:
+# use whichever exists, and when neither does, run the command directly.
+# The background pull can't block the prompt regardless (it is detached);
+# the cap only keeps a hung git from lingering.
+# shellcheck source=bin/_portable.sh
+. "$HOOK_DIR/_portable.sh"
+
+# --- Keep the clone from going stale --------------------------------
+#
+# Recall only READS. Without this, the clone is pulled once at session
+# start and never again — a session that runs for hours recalls a frozen
+# memory and never sees what a teammate (or the digest) wrote since.
+#
+# Three constraints, or the cure is worse than the disease:
+#
+#  - The prompt must NEVER wait. Detached, with a timeout, stdout and
+#    stderr sent to nowhere. The redirect is not cosmetic: if the
+#    background child inherits the hook's stdout the pipe stays open and
+#    Claude Code waits on a hook that finished long ago. The pull helps
+#    the NEXT turn, not this one — the price of staying at a few ms.
+#
+#  - Nothing may pile up. The marker is touched BEFORE the pull starts,
+#    so the throttle also covers a pull that hangs or fails; and because
+#    timeout (30s) is well under the throttle (10 min), two can never
+#    run at once. A lock would be extra machinery for no extra guarantee.
+#
+#  - Don't step on another session. No pull in a headless worker
+#    (MEM_HEADLESS); no pull into a dirty tree — only tracked changes
+#    count, untracked files never block a fast-forward, and whatever a
+#    session started is none of a read hook's business.
+refresh() {
+  local marker minutes remote branch gitdir
+  [ "${MEM_RETRIEVE_NO_PULL:-}" = "1" ] && return 0
+  [ -n "${MEM_HEADLESS:-}" ] && return 0
+  [ -e "$ROOT/.git" ] || return 0
+
+  # A linked git WORKTREE has a `.git` FILE ("gitdir: ..."), a normal clone
+  # a directory. Same rule as lucky-mem (R10c): an agent's worktree is not
+  # pulled behind its back - the agent controls its own state, and a pull
+  # in mid-build would change the code under it. Not a silent skip: a
+  # note goes into the real git dir (never shows in `git status`) so
+  # "why does it never pull here" has an answer. The recall itself runs.
+  gitdir="$(git -C "$ROOT" rev-parse --absolute-git-dir 2>/dev/null)" || return 0
+  [ -n "$gitdir" ] || return 0
+  if [ -f "$ROOT/.git" ]; then
+    printf '%s worktree: .git is a file -> no automatic pull here (agents control their own state)\n' \
+      "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo '?')" \
+      > "$gitdir/mem-retrieve-worktree-no-pull" 2>/dev/null
+    return 0
+  fi
+
+  minutes="${MEM_RETRIEVE_FRESH_MIN:-10}"
+  # The throttle marker lives in the git dir, so it never shows up in
+  # `git status`. `find -mmin` rather than `stat` because stat speaks
+  # different dialects on GNU and BSD; find does not.
+  marker="$gitdir/mem-retrieve-pull"
+  if [ -f "$marker" ] && [ -z "$(find "$marker" -mmin "+$minutes" 2>/dev/null)" ]; then
+    return 0
+  fi
+  if [ -n "$(git -C "$ROOT" status --porcelain 2>/dev/null | grep -v '^??')" ]; then
+    return 0
+  fi
+
+  touch "$marker" 2>/dev/null || return 0
+  remote="${MEM_RETRIEVE_REMOTE:-origin}"
+  branch="${MEM_RETRIEVE_BRANCH:-main}"
+  ( capped 30 git -C "$ROOT" pull --ff-only --quiet "$remote" "$branch" ) >/dev/null 2>&1 &
+  return 0
+}
+refresh
+
+# The prompt itself. Too short means no signal — "yes", "go on", "do it"
+# are not questions for the memory, and showing hits for them is noise,
+# and noise is what people learn to skim past.
+IN="$(cat)"
+# `PROMPT` is also the name of an environment variable on Windows (cmd.exe's prompt string, `$P$G`). A shell variable
+# that shares the name of an inherited one stays EXPORTED when assigned, so every child below saw PROMPT=<the question>,
+# and the redaction's env layer then blanked the whole question to `[REDACTED:env:PROMPT]` (CI run 912, Windows). Unset
+# first: the assignment then makes a plain shell variable that no child inherits.
+unset PROMPT
+PROMPT="$(printf '%s' "$IN" | node -e '
+  let d = "";
+  process.stdin.on("data", (c) => (d += c)).on("end", () => {
+    try { const j = JSON.parse(d); process.stdout.write(j.prompt ?? j.user_prompt ?? ""); }
+    catch { /* not JSON: then nothing */ }
+  })' 2>/dev/null)"
+# Session id, and for the h2 search lever the working directory and the
+# transcript path - one node call, one value per line (none of the three
+# holds a newline; a stray one is flattened to a space).
+HOOK_META="$(printf '%s' "$IN" | node -e '
+  let d = "";
+  process.stdin.on("data", (c) => (d += c)).on("end", () => {
+    try {
+      const j = JSON.parse(d);
+      const one = (v) => String(v ?? "").replace(/[\r\n]+/g, " ");
+      process.stdout.write([one(j.session_id), one(j.cwd), one(j.transcript_path)].join("\n"));
+    } catch {}
+  })' 2>/dev/null)"
+{ IFS= read -r SESSION_ID; IFS= read -r HOOK_CWD; IFS= read -r HOOK_TRANSCRIPT; } <<EOF_META || true
+$HOOK_META
+EOF_META
+# **Short prompts (Z1c).** Under 12 characters is still "no signal" for
+# ordinary words - the sibling house measured that bar and kept it. But
+# a short prompt that names an ID, a file, an error code or a word that
+# stands in at most three documents of the whole memory is a search, not
+# noise: an 11-character unique term used to end here with zero bytes and
+# no journal line. `recallhook.mjs signal` decides (deterministic, no
+# model) and BOOKS the "no" as `no-signal`. Pure confirmations never search.
+RECALL_JS="$TOOL_ROOT/src/recallhook.mjs"
+QB="$(printf '%s' "$PROMPT" | wc -c | tr -d ' ')"
+# **Machine turns (P10).** A prompt that BEGINS with a foreign-turn
+# marker (a harness relay, Stop-hook feedback, a subagent hand-back) was
+# not typed by the person: it is not searched, nothing is injected, and
+# it is booked with its own reason `machine` - never as a miss. The
+# same node program decides on every platform (`recallhook.mjs machine`,
+# the list lives in src/recallsignal.mjs). Only the START counts, so a
+# quick shell test keeps the common case free of an extra node call:
+# every marker begins with `[`, `A`, `S` or `a`.
+case "$(printf '%s' "$PROMPT" | sed -e '1s/^[[:space:]]*//' | head -c 1)" in
+  '['|A|S|a)
+    MACHINE="$(printf '%s' "$PROMPT" | CHEAP_MEM_ROOT="$ROOT" MEM_RH_SESSION="${SESSION_ID:-}" MEM_RH_QB="$QB" \
+      MEM_RH_START_MS="$MEM_HOOK_START_MS" capped 8 node "$RECALL_JS" machine 2>/dev/null)"
+    [ "$MACHINE" = "machine" ] && exit 0
+    ;;
+esac
+# **Workflows (wf-bc B2 port).** A workflow whose `triggers` match the
+# prompt (same tokens as the search, no model — src/workflowdetect.mjs)
+# goes out with the recall block, or alone when the search shows
+# nothing. The node start is paid only when a workflow drawer holds a
+# `triggers` field at all — a grep, no process. The turns directory is
+# defined further down; the workflow-only answer needs it for the same
+# once-per-turn claim.
+WF_TEXT=""
+if [ -f "$TOOL_ROOT/src/workflowdetect.mjs" ] \
+  && grep -qs '"triggers"' "$ROOT/global/workflows.jsonl" "$ROOT"/projects/*/workflows.jsonl; then
+  WF_TEXT="$(printf '%s' "$PROMPT" | CHEAP_MEM_ROOT="$ROOT" MEM_RH_SESSION="${SESSION_ID:-}" \
+    capped 5 node "$RECALL_JS" workflow 2>/dev/null)"
+fi
+# The exits below that never reach `recallhook.mjs recall` (no signal,
+# a failed or an empty search) still deliver the workflow block alone.
+workflow_only() {
+  [ -n "$WF_TEXT" ] || return 0
+  CHEAP_MEM_ROOT="$ROOT" MEM_RH_SESSION="${SESSION_ID:-}" MEM_RH_TURNS="${TURNS:-$ROOT/.mem/retrieve-turns}" \
+    MEM_RH_QB="$QB" MEM_RH_START_MS="$MEM_HOOK_START_MS" MEM_RH_WORKFLOW="$WF_TEXT" MEM_RH_PROMPT="${PROMPT:0:8000}" \
+    capped 5 node "$RECALL_JS" workflow-only </dev/null 2>/dev/null
+  return 0
+}
+if [ "${#PROMPT}" -lt 12 ]; then
+  VERDICT="$(printf '%s' "$PROMPT" | CHEAP_MEM_ROOT="$ROOT" MEM_RH_SESSION="${SESSION_ID:-}" MEM_RH_QB="$QB" \
+    capped 8 node "$RECALL_JS" signal 2>/dev/null)"
+  [ "$VERDICT" = "search" ] || { workflow_only; exit 0; }
+fi
+
+# --- Once per turn, however often it is registered --------------------
+#
+# Seen in the sibling memory's own journal on 2026-09-12: the same turn,
+# two injections, both complete, both the same size. Two registrations
+# on UserPromptSubmit — one written by the installer into the user
+# profile, one by the project — and both run this code. Neither is
+# broken; the memory just lands in the context twice, and the occupancy
+# is twice what it needs to be.
+#
+# The obvious repair is to remove one registration. That is
+# configuration and holds exactly until the next machine: the installer
+# writes one, the repo writes the other, and whoever runs both has them
+# back. So the hook makes ITSELF idempotent — then it does not matter
+# how many times it hangs.
+#
+# `mkdir` as the claim, not `[ -e ]` + `touch`: the two can run at the
+# same time, and check-then-set has a race inside it. `mkdir` is atomic
+# on POSIX — exactly one wins.
+#
+# **What the key is, and why it changed (external audit, 2026-09-17).**
+# It used to be session + PROMPT, and the claim was taken up here,
+# before the memory was even asked. Two things followed from that, and
+# both were reproduced:
+#
+#   - The same question asked again later was suppressed for an hour
+#     EVEN AFTER the memory had changed. Session + prompt is not a turn
+#     identity; it is a question identity.
+#   - A retrieval that found nothing still consumed the claim, so a
+#     later attempt in the same turn could never repair it.
+#
+# The key is now session + the BLOCK THAT WOULD BE INJECTED, and the
+# claim is taken at the bottom of this file, once that block exists.
+# That answers all three cases without a second mechanism: a second
+# registration of the same turn produces a byte-identical block and is
+# suppressed; a repeat after the memory changed produces a different
+# block and goes in; a retrieval that yields nothing claims nothing.
+#
+# The price is that a duplicate registration now runs the search before
+# it is dropped. That search is local BM25 over an in-memory index —
+# milliseconds, no model, no network.
+TURNS="${MEM_RETRIEVE_TURNS:-$ROOT/.mem/retrieve-turns}"
+if [ -n "${SESSION_ID:-}" ]; then
+  mkdir -p "$TURNS" 2>/dev/null || true
+  find "$TURNS" -maxdepth 1 -mmin +60 -type d -exec rm -rf {} + 2>/dev/null || true
+fi
+
+# Ask the memory. --json is the contract, not the human output: the
+# human format is for people and may change; the JSON carries score and
+# a stable shape. The prompt goes in as an argv value, never through a
+# shell — node does not evaluate argv, so an odd character in the
+# prompt cannot turn into a command.
+# **No `--journal-session` here (Z1c).** `find` used to book the question
+# itself, BEFORE anything was printed - so a second registration of the
+# same turn booked a second "delivered" and then printed nothing. The
+# line is now booked by `recallhook.mjs recall`, after the answer went
+# out, and says what really went out. A miss is still on record: that
+# call books `empty` / `too-weak`, which `mem asked-learn` learns from.
+# **A cut-off search is not an empty one (K3).** `find` books its own
+# journal line only when it finishes; killed by the cap it books nothing,
+# and "no line" reads as "nothing found" - not measurable is not zero.
+# So the exit code is told apart: 124 (timeout) / 137 (killed) books
+# reason `timeout`; any other failure books reason `error` (as the sibling
+# house does) — never silence. The booking
+# is its own short node call OUTSIDE the cap that just expired.
+#
+# **M10 (2026-09-30): the warm server first, else direct.** When a
+# server socket is there (`mem serve` starts one, see src/recallserver.mjs),
+# a small client asks it: the client loads Node built-ins only, and the
+# server runs the SAME `find` handler this `mem find` call runs — one
+# search path, not two. No socket: exactly the path from before M10;
+# `[ -S ]` (Windows: the marker file `recall.pipe`, a named pipe is no file) is a bash test, not a process, and costs nothing.
+#
+# **One budget, not two.** MEM_RETRIEVE_TIME (default 5 s, the cap this
+# call always had) covers the WHOLE search from MEM_HOOK_START_MS. The
+# client waits at most MEM_RECALL_SERVER_WAIT_MS and never so long that
+# the direct path has no reserve left; the fallback then gets only what
+# is LEFT. The path and, on a fallback, its reason go into the journal
+# (`path` / `path_reason`, src/injection.mjs).
+TIME="${MEM_RETRIEVE_TIME:-5}"
+RECALL_DIR="${MEM_RECALL_SERVER_DIR:-$ROOT/.pipeline/recall}"
+# A root whose default socket path is too long for sun_path (macOS temp
+# dirs): the server lives in a short dir of its own and leaves one line
+# in the default dir saying where (src/recallserver-place.mjs POINTER_NAME).
+if [ -z "${MEM_RECALL_SERVER_DIR:-}" ] && [ -f "$RECALL_DIR/where" ]; then
+  IFS= read -r _w < "$RECALL_DIR/where" || true
+  [ -n "${_w:-}" ] && RECALL_DIR="$_w"
+  unset _w
+fi
+RECALL_PATH=direct
+RECALL_REASON=""
+FIND_RC=1
+HITS=""
+if [ "${MEM_RECALL_SERVER:-}" != "0" ] && { [ -S "$RECALL_DIR/recall.sock" ] || [ -f "$RECALL_DIR/recall.pipe" ]; } \
+  && [ -f "$TOOL_ROOT/bin/mem-retrieve-client.mjs" ]; then
+  RECALL_PATH=server
+  HITS="$(MEM_RETRIEVE_TIME="$TIME" capped "$TIME" node "$TOOL_ROOT/bin/mem-retrieve-client.mjs" "$ROOT" "$PROMPT" "$TOP" 2>/dev/null)"
+  FIND_RC=$?
+  case "$FIND_RC" in
+    0) ;;
+    3) RECALL_REASON=server-gone ;;
+    4|124) RECALL_REASON=server-timeout ;;
+    5) RECALL_REASON=server-refused ;;
+    6) RECALL_REASON=server-stale ;;
+    *) RECALL_REASON=server-error ;;
+  esac
+fi
+if [ "$RECALL_PATH" != server ] || [ "$FIND_RC" -ne 0 ]; then
+  LEFT="$TIME"
+  if [ "$RECALL_PATH" = server ]; then
+    # TIME may carry a fraction ("2.5"): whole milliseconds.
+    _t="${TIME%%.*}"; _tf="${TIME#*.}"; [ "$_tf" = "$TIME" ] && _tf=""
+    _tf="${_tf}000"
+    _time_ms=$(( ${_t:-0} * 1000 + 10#${_tf:0:3} ))
+    if [ -n "${EPOCHREALTIME:-}" ]; then
+      _s="${EPOCHREALTIME%.*}"; _f="${EPOCHREALTIME#*.}"
+      _left_ms=$(( _time_ms - (${_s}${_f:0:3} - MEM_HOOK_START_MS) ))
+    else
+      _left_ms=$(( _time_ms - ($(date +%s) * 1000 - MEM_HOOK_START_MS) ))
+    fi
+    if [ "$_left_ms" -le 0 ]; then
+      LEFT=0
+    else
+      RECALL_PATH=direct
+      LEFT="$(( _left_ms / 1000 )).$(printf '%03d' $(( _left_ms % 1000 )))"
+    fi
+    unset _s _f _t _tf _time_ms _left_ms
+  fi
+  if [ "$LEFT" = 0 ]; then
+    HITS=""
+    FIND_RC=124
+  else
+    HITS="$(capped "$LEFT" "${RUN_MEM[@]}" find "$PROMPT" --top "$TOP" --recall --json 2>/dev/null)"
+    FIND_RC=$?
+  fi
+fi
+if [ "$FIND_RC" -ne 0 ]; then
+  MEM_J_REASON=ERROR
+  if [ "$FIND_RC" -eq 124 ] || [ "$FIND_RC" -eq 137 ]; then MEM_J_REASON=TIMEOUT; fi
+  {
+    if [ -f "$TOOL_ROOT/src/injection.mjs" ]; then
+      MEM_J_ROOT="$ROOT" MEM_J_SRC="$TOOL_ROOT/src/injection.mjs" MEM_J_SESSION="${SESSION_ID:-}" \
+        MEM_J_QB="${#PROMPT}" MEM_J_Q="${PROMPT:0:8000}" MEM_J_REASON="$MEM_J_REASON" \
+        MEM_J_PATH="$RECALL_PATH" MEM_J_PATH_REASON="$RECALL_REASON" capped 3 node -e '
+          import(require("node:url").pathToFileURL(process.env.MEM_J_SRC).href).then((m) => {
+            m.book(process.env.MEM_J_ROOT, {
+              session: process.env.MEM_J_SESSION || null,
+              occasion: m.OCCASION.QUESTION, reason: m.REASON[process.env.MEM_J_REASON],
+              bytes: null, hits: 0, searched: null, sources: [],
+              questionBytes: Number(process.env.MEM_J_QB) || null,
+              questionText: process.env.MEM_J_Q || undefined,
+              durationMs: Date.now() - Number(process.env.MEM_HOOK_START_MS),
+              recallPath: process.env.MEM_J_PATH, pathReason: process.env.MEM_J_PATH_REASON || null,
+            });
+          }).catch(() => {});' >/dev/null 2>&1 || true
+    fi
+  }
+  workflow_only
+  exit 0
+fi
+[ -z "$HITS" ] && { workflow_only; exit 0; }
+
+# Keep only what clears the bar, render one line each, claim the turn,
+# print, book. All of it is `recallhook.mjs recall` - the ONE renderer
+# (`src/recallrender.mjs`, fields from `retrieval.BODY_FIELDS`), shared
+# with mem-catch-fail and the PowerShell twins. It used to be an inline
+# copy here that knew six of thirteen body fields: a learning showed as
+# its title. The Trojan-Source neutralising (`bidi.visible`, CVE-2021-
+# 42574) is applied there, on every path into `additionalContext`.
+#
+# The claim (once per turn, however often the hook is registered) keys
+# on session + the BLOCK that would be injected; a retrieval that yields
+# nothing claims nothing. Bare stdout is NOT the contract for this
+# event; the documented UserPromptSubmit envelope is.
+# The program and the renderer it prints with must both be there: a
+# half-updated checkout stays silent instead of printing half a line.
+[ -f "$RECALL_JS" ] && [ -f "$TOOL_ROOT/src/recallrender.mjs" ] || exit 0
+# Node writes to the hook's OWN stdout and books the journal line in the
+# callback of that write: the line follows the output, it does not
+# precede it. (Captured into a variable and printed afterwards, the line
+# would have been booked before a byte left the hook.)
+printf '%s' "$HITS" | CHEAP_MEM_ROOT="$ROOT" MEM_RH_MIN="$MIN" MEM_RH_SESSION="${SESSION_ID:-}" \
+  MEM_RH_TURNS="$TURNS" MEM_RH_QB="$QB" MEM_RH_START_MS="$MEM_HOOK_START_MS" \
+  MEM_RH_PATH="$RECALL_PATH" MEM_RH_PATH_REASON="$RECALL_REASON" \
+  MEM_RH_CWD="${HOOK_CWD:-}" MEM_RH_TRANSCRIPT="${HOOK_TRANSCRIPT:-}" MEM_RH_PROMPT="$PROMPT" \
+  MEM_RH_WORKFLOW="$WF_TEXT" \
+  node "$RECALL_JS" recall 2>/dev/null
+exit 0

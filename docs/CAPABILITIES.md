@@ -29,7 +29,7 @@ the verification commands at the end.
 | **Automation** | 7 Claude Code hooks (session start, recall per message, recall per file edit, recall after a failed or failure-printing tool call, subagent start, answer check and capture at stop), one model call per few hours, watcher, git as sync | [6](#6-automation) |
 | **Surfaces** | 87 CLI commands, 45 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 4916 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 5010 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -73,6 +73,7 @@ directory. The section number in brackets is where it is explained.
 | `backlinks.mjs` | an incrementally maintained index — id -> every entry that points at it by a declared edge, across every drawer and project (E1.4); read by `getEntryFast()` and `mem-serve` |
 | `basis.mjs` | on what basis a statement stands: stated, measured, inferred, guessed — a mark, never a number |
 | `bashtargets.mjs` | which files a shell command WRITES (`sed -i`, `tee`, `> file`, `cp`, `mv`), read deterministically for the before-edit hook on Bash; directories, extension-less words, expansions, `/dev` and `/tmp` give no target |
+| `beforeedit.mjs` | the before-edit hook's whole job in ONE node process (TB5): read the touched path (Bash: the first file the command writes), the watermark and the once-per-file mark, the `mem component --hook` lookup, the pick of errors/decisions/learnings, open duties, released procedures and solution lines, the second decision, the mark and the journal line. `bin/mem-before-edit` and its `.ps1` twin keep the switches, the root lookup and the two armed Bash guards and start `bin/mem-before-edit-core.mjs` once (13 node starts -> 1, byte-identical answer); `MEM_BE_ASCII` is the PowerShell twin's pure-ASCII wire |
 | `bidi.mjs` | the nine Trojan-Source bidi-override characters (CVE-2021-42574), neutralised at display time — `mem find`, `mem browse`, `mem context`, the retrieval hook |
 | `board.mjs` | the operating state on one screen (10.17) |
 | `bodyfields.mjs` | O2: the ONE source for which fields carry an entry's content, per type and in reading order — every display and the set of indexed fields read it; a leaf with no imports |
@@ -86,12 +87,15 @@ directory. The section number in brackets is where it is explained.
 | `checkrecord.mjs` | the tracked, append-only proof (`checked.jsonl`) that a full `node --test` run was green for a given tree — one tier, no local machine-only stamp (Bauplan P1) |
 | `claim.mjs` | taking over a message with an expiry: append-only claim/done/failed lines, first unexpired claim counts, a second one stays visibly invalid, resumption after expiry; git is not a lock (X4) |
 | `clihelp.mjs` | what the CLI dispatches, what its help advertises, and where the two have drifted apart |
+| `clonegate.mjs` | the gate "which clone answered": one line (`provenance.asLine`) under the recall header when the answering clone is STALE (older than 90 min AND behind origin or unable to tell), at most every 30 minutes, the verdict cached 5 minutes in `.pipeline/clone-gate.json`; a non-git directory is left alone; `MEM_CLONE_GATE=0` |
 | `clock.mjs` | clock skew between writers, measured from the log itself, never used to reorder anything |
 | `closingreport.mjs` | X2b: the task-end occasion — the Stop hook reports the open duties written in this session (a systemMessage, never a block; capped, once per duty; filtered from `today.decisionsForHuman`, no second count) |
 | `codexcloud.mjs` | `mem setup codex-cloud`: puts the `$mem` Codex skill (shipped under `install/codex/`) into a memory, appends a narrow `.gitignore` exception only if git ignores `.agents/` there (checked afterwards, and undone if it does not open exactly that folder), never overwrites a differing skill without `--force`; nothing outside the memory root is written, except that the check (and `--dry-run`) briefly makes a throw-away repository under `os.tmpdir()` and removes it again |
 | `commandguard.mjs` | the command guard (lever-5 port): an error of the class `mishandling` may carry a `command_pattern` (`mem log error ... --command-pattern "git add -A$"`); the before-edit hook on Bash warns once per session and error when a command matches, never blocks, behind a shell prefilter that starts node only on a keyword hit; derived booklet under `.pipeline/command-guard/`; `mem command-guard build\|show\|check\|seed` (10.30) |
+| `compactline.mjs` | the one-line rendering of an entry (`compactLine`) — behind `mem find`, `mem when`, `mem component`, the hooks and the bridge; its own small module so the before-edit hook does not load the CLI's display layer for it (`src/cli/display.mjs` re-exports it) |
 | `component-table.mjs` | an offline-built register — every git-tracked path and exported symbol to the entries that mention/guard/fix it — so `mem component --table`/`--hook` (the pre-edit hook) can look up instead of scanning; R-Tab parity with lucky-mem |
 | `component.mjs` | one file, across both spellings (10.14) |
+| `componenthook.mjs` | what `mem component <path> --hook` answers, as two functions (`lookup`, `asJson`): the CLI handler and the before-edit hook's single node process call the same ones |
 | `config.mjs` | participants, defaults, the memory's own settings |
 | `console.mjs` | the console: state, settings, connections (7.4) |
 | `dashboard.mjs` | the old desk's data collector, still the first pass under the dashboard's data (7.5) |
@@ -235,6 +239,7 @@ directory. The section number in brackets is where it is explained.
 | `timeexpr.mjs` | natural language to a time window |
 | `timesearch.mjs` | retrieval by time window, no model |
 | `timetrack.mjs` | the time track: a derived block table per big drawer (`.mem/timetrack/`) so a time-window question reads only the blocks that can hold a line in the window; stale, missing or broken is read in full and said; built in the background, never in the asking process |
+| `trackedruntime.mjs` | runtime files a memory has ALREADY committed (`.pipeline/`, the marks, claims and lock folders under `.mem/`): `git ls-files -ci` finds them, the doctor finding `gitignore` and `mem init` name the one `git rm --cached -r ...` that repairs it |
 | `userhabits.mjs` | generic, code-only habit meter over the user's own captures, configurable patterns (`mem user`) |
 | `goldlog.mjs` | the owner's rating of a real retrieval question (hit / near miss / no hit, from the journal's recorded reason — no invented scores), appended OUTSIDE the memory root; `mem gold today`/`mem gold rate` and the dashboard's Rate-today card share it (7.5) |
 | `variants.mjs` | variant fusion: up to 4 rewordings the CALLING agent writes are each searched with the same options and merged by Reciprocal Rank Fusion; the score stays a real search score; no model in the recall path (`mem find --variants "a\|b"`, `mem_find` field `variants`) |
@@ -1848,7 +1853,21 @@ body field; that limit is closed.)
   `.mem/keyring.json` is committed with retained history, destroying a
   key is just another commit and the old key is recoverable from the
   previous one — demonstrated. The keyring needs a distribution that
-  does not retain history.
+  does not retain history. Since 2026-10-16 `mem init` writes a
+  `.gitignore` rule for it (and for its atomic-write temp file), because
+  `mem-reflect` and `mem-handle-post` run `git add -A`; the doctor finding
+  `gitignore` is an ERROR when the rule is missing and when the file is
+  already TRACKED, and in that case says that entries shredded so far must
+  not count as deleted: `git rm --cached` repairs the index, the keys stay
+  in the history.
+- **The keyring does not travel, and it has no copy.** It is not in git, so
+  a second clone reads every shredded-capable entry as `unreadable:
+  keyring-absent`; a lost keyring (a new machine, a wiped disk) makes every
+  entry written with `shred: true` permanently unreadable, exactly like a
+  deleted one. Distribution and backup are the operator's job, outside git:
+  copy the file by hand, encrypted, to the machines that must read, and keep
+  one encrypted backup. Restoring an OLD copy brings back keys that were
+  destroyed since - so the backup is also a way to un-shred.
 
 ### 10.24 One place that appends — `src/append.mjs`
 

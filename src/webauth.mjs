@@ -63,10 +63,13 @@ export const MAKE_TOKEN_COMMAND = 'node -e "console.log(require(\'node:crypto\')
  * ({@link remoteIsLoopback} strict), so a tunnel in front of a token-less service is turned away even with the switch.
  *
  * `variable` is the token variable, `switchVariable` the environment form of the switch, `flag` its command-line form.
+ * `hasLogin` says whether this door CAN have a password login at all (the dashboard can, the MCP bridge never could): the
+ * words of the refusal and of the start notice follow it, so the bridge is not told that "no password login stands behind"
+ * a door that has none to give.
  */
 export function startDecision({
   host, token = '', login = false, localNoToken = false,
-  variable = 'TOKEN', switchVariable = 'LOCAL_NO_TOKEN', flag = '--local-no-token',
+  variable = 'TOKEN', switchVariable = 'LOCAL_NO_TOKEN', flag = '--local-no-token', hasLogin = true,
 } = {}) {
   const bind = bindAllowed({ host, token, variable });
   if (!bind.ok) {
@@ -82,7 +85,9 @@ export function startDecision({
     return {
       ok: false,
       reason:
-        `Refusing to start without a token: ${variable} is not set and no password login stands behind this door. `
+        (hasLogin
+          ? `Refusing to start without a token: ${variable} is not set and no password login stands behind this door. `
+          : `Refusing to start without a token: ${variable} is not set, and the token is the only credential this HTTP bridge has. `)
         + `Set a token: ${variable}=<secret> (bash) or $env:${variable}='<secret>' (PowerShell); make one with: ${MAKE_TOKEN_COMMAND}. `
         + `For a purely local run, say so on purpose: ${flag} or ${switchVariable}=1 `
         + '(loopback only; a request that carries a proxy header is still turned away).',
@@ -91,11 +96,35 @@ export function startDecision({
   return {
     ok: true,
     withoutToken: true,
-    notice: `running WITHOUT a token on ${host} (${flag}): loopback only, no password login. `
+    notice: `running WITHOUT a token on ${host} (${flag}): loopback only${hasLogin ? ', no password login' : ''}. `
       + 'A request that carries forwarding headers (a tunnel, most proxies) is turned away; a reverse proxy on this machine that '
       + 'adds none (nginx with its defaults) cannot be told from this machine and would be served as local, so set a token '
       + 'before putting any proxy in front',
   };
+}
+
+/**
+ * The message for a bind that failed, so a taken port is a sentence and not a stack.
+ *
+ * `code` is the error's `code` (EADDRINUSE, EACCES, EADDRNOTAVAIL); anything else keeps the system's own `message`. The
+ * text names host and port (an IPv6 host in brackets) and, where it helps, the variable and the flag that pick another
+ * port. It never carries a token: nothing but host, port, the two names and the system message goes in.
+ */
+export function listenFailureMessage({ host, port, code, message = '', portVariable = '', portFlag = '' } = {}) {
+  const where = String(host).includes(':') ? `[${host}]:${port}` : `${host}:${port}`;
+  const pick = [portFlag, portVariable ? `${portVariable}=<port>` : ''].filter(Boolean).join(' or ');
+  if (code === 'EADDRINUSE') {
+    return `Cannot listen on ${where}: the port is already in use (another process, or another copy of this service, holds it). `
+      + `Stop that one, or pick another port${pick ? ` with ${pick}` : ''}.`;
+  }
+  if (code === 'EACCES') {
+    return `Cannot listen on ${where}: this user may not bind that port (ports below 1024 usually need extra rights). `
+      + `Pick a higher port${pick ? ` with ${pick}` : ''}.`;
+  }
+  if (code === 'EADDRNOTAVAIL') {
+    return `Cannot listen on ${where}: ${host} is not an address of this machine. Use 127.0.0.1 (the default) or an address this machine has.`;
+  }
+  return `Cannot listen on ${where}: ${String(message || code || 'unknown error').split('\n')[0]}`;
 }
 
 /**

@@ -260,6 +260,11 @@ the page.
   or not), a request that carries a proxy header (a tunnel, a reverse proxy)
   is turned away, and the start prints a `NOTICE` line that it runs without
   a token.
+- **A taken port is a message, not a crash.** If the port is already in use (another
+  `mem serve`, another program), `mem serve` and `bin/mem-serve` print the host and
+  port and the way out (`mem serve --port <n>` or `CHEAP_MEM_SERVE_PORT=<n>`), exit 1
+  and show no stack. The setup code for a first password is written only after the
+  port is bound, so a start that never bound leaves no code file behind.
 - To make a token: `node -e "console.log(require('node:crypto').randomBytes(24).toString('hex'))"`
   prints one (it works the same in bash, PowerShell and cmd). Put it in the
   environment of the process as `CHEAP_MEM_SERVE_TOKEN` (bash: `export CHEAP_MEM_SERVE_TOKEN=<token>`; PowerShell:

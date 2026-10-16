@@ -43,6 +43,23 @@ export const MAX_BYTES = 8 * 1024 * 1024;
 export const MAX_SOCKET_PATH = 100;
 
 /**
+ * The switches of the recall hook's search that the CALLER owns (2026-10-14, lucky-mem 484e11b75).
+ *
+ * The server runs the `find` handler inside ITS process, so `process.env` there is the environment the
+ * server was started with - not that of the hook that asks. The same hook with the same switch then answered
+ * differently with and without a server. The client sends the value of each switch below (null for one it does
+ * not have: the caller's absence wins too), the server evaluates the question under that environment.
+ */
+export const FORWARDED_ENV = Object.freeze(['MEM_RETRIEVE_REQUEST_FRAME', 'MEM_RETRIEVE_TIE', 'MEM_SEARCH_LEVERS']);
+
+/**
+ * Switches that shape the INDEX the server holds in memory: they cannot be overridden per call. A caller whose
+ * value differs from the server's is REFUSED; the hook then asks the direct path (which builds its own index and
+ * is always right). Sent by the client like FORWARDED_ENV.
+ */
+export const INDEX_ENV = Object.freeze(['MEM_EXPAND']);
+
+/**
  * The client's exit codes; bin/mem-retrieve maps them to the journal's
  * `path_reason` (src/injection.mjs PATH_REASON). Closed list.
  */
