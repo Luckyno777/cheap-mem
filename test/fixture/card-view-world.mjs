@@ -54,9 +54,10 @@ export function buildWorld(root) {
     {
       id: 'dagent0001', ts, title: 'Guard for race at src/lock.mjs', who: 'session', class: 'race', file: 'src/lock.mjs', tags: ['auto-duty'], automatic: true,
     },
-    // 6b. a card written by the CONFIGURED HUMAN (participant `user`): no "written by an agent" note
+    // 6b. a card written by the CONFIGURED HUMAN (participant `user`) with the RANK `user` (what a person's write carries): no "written by an
+    // agent" note. The name alone is not enough (writer-identity-cm: name AND rank); the same name at tier agent keeps the note.
     {
-      id: 'dhuman0001', ts, title: 'Which logo for the release page', who: 'user', agent: 'user',
+      id: 'dhuman0001', ts, title: 'Which logo for the release page', who: 'user', agent: 'user', authority: 'user',
       card_question: 'Which logo should the release page carry?',
       card_context: 'Two logos exist. The page is printed on Friday.',
       card_options: ['The round logo — it prints well', 'The wide logo — it needs a new slot', 'Not now — the page goes without a logo'],

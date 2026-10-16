@@ -429,8 +429,8 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-numbers.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **87 CLI commands, 45 MCP tools, 219 modules, 5038
-tests**; as of 2026-09-20, about 90060 lines in `bin/` and `src/`, at
+As of 2026-09-26: **88 CLI commands, 45 MCP tools, 219 modules, 5113
+tests**; as of 2026-09-20, about 90512 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 
 ### Reading it with a model, or evaluating it properly
@@ -467,7 +467,7 @@ enforced fails the build rather than waiting for someone to audit it.
 
 | check | what a red run means |
 |---|---|
-| `bench/mutation.mjs` | one of 156 guarantees was broken on purpose and no test noticed |
+| `bench/mutation.mjs` | one of 236 guarantees was broken on purpose and no test noticed |
 | `bench/fuzz.mjs` | a crash, hang, unbounded growth, or a bypass |
 | `bench/composed.mjs` | seven attacks that are only dangerous in combination |
 | `bench/byzantine.mjs` | a flood of rule-abiding liars buried the genuine claim, or the conflict went unreported |
@@ -528,6 +528,11 @@ mem init                       one-time setup
 mem log <type> --<field> ...   append an entry (16 types)
                                --asked "word, word" = words to FIND it by,
                                which the entry itself does not contain
+                               --as-me = the writer is this install's own
+                               identity (CHEAP_MEM_AGENT, else `mem whoami`),
+                               not the OS account `human:<user>`; the name
+                               only, never a rank (also on `mem correction`,
+                               `mem sources add|bridge`, `mem card add`)
                                `error`: shows up to 3 earlier errors for the
                                same file, and on a real repetition (same
                                file+class in 30 days, or the same class 3x
@@ -589,6 +594,10 @@ mem effect                     share of injections named/opened/edited afterward
 mem hooks install|check        arm and prove the secret check
 mem hooks install --pre-push   also warn (never block) when a push to the default
                                branch has no green CI run (reads CI via gh)
+mem trust-own-tool [--off|--status]
+                               let THIS memory run its own bin/ and src/ (off by
+                               default: the hooks use the installed tool; needs a
+                               terminal; docs/security-model.md section 4.1)
 mem doctor                     is this memory healthy?
 mem doctor --alarm             ONLY what is down right now; silent when
                                nothing is. The session-start hook prints it.
@@ -760,6 +769,13 @@ claude mcp add cheap-mem -- node ~/cheap-mem/bin/mem-mcp
 Either way it is idempotent — run it again after moving the memory and
 it re-points. It drops 7 hooks into `~/.claude/hooks/` and merges
 the needed permissions into `~/.claude/settings.json`:
+
+The hooks run the **installed** tool (the checkout you ran the installer from),
+never code that came with the memory: a memory is a git clone, and its remote
+could ship anything. A memory that carries its own `bin/` is told apart at
+session start. If you do trust that memory's remote, say so once, yourself, in a
+terminal: `mem trust-own-tool`, then run the installer again so `node <memory>/bin/mem`
+is allowed without asking. Details: [docs/security-model.md](docs/security-model.md), section 4.1.
 
 - **SessionStart** — prints `FACTS.md` + context at the top of a session,
   and one line naming the clone that answers (directory, head, age,

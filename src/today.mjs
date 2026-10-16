@@ -60,6 +60,7 @@ import * as goldlog from './goldlog.mjs';
 import * as injection from './injection.mjs';
 import * as projectnew from './projectnew.mjs';
 import * as decisioncard from './decisioncard.mjs';
+import * as authority from './authority.mjs';
 import * as cardstore from './cardstore.mjs';
 import * as cardfeed from './cardfeed.mjs';
 import * as humandecisions from './humandecisions.mjs';
@@ -588,7 +589,9 @@ function cardMark(card) {
   if (!card?.origin) return '';
   // H11, stage 1 of the write rule: an entry whose explanation is missing says so (derived, `decisioncard.lacksExplanation`).
   if (card.origin.stage === 'fallback') return '  (fallback card)  [explanation missing]';
-  const by = `card${card.origin.stage === 'addendum' ? ' added later' : ''} by ${card.origin.author ?? 'unknown'}, tier ${card.origin.rank ?? 'unknown'}`;
+  // Name AND rank; a rank the line does not carry says so (`byline`, `authority.rankWord`), it is not shown as a tier.
+  const rankWord = authority.rankWord(card.origin.rank, card.byline?.rank_state);
+  const by = `card${card.origin.stage === 'addendum' ? ' added later' : ''} by ${card.origin.author ?? 'unknown'}, tier ${rankWord}`;
   // A card that beat another (higher tier, or younger) names it.
   const replaced = card.replaced ? `; replaced a card by ${card.replaced.author ?? 'unknown'}${card.replaced.rank ? `, tier ${card.replaced.rank}` : ''}` : '';
   // A half card (a question without ways and effects) has an author but explains nothing: it says so too.

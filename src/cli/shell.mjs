@@ -414,6 +414,73 @@ export function requireConfig(root) {
   }
 }
 
+/**
+ * Who a local `--as-me` write is by: the identity of THIS install, never a guess (port of lucky-mem `--ich`, F1b, with the
+ * source the other way round: lucky-mem takes the name the caller types, cheap-mem takes it from the install).
+ *
+ * The finding behind it: a write without `--agent` is stamped `agentDefault()`, and without `CHEAP_MEM_AGENT` that is
+ * `human:<os user>` - in a cloud session `human:root`, a name that reads as a person (`authority.isHumanName`) on a line an
+ * agent wrote. `--as-me` asks for the install's own identity instead:
+ *
+ *   1. `CHEAP_MEM_AGENT` / `MEM_AGENT`   what a deployment names its process (the same order as `memory.agentDefault`)
+ *   2. `mem whoami`                      the stored participant of this install (`.mem/inbox-whoami`)
+ *   3. neither                           REFUSED. Never `human:<os user>`: an invented origin looks like evidence.
+ *
+ * Three states of the stored name, none of them guessed: not set / blank -> refused with the way out; set but no longer a
+ * configured participant (broken) -> refused naming it; set and configured -> used.
+ *
+ * **It carries no rank.** The switch stamps the NAME only; the tier stays what the write path gives (`agent`, or the process
+ * ceiling), so `--as-me` never raises a rank the caller does not have. It refuses to be combined with `--authority` (a claim
+ * of rank is its own act, `--authority user` behind `authority.checkUserWrite`), with `--agent` (two writers), and it
+ * refuses a name that reads as a person (`owner`, `human:<name>`): that stamp comes only from a shell, by `agentDefault`, and the
+ * configured human participant (`human: true` in the config): the switch never puts a person's name on an agent's line.
+ *
+ * @returns {string|null} the writer name, or null when `--as-me` is not given. Refuses via `die` (nothing written).
+ */
+export function asMeWriter(root, cfg, args, command, env = process.env) {
+  const v = args['as-me'];
+  if (v === undefined) return null;
+  if (v !== true) {
+    // The value is not echoed: it is the next word of the command line (an address, a path), which may carry a secret.
+    die(`${command}: --as-me is a switch without a value, but the parser read the next word as its value. `
+      + 'Put --as-me last, after the other arguments. Nothing was written.');
+  }
+  if (Object.hasOwn(args, 'agent')) die(`${command}: --as-me and --agent name two writers. Use one. Nothing was written.`);
+  if (Object.hasOwn(args, 'authority')) {
+    die(`${command}: --as-me carries no rank, and --authority claims one; they are not combined. `
+      + 'Use --as-me for the writer and leave the tier to the write path (agent). Nothing was written.');
+  }
+  const set = String(env.CHEAP_MEM_AGENT ?? env.MEM_AGENT ?? '').trim();
+  let name = set;
+  if (!name) {
+    const stored = inbox.whoAmI(root);
+    if (!stored) {
+      die([
+        `${command}: --as-me: this install has no identity (no CHEAP_MEM_AGENT, and \`mem whoami\` is not set).`,
+        `  Once:  mem whoami <${Object.keys(cfg.participants).join('|')}>`,
+        '  The OS account name is not used for this: it would stamp a person where an agent wrote. Nothing was written.',
+      ].join('\n'));
+    }
+    if (!Object.hasOwn(cfg.participants, stored)) {
+      die(`${command}: --as-me: \`mem whoami\` names '${stored}', which is not a configured participant `
+        + `(known: ${Object.keys(cfg.participants).join(', ')}). Set it again: mem whoami <name>. Nothing was written.`);
+    }
+    name = stored;
+  }
+  // The configured human is no agent's name either (the mark `human: true` in the config, never a name in the code): the
+  // recommended switch must not put a person's name on an agent's line. `--agent <name>` stays the explicit way.
+  if (cfgmod.isHuman(cfg.participants?.[name])) {
+    die(`${command}: --as-me: '${name}' is the human participant of this memory. The switch stamps an agent's line, `
+      + 'and a person\'s name does not belong on it. Set the identity of the agent (mem whoami <name>, or CHEAP_MEM_AGENT). '
+      + 'Nothing was written.');
+  }
+  if (authority.isHumanName(name)) {
+    die(`${command}: --as-me: '${name}' reads as a person (owner, human:<name>). Only a shell stamps that, `
+      + 'by itself (leave --as-me out). Nothing was written.');
+  }
+  return name;
+}
+
 export function whoAmIOrDie(root, args, cfg) {
   const stored = inbox.whoAmI(root);
   const chosen = args.as ?? stored;

@@ -41,15 +41,20 @@ if (-not $plan) {
 if ($plan.Note) { [Console]::Error.WriteLine("mem-handle-post: $($plan.Note)") }
 Set-Location -LiteralPath $plan.Cwd
 
+# The model is told to run THIS tool (the one this script sits in), never the
+# memory's own bin\mem: a memory is a git clone pulled from origin, and the
+# permission list names only the installed tool (tool-trust-cm, 2026-10-16).
+$toolCmd = "node $(Join-Path (Split-Path -Parent $PSCommandPath) 'mem') --root `$CHEAP_MEM_ROOT"
+
 $defaultPrompt = @"
 You are the '$($env:MEM_WATCH_WHO)' role in this cheap-mem installation. Read `$CHEAP_MEM_ROOT\.mem\config.json for context. Then process new inbox mail addressed to you:
 
-  1. node `$CHEAP_MEM_ROOT\bin\mem inbox new --as $($env:MEM_WATCH_WHO)
-  2. For each new message: node `$CHEAP_MEM_ROOT\bin\mem inbox show <name> --as $($env:MEM_WATCH_WHO)
-  3. Do what the message asks. If a log entry: node `$CHEAP_MEM_ROOT\bin\mem log <type> ...
-  4. If a reply: node `$CHEAP_MEM_ROOT\bin\mem inbox write --as $($env:MEM_WATCH_WHO) --to <sender> --in-reply-to <name> --subject ...
+  1. $toolCmd inbox new --as $($env:MEM_WATCH_WHO)
+  2. For each new message: $toolCmd inbox show <name> --as $($env:MEM_WATCH_WHO)
+  3. Do what the message asks. If a log entry: $toolCmd log <type> ...
+  4. If a reply: $toolCmd inbox write --as $($env:MEM_WATCH_WHO) --to <sender> --in-reply-to <name> --subject ...
      (a reply is a result and wakes nobody; never answer a result or a receipt)
-  5. Acknowledge: node `$CHEAP_MEM_ROOT\bin\mem inbox ack <name> processed
+  5. Acknowledge: $toolCmd inbox ack <name> processed
   6. Commit and push to main:
        git -C `$CHEAP_MEM_ROOT add -A
        git -C `$CHEAP_MEM_ROOT commit -m 'handler: <summary>'

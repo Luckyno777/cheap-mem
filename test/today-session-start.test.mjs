@@ -31,8 +31,10 @@ function stage({ todayOut = '', busyMs = 0 } = {}) {
   spawnSync('git', ['-C', root, 'init', '-q'], { encoding: 'utf8' });
   fs.mkdirSync(path.join(root, '.mem'), { recursive: true });
   fs.writeFileSync(path.join(root, '.mem', 'config.json'), '{}\n');
-  fs.mkdirSync(path.join(root, 'bin'), { recursive: true });
-  fs.writeFileSync(path.join(root, 'bin', 'mem'), `
+  // The stub is written twice: into the memory (the old hook the ROT run uses reads it there) and as the
+  // INSTALLED tool (CHEAP_MEM_CODE) - a memory's own bin/ is not run unless the user trusted it (tool-trust-cm).
+  const code = fs.mkdtempSync(path.join(os.tmpdir(), 'today-code-'));
+  const stub = `
 const argv = process.argv.slice(2).join(' ');
 if (argv.includes('today') && argv.includes('--line')) {
   const until = Date.now() + ${busyMs};
@@ -42,12 +44,16 @@ if (argv.includes('today') && argv.includes('--line')) {
   process.exit(0);
 }
 process.exit(0);
-`);
+`;
+  for (const base of [root, code]) {
+    fs.mkdirSync(path.join(base, 'bin'), { recursive: true });
+    fs.writeFileSync(path.join(base, 'bin', 'mem'), stub);
+  }
   return {
     root,
     run: (hookPath, extra = {}) => spawnSync('bash', [hookPath], {
       encoding: 'utf8',
-      env: { ...process.env, CHEAP_MEM_ROOT: root, ...extra },
+      env: { ...process.env, CHEAP_MEM_ROOT: root, CHEAP_MEM_CODE: code, ...extra },
     }),
   };
 }
