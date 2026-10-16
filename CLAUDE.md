@@ -6,12 +6,13 @@ installation — it is the tool that creates memories.
 ## What lives where
 
 - `bin/mem`            — the CLI's entry point (Node, ESM, no dependencies):
-                         argument pre-scan, the merge of the six command
-                         groups, dispatch. About 232 lines, and it stays
+                         argument pre-scan, the help block, lazy load of
+                         one group, dispatch. About 250 lines, and it stays
                          that way — a handler that lands back in here
                          belongs in its group. It was 4503 before the
                          split on 2026-09-18, the largest file here.
 - the CLI's own modules, under `src/cli/`:
+  - `command-index.mjs` — which group holds which command (data, no imports)
   - `commands/`        — the 87 handlers, in six groups cut by the
                          QUESTION a command answers: write, search,
                          capture, agents, setup, admin
@@ -82,7 +83,9 @@ installation — it is the tool that creates memories.
 
 ## When you add a new subcommand
 
-1. Add the handler in the matching group under `src/cli/commands/`.
+1. Add the handler in the matching group under `src/cli/commands/`, and its
+   name to that group's list in `src/cli/command-index.mjs` (without it the
+   command answers "Unknown command"; `test/cli-lazy-groups.test.mjs` says so).
 2. Add the tool to `bin/mem-mcp` (`TOOLS` array + `handleCall` switch).
 3. Add tests.
 4. Update README.md commands table and `docs/quickstart.md` if user-facing.

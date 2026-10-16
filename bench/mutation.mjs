@@ -533,8 +533,8 @@ export const MUTANTS=[
 
  { name:'redaction: secrets inside arrays are not redacted',
    file:'src/redaction.mjs',
-   from:'  if (Array.isArray(o)) return o.map((x) => redactObject(x, found));',
-   to:'  if (Array.isArray(o)) return o;  // MUTANT',
+   from:'        return v.map((x) => rec(x, depth + 1, ctx, inner));',
+   to:'        return v;  // MUTANT',
    tests:['test/redaction.test.mjs','test/mutant-security-gaps.test.mjs'] },
 
  { name:'redaction: no environment secret is ever collected',

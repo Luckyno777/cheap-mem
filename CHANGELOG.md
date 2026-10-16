@@ -136,6 +136,68 @@ duties and procedures, solution lines, Bash that writes and does not, and compar
 start is caught). The PowerShell twin asks for ASCII on the wire (`MEM_BE_ASCII`, an `\uXXXX` escape for every non-ASCII character), so the
 console code page cannot mangle the answer. A search that hangs is cut by one 8 s cap around the whole run and booked as
 `rebuild`, as before. `git` run by the component table no longer leaks "not a git repository" onto stderr.
+
+### Performance - measured, not built: a word-normalisation memo for the cold index build (cli-speed-cm TB9; cheap-mem only)
+
+The order's lever: memoise the normalisation of a word. Measured first, on the 20,000-entry scratch memory, a cold `buildIndex`: the English pack normalised
+827,000 words and the German one 403,000, of only 19,300 different ones, so a memo would hit about 98 times in 100, and `stripAccents` plus `deNormalize` stand at 201 of 1,840 ms
+in a CPU profile of the build (11 %: that is the ceiling, a free normaliser). A memo with a ceiling in `src/language.mjs` was built as an experiment and measured,
+child CPU time of `buildIndex` alone, 6 interleaved runs each, median: 1,808 -> 1,719 ms (5 %, 89 ms; wall time on this host swings from 1,700 to 4,800 ms at load 30 and says nothing).
+Under the order's own bar (below 10 % is not built) it was thrown away. The larger parts of the build are `buildLexicon` (380 ms), `buildTermGraph` (242 ms) and the shard
+writer (187 ms), not the normaliser. How often the build runs, counted in the code (`loadIndexCached` falling through to `buildIndex`): on a clone without `.mem/search-index`
+(the cache is local), after a `CACHE_VERSION` or language change, when the cache does not read back whole, when a log file was rewritten or shrunk (a merge that reorders lines),
+once the corpus has grown by 20 % since the last build (`REBUILD_AFTER_FRACTION`), with `--fresh`, and **on every non-closing `mem correction`**, which calls
+`search.buildIndex(root)` directly (src/cli/commands/write.mjs, the content-loss warning) and never uses the cache: that one is where a cold build is paid again and again,
+and a better lever than the normaliser (not built here: it needs the cached index to give the same `docFreq`, which is a question for its own order).
+
+### Changed / Performance - `mem doctor` runs the concurrent-append probe only with `--full` (and `--strict`) and says so when it did not (cli-speed-cm TB7; cheap-mem only)
+
+The probe of `env/append-atomicity` starts six writer threads on the memory's mount and was the slowest single part of a doctor run:
+9 fresh processes took 167 to 445 ms for it (median 320 ms), and under load one ran past its own 400 ms limit and reported UNKNOWN anyway.
+Without `--full` that one finding now reads `not measured on this run ... only runs with mem doctor --full` at level UNKNOWN, the third state, with
+the way to the real answer in its advice; it never reads `ok`. A filesystem whose name is documented as unsafe is still a failure without the probe
+(that answer needs no measuring). `--strict` includes the probe, because there an unverifiable guarantee is a failure and the documented CI call
+`mem doctor --strict` must not turn red for a check it skipped. `--alarm` lists only errors and no longer measures tearing on every start. The library
+default is unchanged: `doctor.checkAll(root)` measures, `checkAll(root, { full: false })` does not; the dashboard and `mem today` still call it as before.
+Measured, interleaved against the commit before, child CPU time (wall time on this shared host is too noisy: load 6 to 31),
+`mem doctor --quiet`: 300 entries 580 -> 290 ms (-50 %), 1,000 entries 620 -> 350 ms (-44 %), 20,000 entries 1,710 -> 1,450 ms (-15 %). The index was
+already loaded once per run (counted: the cache manifest is read once, each document shard once); there was nothing to save there. Tested structurally
+(`test/doctor-full.test.mjs`: the probe directory is created 0 times without `--full`, once with it). The output differs in exactly one finding
+and in `mem doctor --help`; golden over a 400-entry scratch memory otherwise identical.
+Through the real CLI the tests also hold: `--quiet` keeps the "not measured" line and the summary does not count it as good, `--alarm` neither measures nor prints it, and
+a documented-unsafe filesystem (driven with a fake `stat` on PATH; skipped on Windows, where such a script is not found) is an error without `--full` and shows in `--alarm`.
+
+### Performance - `mem retrieve` derives the retirements once and reads the log twice (cli-speed-cm TB6; cheap-mem only)
+
+On a 20,000-entry scratch memory (5.2 MB) one `retrieve` took 1,080 ms (7 fresh processes, warm index cache). `retrieve` derived the log's
+retirements for its own claims, and `loadIndex` derived them again for the index's retired flags (141 ms each at that size), each
+time in three passes over the typed logs. Now `retrieve` derives once and hands the state to the index load
+(`loadIndex(root, { derivedState })`; the state is still read from the log in this very call, never stored), and
+`retiredMapFromFiles` keeps the few retirement lines (slim copies, not correction bodies) during its first read, so the files are read twice, not
+three times. `docSimilarity` takes an optional per-ranking Map of norms (MMR compared the same vectors again and again and normed both in every
+comparison; the value is unchanged to the last bit). Measured against the commit before (TB4 only), 15 interleaved runs, medians, load about
+5 on 4 cores: 20,000 entries 898 -> 681 ms (-24 %), 5,000 entries 416 -> 355 ms (-15 %), 300 entries 184 -> 184 ms (no gain: below the
+size where the log reads matter, which is why the order's threshold decides by size). In process, repeated: 611 -> 455 ms at 20,000. Structurally:
+`retrieve` opens the typed logs 12 times instead of 21 on the test world (`test/retrieve-once.test.mjs`, which also counts the norms: 30 instead of 1,800
+for 30 vectors compared 900 times). Ranking and claims unchanged: byte-identical `--json` over a 400-entry scratch memory with discards, dones, a supersession,
+corrections and a refused (disputed) override, for `retrieve` with `--top`, `--as-of`, `--with-disputed`, `--type`, and for `find`.
+
+### Performance - a CLI start loads the group of its command, not all six (cli-speed-cm TB4; counterpart in lucky-mem open)
+
+`bin/mem` imported the six command groups statically, so `mem version` compiled the code of all 87 handlers to run one. Measured
+with a fresh process per run, 21 runs interleaved old/new (median), 1000-entry scratch memory (261 KB), a container at load
+about 6 on 4 cores, so the absolute times are high and only the pairs mean something: `mem version` 210 -> 139 ms, `mem --help`
+231 -> 127 ms, an unknown command 184 -> 113 ms, `mem inbox new` 213 -> 138 ms, `mem find` 299 -> 247 ms, `mem doctor --quiet`
+606 -> 565 ms (the groups it needs were always loaded; the gain there is under 10 percent). Structurally: `version` imports 1 group
+instead of 6 (93 modules instead of 158), help and an unknown command import none (61). `src/cli/command-index.mjs` names the
+group of each command; `test/cli-lazy-groups.test.mjs` holds the index equal to the six `COMMANDS` tables in both directions and
+counts the imported groups per start, not the time. Output byte for byte unchanged (golden over 192 invocations: every command with
+`--help` and with an unknown flag, `--help`, `-h`, `help`, the unknown-command path). The `Intl.DateTimeFormat` the order named
+does not run at load in this tree (counted: 0 constructions for `version`, `--help`, `find`; 1 for `doctor`), so nothing was made
+lazy there. A new command's name goes into that index too (CLAUDE.md).
+A group that does not load (a missing file, a syntax error) is answered as `mem <cmd>: the '<group>' command group did not load: ...` on stderr with exit 1, and
+the cause stays visible (the missing file by name; for a syntax error the engine's own file:line and code line), instead of Node's raw stack. What is quoted goes through the output guard first, loses control and bidi characters and is cut to three lines of 200 characters, so a token in a broken group file does not reach stderr.
+
 ### Added - `mem setup codex-cloud`: a skill for memories that are opened in OpenAI Codex Cloud (counterpart of the sibling house's Codex anchor)
 
 Codex Cloud runs no hooks (reported by Codex, not verified here), so a memory opened there reaches cheap-mem only through a
@@ -162,6 +224,44 @@ hosted MCP connector, and nothing makes the model use it. The habit that hooks g
 - **`test/codex-cloud-skill.test.mjs`**: every tool and parameter that the skill, the Start text or the doc names is looked
   up in the tool list the server itself answers with (not copied); the core sentences against softening; size; the four
   moments against `HOUSE-RULES.md`; a positive control (a renamed tool turns it red); the command against scratch memories.
+
+### Security - an object field under a secret's key falls whole; a Bearer/Basic value behind a marker falls (2026-10-14)
+
+Measured on the previous tip (e58fb2b), all open: `{password: "correct horse battery staple"}`, `{token: "abc123def456"}`, `{password: 123456}`,
+and nested the way the raw capture sees them (`tool_use.input`): `{headers: {Authorization: "Basic ..."}}`, `{env: {API_KEY: "k1"}}`
+(`redactObject`, `redactEntry` and `maskEntry` read each string alone, so the key meant nothing); and `Bearer [REDACTED:x]<32 characters>`,
+`Bearer [REDACTED:x][REDACTED:y]<32>`, `Basic [REDACTED:x]<value>` (a marker right behind the scheme ended the pattern).
+
+- **Object fields.** One walk (`walkSecrets`, `src/redaction.mjs`) serves the write path (`redactObject`, `redactEntry`: raw capture, every
+  logged entry) and the output (`maskEntry`: `mem find`/`show`, the viewer payload, the MCP replies, `mem raw show`, the recall hooks). A string
+  under a secret's key is masked whole as `[REDACTED:json-secret]`, however deep the key sits; a number or boolean directly under it too
+  (a numeric PIN is a password). The key list is the one of `json-secret` (`JSON_KEY_WORDS`, no second copy), tested anywhere in the key, after
+  NFKC and without zero-width characters; for objects the header name `authorization` / `proxy-authorization` is added, exactly. `null`, the empty
+  string and a value of markers alone stay (idempotence). The strings below a secret key inherit it (`{secrets: {A: "x"}}`); numbers only where the key
+  stands directly over them. **No false alarm on counters:** a counter is a single NUMBER under a counter key: `max_tokens: 4096`,
+  `tokens_used: 1234`, `usage.input_tokens`, `"secrets": 120`, `password_length: 12` keep it (`*_count`/`*_limit`/`*_used`/`*_len`/`*_total`/
+  `max_*`, or the plural of a keyword; the plural only for a number, which keeps docs/value-report/secrets.json free). A digit STRING
+  (`"password_len": "123456"`, `"token_count": "4111 1111 1111 1111"`, `"secrets": "123456"`), a boolean, or a list of numbers
+  (`"passwords": [1234, 5678]`) under such a key is a value and falls (review finding 2026-10-14). `token: 1234` and `authToken: 1234` fall. Pagination cursors
+  (`nextPageToken`) stay, as in the text rule; a key that runs on long behind its keyword spares a prose string (`token_system_is_a_facade`), as the text
+  rule does. `password_hint` is masked (a hint is where the password gets written down). Object-only key words (the text rule is unchanged):
+  `pin`, `pwd`, `passcode`, `credential(s)` (the fetch option values `include`/`same-origin`/`omit` stay, whole values only; the counter rule applies:
+  `pin_count: 3`, `passcode_length: 6` are free numbers; `pin_number`, `pin_num`, `pin_used` are the pin and fall; upper-case runs are split, `PINCode`, `PWDHash`), and `privateKey`/`accessKey`/`access-key` (camelCase and hyphen match the list; a suffix is
+  counted in the key as written, so a camel key is never read looser than its snake form). A key is a counter only if neither the key as written nor its camel-cut form still shows a keyword once the counter
+  words are out; a keyword with a capital inside it (`passWord`, `toKen`, `aPIkey`) is a keyword. A whole number of 1e12 and up (card-number length) falls
+  even under a counter key. **Linear keys:** a key is read in linear time (a loop replaces `.replace(/[...]+$/, '')`, which was quadratic on a run
+  of quotes, equals signs or backslashes: 1.4 s for 50,000 of them, minutes for 1 MB) and a key past 512 characters is a secret in doubt, not read at all.
+  Bounded: a cycle ends in `[REDACTED:cycle]`, a depth over 64 or more than 2,000,000 nodes in `[REDACTED:depth]`; no crash.
+- **Bearer / Basic / `Authorization: Token`.** One or more markers directly behind the scheme no longer end the pattern; the value after them
+  falls, a stump after one or several markers inside the value too. A value of markers alone is no match. `Authorization: Token <value>` is new (header
+  name required in front, so prose is not touched).
+- **MCP replies that are JSON documents** (`mem_show`) went through the text mask only (`sanitizeForDisplay`): `{"API_KEY": "k1abc"}` stayed in the clear
+  on the bridge while the CLI and the viewer masked it. A JSON string is now masked as a document first, then as text.
+- **Legacy scan.** `mem raw check` and the doctor's legacy check count the fields this rule masks (`scanObject`), values never shown.
+
+Measured: monotony against the base (every secret fragment masked by e58fb2b is still masked), 60,525 text cases + 60,000 object cases, 0
+regressions, 0 idempotence failures; 1 MB shapes linear (`test/redaction-linear.test.mjs`, `test/redaction-object-keys.test.mjs`); corpus
+docs/, test/, README.md, CHANGELOG.md (640 files, 15 JSON): no difference. `test/redaction-object-keys.test.mjs`.
 
 ### Security - recall server: concurrent starts no longer leave it deaf; a stop takes only its own socket (lucky-mem R3; both houses)
 

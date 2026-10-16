@@ -9,7 +9,8 @@
  *
  * The groups are cut by the QUESTION a command answers, not by size:
  * whoever is looking for `mem log` is not looking next to `mem
- * doctor`. `bin/mem` merges them and dispatches; nothing here knows
+ * doctor`. `bin/mem` looks a command up in `src/cli/command-index.mjs`,
+ * imports only its group and dispatches; nothing here knows
  * about the others.
  */
 
@@ -357,7 +358,7 @@ export const COMMANDS = {
         let lines;
         try { ({ lines } = raw.readCapture(root, rel)); } catch { continue; }
         for (let i = 0; i < lines.length; i += 1) {
-          const found = redaction.redact(JSON.stringify(lines[i])).found;
+          const found = redaction.scanObject(lines[i]);
           for (const f of found) {
             const k = `${f.type}|${rel}`;
             if (!seen.has(k)) seen.set(k, { type: f.type, capture: rel, lines: new Set(), count: 0 });
