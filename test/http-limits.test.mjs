@@ -400,9 +400,10 @@ test('group 2: every http.createServer under bin/ and src/ has its hardenServer'
   const withStart = [];
   for (const p of serviceFiles()) {
     const text = fs.readFileSync(p, 'utf8');
-    if (RAW_START_ONCE.test(withoutComments(text))) withStart.push(path.relative(ROOT, p).split(path.sep).join('/'));
+    const rel = path.relative(ROOT, p).split(path.sep).join('/');
+    if (RAW_START_ONCE.test(withoutComments(text))) withStart.push(rel);
     const v = checkWiring(text);
-    if (v) violations.push(`${path.relative(ROOT, p)}: ${v.starts} start(s), ${v.hardens} hardenServer( call(s)`);
+    if (v) violations.push(`${rel}: ${v.starts} start(s), ${v.hardens} hardenServer( call(s)`);
   }
   assert.deepEqual(violations, [], 'a new HTTP service: hardenServer(server, { maxConnections }) from src/http-limits.mjs right after createServer');
   // Positive control: the count sees the two known services, so it is not empty.
