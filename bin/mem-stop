@@ -76,6 +76,16 @@ done
 # directory instead of bin/.
 HERE="$(cd "$(dirname "$(to_slashes "$0")")" && pwd)"
 
+# **The memory's own bin/ and src/ are used only with the local switch
+# (tool-trust-cm, 2026-10-16).** The memory is a git clone pulled from origin;
+# code taken from it is code its remote can ship. `mem trust-own-tool` sets the
+# switch (bin/_owntool.sh); without it every module below comes from the tool
+# this script sits in. A tool that cannot read the switch treats it as off.
+# shellcheck source=bin/_owntool.sh
+if [ -f "$HERE/_owntool.sh" ]; then . "$HERE/_owntool.sh"; else mem_own_tool_trusted() { return 1; }; fi
+OWN_TOOL=0
+mem_own_tool_trusted "$ROOT" && OWN_TOOL=1
+
 STDIN_JSON=""
 if [ ! -t 0 ]; then STDIN_JSON="$(cat 2>/dev/null || true)"; fi
 
@@ -107,7 +117,7 @@ esac
 # other step below is redirected to /dev/null.
 ANSWER_JSON=""
 CHECKER=""
-if   [ -f "$ROOT/src/answercheck.mjs" ]; then CHECKER="$ROOT/src/answercheck.mjs"
+if   [ "$OWN_TOOL" = 1 ] && [ -f "$ROOT/src/answercheck.mjs" ]; then CHECKER="$ROOT/src/answercheck.mjs"
 elif [ -f "$HERE/../src/answercheck.mjs" ]; then CHECKER="$HERE/../src/answercheck.mjs"
 fi
 if [ -n "$CHECKER" ] && [ -n "$STDIN_JSON" ]; then
@@ -143,7 +153,7 @@ fi
 REPORT_JSON=""
 if [ -z "$ANSWER_JSON" ] && [ -n "$STDIN_JSON" ]; then
   REPORTER=""
-  if   [ -f "$ROOT/src/closingreport.mjs" ]; then REPORTER="$ROOT/src/closingreport.mjs"
+  if   [ "$OWN_TOOL" = 1 ] && [ -f "$ROOT/src/closingreport.mjs" ]; then REPORTER="$ROOT/src/closingreport.mjs"
   elif [ -f "$HERE/../src/closingreport.mjs" ]; then REPORTER="$HERE/../src/closingreport.mjs"
   fi
   if [ -n "$REPORTER" ]; then
@@ -167,7 +177,7 @@ fi
 
 # --- 1) Capture (model-free, always) --------------------------------
 CAPTURE=""
-if   [ -f "$ROOT/bin/mem-capture" ]; then CAPTURE="$ROOT/bin/mem-capture"
+if   [ "$OWN_TOOL" = 1 ] && [ -f "$ROOT/bin/mem-capture" ]; then CAPTURE="$ROOT/bin/mem-capture"
 elif [ -f "$HERE/mem-capture" ];    then CAPTURE="$HERE/mem-capture"
 fi
 if [ -n "$CAPTURE" ]; then
@@ -251,8 +261,8 @@ fi
 
 # --- 3) Reflect (model, opt-in only) --------------------------------
 if [ "${MEM_REFLECT:-}" = "1" ]; then
-  REFLECTOR="$ROOT/bin/mem-reflect"
-  [ -f "$REFLECTOR" ] || REFLECTOR="$HERE/mem-reflect"
+  REFLECTOR="$HERE/mem-reflect"
+  [ "$OWN_TOOL" = 1 ] && [ -f "$ROOT/bin/mem-reflect" ] && REFLECTOR="$ROOT/bin/mem-reflect"
   if [ -f "$REFLECTOR" ]; then
     printf '%s' "$STDIN_JSON" | CHEAP_MEM_ROOT="$ROOT" bash "$REFLECTOR" >/dev/null 2>&1 || true
   fi

@@ -99,14 +99,19 @@ if (-not $maskedCopy -or -not (Test-Path -LiteralPath $maskedCopy)) {
 try {
 $transcriptPath = $maskedCopy
 
+# The model is told to run THIS tool (the one this script sits in), never the
+# memory's own bin\mem: a memory is a git clone pulled from origin, and the
+# permission list names only the installed tool (tool-trust-cm, 2026-10-16).
+$toolCmd = "node $(Join-Path (Split-Path -Parent $PSCommandPath) 'mem') --root `$CHEAP_MEM_ROOT"
+
 $defaultPrompt = @"
 You are the reflector for cheap-mem. Read the transcript at `$TRANSCRIPT_PATH (env). It is a masked copy: secrets in it are already replaced by [REDACTED:...] markers, and you never need the original. Decide whether anything substantial happened since the last reflect.
 
 If YES: write ONE inbox message to the librarian summarizing what you saw, and log at most three JSONL entries. Use absolute paths since your cwd is NOT the memory root:
 
   git -C `$CHEAP_MEM_ROOT pull --ff-only
-  node `$CHEAP_MEM_ROOT\bin\mem log <type> --title ... --tags ...
-  node `$CHEAP_MEM_ROOT\bin\mem inbox write --as session --to librarian --subject ... < body.md
+  $toolCmd log <type> --title ... --tags ...
+  $toolCmd inbox write --as session --to librarian --subject ... < body.md
   git -C `$CHEAP_MEM_ROOT add -A
   git -C `$CHEAP_MEM_ROOT commit -m 'reflect: <summary>'
   git -C `$CHEAP_MEM_ROOT push origin HEAD:main

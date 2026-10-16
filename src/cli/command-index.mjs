@@ -45,7 +45,7 @@ export const GROUP_COMMANDS = Object.freeze({
   ],
   setup: [
     'init', 'setup', 'hooks', 'paths', 'guard', 'version', 'bridge', 'serve', 'viewer', 'net', 'category', 'project',
-    'store', 'sources', 'component',
+    'store', 'sources', 'component', 'trust-own-tool',
   ],
   admin: [
     'doctor', 'gauges', 'asked-learn', 'rewrites', 'search-levers', 'effect', 'observations', 'maintenance', 'chain',

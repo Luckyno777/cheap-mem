@@ -88,6 +88,15 @@ if (-not $Root) { exit 0 }
 
 $Here = Split-Path -Parent $PSCommandPath
 
+# The memory's own bin\ and src\ are used only with the local switch
+# (tool-trust-cm, 2026-10-16): the memory is a git clone pulled from origin,
+# and code taken from it is code its remote can ship. `mem trust-own-tool`
+# sets the switch (bin\_owntool.ps1); without it every module below comes
+# from the tool this script sits in.
+$OwnToolTrusted = $false
+$OwnToolLib = Join-Path $Here '_owntool.ps1'
+if (Test-Path -LiteralPath $OwnToolLib) { . $OwnToolLib; $OwnToolTrusted = Test-OwnToolTrusted $Root }
+
 $StdinJson = ''
 if ([Console]::IsInputRedirected) { $StdinJson = [Console]::In.ReadToEnd() }
 
@@ -104,7 +113,8 @@ if ([Console]::IsInputRedirected) { $StdinJson = [Console]::In.ReadToEnd() }
 # is a no-op.
 $AnswerJson = ''
 $Checker = $null
-foreach ($c in @((Join-Path $Root 'src/answercheck.mjs'), (Join-Path $Here '../src/answercheck.mjs'))) {
+foreach ($c in @($(if ($OwnToolTrusted) { Join-Path $Root 'src/answercheck.mjs' }), (Join-Path $Here '../src/answercheck.mjs'))) {
+  if (-not $c) { continue }
   if (Test-Path -LiteralPath $c) { $Checker = $c; break }
 }
 if ($Checker -and $StdinJson) {
@@ -135,7 +145,8 @@ process.stdin.on("end", () => {
 $ReportJson = ''
 if (-not $AnswerJson -and $StdinJson) {
   $Reporter = $null
-  foreach ($c in @((Join-Path $Root 'src/closingreport.mjs'), (Join-Path $Here '../src/closingreport.mjs'))) {
+  foreach ($c in @($(if ($OwnToolTrusted) { Join-Path $Root 'src/closingreport.mjs' }), (Join-Path $Here '../src/closingreport.mjs'))) {
+    if (-not $c) { continue }
     if (Test-Path -LiteralPath $c) { $Reporter = $c; break }
   }
   if ($Reporter) {
@@ -200,7 +211,8 @@ try {
 
 # --- 1) Capture (model-free, always) --------------------------------
 $Capture = $null
-foreach ($c in @((Join-Path $Root 'bin/mem-capture.ps1'), (Join-Path $Here 'mem-capture.ps1'))) {
+foreach ($c in @($(if ($OwnToolTrusted) { Join-Path $Root 'bin/mem-capture.ps1' }), (Join-Path $Here 'mem-capture.ps1'))) {
+  if (-not $c) { continue }
   if (Test-Path -LiteralPath $c) { $Capture = $c; break }
 }
 if ($Capture) {
@@ -279,7 +291,8 @@ if ($env:MEM_STOP_NO_PUSH -ne '1' -and (Test-Path -LiteralPath (Join-Path $Root 
 # --- 3) Reflect (model, opt-in only) --------------------------------
 if ($env:MEM_REFLECT -eq '1') {
   $Reflector = $null
-  foreach ($c in @((Join-Path $Root 'bin/mem-reflect.ps1'), (Join-Path $Here 'mem-reflect.ps1'))) {
+  foreach ($c in @($(if ($OwnToolTrusted) { Join-Path $Root 'bin/mem-reflect.ps1' }), (Join-Path $Here 'mem-reflect.ps1'))) {
+    if (-not $c) { continue }
     if (Test-Path -LiteralPath $c) { $Reflector = $c; break }
   }
   if ($Reflector) {

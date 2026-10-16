@@ -68,23 +68,43 @@ fi
 CHEAP_MEM_ROOT="$mem_root"
 export CHEAP_MEM_ROOT
 
-# **Where the TOOL is (hook-shims fix, 2026-10-16).** The memory and the
-# code are two checkouts as often as one: a memory made by `mem init`
-# carries no `bin/mem`, and the installer then tells every shim where the
-# code lives (CHEAP_MEM_CODE, see install/claude-code.sh). This hook alone
-# looked in the memory only, so on such an install it announced "NOT
-# attached" and loaded nothing, while pre-edit and subagent-start (which
-# do read CHEAP_MEM_CODE) worked. Same order as pre-edit.sh: the memory
-# first, then the code checkout the installer named. Nothing found: mem_bin
-# stays empty and the header below says so.
-mem_bin=""
-for tool_dir in "$CHEAP_MEM_ROOT" "${CHEAP_MEM_CODE:-}"; do
-  [ -n "$tool_dir" ] && [ -f "$tool_dir/bin/mem" ] && { mem_bin="$tool_dir/bin/mem"; break; }
+# **Where the TOOL is (hook-shims fix, 2026-10-16; trust rule tool-trust-cm,
+# 2026-10-16).** The memory and the code are two checkouts as often as one: a
+# memory made by `mem init` carries no `bin/mem`, and the installer then tells
+# every shim where the code lives (CHEAP_MEM_CODE, see install/claude-code.sh).
+# The order is: the INSTALLED tool (CHEAP_MEM_CODE), else the tool next to this
+# hook. The memory's own `bin/mem` only when the user switched that on, locally
+# (`mem trust-own-tool`): the memory is a git clone pulled from origin, so code
+# taken from it is code its remote can ship. cheap-mem-own-tool.sh (a copy of
+# bin/_owntool.sh) holds the rule. Nothing found: mem_bin stays empty and the
+# header below says so.
+SS_HERE="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=bin/_owntool.sh
+for own_lib in "$SS_HERE/cheap-mem-own-tool.sh" "$SS_HERE/../../bin/_owntool.sh"; do
+  [ "$own_lib" = "$SS_HERE/cheap-mem-own-tool.sh" ] || [ -d "$SS_HERE/../support" ] || continue
+  [ -f "$own_lib" ] && { . "$own_lib"; break; }
 done
-unset tool_dir
+unset own_lib
+mem_picked=""; MEM_OWN_SKIPPED=0
+if type mem_pick_tool >/dev/null 2>&1; then
+  mem_pick_tool "$CHEAP_MEM_ROOT" bin/mem "$SS_HERE"
+fi
+mem_bin="$mem_picked"
+# A memory that ships its own tool without the switch is not an error, but it
+# is not silent either: the session is told, once (this hook runs once per
+# session), which tool it got and how to change that.
+own_tool_note=""
+if type mem_own_ships >/dev/null 2>&1 && ! mem_own_tool_trusted "$CHEAP_MEM_ROOT" \
+   && { [ "$MEM_OWN_SKIPPED" = "1" ] || mem_own_ships "$CHEAP_MEM_ROOT"; }; then
+  if [ -n "$mem_bin" ]; then
+    own_tool_note="memory ships its own tool; using the installed one. To trust it: mem trust-own-tool"
+  else
+    own_tool_note="memory ships its own tool and no installed tool was found; nothing is loaded. To trust it: mem trust-own-tool"
+  fi
+fi
 # What the hints and the time-cap line show; set here, before anything uses it
 # (set -u: a variable first set at the bottom broke the cap branch, 2026-10-16).
-mem_show="${mem_bin:-$CHEAP_MEM_ROOT/bin/mem}"
+mem_show="${mem_bin:-${CHEAP_MEM_CODE:-<installed cheap-mem>}/bin/mem}"
 
 # **"attached" only when the tool is reachable (Z1c, external brief
 # 2026-09-30).** The header used to be printed as soon as a memory
@@ -97,7 +117,7 @@ mem_show="${mem_bin:-$CHEAP_MEM_ROOT/bin/mem}"
 if [ -n "$mem_bin" ]; then
   echo "=== cheap-mem attached ==="
 else
-  echo "=== cheap-mem NOT attached: memory found at $CHEAP_MEM_ROOT, but the tool ($CHEAP_MEM_ROOT/bin/mem) is missing ==="
+  echo "=== cheap-mem NOT attached: memory found at $CHEAP_MEM_ROOT, but no tool to read it with (installed: ${CHEAP_MEM_CODE:-not set}) ==="
   echo "Recent context, alarm state and today line: UNKNOWN (not loaded, not 'nothing')."
   if [ -n "${CHEAP_MEM_CODE:-}" ]; then
     # The installer baked a code path in. Name it: a checkout that was moved
@@ -109,6 +129,10 @@ else
   else
     echo "Fix: check out the tool into that memory, or re-run install/claude-code.sh from the code checkout (it sets CHEAP_MEM_CODE)."
   fi
+fi
+if [ -n "$own_tool_note" ]; then
+  echo "[hook] cheap-mem: $own_tool_note"
+  echo "[hook]   (run it yourself in a terminal: node ${CHEAP_MEM_CODE:-<installed cheap-mem>}/bin/mem trust-own-tool --root $CHEAP_MEM_ROOT; why: docs/security-model.md)"
 fi
 echo ""
 
@@ -297,10 +321,11 @@ fi
 # null (delivered); bytes and hits are not counted here (the block is
 # printed in several pieces — not measured is not 0). Best-effort and
 # silent: a measurement must not stop what it measures.
-for MEM_SS_CODE in "${CHEAP_MEM_CODE:-}" "$CHEAP_MEM_ROOT"; do
-  [ -n "$MEM_SS_CODE" ] && [ -f "$MEM_SS_CODE/src/injection.mjs" ] && break
-  MEM_SS_CODE=""
-done
+MEM_SS_CODE=""
+if type mem_pick_tool >/dev/null 2>&1; then
+  mem_pick_tool "$CHEAP_MEM_ROOT" src/injection.mjs "$SS_HERE"
+  [ -n "$mem_picked" ] && MEM_SS_CODE="$(dirname "$(dirname "$mem_picked")")"
+fi
 if [ -n "$MEM_SS_CODE" ]; then
   MEM_SS_START_MS="$MEM_SS_START_MS" MEM_SS_INPUT="$MEM_SS_IN" MEM_SS_SRC="$MEM_SS_CODE/src/injection.mjs" \
     node -e '

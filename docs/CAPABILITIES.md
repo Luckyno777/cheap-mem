@@ -27,7 +27,7 @@ the verification commands at the end.
 | **Corruption & rollback** | broken-line counting (never silent skipping), epoch watermark detecting a memory that went backwards, semantics version, integrity checks over the replacement graph | [4](#4-integrity) |
 | **Boundaries** | capability object as scope boundary, redaction before disk, structured-claims gateway (no prose emitted), resource limits and context quotas | [5](#5-boundaries) |
 | **Automation** | 7 Claude Code hooks (session start, recall per message, recall per file edit, recall after a failed or failure-printing tool call, subagent start, answer check and capture at stop), one model call per few hours, watcher, git as sync | [6](#6-automation) |
-| **Surfaces** | 87 CLI commands, 45 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
+| **Surfaces** | 88 CLI commands, 45 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
 | **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 4884 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
@@ -125,6 +125,7 @@ directory. The section number in brackets is where it is explained.
 | `entryops.mjs` | restore and merge as append-only operations: `mem restore` (a closed entry taken up again as a NEW line with `restored_from`) and `mem merge` (a correction of the first entry carrying `merged_from`, obsolete tombstones for the rest) — no line is ever rewritten (Bauplan P3) |
 | `entries-page.mjs` | `GET /entries`: the paged entry list rendered as a server page (same filters, cursor and `pages.page()` as `/entries.json`), a plain GET filter form and a next-page link, no script, nothing loaded from outside (D3b) |
 | `environment.mjs` | the guarantees cheap-mem does NOT provide itself |
+| `owntool.mjs` | whether a memory may run its OWN `bin/` and `src/`: the local, unversioned switch (one real path per line in `~/.config/cheap-mem/own-tool-roots`, `%APPDATA%\cheap-mem\` on Windows), its three states (missing, empty, broken), `mem trust-own-tool`. Default off: the hooks run the installed tool. `bin/_owntool.sh` and `bin/_owntool.ps1` are the twins the hooks source; `test/own-tool.test.mjs` holds the three to one answer (`docs/security-model.md` section 4.1) |
 | `envregister.mjs` | the register of every environment variable cheap-mem reads (default, meaning, kind), a scan that finds each read in `src/`, `bin/`, `install/` and `hooks/`, and the generated table of `docs/environment-variables.md`; `mem envvars`. A read without a row, or a row nobody reads, fails `test/envregister.test.mjs` |
 | `epoch.mjs` | noticing that the memory went backwards (4) |
 | `errorclass.mjs` | the closed vocabulary of twelve error classes (10.16) |
@@ -675,7 +676,7 @@ evidence, and a network answer that may be missing cannot carry a block.
 
 ## 7. Surfaces
 
-### 7.1 CLI — 87 commands
+### 7.1 CLI — 88 commands
 
 ```
 init whoami inbox log find discard done when show raw digest duties
@@ -688,6 +689,7 @@ find-embed find-hybrid raw-capture topic-merge archive chain user ledger
 asked-learn effect today modelcost gold skills restore merge supersede
 gaps suggest search-levers rewrites workflow snippet error-fixes
 experience command-guard appointment category envvars deadlines card
+trust-own-tool
 ```
 
 `mem appointment` is the calendar: reminders, a day briefing and agent actions

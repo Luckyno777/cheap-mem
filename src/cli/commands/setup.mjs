@@ -33,12 +33,13 @@ import * as capability from '../../capability.mjs';
 import * as board from '../../board.mjs';
 import * as errorcontext from '../../errorcontext.mjs';
 import * as codexcloud from '../../codexcloud.mjs';
+import * as owntool from '../../owntool.mjs';
 import { PKG_ROOT, out, die, warn, checkFlags, numberFlag, isHelp, findRoot, requireConfig } from '../shell.mjs';
 import { compactLine, countLines } from '../display.mjs';
 import { maskText } from '../../outputguard.mjs';
 import { installHook, proveHook, writeMergeDriver, writeMemoryGitignore, armHookIfRepo } from '../githook.mjs';
 
-/** 15 commands. */
+/** 16 commands. */
 export const COMMANDS = {
   init: async ({ args }) => {
     // **`--help` used to fall straight through into the body below.**
@@ -365,6 +366,77 @@ export const COMMANDS = {
       process.exit(r.ok ? 0 : 1);
     }
     die(`hooks: unknown subcommand '${rest[0]}'. Known: install, check`);
+  },
+
+  // The local switch that lets a memory run its OWN bin/ and src/ (tool-trust-cm,
+  // 2026-10-16). Not in bin/mem-mcp on purpose: a switch that decides whether
+  // downloaded code runs must not be one a model can flip through a tool call.
+  'trust-own-tool': async ({ args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem trust-own-tool [--off] [--status] [--non-interactive] [--root <memory>]',
+        '',
+        '  By default a memory runs NO code of its own: the hooks use the installed',
+        '  tool, never <memory>/bin or <memory>/src. A memory is a git clone that is',
+        '  pulled from its remote; code taken from it is code that remote can ship.',
+        '',
+        '  mem trust-own-tool            let THIS memory run its own bin/ and src/',
+        '  mem trust-own-tool --off      withdraw that again',
+        '  mem trust-own-tool --status   show whether it is on, and where the switch lives',
+        '',
+        '  The switch is one line in a file outside every repository',
+        `  (${owntool.switchFile()}); a git pull cannot write it.`,
+        '  Setting it needs a terminal, because it is a decision for a person.',
+        '  --non-interactive  for a provisioning script that runs it on purpose.',
+        '',
+        '  After setting it, run the installer again (mem setup claude) so that',
+        '  `node <memory>/bin/mem` is also allowed without asking. See docs/security-model.md.',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['off', 'status', 'non-interactive'], 'trust-own-tool');
+    const root = findRoot(args);
+    requireConfig(root);
+    const st = owntool.trustState(root);
+    const ships = owntool.shipsOwnTool(root);
+    const describe = () => {
+      out(`memory:  ${root}`);
+      out(`switch:  ${st.trusted ? 'ON - this memory may run its own bin/ and src/' : 'OFF - the installed tool is used'}`);
+      out(`file:    ${st.file} (${st.state})`);
+      out(`ships its own tool: ${ships ? 'yes' : 'no'}`);
+      if (st.state === 'broken') out(`! the switch file cannot be read (${st.error}); nothing is trusted until it can.`);
+    };
+    if (args.status) {
+      if (args.off || args['non-interactive']) die('trust-own-tool: --status takes no other flag.');
+      describe();
+      return;
+    }
+    if (args.off) {
+      if (args['non-interactive']) die('trust-own-tool: --off needs no --non-interactive.');
+      let r;
+      try { r = owntool.setTrusted(root, false); } catch (e) { die(`trust-own-tool: ${e.message}`); }
+      out(r.changed ? `Trust withdrawn for ${root}. The installed tool is used again.` : `Not trusted before: nothing to withdraw for ${root}.`);
+      out('Run the installer again (mem setup claude) to drop `node <memory>/bin/mem` from the allow list.');
+      return;
+    }
+    const terminal = process.stdin.isTTY && process.stdout.isTTY;
+    if (!terminal && !args['non-interactive']) {
+      die([
+        'trust-own-tool: refused - this needs a terminal.',
+        '  It lets the memory run its own code. That is a decision for a person at a',
+        '  keyboard, not for a script, a hook or a model; no note in the memory can ask for it.',
+        '  Run it yourself, or from a provisioning script pass --non-interactive.',
+        '  Nothing was changed.',
+      ].join('\n'));
+    }
+    if (!ships) warn('this memory ships no tool of its own (no bin/mem*); the switch has no effect until it does.');
+    let r;
+    try { r = owntool.setTrusted(root, true); } catch (e) { die(`trust-own-tool: ${e.message}`); }
+    out(r.changed ? `Trusted: ${root}` : `Already trusted: ${root}`);
+    out(`  switch file: ${r.file}`);
+    out('  From the next hook on, this memory may run its own bin/ and src/ (before the installed tool).');
+    out('  Whoever can push to its remote can now run code here. Withdraw with: mem trust-own-tool --off');
+    out('  Run the installer again (mem setup claude) to also allow `node <memory>/bin/mem` without asking.');
   },
 
   paths: async ({ args }) => {

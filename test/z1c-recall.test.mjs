@@ -254,8 +254,8 @@ test('start hook: without bin/mem it says NOT attached and UNKNOWN; with it, att
   fs.writeFileSync(path.join(mem, '.mem', 'config.json'), '{}');
   const oldPath = path.join(home, 'old-start.sh');
   fs.writeFileSync(oldPath, oldSrc);
-  const go = (script) => spawnSync('bash', [script], { input: '{"session_id":"s"}', encoding: 'utf8', timeout: 30000,
-    env: { PATH: process.env.PATH, HOME: home, CHEAP_MEM_ROOT: mem, MEM_HOOK_OFF: '' } });
+  const go = (script, extra = {}) => spawnSync('bash', [script], { input: '{"session_id":"s"}', encoding: 'utf8', timeout: 30000,
+    env: { PATH: process.env.PATH, HOME: home, CHEAP_MEM_ROOT: mem, MEM_HOOK_OFF: '', ...extra } });
   try {
     const before = go(oldPath).stdout;
     assert.match(before, /=== cheap-mem attached ===/, 'RED: start commit claims attached without the tool');
@@ -263,9 +263,12 @@ test('start hook: without bin/mem it says NOT attached and UNKNOWN; with it, att
     assert.doesNotMatch(after, /cheap-mem attached/);
     assert.match(after, /NOT attached/);
     assert.match(after, /UNKNOWN/);
-    // positive control: with the tool present it is attached again
-    fs.mkdirSync(path.join(mem, 'bin'));
-    fs.writeFileSync(path.join(mem, 'bin', 'mem'), '#!/usr/bin/env node\n');
-    assert.match(go(path.join(CODE, 'install', 'hooks', 'session-start.sh')).stdout, /=== cheap-mem attached ===/);
+    // positive control: with the INSTALLED tool present (CHEAP_MEM_CODE) it is attached again. The
+    // memory's own bin/mem is not enough any more: it is not run unless the user trusted it
+    // (tool-trust-cm); test/own-tool.test.mjs holds that rule.
+    const code = path.join(home, 'installed');
+    fs.mkdirSync(path.join(code, 'bin'), { recursive: true });
+    fs.writeFileSync(path.join(code, 'bin', 'mem'), '#!/usr/bin/env node\n');
+    assert.match(go(path.join(CODE, 'install', 'hooks', 'session-start.sh'), { CHEAP_MEM_CODE: code }).stdout, /=== cheap-mem attached ===/);
   } finally { teardown(home); }
 });

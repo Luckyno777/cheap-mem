@@ -139,13 +139,18 @@ if [ -z "$MASKED_COPY" ] || [ ! -f "$MASKED_COPY" ]; then
 fi
 TRANSCRIPT_PATH="$MASKED_COPY"
 
+# The model is told to run THIS tool (the one this script sits in), never the
+# memory's own bin/mem: a memory is a git clone pulled from origin, and the
+# permission list names only the installed tool (tool-trust-cm, 2026-10-16).
+TOOL_CMD="node $HERE/mem --root \$CHEAP_MEM_ROOT"
+
 DEFAULT_PROMPT="You are the reflector for cheap-mem. Read the transcript at \$TRANSCRIPT_PATH (env). It is a masked copy: secrets in it are already replaced by [REDACTED:...] markers, and you never need the original. Decide whether anything substantial happened since the last reflect (marker-based throttling handled the trigger; you decide relevance).
 
 If YES, write ONE inbox message to the librarian summarizing what you saw, and log at most three JSONL entries (event, decision, error — whichever fits). Use absolute paths since your cwd is NOT the memory root:
 
   git -C \$CHEAP_MEM_ROOT pull --ff-only
-  node \$CHEAP_MEM_ROOT/bin/mem log <type> --title ... --tags ...
-  node \$CHEAP_MEM_ROOT/bin/mem inbox write --as session --to librarian --subject ... < body.md
+  $TOOL_CMD log <type> --title ... --tags ...
+  $TOOL_CMD inbox write --as session --to librarian --subject ... < body.md
   git -C \$CHEAP_MEM_ROOT add -A
   git -C \$CHEAP_MEM_ROOT commit -m 'reflect: <summary>'
   git -C \$CHEAP_MEM_ROOT push origin HEAD:main

@@ -14,6 +14,26 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Security - a memory no longer runs its own code unless the user says so (tool-trust-cm; Lucky's decision 2026-10-16: only the installed tool, the exception by switch)
+
+- **The hole.** All seven Claude Code hook shims looked for `<memory>/bin/mem-retrieve` (and the six others) BEFORE the installed tool (`CHEAP_MEM_CODE`). `bin/mem-retrieve`, `bin/mem-before-edit`,
+  `bin/mem-after-failure` and `bin/mem-catch-fail` then preferred `<memory>/bin/mem` and loaded `<memory>/src/*.mjs`; `bin/mem-stop` took `src/answercheck.mjs`, `src/closingreport.mjs`, `bin/mem-capture` and
+  `bin/mem-reflect` from the memory, `bin/mem-subagent-start` took `src/subagentstart.mjs`, the session-start hook ran `<memory>/bin/mem`, and the installer allowed `Bash(node <memory>/bin/mem:*)`.
+  `mem-retrieve` pulls the memory from origin every ten minutes, so whoever could push there ran code at every prompt. Proof against base 151eb2f: a scratch memory with marker-writing
+  `bin/mem-retrieve`, `bin/mem` and five more hook scripts, hooks installed into a scratch HOME, every installed shim started: all seven markers appeared. Now none does; with the switch all seven do.
+- **The rule.** The installed tool first (`CHEAP_MEM_CODE`), else the tool next to the script. The memory's own `bin/` and `src/` only when the user switched that on, locally and outside every repository.
+  A checkout that lies inside the memory counts as the memory's own. One rule, three implementations that are held to the same answer: `src/owntool.mjs` (the command), `bin/_owntool.sh`
+  (installed next to the shims as `cheap-mem-own-tool.sh`) and `bin/_owntool.ps1` (`cheap-mem-own-tool.ps1`). Anything unreadable means "not trusted".
+- **The switch.** `mem trust-own-tool [--off] [--status]` writes one line (the memory's real path) to `${XDG_CONFIG_HOME:-~/.config}/cheap-mem/own-tool-roots` (Windows `%APPDATA%\cheap-mem\`).
+  Not `.mem/config.json` (versioned: the remote would set it), not `.git/config` (needs a `git` start on every prompt, a memory need not be a repository). A `git pull` cannot write it.
+  The command needs a terminal (`--non-interactive` for provisioning), is on the installer's DENY list and is not an MCP tool. New command, so `src/cli/command-index.mjs`, the help block, README and quickstart.
+- **Permissions.** `install/claude-code.sh` and `install/windows.ps1` allow `node <installed tool>/bin/mem:*` always and `node <memory>/bin/mem:*` only with the switch; an entry an earlier run wrote is removed
+  when the switch is off. `mem-handle-post`, `mem-reflect` and the sub-agent hint now tell the model to call the installed tool (they named `<memory>/bin/mem`).
+- **No silent deviation.** A memory that ships its own tool with the switch off: the session start says once `memory ships its own tool; using the installed one. To trust it: mem trust-own-tool`;
+  with no installed tool it says nothing is loaded, and the other hooks' tool-missing message (`MEM_OWN_SKIPPED`, now also spoken without `CHEAP_MEM_CODE`) says why.
+- **Changed behaviour.** An existing install whose memory carries its own tool (a lucky-mem style memory) runs the installed tool after this change until `mem trust-own-tool` is run for it and the installer
+  is run again. `docs/security-model.md` section 4.1 and threat row T10; guard `test/own-tool.test.mjs`. `CHEAP_MEM_CODE`'s register row changed from "memory first" to "installed first".
+
 ### Fixed - review of the hook-shim fix: the time-cap branch, a dead code path, an apostrophe in a path (hook-shims-code-cm, second round)
 
 - **The start hook died when the alarm hit its time cap.** `install/hooks/session-start.sh` named `$mem_show` in the "alarm hit its time cap" line, but set it only at the bottom; under `set -u`

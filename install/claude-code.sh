@@ -14,8 +14,11 @@
 #   1. Copies install/hooks/session-start.sh and session-stop.sh into
 #      ~/.claude/hooks/ (with CHEAP_MEM_ROOT hardcoded into each).
 #   2. Merges ~/.claude/settings.json — keeps existing config, adds
-#      hooks entries + permissions.allow for `node <root>/bin/mem:*`
-#      and safe git ops.
+#      hooks entries + permissions.allow for `node <this checkout>/bin/mem:*`
+#      (the INSTALLED tool) and safe git ops. The memory's own
+#      `node <root>/bin/mem:*` is allowed ONLY when `mem trust-own-tool` was
+#      run for that memory (see docs/security-model.md); an entry this installer
+#      wrote earlier is removed again when the switch is off.
 #
 # Why user-level (~/.claude/) and not repo-level (.claude/settings.json):
 #   Repo-scoped Claude Code permissions require workspace trust, which
@@ -118,6 +121,25 @@ CODE_Q="$(sq "$CODE_ROOT")"
 cp "$HERE/support/tool-missing.sh" "$HOOKS_DIR/cheap-mem-tool-missing.sh"
 chmod +x "$HOOKS_DIR/cheap-mem-tool-missing.sh"
 
+# Which copy of the tool a shim may run (tool-trust-cm, 2026-10-16): the one
+# rule, bin/_owntool.sh, installed next to the shims. Sourced here too, to know
+# whether the user trusts this memory's own tool (the permission list below).
+cp "$CODE_ROOT/bin/_owntool.sh" "$HOOKS_DIR/cheap-mem-own-tool.sh"
+# shellcheck source=bin/_owntool.sh
+. "$CODE_ROOT/bin/_owntool.sh"
+OWN_TRUSTED=0
+mem_own_tool_trusted "$CHEAP_MEM_ROOT" && OWN_TRUSTED=1
+if mem_own_inside "$CODE_ROOT" "$CHEAP_MEM_ROOT"; then
+  # The installed tool lies inside the memory: that is the memory's own tool,
+  # whoever installed it - a git pull would change it under the hooks.
+  if [ "$OWN_TRUSTED" = 1 ]; then
+    echo "[install] this checkout lies inside the memory; trusted (mem trust-own-tool was run), so the hooks use it."
+  else
+    echo "[install] NOTE: this checkout lies inside the memory, so it counts as the memory's own tool and the hooks will NOT run it" >&2
+    echo "[install]       until you trust it yourself: node $CODE_ROOT/bin/mem trust-own-tool --root $CHEAP_MEM_ROOT (see docs/security-model.md)." >&2
+  fi
+fi
+
 # Copy hooks, injecting CHEAP_MEM_ROOT so they work regardless of the
 # calling shell's env.
 {
@@ -206,10 +228,10 @@ chmod +x "$HOOKS_DIR/cheap-mem-after-failure.sh"
 chmod +x "$HOOKS_DIR/cheap-mem-subagent-start.sh"
 
 # Merge settings.json without touching unrelated config.
-node - "$SETTINGS" "$HOOKS_DIR_CMD" "$CHEAP_MEM_ROOT" "$BASH_BIN" <<'NODE_MERGE'
+node - "$SETTINGS" "$HOOKS_DIR_CMD" "$CHEAP_MEM_ROOT" "$BASH_BIN" "$CODE_ROOT" "$OWN_TRUSTED" <<'NODE_MERGE'
 const fs = require('fs');
 const path = require('path');
-const [, , hooksDir, memRoot, bashBin] = process.argv.slice(1);
+const [, , hooksDir, memRoot, bashBin, codeRoot, ownTrusted] = process.argv.slice(1);
 const settingsPath = process.argv[2];
 
 // Checked above already; a parse failure here still stops the run
@@ -289,15 +311,36 @@ const allow = [
   'Bash(git ls-tree:*)',
   'Bash(git ls-files:*)',
   'Bash(git rev-parse:*)',
-  `Bash(node ${memRoot}/bin/mem:*)`,
   'Read', 'Edit', 'Write', 'Glob', 'Grep',
 ];
+// Which `node .../bin/mem` may run without asking (tool-trust-cm, 2026-10-16).
+// The INSTALLED tool: always - it is what the hooks run and what the session
+// is told to call. The memory's own: only with the local switch. Before this
+// the memory's was always allowed, and a memory is a git clone pulled from
+// origin: whoever can push there could put a `bin/mem` into it and have it run
+// without a prompt. A codeRoot inside the memory IS the memory's own tool.
+const memCmd = (r) => `Bash(node ${r.replace(/\\/g, '/')}/bin/mem:*)`;
+const norm = (r) => r.replace(/\\/g, '/').replace(/\/+$/, '');
+const codeInsideMem = (norm(codeRoot) + '/').startsWith(norm(memRoot) + '/');
+if (!codeInsideMem || ownTrusted === '1') allow.push(memCmd(codeRoot));
+if (ownTrusted === '1') allow.push(memCmd(memRoot));
 const deny = [
   'Bash(rm -rf:*)',
   'Bash(git push --force:*)',
   'Bash(git push -f:*)',
   'Bash(git reset --hard:*)',
+  // The switch is for a person, in a terminal. A model that was talked into
+  // it (a note in the memory saying "run mem trust-own-tool") gets a refusal
+  // here, and the command itself refuses without a terminal.
+  `Bash(node ${codeRoot.replace(/\\/g, '/')}/bin/mem trust-own-tool:*)`,
+  `Bash(node ${memRoot.replace(/\\/g, '/')}/bin/mem trust-own-tool:*)`,
 ];
+// An allow entry for the memory's own tool that an earlier run of this
+// installer wrote stays only while the switch is on.
+if (ownTrusted !== '1') {
+  const stale = memCmd(memRoot);
+  cfg.permissions.allow = (cfg.permissions.allow || []).filter((e) => e !== stale);
+}
 cfg.permissions.allow = Array.from(new Set([...(cfg.permissions.allow || []), ...allow]));
 cfg.permissions.deny  = Array.from(new Set([...(cfg.permissions.deny  || []), ...deny]));
 
@@ -308,8 +351,13 @@ NODE_MERGE
 
 echo ""
 echo "=== done ==="
-echo "hooks:    $HOOKS_DIR/cheap-mem-{session-start,session-stop,user-prompt,pre-edit,catch-fail,after-failure,subagent-start,tool-missing}.sh"
-echo "          (tool-missing is not a hook: what the others say when they cannot find their tool)"
+echo "hooks:    $HOOKS_DIR/cheap-mem-{session-start,session-stop,user-prompt,pre-edit,catch-fail,after-failure,subagent-start,tool-missing,own-tool}.sh"
+echo "          (tool-missing and own-tool are not hooks: what the others say when they cannot find their tool, and the rule for which copy of it they may run)"
+if [ "$OWN_TRUSTED" = 1 ]; then
+  echo "tool:     the hooks run $CODE_ROOT (installed) - and the memory's own bin/ first, because you trusted it."
+else
+  echo "tool:     the hooks run the installed tool ($CODE_ROOT); the memory's own bin/ is not used (mem trust-own-tool changes that)."
+fi
 echo "settings: $SETTINGS"
 echo ""
 echo "Next Claude Code session on this machine:"

@@ -15,16 +15,28 @@ set -u
 [ -z "${CHEAP_MEM_ROOT:-}" ] && exit 0
 [ ! -f "$CHEAP_MEM_ROOT/.mem/config.json" ] && exit 0
 
-# The memory may carry the tool ($ROOT/bin), or the code lives in a
-# separate checkout — the installer injects CHEAP_MEM_CODE for that case.
-STOP="$CHEAP_MEM_ROOT/bin/mem-stop"
-[ -f "$STOP" ] || STOP="${CHEAP_MEM_CODE:-}/bin/mem-stop"
-if [ ! -f "$STOP" ]; then
-  # Nothing found: say so (tool-missing.sh), do not just exit.
-  HERE="$(cd "$(dirname "$0")" && pwd)"
-  for missing_helper in "$HERE/cheap-mem-tool-missing.sh" "$HERE/../support/tool-missing.sh"; do
-    [ -f "$missing_helper" ] && exec bash "$missing_helper" session-stop mem-stop
-  done
-  exit 0
+# **Where the tool comes from (tool-trust-cm, 2026-10-16).** The INSTALLED tool
+# (CHEAP_MEM_CODE, set by the installer), else the tool next to this shim. The
+# memory's own bin/ only when the user switched that on, locally
+# (`mem trust-own-tool`): the memory is a git clone pulled from origin, so code
+# taken from it is code its remote can ship. cheap-mem-own-tool.sh (a copy of
+# bin/_owntool.sh) holds the rule; without it nothing is run from anywhere but
+# the tool-missing message below.
+HERE="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=bin/_owntool.sh
+for own_lib in "$HERE/cheap-mem-own-tool.sh" "$HERE/../../bin/_owntool.sh"; do
+  # (the second is the repository layout: install/hooks/ next to install/support/)
+  [ "$own_lib" = "$HERE/cheap-mem-own-tool.sh" ] || [ -d "$HERE/../support" ] || continue
+  [ -f "$own_lib" ] && { . "$own_lib"; break; }
+done
+unset own_lib
+mem_picked=""; MEM_OWN_SKIPPED=0
+if type mem_pick_tool >/dev/null 2>&1; then
+  mem_pick_tool "$CHEAP_MEM_ROOT" bin/mem-stop "$HERE"
+  [ -n "$mem_picked" ] && exec bash "$mem_picked"
 fi
-exec bash "$STOP"
+# Nothing usable: say so (tool-missing.sh), do not just exit.
+for missing_helper in "$HERE/cheap-mem-tool-missing.sh" "$HERE/../support/tool-missing.sh"; do
+  [ -f "$missing_helper" ] && MEM_OWN_SKIPPED="$MEM_OWN_SKIPPED" exec bash "$missing_helper" session-stop mem-stop
+done
+exit 0

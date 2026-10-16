@@ -63,6 +63,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isMain } from './ismain.mjs';
+import * as ownTool from './owntool.mjs';
 
 export const CODE_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -430,7 +431,9 @@ function silentHooks(settingsPaths = []) {
           // of another make, or an older shim, is not accused.
           if (code === undefined) continue;
           const has = (d) => d && fs.existsSync(path.join(d, 'bin', 'mem'));
-          if (!has(code) && !has(root)) out.push({ hook: path.basename(script), code });
+          // The memory's own tool counts only when the user trusted it (src/owntool.mjs):
+          // otherwise the shim passes it over, and a shim with nothing else is silent.
+          if (!has(code) && !(has(root) && ownTool.isTrusted(root))) out.push({ hook: path.basename(script), code });
         }
       }
     }
@@ -476,7 +479,8 @@ export function judge({ codeRoot = CODE_ROOT, settingsPaths = [], matrix = MATRI
       text: `${silent.length} registered hook(s) are SILENT, the code path baked into them has no tool: `
         + silent.slice(0, 4).map((x) => `${x.hook} (CHEAP_MEM_CODE=${x.code})`).join('; ')
         + (silent.length > 4 ? ` (+${silent.length - 4})` : ''),
-      advice: 'The checkout the installer pointed at was moved or deleted, so recall does not run. '
+      advice: 'The checkout the installer pointed at was moved or deleted, so recall does not run (a memory\'s own bin/ is not used '
+        + 'unless you ran `mem trust-own-tool` for it). '
         + 'Run install/claude-code.sh (Windows: install/windows.ps1) from a current cheap-mem checkout, or `mem setup claude`.',
     };
   }

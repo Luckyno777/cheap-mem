@@ -589,6 +589,10 @@ mem effect                     share of injections named/opened/edited afterward
 mem hooks install|check        arm and prove the secret check
 mem hooks install --pre-push   also warn (never block) when a push to the default
                                branch has no green CI run (reads CI via gh)
+mem trust-own-tool [--off|--status]
+                               let THIS memory run its own bin/ and src/ (off by
+                               default: the hooks use the installed tool; needs a
+                               terminal; docs/security-model.md section 4.1)
 mem doctor                     is this memory healthy?
 mem doctor --alarm             ONLY what is down right now; silent when
                                nothing is. The session-start hook prints it.
@@ -758,6 +762,13 @@ claude mcp add cheap-mem -- node ~/cheap-mem/bin/mem-mcp
 Either way it is idempotent — run it again after moving the memory and
 it re-points. It drops 7 hooks into `~/.claude/hooks/` and merges
 the needed permissions into `~/.claude/settings.json`:
+
+The hooks run the **installed** tool (the checkout you ran the installer from),
+never code that came with the memory: a memory is a git clone, and its remote
+could ship anything. A memory that carries its own `bin/` is told apart at
+session start. If you do trust that memory's remote, say so once, yourself, in a
+terminal: `mem trust-own-tool`, then run the installer again so `node <memory>/bin/mem`
+is allowed without asking. Details: [docs/security-model.md](docs/security-model.md), section 4.1.
 
 - **SessionStart** — prints `FACTS.md` + context at the top of a session.
 - **UserPromptSubmit** — on *every* message, recalls matching memory

@@ -40,14 +40,17 @@ done
 # Two shapes, same as mem-before-edit: the memory carries the module
 # itself, or a separate code checkout does (CHEAP_MEM_CODE, set by the
 # installer for exactly this case).
-MODULE=""
-if   [ -f "$ROOT/src/subagentstart.mjs" ]; then MODULE="$ROOT/src/subagentstart.mjs"
-elif [ -n "${CHEAP_MEM_CODE:-}" ] && [ -f "$CHEAP_MEM_CODE/src/subagentstart.mjs" ]; then
-  MODULE="$CHEAP_MEM_CODE/src/subagentstart.mjs"
-else
-  HERE="$(cd "$(dirname "$(to_slashes "$0")")" && pwd)"
-  [ -f "$HERE/../src/subagentstart.mjs" ] && MODULE="$HERE/../src/subagentstart.mjs"
-fi
+#
+# **Not the memory's copy unless the user switched that on (tool-trust-cm,
+# 2026-10-16):** the memory is a git clone pulled from origin, and a module
+# taken from it is code its remote can ship. `mem trust-own-tool` sets the
+# switch; bin/_owntool.sh picks: the memory's copy (switch only), else the
+# installed tool (CHEAP_MEM_CODE), else the tool this script sits in.
+# shellcheck source=bin/_owntool.sh
+if [ -f "$SELF_DIR/_owntool.sh" ]; then . "$SELF_DIR/_owntool.sh"
+else mem_pick_tool() { mem_picked=""; [ -f "$SELF_DIR/../$2" ] && mem_picked="$SELF_DIR/../$2"; return 0; }; fi
+mem_pick_tool "$ROOT" src/subagentstart.mjs "$SELF_DIR"
+MODULE="$mem_picked"
 [ -z "$MODULE" ] && exit 0
 
 # The stdin JSON carries session_id and the assignment text (`prompt`):

@@ -52,7 +52,7 @@ export const KINDS = Object.freeze({
  * They are read, but nobody configures cheap-mem through them.
  */
 export const STANDARD = Object.freeze([
-  'HOME', 'USER', 'USERNAME', 'LOGNAME', 'USERPROFILE', 'APPDATA', 'PATH', 'TMPDIR', 'SSH_CONNECTION',
+  'HOME', 'USER', 'USERNAME', 'LOGNAME', 'USERPROFILE', 'APPDATA', 'XDG_CONFIG_HOME', 'PATH', 'TMPDIR', 'SSH_CONNECTION',
 ]);
 
 const sw = (name, kind, def, meaning) => ({ name, kind, default: def, meaning });
@@ -62,7 +62,8 @@ const OFF = (what) => `${what} is switched off by \`1\``;
 export const REGISTER = Object.freeze([
   // --- where the memory lives --------------------------------------------------
   sw('CHEAP_MEM_ROOT', PATH, 'not set (the CLI walks up from the current directory to a `.mem/config.json`)', 'The memory root. The installer writes it into every hook; the CLI, the hooks and the servers read it.'),
-  sw('CHEAP_MEM_CODE', PATH, 'not set (the hooks look for the tool in the memory root, then next to themselves)', 'Where the cheap-mem code lives when it is not the memory root itself. The installer writes it into all seven Claude Code hook shims (session start, prompt recall, before-edit, swallowed failure, real failure, sub-agent start, stop); each looks for its tool in the memory root first and here second. When the path points at nothing, the shim says so (a `systemMessage`, at most every 30 minutes) instead of staying silent.'),
+  sw('CHEAP_MEM_CODE', PATH, 'not set (the hooks use the tool next to themselves)', 'Where the INSTALLED cheap-mem code lives. The installer writes it into all seven Claude Code hook shims (session start, prompt recall, before-edit, swallowed failure, real failure, sub-agent start, stop); each runs its tool from here first and from next to itself second. A memory\'s own bin/ and src/ are used only when `mem trust-own-tool` switched that on for it. When no tool can be found, the shim says so (a `systemMessage`, at most every 30 minutes) instead of staying silent.'),
+  sw('MEM_OWN_SKIPPED', INTERNAL, 'set by the hook shim', 'Hand-over from a hook shim to the tool-missing message: `1` when the memory ships its own tool, the user never trusted it (`mem trust-own-tool`) and no installed tool could take its place.'),
   sw('CHEAP_MEM_STORE_INTAKE', PATH, 'not set (only `store/intake` under the memory root)', 'Extra folders (a `:`-separated list, `;` on Windows) the MCP bridge may read files from for `mem_store_put`. Absolute paths only (a relative entry is ignored and named in the refusal). Compared by real path; a symlink out of a folder does not count. `/` opens everything: that is the operator\'s decision. The CLI (`mem store put`) reads any path.'),
   sw('CHEAP_MEM_PKG', PATH, 'set by the git hook installer', 'The package directory the installed git hooks call back into.'),
   sw('CHEAP_MEM_ARCHIVE', PATH, 'not set (`raw/YYYY/MM/` inside the root, or the place `mem archive` recorded)', 'Where the raw archive is kept; a mount outside the repository.'),

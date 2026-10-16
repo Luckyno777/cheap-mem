@@ -117,7 +117,7 @@ test('buildContext: with a tagged procedure, its marking and rule text are in th
     assert.match(text, /Procedure, issued by owner on \d{4}-\d{2}-\d{2}/);
     assert.match(text, /Own worktree, own branch/);
     assert.match(text, /Every agent assignment gets its own worktree/);
-    assert.match(text, /mem component <path>/);
+    assert.match(text, /component <path>/);
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });
 
@@ -142,7 +142,7 @@ test('buildContext: never exceeds its own cap, even with a very large procedures
       // total is allowed to exceed CAP_CHARS. What must hold is that the
       // hint is still appended and the recap contributed nothing.
       `block: ${text.length} chars`);
-    assert.match(text, /mem component <path>/);
+    assert.match(text, /component <path>/);
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });
 
