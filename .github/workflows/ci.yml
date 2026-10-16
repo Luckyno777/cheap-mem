@@ -62,7 +62,7 @@ jobs:
       # old state either fail on missing objects (red, no statement about
       # the new code) or are skipped (NO_OLD in dash-run-cm-browser: a skip
       # is "not measured", and it hides). Only the jobs that run the whole
-      # suite need it (tests, coverage).
+      # suite need it (tests, coverage), and verify, whose mutants re-run those suites.
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
@@ -1386,11 +1386,18 @@ jobs:
     # and worth every second of it.
     timeout-minutes: 25
     steps:
+      # fetch-depth: 0 here too: mutation runs suites whose red proofs read a FIXED old commit
+      # (test/redaction-object-keys.test.mjs), and on a one-commit checkout the baseline is red
+      # before any mutant runs ("not a tree object", CI run 1060).
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
+      - name: history complete, probe baselines present
+        run: node bench/ci-history-check.mjs
       - run: npm ci --omit=optional
 
       # Type check: CI only, via npx, NO entry in package.json (no
