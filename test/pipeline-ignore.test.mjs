@@ -104,7 +104,7 @@ test('MUTATION: a writer that forgets the rule is caught by the first probe', (t
   assert.notDeepEqual(tracked(root), [], 'without the rule the probe must see tracked files');
 });
 
-// ---- a memory that ALREADY committed .pipeline/* (review: the doctor said "ok" for exactly these) ----------------------
+// ---- a memory that ALREADY committed files under .pipeline/ (review: the doctor said "ok" for exactly these) ----------------------
 
 function committedBeforeTheRule(t) {
   const root = memory(t);
@@ -281,7 +281,9 @@ test('a memory that committed runtime paths of .mem - folders, single files and 
   assert.match(f.text, /STILL TRACKS 6 runtime file\(s\) \(2 in \.mem\/before-edit, 1 in \.mem\/component-table\.json/);
   assert.doesNotMatch(JSON.stringify(f), /\.pipeline/);
   const cmd = /`(git rm --cached -r [^`]+)`/.exec(f.advice)?.[1];
-  assert.equal(cmd, "git rm --cached -r .mem/before-edit .mem/component-table.json '.mem/*.lock' '.mem/*.lock.d/*'");
+  // (the star is built from parts: slash and star side by side in a string open a block comment for the source scanners)
+  const star = '*';
+  assert.equal(cmd, `git rm --cached -r .mem/before-edit .mem/component-table.json '.mem/${star}.lock' '.mem/${star}.lock.d/${star}'`);
   runAdvice(root, cmd);
   git(root, 'commit', '-q', '-m', 'untrack');
   assert.equal(doctor.checkGitignoreEffective(root).level, 'good');

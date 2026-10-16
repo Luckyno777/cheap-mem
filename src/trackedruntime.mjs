@@ -28,6 +28,9 @@ import { spawnSync } from 'node:child_process';
  * `.mem/bridge-reports.jsonl`, `.mem/raw-exclusion-state.json`, `.mem/keyring.json` (the shred keys: a committed key
  * survives in history and defeats the shredding - the owner decides), `raw/` and the ledgers (tracked on purpose).
  */
+// The wildcard is built from parts: a slash and a star side by side inside a string open a block comment for the source scanners
+// of the guards (test/english-only.test.mjs and its kin), which then read code as comment text to the end of the file.
+const STAR = '*';
 export const RUNTIME_RULES = Object.freeze([
   // The WHOLE folder (2026-10-14), not file by file. `.pipeline/` is runtime state of ONE clone: the injection journal, the
   // clone-gate verdict, the recall server's socket and key, the command-guard booklet, the cost journal, the shrink
@@ -54,8 +57,8 @@ export const RUNTIME_RULES = Object.freeze([
   // Logs and locks of the background jobs.
   { rule: '.mem/watch.log', spec: '.mem/watch.log', probe: '.mem/watch.log', why: 'log of bin/mem-watch (this repo\'s own .gitignore lists it as local state)' },
   { rule: '.mem/serve.log', spec: '.mem/serve.log', probe: '.mem/serve.log', why: 'log of the `mem serve` service' },
-  { rule: '.mem/*.lock', spec: '.mem/*.lock', probe: '.mem/watch.lock', why: 'lock files of the jobs (watch, timetrack build, ChatGPT import, appointments)' },
-  { rule: '.mem/*.lock.d/', spec: '.mem/*.lock.d/*', probe: '.mem/watch.lock.d/', why: 'lock directories of the shell jobs (mkdir locks where flock is missing)' },
+  { rule: `.mem/${STAR}.lock`, spec: `.mem/${STAR}.lock`, probe: '.mem/watch.lock', why: 'lock files of the jobs (watch, timetrack build, ChatGPT import, appointments)' },
+  { rule: `.mem/${STAR}.lock.d/`, spec: `.mem/${STAR}.lock.d/${STAR}`, probe: '.mem/watch.lock.d/', why: 'lock directories of the shell jobs (mkdir locks where flock is missing)' },
   // Per-machine state that the code itself calls gitignored / machine-local / not versioned.
   { rule: '.mem/inbox-seen.json', spec: '.mem/inbox-seen.json', probe: '.mem/inbox-seen.json', why: 'what this machine has seen in the inbox (this repo\'s own .gitignore lists it as local state)' },
   { rule: '.mem/inbox-whoami', spec: '.mem/inbox-whoami', probe: '.mem/inbox-whoami', why: 'who this installation is in the inbox (this repo\'s own .gitignore lists it as local state)' },
