@@ -167,7 +167,7 @@ test('a directory that cannot be made: the hook answers all the same', (t) => {
 test('mem_compile_cache by platform: Linux with and without XDG_CACHE_HOME, macOS, Git Bash on Windows, no HOME', (t) => {
   const scratch = tempDir('cm-cc-fn-', t);
   // Prints the HOME the shell itself sees, then the cache it chose. Git Bash (MSYS2) turns a Windows HOME into its
-  // POSIX form when it starts (CI run 1074: C:/Users/RUNNER~1/AppData/Local/Temp/... came back as /tmp/...), so on
+  // POSIX form when it starts (CI run 1074: the drive path of the user temp directory came back as /tmp/...), so on
   // Windows the expected paths are built from what bash reports; everywhere else bash must see the HOME it was
   // handed, byte for byte.
   const probe = (pre, env) => {

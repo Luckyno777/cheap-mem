@@ -55,8 +55,8 @@ const UNDER_TEST = ['HOME', 'CHEAP_MEM_ROOT', 'MEM_RETRIEVE_ROOTS', 'MEM_STOP_RO
 /**
  * Run a lookup snippet; returns what ROOT came out as.
  *
- * Windows (CI run 1074): Git Bash turns a Windows HOME into its POSIX form when it starts (C:/Users/.../Temp/x came
- * back as /tmp/x in the compile-cache probe), and started with nothing but PATH and HOME it found no memory under
+ * Windows (CI run 1074): Git Bash turns a Windows HOME into its POSIX form when it starts (the drive path of the
+ * user temp directory came back as /tmp/x in the compile-cache probe), and started with nothing but PATH and HOME it found no memory under
  * that form - while the end-to-end run below, which keeps the test run's environment, found it from the same HOME.
  * So on Windows the shell gets the environment a hook really gets (the test run's, minus the variables under test),
  * and a ROOT that came out is handed back in the Windows form (`pwd -W`), so the caller can compare the DIRECTORY
