@@ -674,7 +674,7 @@ export const COMMANDS = {
         return;
       }
       out(`${list.length} card(s) on the shelf${shelf.broken ? `, ${shelf.broken} broken line(s)` : ''}${shelf.unusable ? `, ${shelf.unusable} unusable` : ''}.`);
-      for (const k of list) out(`  ${k.target_id}  ${k.question}  (by ${k.author ?? 'unknown'}, tier ${k.rank}, ${String(k.ts ?? '').slice(0, 10) || 'no date'})`);
+      for (const k of list) out(`  ${k.target_id}  ${k.question}  (by ${k.author ?? 'unknown'}, tier ${authority.rankWord(k.rank, k.rank_state)}, ${String(k.ts ?? '').slice(0, 10) || 'no date'})`);
       return;
     }
     // add

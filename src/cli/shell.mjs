@@ -432,7 +432,8 @@ export function requireConfig(root) {
  * **It carries no rank.** The switch stamps the NAME only; the tier stays what the write path gives (`agent`, or the process
  * ceiling), so `--as-me` never raises a rank the caller does not have. It refuses to be combined with `--authority` (a claim
  * of rank is its own act, `--authority user` behind `authority.checkUserWrite`), with `--agent` (two writers), and it
- * refuses a name that reads as a person (`owner`, `human:<name>`): that stamp comes only from a shell, by `agentDefault`.
+ * refuses a name that reads as a person (`owner`, `human:<name>`): that stamp comes only from a shell, by `agentDefault`, and the
+ * configured human participant (`human: true` in the config): the switch never puts a person's name on an agent's line.
  *
  * @returns {string|null} the writer name, or null when `--as-me` is not given. Refuses via `die` (nothing written).
  */
@@ -465,6 +466,13 @@ export function asMeWriter(root, cfg, args, command, env = process.env) {
         + `(known: ${Object.keys(cfg.participants).join(', ')}). Set it again: mem whoami <name>. Nothing was written.`);
     }
     name = stored;
+  }
+  // The configured human is no agent's name either (the mark `human: true` in the config, never a name in the code): the
+  // recommended switch must not put a person's name on an agent's line. `--agent <name>` stays the explicit way.
+  if (cfgmod.isHuman(cfg.participants?.[name])) {
+    die(`${command}: --as-me: '${name}' is the human participant of this memory. The switch stamps an agent's line, `
+      + 'and a person\'s name does not belong on it. Set the identity of the agent (mem whoami <name>, or CHEAP_MEM_AGENT). '
+      + 'Nothing was written.');
   }
   if (authority.isHumanName(name)) {
     die(`${command}: --as-me: '${name}' reads as a person (owner, human:<name>). Only a shell stamps that, `

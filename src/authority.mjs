@@ -82,6 +82,16 @@ export function tierState(entry) {
   return TIERS.includes(t) ? { tier: t, state: 'set' } : { tier: null, state: 'broken' };
 }
 
+/**
+ * The rank as a word for a display, in the three states of `tierState`: a known tier as it is, a rank the line does not carry
+ * as `unknown (missing)` / `unknown (empty)` / `unknown (broken)`. ONE wording for `mem today`, `mem card list`, the bridge and the
+ * dashboard data (`tier` alone would say `unknown` for all three). `state` absent (a caller without it) reads as `set`.
+ */
+export function rankWord(tier, state) {
+  if (typeof state === 'string' && state !== 'set') return `unknown (${state})`;
+  return tier ? String(tier) : 'unknown';
+}
+
 /** The author of an entry, from either the explicit field or the stamp. */
 export function authorOf(entry) {
   return entry?.author ?? entry?.agent ?? entry?.origin?.agent ?? null;

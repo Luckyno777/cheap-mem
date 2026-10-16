@@ -118,8 +118,8 @@ test('mem log --as-me refuses a name that reads as a person (owner, human:<name>
   assert.deepEqual(rawBytes(root, 'global/thoughts.jsonl'), before);
 });
 
-test('mem log --as-me never raises a rank: --authority and --agent do not combine with it; the human participant gets tier agent', (t) => {
-  const root = world(t, 'anna'); // anna IS the configured human participant
+test('mem log --as-me never raises a rank: --authority and --agent do not combine with it', (t) => {
+  const root = world(t, 'builder');
   const before = rawBytes(root, 'global/thoughts.jsonl');
   const claim = cli(root, ['log', 'thought', '--text', 'claim', '--authority', 'user', '--as-me']);
   assert.notEqual(claim.status, 0);
@@ -128,11 +128,34 @@ test('mem log --as-me never raises a rank: --authority and --agent do not combin
   assert.notEqual(two.status, 0);
   assert.match(two.stderr, /two writers/);
   assert.deepEqual(rawBytes(root, 'global/thoughts.jsonl'), before);
-  const ok = cli(root, ['log', 'thought', '--text', 'as the human participant', '--as-me']);
+  const ok = cli(root, ['log', 'thought', '--text', 'plain'], {});
   assert.equal(ok.status, 0, ok.stderr);
-  const z = last(root, 'global/thoughts.jsonl');
-  assert.equal(z.agent, 'anna');
-  assert.equal(z.authority, 'agent', 'the name is a participant\'s; the rank is not hers to take');
+});
+
+test('--as-me refuses the configured human participant (whoami or CHEAP_MEM_AGENT), on every road; --agent stays the explicit way', (t) => {
+  const root = world(t, 'anna'); // anna IS the configured human participant (`human: true`)
+  const files = ['global/thoughts.jsonl', 'global/sources.jsonl'];
+  const before = files.map((f) => rawBytes(root, f));
+  const runs = [
+    ['log', 'thought', '--text', 'as the human', '--as-me'],
+    ['sources', 'add', 'https://example.org/h', '--as-me'],
+    ['sources', 'bridge', 'repo://x/h', '--tool', 'inspect_symbol', '--as-me'],
+  ];
+  for (const argv of runs) {
+    const viaWhoami = cli(root, argv);
+    assert.notEqual(viaWhoami.status, 0, argv.join(' '));
+    assert.match(viaWhoami.stderr, /human participant/, argv.join(' '));
+    const viaEnv = cli(root, argv, { CHEAP_MEM_AGENT: 'anna' });
+    assert.notEqual(viaEnv.status, 0, `${argv.join(' ')} (env)`);
+    assert.match(viaEnv.stderr, /human participant/);
+  }
+  assert.deepEqual(files.map((f) => rawBytes(root, f)), before, 'nothing was written');
+  // positive control: another participant passes the same roads, and the explicit `--agent anna` is not touched by the rule
+  assert.equal(cli(root, ['log', 'thought', '--text', 'agent road'], {}).status, 0);
+  const explicit = cli(root, ['log', 'thought', '--text', 'explicit', '--agent', 'anna']);
+  assert.equal(explicit.status, 0, explicit.stderr);
+  assert.equal(last(root, 'global/thoughts.jsonl').agent, 'anna');
+  assert.equal(last(root, 'global/thoughts.jsonl').authority, 'agent');
 });
 
 test('mem log --as-me under a process ceiling: the tier is still lowered to the ceiling, not raised', (t) => {
@@ -221,20 +244,24 @@ test('mem sources add --as-me with no identity is refused, nothing written', (t)
 
 // --- mem card add --as-me ------------------------------------------------------------------------------------------------------
 
-test('mem card add --as-me: the card is by the install, tier agent, and its byline is NOT a person\'s - even for the human participant', (t) => {
-  const root = world(t, 'anna');
+test('mem card add --as-me: the card is by the install, tier agent, and its byline is NOT a person\'s - not even under the human participant\'s name', (t) => {
+  const root = world(t, 'builder');
   assert.equal(cli(root, ['log', 'duty', '--title', 'Decide', '--who', 'anna', '--agent', 'orch', '--card_question', 'Go?', '--card_options', 'Yes — go', '--card_options', 'No — stay']).status, 0);
   const duty = last(root, 'global/duties.jsonl');
   const r = cli(root, ['card', 'add', duty.id, '--question', 'Which way?', '--context', 'Now.', '--option', 'Left — west', '--option', 'No — stay', '--as-me']);
   assert.equal(r.status, 0, r.stderr);
   const z = last(root, 'global/cards.jsonl');
-  assert.equal(z.agent, 'anna');
+  assert.equal(z.agent, 'builder');
   assert.equal(z.authority, 'agent');
   const shelf = cardstore.readCards(root);
-  const card = decisioncard.cardOf(duty, { type: 'duty', context: { cards: shelf.cards, human: 'anna' } });
-  assert.equal(card.byline.text, 'anna (agent)');
-  assert.equal(card.byline.by_human, false, 'the name of the configured human participant does not make an agent-tier card a person\'s');
+  const card = decisioncard.cardOf(duty, { type: 'duty', context: { cards: shelf.cards, human: 'builder' } });
+  assert.equal(card.byline.text, 'builder (agent)');
+  assert.equal(card.byline.by_human, false, 'a name never makes an agent-tier card a person\'s, even when it is the configured human');
   assert.equal(card.origin.by_human, false);
+  const humanRoot = world(t, 'anna');
+  const humanTry = cli(humanRoot, ['card', 'add', 'abc', '--question', 'Q?', '--context', 'C.', '--option', 'Yes — a', '--option', 'No — b', '--as-me']);
+  assert.notEqual(humanTry.status, 0);
+  assert.match(humanTry.stderr, /human participant/);
   const claim = cli(root, ['card', 'add', duty.id, '--question', 'Again?', '--context', 'Now.', '--option', 'Yes — a', '--option', 'No — b', '--as-me', '--authority', 'user']);
   assert.notEqual(claim.status, 0);
 });
@@ -355,6 +382,39 @@ test('mem today shows name and tier; a missing tier reads "unknown (missing)" (C
   const r = cli(root, ['today']);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /by orch, tier unknown \(missing\)/);
+});
+
+test('mem card list and the bridge name a rank the shelf line does not carry as "unknown (missing)", a known one as it is', (t) => {
+  const root = world(t, 'builder');
+  const duty = { id: 'dm0000abcdef', ts: TS, title: 'Old stock', who: 'anna', agent: 'orch', authority: 'agent' };
+  fs.appendFileSync(path.join(root, 'global', 'duties.jsonl'), `${JSON.stringify(duty)}\n`);
+  const card = { target_id: 'dm0000abcdef', ts: '2026-10-11T00:00:00Z', card_question: 'Shelf?', card_options: ['A — a', 'No — b'], agent: 'orch' };
+  fs.writeFileSync(path.join(root, 'global', 'cards.jsonl'), `${JSON.stringify({ ...card, id: 'c1' })}\n`);
+  const list = cli(root, ['card', 'list']);
+  assert.equal(list.status, 0, list.stderr);
+  assert.match(list.stdout, /by orch, tier unknown \(missing\)/);
+  fs.writeFileSync(path.join(root, 'global', 'cards.jsonl'), `${JSON.stringify({ ...card, id: 'c2', authority: 'agent' })}\n`);
+  assert.match(cli(root, ['card', 'list']).stdout, /by orch, tier agent,/);
+  fs.writeFileSync(path.join(root, 'global', 'cards.jsonl'), `${JSON.stringify({ ...card, id: 'c3', authority: 'emperor' })}\n`);
+  assert.match(cli(root, ['card', 'list']).stdout, /tier unknown \(broken\)/);
+  const msgs = [
+    { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 't', version: '1' } } },
+    { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'mem_card_list', arguments: {} } },
+  ];
+  const env = { ...process.env, CHEAP_MEM_ROOT: root, CHEAP_MEM_AGENT: 'bridge-agent' };
+  for (const k of ['CHEAP_MEM_MAX_AUTHORITY', 'MEM_HEADLESS']) delete env[k];
+  const r = spawnSync(process.execPath, [MCP], { input: `${msgs.map((m) => JSON.stringify(m)).join('\n')}\n`, encoding: 'utf8', timeout: 60000, env });
+  const reply = String(r.stdout).split('\n').filter((z) => z.trim()).map((z) => JSON.parse(z)).find((x) => x.id === 2);
+  assert.match(JSON.stringify(reply), /tier unknown \(broken\)/);
+});
+
+test('authority.rankWord: a known tier as it is; missing / empty / broken as "unknown (state)"; no state reads as set', () => {
+  assert.equal(authority.rankWord('agent', 'set'), 'agent');
+  assert.equal(authority.rankWord('agent'), 'agent');
+  assert.equal(authority.rankWord('unknown', 'missing'), 'unknown (missing)');
+  assert.equal(authority.rankWord(null, 'empty'), 'unknown (empty)');
+  assert.equal(authority.rankWord(null, 'broken'), 'unknown (broken)');
+  assert.equal(authority.rankWord(null), 'unknown');
 });
 
 test('memory.agentDefault is untouched: the OS account still reads human:<user> without CHEAP_MEM_AGENT', () => {
