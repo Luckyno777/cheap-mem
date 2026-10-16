@@ -16,14 +16,23 @@ set -u
 [ -z "${CHEAP_MEM_ROOT:-}" ] && exit 0
 [ ! -f "$CHEAP_MEM_ROOT/.mem/config.json" ] && exit 0
 
-RETRIEVE="$CHEAP_MEM_ROOT/bin/mem-retrieve"
-# If the memory does not carry the tool, fall back to a mem-retrieve
-# sitting next to this shim (a separate code checkout). Either way, a
-# missing tool means a silent exit — a hook that stalls a person's
+# Three shapes, in order, the same as pre-edit.sh: the memory carries the
+# tool; a separate code checkout the installer told us about
+# (CHEAP_MEM_CODE); a mem-retrieve sitting next to this shim. Either way,
+# a missing tool means a silent exit - a hook that stalls a person's
 # message because recall is unavailable is worse than no recall.
+#
+# **Why the middle one matters (2026-10-16).** The installed copy lives in
+# ~/.claude/hooks/, where the third shape never exists, and a memory made
+# by `mem init` carries no bin/ - so without CHEAP_MEM_CODE this shim was
+# registered, ran, exited 0 with no byte, and every prompt of every
+# session went without recall. Nothing failed, which is why nobody saw it.
+RETRIEVE="$CHEAP_MEM_ROOT/bin/mem-retrieve"
 if [ -f "$RETRIEVE" ]; then
   exec bash "$RETRIEVE"
 fi
+[ -n "${CHEAP_MEM_CODE:-}" ] && [ -f "$CHEAP_MEM_CODE/bin/mem-retrieve" ] \
+  && exec bash "$CHEAP_MEM_CODE/bin/mem-retrieve"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 [ -f "$HERE/mem-retrieve" ] && exec bash "$HERE/mem-retrieve"
 exit 0

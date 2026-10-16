@@ -14,6 +14,19 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Fixed - the installed prompt hook was mute and the start hook said "NOT attached" (hook-shims-code-cm; lm counterpart: 7c9c414ab, another cause, same effect)
+
+Installed with `install/claude-code.sh` into a scratch HOME and started the way Claude Code starts a hook (`env -i`, no `CHEAP_MEM_ROOT`, the hook JSON on stdin), two of the seven
+shims delivered nothing: `UserPromptSubmit` exited 0 with 0 bytes on a prompt that the same memory answers through `bin/mem-retrieve`, and `SessionStart` printed
+`cheap-mem NOT attached ... the tool (<memory>/bin/mem) is missing`. Both looked for the tool only inside the memory, and a memory made by `mem init` carries no `bin/`.
+The other shims (pre-edit, catch-fail, after-failure, subagent-start, stop) already found it through `CHEAP_MEM_CODE`, which the installer bakes in; these two never got the line,
+so no prompt of any session got recall and nothing failed to say so. Now `install/hooks/user-prompt.sh` and `install/hooks/session-start.sh` resolve the tool in the order of
+`pre-edit.sh` (the memory, then `CHEAP_MEM_CODE`, then the shim's own directory), and `claude-code.sh` bakes `CHEAP_MEM_CODE` into the prompt shim. `install/windows.ps1` had the same
+shape in all seven generated PowerShell hooks (and set `CHEAP_MEM_CODE` in none): each now looks under `$env:CHEAP_MEM_CODE`, falling back to the install location baked in as `$CodeHint`.
+`install/linux.sh` and `install/macos.sh` install the watcher service and write no hook shims; `mem setup claude` runs `claude-code.sh`. New guard `test/installed-hooks-run.test.mjs`:
+installs into a scratch HOME, starts every registered hook with a bare environment and a real hook JSON, and demands bytes in the context (and a capture from the Stop hook); the
+.ps1 hooks are run on win32 with PowerShell, and checked statically on every platform.
+
 ### Performance - measured, not built: a word-normalisation memo for the cold index build (cli-speed-cm TB9; cheap-mem only)
 
 The order's lever: memoise the normalisation of a word. Measured first, on the 20,000-entry scratch memory, a cold `buildIndex`: the English pack normalised

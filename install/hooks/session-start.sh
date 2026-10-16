@@ -68,6 +68,21 @@ fi
 CHEAP_MEM_ROOT="$mem_root"
 export CHEAP_MEM_ROOT
 
+# **Where the TOOL is (hook-shims fix, 2026-10-16).** The memory and the
+# code are two checkouts as often as one: a memory made by `mem init`
+# carries no `bin/mem`, and the installer then tells every shim where the
+# code lives (CHEAP_MEM_CODE, see install/claude-code.sh). This hook alone
+# looked in the memory only, so on such an install it announced "NOT
+# attached" and loaded nothing, while pre-edit and subagent-start (which
+# do read CHEAP_MEM_CODE) worked. Same order as pre-edit.sh: the memory
+# first, then the code checkout the installer named. Nothing found: MEM_BIN
+# stays empty and the header below says so.
+MEM_BIN=""
+for MEM_TOOL_DIR in "$CHEAP_MEM_ROOT" "${CHEAP_MEM_CODE:-}"; do
+  [ -n "$MEM_TOOL_DIR" ] && [ -f "$MEM_TOOL_DIR/bin/mem" ] && { MEM_BIN="$MEM_TOOL_DIR/bin/mem"; break; }
+done
+unset MEM_TOOL_DIR
+
 # **"attached" only when the tool is reachable (Z1c, external brief
 # 2026-09-30).** The header used to be printed as soon as a memory
 # directory was found. With a memory that has no `bin/mem` (a checkout
@@ -76,12 +91,12 @@ export CHEAP_MEM_ROOT
 # header that said it was attached. "Found the directory" and "can read
 # it" are two facts; the header states the one that is true, and says
 # what is unknown.
-if [ -f "$CHEAP_MEM_ROOT/bin/mem" ]; then
+if [ -n "$MEM_BIN" ]; then
   echo "=== cheap-mem attached ==="
 else
   echo "=== cheap-mem NOT attached: memory found at $CHEAP_MEM_ROOT, but the tool ($CHEAP_MEM_ROOT/bin/mem) is missing ==="
   echo "Recent context, alarm state and today line: UNKNOWN (not loaded, not 'nothing')."
-  echo "Fix: check out the tool into that memory, or point CHEAP_MEM_ROOT at one that has it."
+  echo "Fix: check out the tool into that memory, or re-run install/claude-code.sh from the code checkout (it sets CHEAP_MEM_CODE)."
 fi
 echo ""
 
@@ -168,9 +183,9 @@ if [ -f "$CHEAP_MEM_ROOT/FACTS.md" ]; then
   echo ""
 fi
 
-if [ -f "$CHEAP_MEM_ROOT/bin/mem" ]; then
+if [ -n "$MEM_BIN" ]; then
   echo "=== mem context ==="
-  node "$CHEAP_MEM_ROOT/bin/mem" context --n 10 2>/dev/null || true
+  node "$MEM_BIN" context --n 10 2>/dev/null || true
   echo ""
 fi
 
@@ -193,8 +208,8 @@ fi
 #     "not enough evidence yet" and "no capture readable at all" both
 #     come back as an EMPTY string, and an empty string prints nothing —
 #     silence, never the false claim "no habits".
-if [ -f "$CHEAP_MEM_ROOT/bin/mem" ]; then
-  MEM_USER_HABITS="$(node "$CHEAP_MEM_ROOT/bin/mem" user --session-start 2>/dev/null || true)"
+if [ -n "$MEM_BIN" ]; then
+  MEM_USER_HABITS="$(node "$MEM_BIN" user --session-start 2>/dev/null || true)"
   if [ -n "$MEM_USER_HABITS" ]; then
     echo "$MEM_USER_HABITS"
     echo ""
@@ -218,11 +233,11 @@ fi
 # branch "timed out" looks exactly like "all fine", and that confusion
 # is what carried the outage above for so long. Where `timeout` does not
 # exist the check runs uncapped rather than silently not at all.
-if [ -f "$CHEAP_MEM_ROOT/bin/mem" ]; then
+if [ -n "$MEM_BIN" ]; then
   if command -v timeout >/dev/null 2>&1; then
-    MEM_ALARM="$(timeout "${MEM_ALARM_SECONDS:-8}" node "$CHEAP_MEM_ROOT/bin/mem" doctor --alarm 2>/dev/null)"
+    MEM_ALARM="$(timeout "${MEM_ALARM_SECONDS:-8}" node "$MEM_BIN" doctor --alarm 2>/dev/null)"
   else
-    MEM_ALARM="$(node "$CHEAP_MEM_ROOT/bin/mem" doctor --alarm 2>/dev/null)"
+    MEM_ALARM="$(node "$MEM_BIN" doctor --alarm 2>/dev/null)"
   fi
   MEM_ALARM_RC=$?
   if [ -n "$MEM_ALARM" ]; then
@@ -232,7 +247,7 @@ if [ -f "$CHEAP_MEM_ROOT/bin/mem" ]; then
   elif [ "$MEM_ALARM_RC" -eq 124 ]; then
     echo "=== DOWN RIGHT NOW ==="
     echo "The alarm hit its time cap (${MEM_ALARM_SECONDS:-8}s) — NOT checked."
-    echo "By hand: node $CHEAP_MEM_ROOT/bin/mem doctor --quiet"
+    echo "By hand: node $MEM_SHOW doctor --quiet"
     echo ""
   fi
 fi
@@ -249,11 +264,11 @@ fi
 # Own time cap, same shape as the alarm above: today() reads
 # doctor.checkAll() and every open duty, and a session start must never
 # hang waiting on either.
-if [ -f "$CHEAP_MEM_ROOT/bin/mem" ]; then
+if [ -n "$MEM_BIN" ]; then
   if command -v timeout >/dev/null 2>&1; then
-    MEM_TODAY="$(timeout "${MEM_TODAY_SECONDS:-5}" node "$CHEAP_MEM_ROOT/bin/mem" today --line 2>/dev/null)"
+    MEM_TODAY="$(timeout "${MEM_TODAY_SECONDS:-5}" node "$MEM_BIN" today --line 2>/dev/null)"
   else
-    MEM_TODAY="$(node "$CHEAP_MEM_ROOT/bin/mem" today --line 2>/dev/null)"
+    MEM_TODAY="$(node "$MEM_BIN" today --line 2>/dev/null)"
   fi
   if [ -n "$MEM_TODAY" ]; then
     echo "$MEM_TODAY"
@@ -289,19 +304,20 @@ if [ -n "$MEM_SS_CODE" ]; then
       }).catch(() => {});' >/dev/null 2>&1 || true
 fi
 
+MEM_SHOW="${MEM_BIN:-$CHEAP_MEM_ROOT/bin/mem}"
 cat <<HINTS
 === how to use this memory this session ===
 
 Log substantial things as they happen:
-  node $CHEAP_MEM_ROOT/bin/mem log event    --title "..." --tags ...
-  node $CHEAP_MEM_ROOT/bin/mem log decision --topic "..." --choice ... --why ...
-  node $CHEAP_MEM_ROOT/bin/mem log error    --class ... --title "..." --text ...
+  node $MEM_SHOW log event    --title "..." --tags ...
+  node $MEM_SHOW log decision --topic "..." --choice ... --why ...
+  node $MEM_SHOW log error    --class ... --title "..." --text ...
 
 Look for known context before asking:
-  node $CHEAP_MEM_ROOT/bin/mem find "..."
+  node $MEM_SHOW find "..."
 
 Send an inbox message (delivered after commit + push):
-  node $CHEAP_MEM_ROOT/bin/mem inbox write --as session --to librarian --subject "..." < body.md
+  node $MEM_SHOW inbox write --as session --to librarian --subject "..." < body.md
 
 The Stop hook (session-stop.sh) will reflect automatically once the
 transcript grows past the byte-delta threshold.

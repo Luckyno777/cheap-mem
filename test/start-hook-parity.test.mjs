@@ -70,7 +70,7 @@ function normalizeCall(sub, noun, flag) {
 /** mem CLI calls made or shown, by name, in the POSIX SessionStart hook. */
 export function shellCalls(text) {
   const out = new Set();
-  const re = /bin\/mem"?\s+([a-zA-Z][\w-]*)(?:\s+(event|decision|error|write))?(?:\s+(--[\w-]+))?/g;
+  const re = /(?:bin\/mem|\$MEM_BIN|\$MEM_SHOW)"?\s+([a-zA-Z][\w-]*)(?:\s+(event|decision|error|write))?(?:\s+(--[\w-]+))?/g;
   for (const m of text.matchAll(re)) out.add(normalizeCall(m[1], m[2], m[3]));
   return out;
 }

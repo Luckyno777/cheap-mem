@@ -206,6 +206,13 @@ if (-not $SkipClaudeCode) {
   $startHookSrc = Join-Path $RepoRoot 'install\hooks\session-start.sh'
   $stopHookSrc  = Join-Path $RepoRoot 'install\hooks\session-stop.sh'
 
+  # Where the CODE lives, as a hint for every hook below (the same job
+  # CHEAP_MEM_CODE does in install/claude-code.sh). A memory made by
+  # `mem init` carries no bin\, so a hook that looked only in the memory
+  # found no tool, exited 0 and stayed silent (found 2026-10-16). The
+  # environment variable wins when set; this baked path is the fallback.
+  $CodeHint = $RepoRoot -replace "'", "''"
+
   # On native Windows, Claude Code hooks are PowerShell too.
   $startHookDst = Join-Path $HooksDir 'cheap-mem-session-start.ps1'
   $stopHookDst  = Join-Path $HooksDir 'cheap-mem-session-stop.ps1'
@@ -260,12 +267,18 @@ if (-not `$memRoot) {
 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
 
-if (Test-Path (Join-Path `$env:CHEAP_MEM_ROOT 'bin\mem')) {
+# Where the tool is: the memory first, then the code checkout the
+# installer named (the same order as the POSIX hook; see there).
+`$codeRoot = if (`$env:CHEAP_MEM_CODE) { `$env:CHEAP_MEM_CODE } else { '$CodeHint' }
+`$mem = Join-Path `$env:CHEAP_MEM_ROOT 'bin\mem'
+if (-not (Test-Path `$mem) -and `$codeRoot) { `$mem = Join-Path `$codeRoot 'bin\mem' }
+if (`$codeRoot -and (Test-Path `$codeRoot)) { `$env:CHEAP_MEM_CODE = `$codeRoot }
+if (Test-Path `$mem) {
   Write-Host '=== cheap-mem attached ==='
 } else {
   Write-Host "=== cheap-mem NOT attached: memory found at `$env:CHEAP_MEM_ROOT, but the tool (bin\mem) is missing ==="
   Write-Host "Recent context, alarm state and today line: UNKNOWN (not loaded, not 'nothing')."
-  Write-Host 'Fix: check out the tool into that memory, or point CHEAP_MEM_ROOT at one that has it.'
+  Write-Host 'Fix: check out the tool into that memory, or re-run install\windows.ps1 from the code checkout (it names the code location).'
 }
 Write-Host ''
 & git -C `$env:CHEAP_MEM_ROOT fetch origin main 2>&1 | Select-Object -Last 1
@@ -280,7 +293,6 @@ if (Test-Path `$facts) {
   Write-Host ''
 }
 
-`$mem = Join-Path `$env:CHEAP_MEM_ROOT 'bin\mem'
 if (Test-Path `$mem) {
   Write-Host '=== mem context ==='
   & node `$mem context --n 10
@@ -447,7 +459,10 @@ foreach (`$candidate in @(
 }
 if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
-`$stop = Join-Path `$env:CHEAP_MEM_ROOT 'bin\mem-stop.ps1'
+`$rel = 'bin\mem-stop.ps1'
+`$stop = Join-Path `$env:CHEAP_MEM_ROOT `$rel
+`$codeRoot = if (`$env:CHEAP_MEM_CODE) { `$env:CHEAP_MEM_CODE } else { '$CodeHint' }
+if (-not (Test-Path `$stop) -and `$codeRoot) { `$stop = Join-Path `$codeRoot `$rel }
 if (-not (Test-Path `$stop)) { exit 0 }
 & powershell -NoProfile -ExecutionPolicy Bypass -File `$stop
 "@ | Set-Content -LiteralPath $stopHookDst -Encoding UTF8
@@ -491,7 +506,10 @@ foreach (`$candidate in @(
 }
 if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
-`$retrieve = Join-Path `$env:CHEAP_MEM_ROOT 'bin\mem-retrieve.ps1'
+`$rel = 'bin\mem-retrieve.ps1'
+`$retrieve = Join-Path `$env:CHEAP_MEM_ROOT `$rel
+`$codeRoot = if (`$env:CHEAP_MEM_CODE) { `$env:CHEAP_MEM_CODE } else { '$CodeHint' }
+if (-not (Test-Path `$retrieve) -and `$codeRoot) { `$retrieve = Join-Path `$codeRoot `$rel }
 if (-not (Test-Path `$retrieve)) { exit 0 }
 & powershell -NoProfile -ExecutionPolicy Bypass -File `$retrieve
 "@ | Set-Content -LiteralPath $promptHookDst -Encoding UTF8
@@ -515,7 +533,10 @@ foreach (`$candidate in @(
 }
 if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
-`$before = Join-Path `$env:CHEAP_MEM_ROOT 'bin\mem-before-edit.ps1'
+`$rel = 'bin\mem-before-edit.ps1'
+`$before = Join-Path `$env:CHEAP_MEM_ROOT `$rel
+`$codeRoot = if (`$env:CHEAP_MEM_CODE) { `$env:CHEAP_MEM_CODE } else { '$CodeHint' }
+if (-not (Test-Path `$before) -and `$codeRoot) { `$before = Join-Path `$codeRoot `$rel }
 if (-not (Test-Path `$before)) { exit 0 }
 & powershell -NoProfile -ExecutionPolicy Bypass -File `$before
 "@ | Set-Content -LiteralPath $editHookDst -Encoding UTF8
@@ -539,7 +560,10 @@ foreach (`$candidate in @(
 }
 if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
-`$catchFail = Join-Path `$env:CHEAP_MEM_ROOT 'bin\mem-catch-fail.ps1'
+`$rel = 'bin\mem-catch-fail.ps1'
+`$catchFail = Join-Path `$env:CHEAP_MEM_ROOT `$rel
+`$codeRoot = if (`$env:CHEAP_MEM_CODE) { `$env:CHEAP_MEM_CODE } else { '$CodeHint' }
+if (-not (Test-Path `$catchFail) -and `$codeRoot) { `$catchFail = Join-Path `$codeRoot `$rel }
 if (-not (Test-Path `$catchFail)) { exit 0 }
 & powershell -NoProfile -ExecutionPolicy Bypass -File `$catchFail
 "@ | Set-Content -LiteralPath $catchFailHookDst -Encoding UTF8
@@ -564,7 +588,10 @@ foreach (`$candidate in @(
 }
 if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
-`$afterFailure = Join-Path `$env:CHEAP_MEM_ROOT 'bin\mem-after-failure.ps1'
+`$rel = 'bin\mem-after-failure.ps1'
+`$afterFailure = Join-Path `$env:CHEAP_MEM_ROOT `$rel
+`$codeRoot = if (`$env:CHEAP_MEM_CODE) { `$env:CHEAP_MEM_CODE } else { '$CodeHint' }
+if (-not (Test-Path `$afterFailure) -and `$codeRoot) { `$afterFailure = Join-Path `$codeRoot `$rel }
 if (-not (Test-Path `$afterFailure)) { exit 0 }
 & powershell -NoProfile -ExecutionPolicy Bypass -File `$afterFailure
 "@ | Set-Content -LiteralPath $afterFailureHookDst -Encoding UTF8
@@ -589,7 +616,10 @@ foreach (`$candidate in @(
 }
 if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
-`$subagent = Join-Path `$env:CHEAP_MEM_ROOT 'bin\mem-subagent-start.ps1'
+`$rel = 'bin\mem-subagent-start.ps1'
+`$subagent = Join-Path `$env:CHEAP_MEM_ROOT `$rel
+`$codeRoot = if (`$env:CHEAP_MEM_CODE) { `$env:CHEAP_MEM_CODE } else { '$CodeHint' }
+if (-not (Test-Path `$subagent) -and `$codeRoot) { `$subagent = Join-Path `$codeRoot `$rel }
 if (-not (Test-Path `$subagent)) { exit 0 }
 & powershell -NoProfile -ExecutionPolicy Bypass -File `$subagent
 "@ | Set-Content -LiteralPath $subagentHookDst -Encoding UTF8

@@ -130,6 +130,10 @@ chmod +x "$HOOKS_DIR/cheap-mem-session-stop.sh"
 {
   echo "#!/usr/bin/env bash"
   echo "export CHEAP_MEM_ROOT='${CHEAP_MEM_ROOT}'"
+  # Where the code lives - a memory made by `mem init` carries no
+  # bin/mem-retrieve, so without this the shim found nothing and stayed
+  # silent on every prompt (fixed 2026-10-16).
+  echo "export CHEAP_MEM_CODE='${CODE_ROOT}'"
   tail -n +2 "$HERE/hooks/user-prompt.sh"
 } > "$HOOKS_DIR/cheap-mem-user-prompt.sh"
 chmod +x "$HOOKS_DIR/cheap-mem-user-prompt.sh"
