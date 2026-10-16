@@ -29,7 +29,7 @@ the verification commands at the end.
 | **Automation** | 7 Claude Code hooks (session start, recall per message, recall per file edit, recall after a failed or failure-printing tool call, subagent start, answer check and capture at stop), one model call per few hours, watcher, git as sync | [6](#6-automation) |
 | **Surfaces** | 87 CLI commands, 45 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 5037 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 5040 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -1064,7 +1064,10 @@ never the fallback. The switch carries **no rank**: the tier stays what
 the write path gives (`agent`, lowered to a process ceiling), it does not
 combine with `--authority` or `--agent`, and a name that reads as a
 person (`owner`, `human:<name>`) is refused - a shell stamps that by
-itself, without the switch. It is a switch without a value, so put it
+itself, without the switch - as is the configured human participant
+(`human: true` in the config, from `CHEAP_MEM_AGENT` or `mem whoami` alike):
+the switch never puts a person's name on an agent's line (`--agent <name>`
+stays the explicit way). It is a switch without a value, so put it
 last (`mem sources add <address> --as-me`): the parser reads the next word
 as its value, which is refused. The MCP bridge needs nothing: it already
 stamps the connected identity, takes no writer parameter, and clamps the
@@ -2205,8 +2208,8 @@ option, never an advice, and its origin is empty: nobody wrote it, and the displ
 the name alone never makes a card a person's, because the CLI stamps `human:<os user>` on
 every line written at that account, an agent's included. A rank the line does not carry
 is not made up: `rank_state` is `missing` (no field, an old line), `empty` or `broken`
-(not a tier), `rank` is null and the text reads `name (rank unknown)`; `mem today` says
-`tier unknown (missing)`. A replacement card has no author: everything null.
+(not a tier), `rank` is null and the text reads `name (rank unknown)`; `mem today`, `mem card list` and
+`mem_card_list` say `tier unknown (missing)` (`authority.rankWord`). A replacement card has no author: everything null.
 
 **The higher tier counts, then the youngest.** Per target one card counts: the one of the higher tier
 (`user` before `agent`), at equal tier the younger. The card it beat stays visible as `replaced`. Tier `user`
