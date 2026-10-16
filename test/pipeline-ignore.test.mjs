@@ -204,7 +204,6 @@ const NOT_RUNTIME = {
   'rewrites.jsonl': 'the learned rewrite table: append-only, a candidate for sharing between clones - owner decides',
   'bridge-reports.jsonl': 'history of the bridge reports: per machine, but no module calls it gitignored - open',
   'raw-exclusion-state.json': 'state of the capture exclusion: no module says whether it travels - open',
-  'keyring.json': 'the shred keys: a committed key survives in history and defeats the shredding - owner decides',
   'raw': 'the raw archive: tracked on purpose (src/archive.mjs)',
   'inbox': 'a false hit: the dashboard\'s list of places (`.mem`, `inbox`, `agents`)',
 };
@@ -306,4 +305,43 @@ test('MUTATION: a doctor that forgets the tracked check turns this very memory o
   const asked = spawnSync('git', ['-C', root, 'check-ignore', '-q', '--no-index', '.mem/embed.json'], { encoding: 'utf8' });
   assert.equal(asked.status, 0, 'what the old doctor asked says "ignored"');
   assert.equal(doctor.checkGitignoreEffective(root).level, 'warn', 'only the tracked check turns it into a warning');
+});
+
+// ---- the keyring (decision of the principal, round 3): ignored, and loud when a memory has already committed it ---------------
+
+test('KEYRING: a fresh memory ignores keyring.json and its temp file; git add -A takes neither', (t) => {
+  const root = memory(t);
+  materialize(root, '.mem/keyring.json');
+  materialize(root, '.mem/keyring.json.4242.0123456789.tmp');
+  git(root, 'add', '-A');
+  assert.deepEqual(git(root, 'ls-files', '--', '.mem/keyring.json', '.mem/keyring.json.4242.0123456789.tmp').trim(), '');
+  assert.equal(doctor.checkGitignoreEffective(root).level, 'good');
+});
+
+test('KEYRING: without the rule the finding is ERROR (the keys would travel); a COMMITTED keyring is ERROR with its own sentence, and git rm --cached repairs the index only', (t) => {
+  const root = memory(t);
+  const keyRules = RUNTIME_RULES.filter((r) => r.rule.startsWith('.mem/keyring.json'));
+  assert.equal(keyRules.length, 2);
+  dropRules(root, keyRules);
+  const missing = doctor.checkGitignoreEffective(root);
+  assert.equal(missing.level, 'error', JSON.stringify(missing));
+  assert.match(missing.text, /keyring\.json holds the shred keys/);
+  materialize(root, '.mem/keyring.json');
+  git(root, 'add', '-A'); git(root, 'commit', '-q', '-m', 'keyring');
+  const init = spawnSync(process.execPath, [MEM, 'init', '--root', root], { encoding: 'utf8', input: '' });
+  assert.match(init.stdout, /1 in \.mem\/keyring\.json/);
+  assert.match(init.stdout, /must NOT count as deleted/);
+  const f = doctor.checkGitignoreEffective(root);
+  assert.equal(f.level, 'error', JSON.stringify(f));
+  assert.match(f.text, /STILL TRACKS 1 runtime file\(s\) \(1 in \.mem\/keyring\.json\)/);
+  assert.match(f.text, /must NOT count as deleted/);
+  assert.match(f.text, /still in an earlier commit/);
+  assert.match(f.text, /repairs the index only, not the history/);
+  const cmd = /`(git rm --cached -r [^`]+)`/.exec(f.advice)?.[1];
+  assert.equal(cmd, 'git rm --cached -r .mem/keyring.json');
+  runAdvice(root, cmd);
+  git(root, 'commit', '-q', '-m', 'untrack');
+  assert.equal(doctor.checkGitignoreEffective(root).level, 'good');
+  // The history still holds it - that is what the sentence says.
+  assert.match(git(root, 'log', '--format=%s', '--', '.mem/keyring.json'), /keyring/);
 });

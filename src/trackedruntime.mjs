@@ -19,6 +19,8 @@ import { spawnSync } from 'node:child_process';
 // The wildcard is built from parts: a slash and a star side by side inside a string open a block comment for the source scanners
 // of the guards (test/english-only.test.mjs and its kin), which then read code as comment text to the end of the file.
 const STAR = '*';
+const KEYRING_NOTE = '.mem/keyring.json is TRACKED: its keys are in the history. An entry that was shredded must NOT count as deleted - '
+  + 'the destroyed key is still in an earlier commit, and `git rm --cached` repairs the index only, not the history.';
 
 /**
  * Every path under `.pipeline/` and `.mem/` that is runtime state of ONE clone and nothing else, with the gitignore rule
@@ -61,6 +63,14 @@ export const RUNTIME_RULES = Object.freeze([
   // (mem-reflect, mem-handle-post) tracked the others, every hook write made the tree dirty and blocked the recall hook's
   // pull, and two clones met in add/add conflicts on files that describe one machine each.
   { rule: '.pipeline/', spec: '.pipeline', probe: '.pipeline/injections.jsonl', why: 'runtime state of ONE clone (journals, verdict caches, server key, baselines): never travels' },
+  // The shred keys (docs/CAPABILITIES.md 10.23, src/shred.mjs): a keyring under git history defeats the whole mechanism - destroying a key
+  // becomes a new commit and the old key stays recoverable from the one before. mem-reflect and mem-handle-post run `git add -A`.
+  { rule: '.mem/keyring.json', spec: '.mem/keyring.json', probe: '.mem/keyring.json',
+    why: 'the shred keys: under git history a destroyed key stays in the commit before. Never travels, never committed',
+    secret: 'keyring.json holds the shred keys', trackedNote: KEYRING_NOTE },
+  // The atomic write goes through a temp file next to it (`keyring.json.<pid>.<hex>.tmp`); a `git add -A` at that moment would take the keys.
+  { rule: `.mem/keyring.json.${STAR}.tmp`, spec: `.mem/keyring.json.${STAR}.tmp`, probe: '.mem/keyring.json.1234.abcdef.tmp',
+    why: 'the temp file of the atomic keyring write', secret: 'the keyring temp file holds the shred keys', trackedNote: KEYRING_NOTE },
   // Per-session marks, hook claims and lock files (2026-10-16).
   { rule: '.mem/before-edit/', spec: '.mem/before-edit', probe: '.mem/before-edit/', why: 'per-session marks of the before-edit hook (JSON: level and fingerprint last shown)' },
   { rule: '.mem/workflow-marks/', spec: '.mem/workflow-marks', probe: '.mem/workflow-marks/', why: 'per-session marks of the workflow hint' },

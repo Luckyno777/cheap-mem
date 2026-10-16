@@ -1848,7 +1848,21 @@ body field; that limit is closed.)
   `.mem/keyring.json` is committed with retained history, destroying a
   key is just another commit and the old key is recoverable from the
   previous one — demonstrated. The keyring needs a distribution that
-  does not retain history.
+  does not retain history. Since 2026-10-16 `mem init` writes a
+  `.gitignore` rule for it (and for its atomic-write temp file), because
+  `mem-reflect` and `mem-handle-post` run `git add -A`; the doctor finding
+  `gitignore` is an ERROR when the rule is missing and when the file is
+  already TRACKED, and in that case says that entries shredded so far must
+  not count as deleted: `git rm --cached` repairs the index, the keys stay
+  in the history.
+- **The keyring does not travel, and it has no copy.** It is not in git, so
+  a second clone reads every shredded-capable entry as `unreadable:
+  keyring-absent`; a lost keyring (a new machine, a wiped disk) makes every
+  entry written with `shred: true` permanently unreadable, exactly like a
+  deleted one. Distribution and backup are the operator's job, outside git:
+  copy the file by hand, encrypted, to the machines that must read, and keep
+  one encrypted backup. Restoring an OLD copy brings back keys that were
+  destroyed since - so the backup is also a way to un-shred.
 
 ### 10.24 One place that appends — `src/append.mjs`
 

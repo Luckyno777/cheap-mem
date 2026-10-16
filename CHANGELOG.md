@@ -14,6 +14,27 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Security - the shred keyring is ignored by `mem init`, and a tracked one is an ERROR
+
+`.mem/keyring.json` (the keys of `shred: true` entries) had no `.gitignore` rule, and `mem-reflect` and `mem-handle-post` run `git add -A`. A keyring under git history
+defeats the mechanism: destroying a key becomes a new commit, and the old key is recoverable from the commit before (`src/shred.mjs`, `docs/CAPABILITIES.md` 10.23). `mem init` writes the rule
+(and one for the temp file of the atomic keyring write); the doctor finding `gitignore` is an ERROR when the rule is missing and when the file is already TRACKED - then with its own
+sentence: entries shredded so far must NOT count as deleted, `git rm --cached` repairs the index only, the keys stay in the history. Documented in `docs/security-model.md` ("Unsolved,
+explicitly"), `docs/CAPABILITIES.md` 10.23 and `docs/design.md`: the keyring does not travel with git (a second clone reads `unreadable: keyring-absent`), it is a single copy with no backup,
+a lost file makes every shredded-capable entry permanently unreadable, and a restored old copy un-shreds. Distribution and one encrypted backup are manual, outside git.
+`test/pipeline-ignore.test.mjs` (KEYRING).
+
+### Fixed - round 3: negated patterns, hostile names in glob groups, an unknown index, base rules in the table
+
+- **`!` patterns** `git check-ignore -v` answers a match by a negated pattern with a source, and the doctor counted it as ignored: `!.mem/embed.env` at the end of the file read green. A pattern
+  cell that starts with `!` counts as NOT ignored now (ERROR for embed.env and the keyring). `test/gitignore-guards.test.mjs`, red on `57cbf82`.
+- **Glob groups** `specMatcher` used `.` for the star, which skips line breaks: a tracked `.mem/EVIL<newline>FORGED.lock` fell out of every group (`STILL TRACKS 1 ... ()`) and the advice repaired
+  nothing. `[\s\S]*` now, the first rule claims a file, files no group claims are counted as `+N elsewhere` and make the command name every runtime path with `--ignore-unmatch`. Probe with
+  line break, CR, U+2028/U+2029, ESC and U+202E in both glob specs (Windows asserts the refusal of the first ones).
+- **`mem init`** says `tracked runtime files: unknown` when `git ls-files` fails in a repository, instead of staying quiet. A quoted command carries the sentence that it is for bash or PowerShell.
+- **Base rules** `embed.env`, `epoch.json`, `search-index*`, `vectors.db`, `tasks/`, `raw-offsets.json`, `local/`, `digest-*`, `hooks/` are rows of the table: a memory that committed one is reported.
+  A tracked `embed.env` is an ERROR with its own sentence (rotate the keys).
+
 ### Fixed - review follow-up: no file name out of the index in the output, and the single runtime files under `.mem/` (B1, B2)
 
 - **B1** `mem init` and the doctor finding `gitignore` printed the first tracked runtime paths raw, from the index. A legal POSIX file name can hold an escape or OSC sequence, a bell,
@@ -25,8 +46,7 @@ are the day the work landed on `main`.
   (derived), `watch.log`, `serve.log`, `.mem/*.lock`, `.mem/*.lock.d/` (logs and locks), and the files the code itself calls gitignored, machine-local or not versioned
   (`console.json`, `console-log.jsonl`, `measurements.jsonl`, `raw-watermark.json`, `archive.json`, `rule-draft-week`, `embed.json`) or that this repo's own `.gitignore` lists as local state
   (`inbox-seen.json`, `inbox-whoami`, `reflect-marker/`). Left out on purpose, each with its reason in `test/pipeline-ignore.test.mjs`: `config.json`, `thesaurus.json`,
-  `answer-patterns.json`, `langbridge/` (authored), `rewrites.jsonl`, `bridge-reports.jsonl`, `raw-exclusion-state.json`, `raw/`, and `keyring.json` (a committed shred key survives in
-  history: the owner decides). An inventory test scans `src/`, `bin/` and `install/` for every `.mem/<name>` and asks git whether a fresh memory ignores it: a new file under `.mem/`
+  `answer-patterns.json`, `langbridge/` (authored), `rewrites.jsonl`, `bridge-reports.jsonl`, `raw-exclusion-state.json`, `raw/` (`keyring.json` was on this list until round 3: see the Security entry above). An inventory test scans `src/`, `bin/` and `install/` for every `.mem/<name>` and asks git whether a fresh memory ignores it: a new file under `.mem/`
   is red until it is in the table or on the list.
   With about 35 paths the doctor asks git ONCE (`check-ignore -v -n --stdin -z`) instead of once per path: median 149 ms -> 7 ms for the finding (7 runs, this machine, loaded).
 
