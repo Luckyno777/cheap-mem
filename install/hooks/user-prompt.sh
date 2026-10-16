@@ -16,27 +16,29 @@ set -u
 [ -z "${CHEAP_MEM_ROOT:-}" ] && exit 0
 [ ! -f "$CHEAP_MEM_ROOT/.mem/config.json" ] && exit 0
 
-# Three shapes, in order, the same as pre-edit.sh: the memory carries the
-# tool; a separate code checkout the installer told us about
-# (CHEAP_MEM_CODE); a mem-retrieve sitting next to this shim. Either way,
-# a missing tool means a silent exit - a hook that stalls a person's
-# message because recall is unavailable is worse than no recall.
-#
-# **Why the middle one matters (2026-10-16).** The installed copy lives in
-# ~/.claude/hooks/, where the third shape never exists, and a memory made
+# **Why CHEAP_MEM_CODE matters (2026-10-16).** The installed copy lives in
+# ~/.claude/hooks/, where no tool sits next to it, and a memory made
 # by `mem init` carries no bin/ - so without CHEAP_MEM_CODE this shim was
 # registered, ran, exited 0 with no byte, and every prompt of every
 # session went without recall. Nothing failed, which is why nobody saw it.
-RETRIEVE="$CHEAP_MEM_ROOT/bin/mem-retrieve"
-if [ -f "$RETRIEVE" ]; then
-  exec bash "$RETRIEVE"
-fi
-[ -n "${CHEAP_MEM_CODE:-}" ] && [ -f "$CHEAP_MEM_CODE/bin/mem-retrieve" ] \
-  && exec bash "$CHEAP_MEM_CODE/bin/mem-retrieve"
+#
+# Which tool runs (tool-trust-cm): the installed one (CHEAP_MEM_CODE), else the one next to this shim; the
+# memory's own bin/ only with `mem trust-own-tool` (bin/_owntool.sh, installed as cheap-mem-own-tool.sh).
 HERE="$(cd "$(dirname "$0")" && pwd)"
-[ -f "$HERE/mem-retrieve" ] && exec bash "$HERE/mem-retrieve"
-# Nothing found anywhere: say so (tool-missing.sh), do not just exit.
+# shellcheck source=bin/_owntool.sh
+for own_lib in "$HERE/cheap-mem-own-tool.sh" "$HERE/../../bin/_owntool.sh"; do
+  # (the second is the repository layout: install/hooks/ next to install/support/)
+  [ "$own_lib" = "$HERE/cheap-mem-own-tool.sh" ] || [ -d "$HERE/../support" ] || continue
+  [ -f "$own_lib" ] && { . "$own_lib"; break; }
+done
+unset own_lib
+mem_picked=""; MEM_OWN_SKIPPED=0
+if type mem_pick_tool >/dev/null 2>&1; then
+  mem_pick_tool "$CHEAP_MEM_ROOT" bin/mem-retrieve "$HERE"
+  [ -n "$mem_picked" ] && exec bash "$mem_picked"
+fi
+# Nothing usable: say so (tool-missing.sh), do not just exit.
 for missing_helper in "$HERE/cheap-mem-tool-missing.sh" "$HERE/../support/tool-missing.sh"; do
-  [ -f "$missing_helper" ] && exec bash "$missing_helper" user-prompt mem-retrieve
+  [ -f "$missing_helper" ] && MEM_OWN_SKIPPED="$MEM_OWN_SKIPPED" exec bash "$missing_helper" user-prompt mem-retrieve
 done
 exit 0

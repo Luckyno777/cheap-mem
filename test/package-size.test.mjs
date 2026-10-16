@@ -81,7 +81,15 @@ function packed() {
 // three times in one night, each time "fixed" by dropping another doc from
 // the tarball. Owner's explicit decision (2026-10-02): give the code room
 // instead of shipping fewer docs. 4.8 MB still fails by a factor of 2.4.
-const CAP = 2_000_000;
+//
+// **Raised from 2.0 MB to 2.1 MB on 2026-10-16, for ONE named reason:**
+// the own-tool rule (a memory runs no code of its own unless the user says so) ships three
+// implementations of one decision (src/owntool.mjs, bin/_owntool.sh, bin/_owntool.ps1), the command, the
+// installer rules for both platforms and the security-model section: 1,986,486 -> 2,005,552 packed bytes
+// (+19 kB) over a ceiling that had 13.5 kB of room; comments were trimmed first and were 0.2 kB of it.
+// Owner's explicit decision (2026-10-16): give the security work room instead of cutting it. 4.8 MB still
+// fails by a factor of 2.3.
+const CAP = 2_100_000;
 
 test('POSITIVE: npm pack answers at all', () => {
   // A probe that silently returns zero passes forever. It happened to

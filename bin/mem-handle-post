@@ -32,14 +32,19 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 CMD="${MEM_HANDLER_CMD:-claude -p}"
 
+# The model is told to run THIS tool (the one this script sits in), never the
+# memory's own bin/mem: a memory is a git clone pulled from origin, and the
+# permission list names only the installed tool (tool-trust-cm, 2026-10-16).
+TOOL_CMD="node $HERE/mem --root \$CHEAP_MEM_ROOT"
+
 DEFAULT_PROMPT="You are the '$MEM_WATCH_WHO' role in this cheap-mem installation. Read \$CHEAP_MEM_ROOT/.mem/config.json for context. Then process new inbox mail addressed to you:
 
-  1. node \$CHEAP_MEM_ROOT/bin/mem inbox new --as $MEM_WATCH_WHO
-  2. For each new message: node \$CHEAP_MEM_ROOT/bin/mem inbox show <name> --as $MEM_WATCH_WHO
-  3. Do what the message asks. If it needs a log entry: node \$CHEAP_MEM_ROOT/bin/mem log <type> ...
-  4. If it needs a reply: node \$CHEAP_MEM_ROOT/bin/mem inbox write --as $MEM_WATCH_WHO --to <sender> --in-reply-to <name> --subject ...
+  1. $TOOL_CMD inbox new --as $MEM_WATCH_WHO
+  2. For each new message: $TOOL_CMD inbox show <name> --as $MEM_WATCH_WHO
+  3. Do what the message asks. If it needs a log entry: $TOOL_CMD log <type> ...
+  4. If it needs a reply: $TOOL_CMD inbox write --as $MEM_WATCH_WHO --to <sender> --in-reply-to <name> --subject ...
      (a reply is a result and wakes nobody; never answer a result or a receipt)
-  5. Acknowledge: node \$CHEAP_MEM_ROOT/bin/mem inbox ack <name> processed
+  5. Acknowledge: $TOOL_CMD inbox ack <name> processed
   6. Commit and push explicitly to main:
        git -C \$CHEAP_MEM_ROOT add -A
        git -C \$CHEAP_MEM_ROOT commit -m 'handler: <summary>'

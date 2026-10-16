@@ -236,23 +236,65 @@ if (-not $SkipClaudeCode) {
   $subagentHookDst = Join-Path $HooksDir 'cheap-mem-subagent-start.ps1'
   $missingHookDst  = Join-Path $HooksDir 'cheap-mem-tool-missing.ps1'
 
+  # Which copy of the tool a hook may run (tool-trust-cm, 2026-10-16): the one
+  # rule, bin\_owntool.ps1, installed next to the hooks. Dot-sourced here too, to
+  # know whether the user trusts this memory's own tool (the permission list).
+  Copy-Item -LiteralPath (Join-Path $RepoRoot 'bin\_owntool.ps1') -Destination (Join-Path $HooksDir 'cheap-mem-own-tool.ps1') -Force
+  . (Join-Path $RepoRoot 'bin\_owntool.ps1')
+  $ownTrusted = Test-OwnToolTrusted $env:CHEAP_MEM_ROOT
+  $codeInsideMem = Test-OwnToolInside $RepoRoot $env:CHEAP_MEM_ROOT
+  if ($codeInsideMem) {
+    # The installed tool lies inside the memory: that is the memory's own tool,
+    # whoever installed it - a git pull would change it under the hooks.
+    if ($ownTrusted) {
+      Write-Host '[install] this checkout lies inside the memory; trusted (mem trust-own-tool was run), so the hooks use it.'
+    } else {
+      Write-Warning "this checkout lies inside the memory, so it counts as the memory's own tool and the hooks will NOT run it until you trust it yourself: node $RepoRoot\bin\mem trust-own-tool --root $env:CHEAP_MEM_ROOT (see docs/security-model.md)"
+    }
+  }
+
   # What a hook says when its tool cannot be found (see
   # install/support/tool-missing.sh for the reasoning): systemMessage JSON on
   # stdout, exit 0 (never block), at most once per 30 minutes per hook.
   @'
-param([string]$Name, [string]$Tool, [string]$Code, [string]$Root)
-if (-not (Test-Path -LiteralPath $Code)) { $why = "the code path $Code does not exist" } else { $why = "$Code has no bin\$Tool" }
+param([string]$Name, [string]$Tool, [string]$Code, [string]$Root, [switch]$Skipped)
+# -Skipped: the memory ships its own tool, the user never switched that on
+# (mem trust-own-tool) and no installed tool could take its place (tool-trust-cm).
+# That case speaks even without a code path: the hook would otherwise be silent
+# on every prompt for a reason a person can fix in one line.
+if (-not $Code -and -not $Skipped) { exit 0 }
+if ($Skipped) {
+  # Two different facts, said apart: the tool is MISSING, or it is THERE but lies in the memory and was passed over.
+  $why = 'the memory ships its own tool, which is not trusted'
+  if (-not $Code) { $why = "$why, and no installed tool is configured" }
+  elseif (Test-Path -LiteralPath (Join-Path $Code "bin\$Tool")) { $why = "$why; the installed tool ($Code) lies inside the memory, so it counts as the memory's own and was passed over" }
+  else { $why = "$why, and the installed tool is missing ($Code has no bin\$Tool)" }
+}
+elseif (-not (Test-Path -LiteralPath $Code)) { $why = "the code path $Code does not exist" } else { $why = "$Code has no bin\$Tool" }
+# The "at most every 30 minutes" marker lives in the USER's state directory, never in the memory: a memory is a
+# git clone, and a committed symlink or junction at the old place (<memory>\.pipeline\tool-missing-<hook>) made the
+# write land in whatever it pointed at (reviewer, 2026-10-16). The memory contributes only its path, as a hash.
 if ($Root) {
-  $mark = Join-Path (Join-Path $Root '.pipeline') "tool-missing-$Name"
-  if (Test-Path -LiteralPath $mark) {
-    if (((Get-Date) - (Get-Item -LiteralPath $mark).LastWriteTime).TotalMinutes -lt 30) { exit 0 }
-  }
   try {
-    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $mark) | Out-Null
-    Set-Content -LiteralPath $mark -Value ''
+    $base = $env:LOCALAPPDATA
+    if (-not $base) { $base = Join-Path $HOME '.local\state' }
+    $sha = New-Object System.Security.Cryptography.SHA1Managed
+    $hash = [System.BitConverter]::ToString($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($Root))).Replace('-', '').Substring(0, 8)
+    $dir = Join-Path $base 'cheap-mem'
+    $mark = Join-Path $dir "tool-missing-$Name-$hash"
+    $dirItem = Get-Item -LiteralPath $dir -Force -ErrorAction SilentlyContinue
+    $markItem = Get-Item -LiteralPath $mark -Force -ErrorAction SilentlyContinue
+    $linked = ($dirItem -and ($dirItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) -or ($markItem -and ($markItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint))
+    if (-not $linked) {
+      if ($markItem -and ((Get-Date) - $markItem.LastWriteTime).TotalMinutes -lt 30) { exit 0 }
+      New-Item -ItemType Directory -Force -Path $dir | Out-Null
+      Set-Content -LiteralPath $mark -Value ''
+    }
   } catch { }
 }
-$msg = "cheap-mem: the $Name hook is SILENT - it cannot find its tool ($why), so it recalls nothing. Fix: run install\windows.ps1 from a current cheap-mem checkout. Said at most every 30 minutes."
+$msg = "cheap-mem: the $Name hook is SILENT - it cannot find its tool ($why), so it recalls nothing. Fix: run install\windows.ps1 from a current cheap-mem checkout."
+if ($Skipped) { $msg = "$msg To run the memory's own tool instead: mem trust-own-tool (yourself, in a terminal; see docs/security-model.md)." }
+$msg = "$msg Said at most every 30 minutes."
 [Console]::Error.WriteLine($msg)
 Write-Output (@{ systemMessage = $msg } | ConvertTo-Json -Compress)
 exit 0
@@ -293,12 +335,26 @@ if (-not `$memRoot) {
 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
 
-# Where the tool is: the memory first, then the code checkout the
-# installer named (the same order as the POSIX hook; see there).
+# Where the tool is (tool-trust-cm, 2026-10-16): the INSTALLED tool (the code
+# path the installer named), else the tool next to this hook; the memory's own
+# bin\mem only when the user switched that on (mem trust-own-tool). The memory is
+# a git clone pulled from origin: code taken from it is code its remote can
+# ship. cheap-mem-own-tool.ps1 (a copy of bin\_owntool.ps1) holds the rule.
 `$codeRoot = if (`$env:CHEAP_MEM_CODE) { `$env:CHEAP_MEM_CODE } else { '$CodeHint' }
-`$mem = Join-Path `$env:CHEAP_MEM_ROOT 'bin\mem'
-if (-not (Test-Path -LiteralPath `$mem) -and `$codeRoot) { `$mem = Join-Path `$codeRoot 'bin\mem' }
 if (`$codeRoot -and (Test-Path -LiteralPath `$codeRoot)) { `$env:CHEAP_MEM_CODE = `$codeRoot }
+`$mem = `$null
+`$memOk = `$false
+`$ownSkipped = `$false
+`$ownShips = `$false
+`$ownLib = Join-Path `$PSScriptRoot 'cheap-mem-own-tool.ps1'
+if (Test-Path -LiteralPath `$ownLib) {
+  . `$ownLib
+  `$found = Find-OwnTool -Root `$env:CHEAP_MEM_ROOT -Rel 'bin\mem' -Self `$PSScriptRoot
+  if (`$found.Path) { `$mem = `$found.Path; `$memOk = `$true }
+  `$ownSkipped = `$found.Skipped
+  `$ownShips = (-not (Test-OwnToolTrusted `$env:CHEAP_MEM_ROOT)) -and (`$ownSkipped -or (Test-OwnToolShips `$env:CHEAP_MEM_ROOT))
+}
+if (-not `$mem) { `$mem = 'cheap-mem-tool-not-found' }
 
 # R6: a V8 compile cache for the node starts below, in the USER's cache (never
 # in the memory). Same rule as the other Windows hooks: a value already in the
@@ -318,18 +374,28 @@ if (-not `$env:NODE_COMPILE_CACHE) {
   } catch { }
 }
 
-if (Test-Path -LiteralPath `$mem) {
+if (`$memOk) {
   Write-Host '=== cheap-mem attached ==='
 } else {
-  Write-Host "=== cheap-mem NOT attached: memory found at `$env:CHEAP_MEM_ROOT, but the tool (bin\mem) is missing ==="
+  Write-Host "=== cheap-mem NOT attached: memory found at `$env:CHEAP_MEM_ROOT, but no tool to read it with (installed: `$codeRoot) ==="
   Write-Host "Recent context, alarm state and today line: UNKNOWN (not loaded, not 'nothing')."
   if (`$codeRoot) {
     Write-Host "The code path baked in by the installer has no tool: CHEAP_MEM_CODE=`$codeRoot (nothing under bin\ there)."
     Write-Host 'The other hooks (prompt recall, before-edit, subagent, stop) are SILENT for the same reason.'
     Write-Host "Fix: run install\windows.ps1 from a current cheap-mem checkout (CHEAP_MEM_ROOT=`$env:CHEAP_MEM_ROOT)."
   } else {
-    Write-Host 'Fix: check out the tool into that memory, or re-run install\windows.ps1 from the code checkout (it names the code location).'
+    Write-Host 'Fix: run install\windows.ps1 from a cheap-mem checkout (it names the code location and installs the tool the hooks run).'
+    Write-Host 'A tool inside the memory is not run unless you trust that memory yourself (mem trust-own-tool).'
   }
+}
+if (`$ownShips) {
+  if (`$memOk) {
+    Write-Host '[hook] cheap-mem: memory ships its own tool; using the installed one. To trust it: mem trust-own-tool'
+  } else {
+    Write-Host '[hook] cheap-mem: memory ships its own tool and no installed tool was found; nothing is loaded. To trust it: mem trust-own-tool'
+  }
+  `$ownMemHint = if (`$codeRoot) { Join-Path `$codeRoot 'bin\mem' } else { '<installed cheap-mem>\bin\mem' }
+  Write-Host "[hook]   (run it yourself in a terminal: node `$ownMemHint trust-own-tool --root `$env:CHEAP_MEM_ROOT; why: docs/security-model.md)"
 }
 Write-Host ''
 # Which remote and branch does this memory TRACK? .mem\config.json says
@@ -384,11 +450,10 @@ Write-Host ''
 # the same line only when the clone is STALE (src/clonegate.mjs). Same as
 # install/hooks/session-start.sh. Best-effort and silent.
 try {
-  `$provSrc = Join-Path `$env:CHEAP_MEM_ROOT 'src\provenance.mjs'
-  if (-not (Test-Path `$provSrc) -and `$env:CHEAP_MEM_CODE) {
-    `$provSrc = Join-Path `$env:CHEAP_MEM_CODE 'src\provenance.mjs'
-  }
-  if (Test-Path `$provSrc) {
+  # Through the rule (tool-trust-cm): the memory's own src\provenance.mjs is imported by node only with the switch.
+  `$provSrc = `$null
+  if (Test-Path -LiteralPath `$ownLib) { `$provSrc = (Find-OwnTool -Root `$env:CHEAP_MEM_ROOT -Rel 'src\provenance.mjs' -Self `$PSScriptRoot).Path }
+  if (`$provSrc) {
     `$env:MEM_SS_PROV = ([System.Uri]::new([System.IO.Path]::GetFullPath(`$provSrc))).AbsoluteUri
     `$provScript = @'
       import(process.env.MEM_SS_PROV).then((m) => {
@@ -407,7 +472,7 @@ if (Test-Path `$facts) {
   Write-Host ''
 }
 
-if (Test-Path -LiteralPath `$mem) {
+if (`$memOk) {
   Write-Host '=== mem context ==='
   & node `$mem context --n 10
   Write-Host ''
@@ -421,7 +486,7 @@ if (Test-Path -LiteralPath `$mem) {
 # the reasoning. This hook adds nothing beyond calling it and deciding
 # whether to print what came back: an empty string, from "not enough
 # evidence" or "no capture readable at all" alike, prints nothing.
-if (Test-Path -LiteralPath `$mem) {
+if (`$memOk) {
   try {
     `$habits = & node `$mem user --session-start 2>`$null
     if (`$habits) {
@@ -439,7 +504,7 @@ if (Test-Path -LiteralPath `$mem) {
 # timeout binary, so the cap is a background job with a wait limit -
 # the same shape bin/mem-watch.ps1 and bin/mem-reflect.ps1 already use.
 # A cap that expires reports itself as expired, never as "all fine".
-if (Test-Path -LiteralPath `$mem) {
+if (`$memOk) {
   try {
     `$alarmSeconds = 8
     if (`$env:MEM_ALARM_SECONDS) { `$alarmSeconds = [int]`$env:MEM_ALARM_SECONDS }
@@ -474,7 +539,7 @@ if (Test-Path -LiteralPath `$mem) {
 # Today card read, and it prints nothing at all when there is nothing
 # notable, so there is no unconditional Write-Host outside the check
 # below. Own time-cap job, same shape as the alarm above.
-if (Test-Path -LiteralPath `$mem) {
+if (`$memOk) {
   try {
     `$todaySeconds = 5
     if (`$env:MEM_TODAY_SECONDS) { `$todaySeconds = [int]`$env:MEM_TODAY_SECONDS }
@@ -506,11 +571,9 @@ if (Test-Path -LiteralPath `$mem) {
 # measured is not 0). Same as install/hooks/session-start.sh. Best-effort
 # and silent.
 try {
-  `$injection = Join-Path `$env:CHEAP_MEM_ROOT 'src\injection.mjs'
-  if (-not (Test-Path `$injection) -and `$env:CHEAP_MEM_CODE) {
-    `$injection = Join-Path `$env:CHEAP_MEM_CODE 'src\injection.mjs'
-  }
-  if (Test-Path `$injection) {
+  `$injection = `$null
+  if (Test-Path -LiteralPath `$ownLib) { `$injection = (Find-OwnTool -Root `$env:CHEAP_MEM_ROOT -Rel 'src\injection.mjs' -Self `$PSScriptRoot).Path }
+  if (`$injection) {
     `$env:MEM_SS_SRC = ([System.Uri]::new([System.IO.Path]::GetFullPath(`$injection))).AbsoluteUri
     `$env:MEM_SS_INPUT = `$hookIn
     `$env:MEM_SS_START_MS = [string]`$hookStartMs
@@ -574,13 +637,23 @@ foreach (`$candidate in @(
 if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
 `$rel = 'bin\mem-stop.ps1'
-`$stop = Join-Path `$env:CHEAP_MEM_ROOT `$rel
 `$codeRoot = if (`$env:CHEAP_MEM_CODE) { `$env:CHEAP_MEM_CODE } else { '$CodeHint' }
-if (-not (Test-Path -LiteralPath `$stop) -and `$codeRoot) { `$stop = Join-Path `$codeRoot `$rel }
-if (-not (Test-Path -LiteralPath `$stop)) {
+# Which tool runs (tool-trust-cm): the installed one, else the one next to this hook; the memory's own
+# bin\ only with mem trust-own-tool (cheap-mem-own-tool.ps1, a copy of bin\_owntool.ps1).
+`$stop = `$null
+`$skipped = `$false
+`$ownLib = Join-Path `$PSScriptRoot 'cheap-mem-own-tool.ps1'
+if (Test-Path -LiteralPath `$ownLib) {
+  . `$ownLib
+  if (`$codeRoot) { `$env:CHEAP_MEM_CODE = `$codeRoot }
+  `$found = Find-OwnTool -Root `$env:CHEAP_MEM_ROOT -Rel `$rel -Self `$PSScriptRoot
+  `$stop = `$found.Path
+  `$skipped = `$found.Skipped
+}
+if (-not `$stop) {
   # Say so instead of exiting silent (cheap-mem-tool-missing.ps1).
   `$missing = Join-Path `$PSScriptRoot 'cheap-mem-tool-missing.ps1'
-  if (Test-Path -LiteralPath `$missing) { & `$missing -Name 'session-stop' -Tool 'mem-stop.ps1' -Code `$codeRoot -Root `$env:CHEAP_MEM_ROOT }
+  if (Test-Path -LiteralPath `$missing) { & `$missing -Name 'session-stop' -Tool 'mem-stop.ps1' -Code `$codeRoot -Root `$env:CHEAP_MEM_ROOT -Skipped:`$skipped }
   exit 0
 }
 & powershell -NoProfile -ExecutionPolicy Bypass -File `$stop
@@ -626,13 +699,23 @@ foreach (`$candidate in @(
 if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
 `$rel = 'bin\mem-retrieve.ps1'
-`$retrieve = Join-Path `$env:CHEAP_MEM_ROOT `$rel
 `$codeRoot = if (`$env:CHEAP_MEM_CODE) { `$env:CHEAP_MEM_CODE } else { '$CodeHint' }
-if (-not (Test-Path -LiteralPath `$retrieve) -and `$codeRoot) { `$retrieve = Join-Path `$codeRoot `$rel }
-if (-not (Test-Path -LiteralPath `$retrieve)) {
+# Which tool runs (tool-trust-cm): the installed one, else the one next to this hook; the memory's own
+# bin\ only with mem trust-own-tool (cheap-mem-own-tool.ps1, a copy of bin\_owntool.ps1).
+`$retrieve = `$null
+`$skipped = `$false
+`$ownLib = Join-Path `$PSScriptRoot 'cheap-mem-own-tool.ps1'
+if (Test-Path -LiteralPath `$ownLib) {
+  . `$ownLib
+  if (`$codeRoot) { `$env:CHEAP_MEM_CODE = `$codeRoot }
+  `$found = Find-OwnTool -Root `$env:CHEAP_MEM_ROOT -Rel `$rel -Self `$PSScriptRoot
+  `$retrieve = `$found.Path
+  `$skipped = `$found.Skipped
+}
+if (-not `$retrieve) {
   # Say so instead of exiting silent (cheap-mem-tool-missing.ps1).
   `$missing = Join-Path `$PSScriptRoot 'cheap-mem-tool-missing.ps1'
-  if (Test-Path -LiteralPath `$missing) { & `$missing -Name 'user-prompt' -Tool 'mem-retrieve.ps1' -Code `$codeRoot -Root `$env:CHEAP_MEM_ROOT }
+  if (Test-Path -LiteralPath `$missing) { & `$missing -Name 'user-prompt' -Tool 'mem-retrieve.ps1' -Code `$codeRoot -Root `$env:CHEAP_MEM_ROOT -Skipped:`$skipped }
   exit 0
 }
 & powershell -NoProfile -ExecutionPolicy Bypass -File `$retrieve
@@ -658,13 +741,23 @@ foreach (`$candidate in @(
 if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
 `$rel = 'bin\mem-before-edit.ps1'
-`$before = Join-Path `$env:CHEAP_MEM_ROOT `$rel
 `$codeRoot = if (`$env:CHEAP_MEM_CODE) { `$env:CHEAP_MEM_CODE } else { '$CodeHint' }
-if (-not (Test-Path -LiteralPath `$before) -and `$codeRoot) { `$before = Join-Path `$codeRoot `$rel }
-if (-not (Test-Path -LiteralPath `$before)) {
+# Which tool runs (tool-trust-cm): the installed one, else the one next to this hook; the memory's own
+# bin\ only with mem trust-own-tool (cheap-mem-own-tool.ps1, a copy of bin\_owntool.ps1).
+`$before = `$null
+`$skipped = `$false
+`$ownLib = Join-Path `$PSScriptRoot 'cheap-mem-own-tool.ps1'
+if (Test-Path -LiteralPath `$ownLib) {
+  . `$ownLib
+  if (`$codeRoot) { `$env:CHEAP_MEM_CODE = `$codeRoot }
+  `$found = Find-OwnTool -Root `$env:CHEAP_MEM_ROOT -Rel `$rel -Self `$PSScriptRoot
+  `$before = `$found.Path
+  `$skipped = `$found.Skipped
+}
+if (-not `$before) {
   # Say so instead of exiting silent (cheap-mem-tool-missing.ps1).
   `$missing = Join-Path `$PSScriptRoot 'cheap-mem-tool-missing.ps1'
-  if (Test-Path -LiteralPath `$missing) { & `$missing -Name 'pre-edit' -Tool 'mem-before-edit.ps1' -Code `$codeRoot -Root `$env:CHEAP_MEM_ROOT }
+  if (Test-Path -LiteralPath `$missing) { & `$missing -Name 'pre-edit' -Tool 'mem-before-edit.ps1' -Code `$codeRoot -Root `$env:CHEAP_MEM_ROOT -Skipped:`$skipped }
   exit 0
 }
 & powershell -NoProfile -ExecutionPolicy Bypass -File `$before
@@ -690,13 +783,23 @@ foreach (`$candidate in @(
 if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
 `$rel = 'bin\mem-catch-fail.ps1'
-`$catchFail = Join-Path `$env:CHEAP_MEM_ROOT `$rel
 `$codeRoot = if (`$env:CHEAP_MEM_CODE) { `$env:CHEAP_MEM_CODE } else { '$CodeHint' }
-if (-not (Test-Path -LiteralPath `$catchFail) -and `$codeRoot) { `$catchFail = Join-Path `$codeRoot `$rel }
-if (-not (Test-Path -LiteralPath `$catchFail)) {
+# Which tool runs (tool-trust-cm): the installed one, else the one next to this hook; the memory's own
+# bin\ only with mem trust-own-tool (cheap-mem-own-tool.ps1, a copy of bin\_owntool.ps1).
+`$catchFail = `$null
+`$skipped = `$false
+`$ownLib = Join-Path `$PSScriptRoot 'cheap-mem-own-tool.ps1'
+if (Test-Path -LiteralPath `$ownLib) {
+  . `$ownLib
+  if (`$codeRoot) { `$env:CHEAP_MEM_CODE = `$codeRoot }
+  `$found = Find-OwnTool -Root `$env:CHEAP_MEM_ROOT -Rel `$rel -Self `$PSScriptRoot
+  `$catchFail = `$found.Path
+  `$skipped = `$found.Skipped
+}
+if (-not `$catchFail) {
   # Say so instead of exiting silent (cheap-mem-tool-missing.ps1).
   `$missing = Join-Path `$PSScriptRoot 'cheap-mem-tool-missing.ps1'
-  if (Test-Path -LiteralPath `$missing) { & `$missing -Name 'catch-fail' -Tool 'mem-catch-fail.ps1' -Code `$codeRoot -Root `$env:CHEAP_MEM_ROOT }
+  if (Test-Path -LiteralPath `$missing) { & `$missing -Name 'catch-fail' -Tool 'mem-catch-fail.ps1' -Code `$codeRoot -Root `$env:CHEAP_MEM_ROOT -Skipped:`$skipped }
   exit 0
 }
 & powershell -NoProfile -ExecutionPolicy Bypass -File `$catchFail
@@ -723,13 +826,23 @@ foreach (`$candidate in @(
 if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
 `$rel = 'bin\mem-after-failure.ps1'
-`$afterFailure = Join-Path `$env:CHEAP_MEM_ROOT `$rel
 `$codeRoot = if (`$env:CHEAP_MEM_CODE) { `$env:CHEAP_MEM_CODE } else { '$CodeHint' }
-if (-not (Test-Path -LiteralPath `$afterFailure) -and `$codeRoot) { `$afterFailure = Join-Path `$codeRoot `$rel }
-if (-not (Test-Path -LiteralPath `$afterFailure)) {
+# Which tool runs (tool-trust-cm): the installed one, else the one next to this hook; the memory's own
+# bin\ only with mem trust-own-tool (cheap-mem-own-tool.ps1, a copy of bin\_owntool.ps1).
+`$afterFailure = `$null
+`$skipped = `$false
+`$ownLib = Join-Path `$PSScriptRoot 'cheap-mem-own-tool.ps1'
+if (Test-Path -LiteralPath `$ownLib) {
+  . `$ownLib
+  if (`$codeRoot) { `$env:CHEAP_MEM_CODE = `$codeRoot }
+  `$found = Find-OwnTool -Root `$env:CHEAP_MEM_ROOT -Rel `$rel -Self `$PSScriptRoot
+  `$afterFailure = `$found.Path
+  `$skipped = `$found.Skipped
+}
+if (-not `$afterFailure) {
   # Say so instead of exiting silent (cheap-mem-tool-missing.ps1).
   `$missing = Join-Path `$PSScriptRoot 'cheap-mem-tool-missing.ps1'
-  if (Test-Path -LiteralPath `$missing) { & `$missing -Name 'after-failure' -Tool 'mem-after-failure.ps1' -Code `$codeRoot -Root `$env:CHEAP_MEM_ROOT }
+  if (Test-Path -LiteralPath `$missing) { & `$missing -Name 'after-failure' -Tool 'mem-after-failure.ps1' -Code `$codeRoot -Root `$env:CHEAP_MEM_ROOT -Skipped:`$skipped }
   exit 0
 }
 & powershell -NoProfile -ExecutionPolicy Bypass -File `$afterFailure
@@ -756,13 +869,23 @@ foreach (`$candidate in @(
 if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
 `$rel = 'bin\mem-subagent-start.ps1'
-`$subagent = Join-Path `$env:CHEAP_MEM_ROOT `$rel
 `$codeRoot = if (`$env:CHEAP_MEM_CODE) { `$env:CHEAP_MEM_CODE } else { '$CodeHint' }
-if (-not (Test-Path -LiteralPath `$subagent) -and `$codeRoot) { `$subagent = Join-Path `$codeRoot `$rel }
-if (-not (Test-Path -LiteralPath `$subagent)) {
+# Which tool runs (tool-trust-cm): the installed one, else the one next to this hook; the memory's own
+# bin\ only with mem trust-own-tool (cheap-mem-own-tool.ps1, a copy of bin\_owntool.ps1).
+`$subagent = `$null
+`$skipped = `$false
+`$ownLib = Join-Path `$PSScriptRoot 'cheap-mem-own-tool.ps1'
+if (Test-Path -LiteralPath `$ownLib) {
+  . `$ownLib
+  if (`$codeRoot) { `$env:CHEAP_MEM_CODE = `$codeRoot }
+  `$found = Find-OwnTool -Root `$env:CHEAP_MEM_ROOT -Rel `$rel -Self `$PSScriptRoot
+  `$subagent = `$found.Path
+  `$skipped = `$found.Skipped
+}
+if (-not `$subagent) {
   # Say so instead of exiting silent (cheap-mem-tool-missing.ps1).
   `$missing = Join-Path `$PSScriptRoot 'cheap-mem-tool-missing.ps1'
-  if (Test-Path -LiteralPath `$missing) { & `$missing -Name 'subagent-start' -Tool 'mem-subagent-start.ps1' -Code `$codeRoot -Root `$env:CHEAP_MEM_ROOT }
+  if (Test-Path -LiteralPath `$missing) { & `$missing -Name 'subagent-start' -Tool 'mem-subagent-start.ps1' -Code `$codeRoot -Root `$env:CHEAP_MEM_ROOT -Skipped:`$skipped }
   exit 0
 }
 & powershell -NoProfile -ExecutionPolicy Bypass -File `$subagent
@@ -836,14 +959,47 @@ if (-not (Test-Path -LiteralPath `$subagent)) {
       'Bash(git status:*)', 'Bash(git diff:*)', 'Bash(git log:*)',
       'Bash(git show:*)', 'Bash(git ls-tree:*)', 'Bash(git ls-files:*)',
       'Bash(git rev-parse:*)',
-      "Bash(node $($env:CHEAP_MEM_ROOT -replace '\\','/')/bin/mem:*)",
       'Read', 'Edit', 'Write', 'Glob', 'Grep'
     )
+    # Which `node ...\bin\mem` may run without asking (tool-trust-cm,
+    # 2026-10-16): the INSTALLED tool always (the hooks run it, the session is
+    # told to call it); the memory's own only with the local switch. Before this
+    # the memory's was always allowed, and a memory is a git clone pulled from
+    # origin. A checkout inside the memory IS the memory's own tool.
+    function Get-MemCmd { param($r) "Bash(node $($r -replace '\\','/')/bin/mem:*)" }
+    if ((-not $codeInsideMem) -or $ownTrusted) { $allowNeeded += (Get-MemCmd $RepoRoot) }
+    if ($ownTrusted) { $allowNeeded += (Get-MemCmd $env:CHEAP_MEM_ROOT) }
     $denyNeeded = @(
       'Bash(rm -rf:*)', 'Bash(git push --force:*)',
-      'Bash(git push -f:*)', 'Bash(git reset --hard:*)'
+      'Bash(git push -f:*)', 'Bash(git reset --hard:*)',
+      # The switch is for a person, in a terminal. The command refuses without
+      # one (unless CHEAP_MEM_PROVISION=1), and a variable written in front of
+      # `node` takes the call out of the allow list. `*trust-own-tool*` refuses it
+      # wherever the words stand in the line (--root in front, cd x && ..., env A=1
+      # node ..., a relative path), for Bash and for the PowerShell tool; the two
+      # prefix forms are for a Claude Code that does not read a `*` in the middle.
+      # A session that may run any shell command (bypass/auto) can still write the
+      # switch file: these rules are a fence, not a lock (docs/security-model.md).
+      'Bash(*trust-own-tool*)', 'PowerShell(*trust-own-tool*)',
+      'Bash(*CHEAP_MEM_PROVISION*)', 'PowerShell(*CHEAP_MEM_PROVISION*)',
+      "Bash(node $($RepoRoot -replace '\\','/')/bin/mem trust-own-tool:*)",
+      "Bash(node $($env:CHEAP_MEM_ROOT -replace '\\','/')/bin/mem trust-own-tool:*)"
     )
+    # Write and Edit are allowed across the board; the switch file is taken out
+    # again. Claude Code writes a Windows path the POSIX way in file rules
+    # (//c/Users/...), `**` is any depth.
+    $swDir = Split-Path -Parent (Get-OwnToolFile)
+    if ($swDir -and $swDir.Length -gt 2 -and $swDir[1] -eq ':') {
+      $swPosix = '/' + $swDir.Substring(0, 1).ToLowerInvariant() + $swDir.Substring(2).Replace('\', '/')
+      foreach ($tool in @('Write', 'Edit')) { $denyNeeded += "$tool(/$swPosix/**)" }
+    }
     if (-not $cfg['permissions'].ContainsKey('allow')) { $cfg['permissions']['allow'] = @() }
+    # An allow entry for the memory's own tool that an earlier run wrote stays
+    # only while the switch is on.
+    if (-not $ownTrusted) {
+      $stale = Get-MemCmd $env:CHEAP_MEM_ROOT
+      $cfg['permissions']['allow'] = @($cfg['permissions']['allow'] | Where-Object { ([string]$_).Replace('\', '/') -ne $stale })
+    }
     if (-not $cfg['permissions'].ContainsKey('deny'))  { $cfg['permissions']['deny']  = @() }
     $cfg['permissions']['allow'] = @($cfg['permissions']['allow'] + $allowNeeded | Select-Object -Unique)
     $cfg['permissions']['deny']  = @($cfg['permissions']['deny']  + $denyNeeded  | Select-Object -Unique)

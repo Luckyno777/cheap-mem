@@ -718,7 +718,7 @@ export const COMMANDS = {
         '                     SessionStart path is',
         '                     install/hooks/session-start.sh; wiring',
         '                     this in needs exactly one added line:',
-        '                       node "$CHEAP_MEM_ROOT/bin/mem" user --session-start',
+        '                       node "$CHEAP_MEM_CODE/bin/mem" --root "$CHEAP_MEM_ROOT" user --session-start',
         '                     (not added by this command — that file is',
         '                     someone else\'s to touch; this prints',
         '                     exactly what that line would inject).',
