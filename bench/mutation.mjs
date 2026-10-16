@@ -949,6 +949,30 @@ export const MUTANTS=[
    to:"statequestion.resolveWordsPath(root)  /* MUTANT */",
    tests:['test/recall-config.test.mjs'] },
 
+ { name:'RB the hook\'s renderer drops the exact leg of the bar',
+   file:'src/recallrender.mjs',
+   from:"    if (!clears(h, min)) continue;",
+   to:"    if (!(Number(h.score) >= min)) continue;  // MUTANT: a named identifier needs a score again",
+   tests:['test/recall-bar.test.mjs'] },
+
+ { name:'RB clears() forgets the exact hit',
+   file:'src/recallrender.mjs',
+   from:"  return Number(hit?.score) >= min || Boolean(hit?.exact && hit.exact.length);",
+   to:"  return Number(hit?.score) >= min;  // MUTANT",
+   tests:['test/recall-bar.test.mjs'] },
+
+ { name:'RB the H5 path of the hook has its own bar again',
+   file:'src/recallhook.mjs',
+   from:"    ? levers.coreLines(shown.filter((h) => clears(h, min)), { attach })",
+   to:"    ? levers.coreLines(shown.filter((h) => Number(h.score) >= min), { attach })  // MUTANT",
+   tests:['test/recall-bar.test.mjs'] },
+
+ { name:'RB the recall-levers measurement keeps its own copy of the bar',
+   file:'bench/recall-levers.mjs',
+   from:"  return { raw, shown: raw.filter((h) => clears(h, BAR)) };",
+   to:"  return { raw, shown: raw.filter((h) => h.score >= BAR || h.exact.length) };  // MUTANT",
+   tests:['test/recall-bar.test.mjs'] },
+
 ];
 
 // The modules whose failure is a security or data-integrity failure. The

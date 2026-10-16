@@ -55,7 +55,7 @@ import { isMain } from './ismain.mjs';
 import * as injection from './injection.mjs';
 import { visible as bidiVisible } from './bidi.mjs';
 import { maskText } from './outputguard.mjs';
-import { renderHits, lazyAttach } from './recallrender.mjs';
+import { renderHits, lazyAttach, clears, RECALL_MIN } from './recallrender.mjs';
 import { judge, isForeignTurn } from './recallsignal.mjs';
 import * as levers from './searchlevers.mjs';
 
@@ -207,7 +207,7 @@ export function recall(root, hitsJson, env = process.env, { offer = null, attach
   const hits = parseHits(hitsJson);
   // The hits of this turn go along: mostly encrypted ones keep the question out of the local file.
   const book = (extra) => booking(env, { questionHits: hits ?? undefined, ...extra });
-  const min = num(env.MEM_RH_MIN, 5.0);
+  const min = num(env.MEM_RH_MIN, RECALL_MIN);
   // The skill offer: one line naming released skills, booked as `skill-offer`.
   const bookOffer = () => {
     if (offer && env.MEM_RH_SESSION) {
@@ -246,7 +246,7 @@ export function recall(root, hitsJson, env = process.env, { offer = null, attach
   // L3 (src/recallattach.mjs): below an error with a valid solution stands that solution, one line
   // (`attach`, worked out by `recallWith` before this synchronous renderer runs).
   const r = short
-    ? levers.coreLines(shown.filter((h) => Number(h.score) >= min || (h.exact && h.exact.length)), { attach })
+    ? levers.coreLines(shown.filter((h) => clears(h, min)), { attach })
     : renderHits(shown, { min, attach });
   if (!r.lines.length) {
     return withWorkflow(nothing(hits.length || parseWithheld(hitsJson)
