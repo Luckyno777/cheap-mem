@@ -2,6 +2,9 @@
 # SPDX-License-Identifier: MIT
 # _headless.ps1 - how an unattended job starts `claude -p` (dot-sourced, never run).
 #
+# windows-parity-ok: the PowerShell half of one starter, dot-sourced and never run as a hook; the POSIX half is
+# `mem_headless_plan` in bin/_portable.sh (itself sourced), and both ask the same node program (bin/mem-headless.mjs).
+#
 # The PowerShell side of the one starter. The decision lives in
 # src/headless.mjs (reached through bin/mem-headless.mjs); the POSIX side is
 # mem_headless_plan in bin/_portable.sh. Why: `claude -p` without `--bare` runs

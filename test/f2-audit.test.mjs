@@ -174,6 +174,9 @@ function fakeDigestHome(pendingJson) {
   // The selection lives in src/digestselect.mjs since 2026-10-01.
   fs.mkdirSync(path.join(dir, 'src'));
   fs.copyFileSync(path.join(REPO, 'src', 'digestselect.mjs'), path.join(dir, 'src', 'digestselect.mjs'));
+  // The model start goes through the isolating starter (bin/mem-headless.mjs -> src/headless.mjs).
+  fs.copyFileSync(path.join(REPO, 'bin', 'mem-headless.mjs'), path.join(bin, 'mem-headless.mjs'));
+  fs.copyFileSync(path.join(REPO, 'src', 'headless.mjs'), path.join(dir, 'src', 'headless.mjs'));
   // A stand-in for bin/mem: "due", and a pending list that we control.
   fs.writeFileSync(path.join(bin, 'mem'), `#!/usr/bin/env node
 const a = process.argv.slice(2);
