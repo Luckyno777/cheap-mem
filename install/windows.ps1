@@ -639,10 +639,8 @@ if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
 `$rel = 'bin\mem-stop.ps1'
 `$codeRoot = if (`$env:CHEAP_MEM_CODE) { `$env:CHEAP_MEM_CODE } else { '$CodeHint' }
-# Which copy of the tool to run (tool-trust-cm, 2026-10-16): the INSTALLED tool
-# (the code path above), else the tool next to this hook; the memory's own bin\
-# only when the user switched that on (mem trust-own-tool). The rule lives in
-# cheap-mem-own-tool.ps1, a copy of bin\_owntool.ps1.
+# Which tool runs (tool-trust-cm): the installed one, else the one next to this hook; the memory's own
+# bin\ only with mem trust-own-tool (cheap-mem-own-tool.ps1, a copy of bin\_owntool.ps1).
 `$stop = `$null
 `$skipped = `$false
 `$ownLib = Join-Path `$PSScriptRoot 'cheap-mem-own-tool.ps1'
@@ -703,10 +701,8 @@ if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
 `$rel = 'bin\mem-retrieve.ps1'
 `$codeRoot = if (`$env:CHEAP_MEM_CODE) { `$env:CHEAP_MEM_CODE } else { '$CodeHint' }
-# Which copy of the tool to run (tool-trust-cm, 2026-10-16): the INSTALLED tool
-# (the code path above), else the tool next to this hook; the memory's own bin\
-# only when the user switched that on (mem trust-own-tool). The rule lives in
-# cheap-mem-own-tool.ps1, a copy of bin\_owntool.ps1.
+# Which tool runs (tool-trust-cm): the installed one, else the one next to this hook; the memory's own
+# bin\ only with mem trust-own-tool (cheap-mem-own-tool.ps1, a copy of bin\_owntool.ps1).
 `$retrieve = `$null
 `$skipped = `$false
 `$ownLib = Join-Path `$PSScriptRoot 'cheap-mem-own-tool.ps1'
@@ -747,10 +743,8 @@ if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
 `$rel = 'bin\mem-before-edit.ps1'
 `$codeRoot = if (`$env:CHEAP_MEM_CODE) { `$env:CHEAP_MEM_CODE } else { '$CodeHint' }
-# Which copy of the tool to run (tool-trust-cm, 2026-10-16): the INSTALLED tool
-# (the code path above), else the tool next to this hook; the memory's own bin\
-# only when the user switched that on (mem trust-own-tool). The rule lives in
-# cheap-mem-own-tool.ps1, a copy of bin\_owntool.ps1.
+# Which tool runs (tool-trust-cm): the installed one, else the one next to this hook; the memory's own
+# bin\ only with mem trust-own-tool (cheap-mem-own-tool.ps1, a copy of bin\_owntool.ps1).
 `$before = `$null
 `$skipped = `$false
 `$ownLib = Join-Path `$PSScriptRoot 'cheap-mem-own-tool.ps1'
@@ -791,10 +785,8 @@ if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
 `$rel = 'bin\mem-catch-fail.ps1'
 `$codeRoot = if (`$env:CHEAP_MEM_CODE) { `$env:CHEAP_MEM_CODE } else { '$CodeHint' }
-# Which copy of the tool to run (tool-trust-cm, 2026-10-16): the INSTALLED tool
-# (the code path above), else the tool next to this hook; the memory's own bin\
-# only when the user switched that on (mem trust-own-tool). The rule lives in
-# cheap-mem-own-tool.ps1, a copy of bin\_owntool.ps1.
+# Which tool runs (tool-trust-cm): the installed one, else the one next to this hook; the memory's own
+# bin\ only with mem trust-own-tool (cheap-mem-own-tool.ps1, a copy of bin\_owntool.ps1).
 `$catchFail = `$null
 `$skipped = `$false
 `$ownLib = Join-Path `$PSScriptRoot 'cheap-mem-own-tool.ps1'
@@ -836,10 +828,8 @@ if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
 `$rel = 'bin\mem-after-failure.ps1'
 `$codeRoot = if (`$env:CHEAP_MEM_CODE) { `$env:CHEAP_MEM_CODE } else { '$CodeHint' }
-# Which copy of the tool to run (tool-trust-cm, 2026-10-16): the INSTALLED tool
-# (the code path above), else the tool next to this hook; the memory's own bin\
-# only when the user switched that on (mem trust-own-tool). The rule lives in
-# cheap-mem-own-tool.ps1, a copy of bin\_owntool.ps1.
+# Which tool runs (tool-trust-cm): the installed one, else the one next to this hook; the memory's own
+# bin\ only with mem trust-own-tool (cheap-mem-own-tool.ps1, a copy of bin\_owntool.ps1).
 `$afterFailure = `$null
 `$skipped = `$false
 `$ownLib = Join-Path `$PSScriptRoot 'cheap-mem-own-tool.ps1'
@@ -881,10 +871,8 @@ if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
 `$rel = 'bin\mem-subagent-start.ps1'
 `$codeRoot = if (`$env:CHEAP_MEM_CODE) { `$env:CHEAP_MEM_CODE } else { '$CodeHint' }
-# Which copy of the tool to run (tool-trust-cm, 2026-10-16): the INSTALLED tool
-# (the code path above), else the tool next to this hook; the memory's own bin\
-# only when the user switched that on (mem trust-own-tool). The rule lives in
-# cheap-mem-own-tool.ps1, a copy of bin\_owntool.ps1.
+# Which tool runs (tool-trust-cm): the installed one, else the one next to this hook; the memory's own
+# bin\ only with mem trust-own-tool (cheap-mem-own-tool.ps1, a copy of bin\_owntool.ps1).
 `$subagent = `$null
 `$skipped = `$false
 `$ownLib = Join-Path `$PSScriptRoot 'cheap-mem-own-tool.ps1'

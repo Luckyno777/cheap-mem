@@ -960,7 +960,8 @@ test('windows.ps1: all seven generated hooks use the rule; the memory\'s bin is 
   assert.match(text, /\(\[string\]\$_\)\.Replace\('\\', '\/'\) -ne \$stale/, 'the stale entry goes in its backslash spelling too');
   // The tool-missing marker is in the user's state directory, never written through the memory.
   const tm = text.slice(text.indexOf('param([string]$Name'), text.indexOf("'@ | Set-Content -LiteralPath $missingHookDst"));
-  assert.doesNotMatch(tm, /Join-Path \(Join-Path \$Root|\.pipeline'\)/, 'tool-missing still writes into the memory');
+  assert.doesNotMatch(tm, /\$Root '\.pipeline'|Join-Path \(Join-Path \$Root|\.pipeline'\)/, 'tool-missing still writes into the memory');
+  assert.match(tm, /Join-Path \$base 'cheap-mem'/, 'the marker directory is the user\'s');
   assert.match(tm, /\$env:LOCALAPPDATA/);
   assert.match(tm, /ReparsePoint/, 'a link at the marker place must not be written through');
   // The tool-missing message speaks for a skipped own tool even without a code path.

@@ -17,13 +17,8 @@ set -u
 [ -z "${CHEAP_MEM_ROOT:-}" ] && exit 0
 [ ! -f "$CHEAP_MEM_ROOT/.mem/config.json" ] && exit 0
 
-# **Where the tool comes from (tool-trust-cm, 2026-10-16).** The INSTALLED tool
-# (CHEAP_MEM_CODE, set by the installer), else the tool next to this shim. The
-# memory's own bin/ only when the user switched that on, locally
-# (`mem trust-own-tool`): the memory is a git clone pulled from origin, so code
-# taken from it is code its remote can ship. cheap-mem-own-tool.sh (a copy of
-# bin/_owntool.sh) holds the rule; without it nothing is run from anywhere but
-# the tool-missing message below.
+# Which tool runs (tool-trust-cm): the installed one (CHEAP_MEM_CODE), else the one next to this shim; the
+# memory's own bin/ only with `mem trust-own-tool` (bin/_owntool.sh, installed as cheap-mem-own-tool.sh).
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=bin/_owntool.sh
 for own_lib in "$HERE/cheap-mem-own-tool.sh" "$HERE/../../bin/_owntool.sh"; do
