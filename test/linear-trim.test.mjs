@@ -34,6 +34,7 @@ const CEILING_MS = 2000;
 const RATIO_FROM_MS = 100;
 const SMALL_FLOOR_MS = 25;
 const RATIO_MAX = 9;
+const RATIO_TRIES = 3;
 const GIVE_UP_MS = 20000;
 
 // The child's scratch directories live under one directory of ours (`os.tmpdir()` reads these variables on every platform),
@@ -60,15 +61,28 @@ test('the probes feed the sites 1 MB', () => {
 });
 
 for (const name of Object.keys(PROBES)) {
-  test(`linear: ${name}`, { timeout: GIVE_UP_MS + 10000 }, async (t) => {
+  test(`linear: ${name}`, { timeout: 3 * GIVE_UP_MS + 10000 }, async (t) => {
     const r = await runProbe(name, tempDir('cm-linear-run-', t));
     assert.equal(r.gaveUp, false, `did not finish in ${GIVE_UP_MS} ms - the site is quadratic`);
     assert.equal(r.error, null, `the site threw: ${r.error}`);
     assert.equal(r.ok, true, 'the site gave a different answer than on a normal input');
     assert.ok(r.ms < CEILING_MS, `${Math.round(r.ms)} ms (ceiling ${CEILING_MS}) - the site backtracks`);
     if (r.ms >= RATIO_FROM_MS) {
-      const ratio = r.ms / Math.max(r.smallMs, SMALL_FLOOR_MS);
-      assert.ok(ratio < RATIO_MAX, `1 MB took ${Math.round(r.ms)} ms, a quarter of it ${Math.round(r.smallMs)} ms: ${ratio.toFixed(1)} times (linear is about 4, quadratic about 16)`);
+      // The two sizes are measured one after the other, so a burst of load during the big one alone reads as a high ratio
+      // (12.9 on a machine at load 17, 2026-10-16: 498 ms against 39 ms). A quadratic site is about 16 on every run; a fresh
+      // child, up to `RATIO_TRIES` in all, keeps the lowest ratio. That re-measures the clock, it does not re-ask the answer.
+      const ratioOf = (m) => m.ms / Math.max(m.smallMs, SMALL_FLOOR_MS);
+      // A repeat that finishes 1 MB below `RATIO_FROM_MS` is the good result itself: a quadratic site is far above it.
+      let best = r;
+      let fastRepeat = false;
+      for (let tries = 1; tries < RATIO_TRIES && !fastRepeat && ratioOf(best) >= RATIO_MAX; tries += 1) {
+        const again = await runProbe(name, tempDir('cm-linear-again-', t));
+        if (again.gaveUp || !again.ok) continue;
+        if (again.ms < RATIO_FROM_MS) fastRepeat = true;
+        else if (ratioOf(again) < ratioOf(best)) best = again;
+      }
+      const ratio = fastRepeat ? 0 : ratioOf(best);
+      assert.ok(ratio < RATIO_MAX, `1 MB took ${Math.round(best.ms)} ms, a quarter of it ${Math.round(best.smallMs)} ms: ${ratio.toFixed(1)} times, lowest of up to ${RATIO_TRIES} children (linear is about 4, quadratic about 16)`);
     }
   });
 }

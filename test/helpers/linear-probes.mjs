@@ -142,7 +142,10 @@ export const PROBES = {
   },
 };
 
-const isMain = process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url;
+// `node --test` (npm test, CI) also runs every file under test/ - this one included, with no probe name. That run has
+// nothing to measure and must stay green; a call from the test always names a probe (CI run 1060).
+const isMain = process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url
+  && process.argv.length > 2;
 if (isMain) {
   const probe = PROBES[process.argv[2]];
   if (!probe) { console.error(`no such probe: ${process.argv[2]}`); process.exit(2); }

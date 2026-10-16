@@ -55,6 +55,15 @@ are the day the work landed on `main`.
 - **Changed behaviour.** An existing install whose memory carries its own tool (a lucky-mem style memory) runs the installed tool after this change until `mem trust-own-tool` is run for it and the installer
   is run again. `docs/security-model.md` section 4.1 and threat row T10; guard `test/own-tool.test.mjs`. `CHEAP_MEM_CODE`'s register row changed from "memory first" to "installed first".
 
+### Fixed - CI run 1060: a test helper red under `npm test`, and the mutation job without history
+
+`npm test` is `node --test` with no file list, so it also runs every helper under `test/`. `test/helpers/linear-probes.mjs`
+ran its command-line branch there with no probe name and exited 2, which turned all six test jobs red; it now measures
+only when a probe is named. The local chain runs the `*.test.mjs` list and never saw it: `test/plain-files-under-node-test.test.mjs`
+runs the remaining files the way `npm test` does, with a positive control. The `guarantees` job checked out one commit,
+and `bench/mutation.mjs` re-runs suites whose red proofs read a fixed old commit (`test/redaction-object-keys.test.mjs`):
+"not a tree object" before any mutant ran. It now fetches the whole history and runs `bench/ci-history-check.mjs` first.
+
 ### Security - the shred keyring is ignored by `mem init`, and a tracked one is an ERROR
 
 `.mem/keyring.json` (the keys of `shred: true` entries) had no `.gitignore` rule, and `mem-reflect` and `mem-handle-post` run `git add -A`. A keyring under git history
