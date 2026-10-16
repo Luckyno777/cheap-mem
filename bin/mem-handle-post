@@ -32,18 +32,20 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 CMD="${MEM_HANDLER_CMD:-claude -p}"
 
-# How the model session is started: `claude` gets `--setting-sources user
-# --strict-mcp-config`, an empty working directory outside the memory and
-# the memory as `--add-dir`. bin/mem-watch starts this script IN the
-# memory; without this a `.claude/settings.json` or `.mcp.json` pushed
-# into the memory would run when the session starts (bin/_portable.sh,
-# src/headless.mjs, docs/security-model.md). No safe start, no start.
+# How the model session is started: EVERY command starts in an empty
+# working directory outside the memory; `claude` also gets `--setting-sources
+# user --strict-mcp-config` and the memory as `--add-dir`. bin/mem-watch
+# starts this script IN the memory; without this a `.claude/settings.json` or
+# `.mcp.json` pushed into the memory would run when the session starts
+# (bin/_portable.sh, src/headless.mjs, docs/security-model.md).
+# No safe start, no start.
 if ! mem_headless_plan "$CMD" "$CHEAP_MEM_ROOT"; then
   echo "mem-handle-post: REFUSED - no safe way to start the model session; nothing was started." >&2
   echo "mem-handle-post:   run: node $HERE/mem-headless.mjs plan --cmd \"$CMD\" --root \"$CHEAP_MEM_ROOT\"" >&2
   exit 1
 fi
-if [ -n "$MEM_HL_CWD" ]; then cd "$MEM_HL_CWD" || exit 1; fi
+[ -z "$MEM_HL_NOTE" ] || echo "mem-handle-post: $MEM_HL_NOTE" >&2
+cd "$MEM_HL_CWD" || exit 1
 
 DEFAULT_PROMPT="You are the '$MEM_WATCH_WHO' role in this cheap-mem installation. Read \$CHEAP_MEM_ROOT/.mem/config.json for context. Then process new inbox mail addressed to you:
 
@@ -63,6 +65,10 @@ if [ "$MEM_HL_ISOLATED" = "1" ]; then
   DEFAULT_PROMPT="$DEFAULT_PROMPT
 
 Your working directory is NOT the memory: it is an empty folder, and \$CHEAP_MEM_ROOT is added to what you may read. Use absolute paths and git -C \$CHEAP_MEM_ROOT."
+else
+  DEFAULT_PROMPT="$DEFAULT_PROMPT
+
+Your working directory is NOT the memory: it is an empty folder, and the memory is \$CHEAP_MEM_ROOT. Use absolute paths and git -C \$CHEAP_MEM_ROOT."
 fi
 
 PROMPT="${MEM_HANDLER_PROMPT:-$DEFAULT_PROMPT}"
@@ -96,6 +102,8 @@ if mem_never_started "$CODE" 0 "$SEEN"; then
     echo "mem-handle-post: exit 126, nothing written, no detour: $MEM_DETOUR_REASON" >&2
   fi
 fi
+
+mem_headless_cleanup
 
 # An old claude does not know `--setting-sources` and stops on the unknown
 # option: say so (stderr, which mem-watch logs) and never start it again

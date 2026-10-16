@@ -16,15 +16,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { oldBinCopy } from './helpers/old-source-copy.mjs';
+import { spaceFreeBase } from './helpers/space-free-tmp.mjs';
 import * as hl from '../src/headless.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = '9ee34416b4bc8ac452ec39bcac8ce3c1c56e96f6'; // origin/kette/cm when this was built; a FIXED hash
+const ROUND1 = '9efe57db1e83adbc38052a5e2ed0b3620e8c1d4a'; // the first version of this work: recognised only a plain `claude`
 const bin = (n) => path.join(REPO, 'bin', n);
 const baseFile = (rel) => execFileSync('git', ['show', `${BASE}:${rel}`], { cwd: REPO, encoding: 'utf8' });
 
@@ -60,17 +61,8 @@ fs.appendFileSync(out, JSON.stringify(rec) + '\\n');
 console.log('fake model: ran');
 `;
 
-/** A base directory without whitespace (the command line is word-split; Windows user names may have a space). */
-function scratchBase() {
-  const t = os.tmpdir();
-  if (!/\s/.test(t)) return t;
-  const alt = path.join(path.parse(t).root, 'cm-headless-test');
-  fs.mkdirSync(alt, { recursive: true });
-  return alt;
-}
-
 function scratch() {
-  const dir = fs.mkdtempSync(path.join(scratchBase(), 'cm-hl-'));
+  const dir = fs.mkdtempSync(path.join(spaceFreeBase(), 'cm-hl-'));
   const home = path.join(dir, 'home');
   fs.mkdirSync(home, { recursive: true });
   const fakeDir = path.join(dir, 'fakebin');
@@ -170,13 +162,21 @@ test('POSITIVE CONTROL: the stand-in runs the project hook and the .mcp.json ser
 
 // ---- src/headless.mjs ----------------------------------------------------------------------------
 
-test('which commands count as claude', () => {
+test('which commands count as claude: the words in front are skipped, an alias is not guessed', () => {
   const yes = ['claude', 'claude -p', '/usr/local/bin/claude -p --model x', 'CLAUDE.CMD -p', 'claude.exe',
     'C:\\Program Files\\Claude\\claude.exe', 'node /x/claude.mjs -p',
-    'node /a/node_modules/@anthropic-ai/claude-code/cli.js -p'];
-  const no = ['', 'node ./fake-model.mjs', 'fake.sh', 'claudette -p', 'codex exec', 'chatgpt', 'gemini', 'mistral -p', 'node'];
+    'node /a/node_modules/@anthropic-ai/claude-code/cli.js -p',
+    'env claude -p', 'env FOO=1 BAR=2 claude -p', 'env -u HOME claude -p',
+    'npx @anthropic-ai/claude-code -p', 'npx -y @anthropic-ai/claude-code@latest -p', 'bunx @anthropic-ai/claude-code -p',
+    'pnpm dlx @anthropic-ai/claude-code -p', 'yarn dlx @anthropic-ai/claude-code', 'npx claude-code -p',
+    'sudo claude -p', 'sudo -E claude -p', 'sudo -u bob claude -p', 'doas claude -p', 'nice -n 5 claude -p', 'ionice -c 2 -n 7 claude -p',
+    'timeout 600 claude -p', 'timeout -s KILL 5 claude -p', 'nohup claude -p', 'command claude -p', 'exec claude -p',
+    'sudo -E nice -n 5 timeout 9 env X=1 claude -p',
+    '"C:\\Program Files\\Claude\\claude.exe" -p', '"/opt/my dir/claude" -p', "'/opt/my dir/claude' -p"];
+  const no = ['', 'node ./fake-model.mjs', 'fake.sh', 'claudette -p', 'codex exec', 'chatgpt', 'gemini -p', 'mistral -p', 'node',
+    'cl -p', 'my-claude -p', 'env FOO=1 cl -p', 'sudo -u claude other -p', 'timeout 5 gemini -p', 'npx some-tool', 'pnpm install'];
   for (const c of yes) assert.equal(hl.isClaudeCommand(c), true, `${c} is claude`);
-  for (const c of no) assert.equal(hl.isClaudeCommand(c), false, `${c} is not claude`);
+  for (const c of no) assert.equal(hl.isClaudeCommand(c), false, `${c} is not recognised as claude`);
 });
 
 test('the plan: flags exactly, --add-dir LAST (it takes a list), neutral cwd outside the memory', () => {
@@ -188,34 +188,146 @@ test('the plan: flags exactly, --add-dir LAST (it takes a list), neutral cwd out
     assert.equal(p.isolated, true);
     assert.deepEqual(p.args, ['--setting-sources', 'user', '--strict-mcp-config', '--add-dir', root]);
     assert.ok(!inside(p.cwd, root));
+    assert.equal(p.cleanup, null, 'the long-lived directory is reused, not removed');
     assert.ok(fs.statSync(p.cwd).isDirectory(), 'the neutral directory is made');
     assert.deepEqual(fs.readdirSync(p.cwd), [], 'and it is empty');
     const q = hl.planHeadless({ cmd: 'claude -p', root, addDir: false, env: s.env() });
     assert.deepEqual(q.args, [...hl.ISOLATION_FLAGS]);
-    // Not claude: left as configured.
-    assert.deepEqual(hl.planHeadless({ cmd: 'node ./fake-model.mjs', root, env: s.env() }), { isolated: false, args: [], cwd: null });
+    // Not claude: no flags, but the SAME neutral directory, and a sentence for the log.
+    const o = hl.planHeadless({ cmd: 'node ./fake-model.mjs', root, env: s.env() });
+    assert.deepEqual([o.isolated, o.args, o.cwd, o.note], [false, [], p.cwd, hl.NOT_RECOGNISED_NOTE]);
+    assert.match(hl.NOT_RECOGNISED_NOTE, /^command not recognised as claude: started in a neutral directory without the settings flags; if it runs claude, add --setting-sources user --strict-mcp-config$/);
   } finally { s.done(); }
 });
 
-test('a cache directory that lies INSIDE the memory is not used as the neutral directory', () => {
+test('a cache directory that lies INSIDE the memory is not used, and nothing is made there first', () => {
   const s = scratch();
   try {
     const root = path.join(s.dir, 'mem');
     fs.mkdirSync(root);
+    const before = fs.readdirSync(root);
     const env = s.env({ XDG_CACHE_HOME: path.join(root, 'cache'), LOCALAPPDATA: path.join(root, 'local') });
-    const cwd = hl.neutralDir({ root, env, home: path.join(root, 'h'), tmp: s.dir });
-    assert.ok(cwd && !inside(cwd, root), `neutral directory ${cwd} is inside the memory`);
+    const n = hl.neutralDir({ root, env, home: path.join(root, 'h'), tmp: s.dir });
+    assert.ok(n && !inside(n.dir, root), `neutral directory ${n?.dir} is inside the memory`);
+    assert.deepEqual(fs.readdirSync(root), before, 'an empty folder was made inside the memory before the check');
     assert.equal(hl.neutralDir({ root, env, home: path.join(root, 'h'), tmp: path.join(root, 't') }), null,
       'no place outside the memory: no directory, and planHeadless then throws');
+    assert.deepEqual(fs.readdirSync(root), before, 'and still nothing in the memory');
     assert.throws(() => hl.planHeadless({ cmd: 'claude -p', root, env, home: path.join(root, 'h'), tmp: path.join(root, 't') }),
       /neutral working directory/);
+    // A memory that does not exist yet and will contain the cache folder: decided by where the folder WOULD land.
+    const later = path.join(s.home, '.cache', 'cheap-mem');
+    const n2 = hl.neutralDir({ root: later, env: s.env(), home: s.home, tmp: s.dir });
+    assert.ok(!n2 || !n2.dir.startsWith(later + path.sep), 'a folder under the future memory is not taken');
+    assert.equal(fs.existsSync(later), false, 'and nothing was made there');
+  } finally { s.done(); }
+});
+
+test('B3: a neutral directory that is a symlink, open, foreign or a project is not used; a fresh per-run one is made and removed', () => {
+  const s = scratch();
+  try {
+    const root = path.join(s.dir, 'mem');
+    fs.mkdirSync(root);
+    const base = path.join(s.home, '.cache', 'cheap-mem');
+    const dir = path.join(base, 'headless-cwd');
+    fs.mkdirSync(base, { recursive: true });
+    const env = s.env();
+    const fresh = (why) => {
+      const n = hl.neutralDir({ root, env, home: s.home, tmp: s.dir });
+      assert.notEqual(n.dir, dir, `${why}: the unacceptable folder was used`);
+      assert.equal(n.cleanup, n.dir, `${why}: the replacement is per run`);
+      assert.match(path.basename(n.dir), /^headless-cwd-[A-Za-z0-9]{6}$/);
+      assert.deepEqual(fs.readdirSync(n.dir), []);
+      assert.equal(hl.cleanupNeutral(n.dir), true);
+      assert.equal(fs.existsSync(n.dir), false, 'removed after the run');
+    };
+    // a planted project marker (a hostile earlier run, or someone else's file)
+    fs.mkdirSync(path.join(dir, '.claude'), { recursive: true });
+    fresh('.claude inside');
+    fs.rmSync(path.join(dir, '.claude'), { recursive: true });
+    for (const name of ['.mcp.json', 'CLAUDE.md', '.gemini']) {
+      fs.writeFileSync(path.join(dir, name), '{}');
+      fresh(`${name} inside`);
+      fs.rmSync(path.join(dir, name), { force: true });
+    }
+    // a symlink in its place (POSIX; creating one on Windows needs a privilege)
+    if (process.platform !== 'win32') {
+      fs.chmodSync(dir, 0o700);
+      const elsewhere = path.join(s.dir, 'elsewhere');
+      fs.mkdirSync(elsewhere);
+      fs.rmSync(dir, { recursive: true });
+      fs.symlinkSync(elsewhere, dir);
+      fresh('a symlink');
+      assert.deepEqual(fs.readdirSync(elsewhere), [], 'nothing was made through the link');
+      fs.unlinkSync(dir);
+      fs.mkdirSync(dir, { mode: 0o755 });
+      fs.chmodSync(dir, 0o755);
+      fresh('mode 0755');
+      fs.chmodSync(dir, 0o700);
+    }
+    // and the good one is reused and left alone
+    const ok = hl.neutralDir({ root, env, home: s.home, tmp: s.dir });
+    assert.equal(ok.dir, dir);
+    assert.equal(ok.cleanup, null);
+    // The ownership rule, as a pure predicate (a foreign owner cannot be made without being root).
+    const st = (o) => ({ isSymbolicLink: () => false, isDirectory: () => true, uid: 1000, mode: 0o40700, ...o });
+    assert.equal(hl.dirIsAcceptable(st({}), [], { uid: 1000 }), true);
+    if (process.platform !== 'win32') {
+      assert.equal(hl.dirIsAcceptable(st({}), [], { uid: 1001 }), false, 'owned by someone else');
+      assert.equal(hl.dirIsAcceptable(st({ mode: 0o40750 }), [], { uid: 1000 }), false, 'group access');
+    }
+    assert.equal(hl.dirIsAcceptable(st({ isSymbolicLink: () => true }), [], { uid: 1000 }), false);
+    assert.equal(hl.dirIsAcceptable(st({ isDirectory: () => false }), [], { uid: 1000 }), false);
+    assert.equal(hl.dirIsAcceptable(st({}), ['x', 'CLAUDE.md'], { uid: 1000 }), false);
+  } finally { s.done(); }
+});
+
+test('B3: the temp-directory fallback is a fresh mkdtemp folder each time (not a name to be guessed), and only such a folder is removed', () => {
+  const s = scratch();
+  try {
+    const root = path.join(s.dir, 'mem');
+    fs.mkdirSync(root);
+    const tmp = path.join(s.dir, 'tmp');
+    fs.mkdirSync(tmp);
+    const env = s.env({ XDG_CACHE_HOME: path.join(s.dir, 'nope', 'x'), LOCALAPPDATA: path.join(s.dir, 'nope', 'x') });
+    fs.writeFileSync(path.join(s.dir, 'nope'), 'a file, so the cache base cannot be made');
+    const a = hl.neutralDir({ root, env, home: path.join(s.dir, 'nope'), tmp });
+    const b = hl.neutralDir({ root, env, home: path.join(s.dir, 'nope'), tmp });
+    assert.ok(a && b && a.dir !== b.dir, 'two runs, two different folders');
+    for (const n of [a, b]) {
+      assert.equal(path.dirname(n.dir), tmp);
+      assert.match(path.basename(n.dir), /^cheap-mem-headless-cwd-[A-Za-z0-9]{6}$/);
+      assert.equal(n.cleanup, n.dir);
+    }
+    // cleanup is picky: wrong name, a plain directory, a file, a link
+    const other = path.join(tmp, 'keep-me');
+    fs.mkdirSync(other);
+    assert.equal(hl.cleanupNeutral(other), false);
+    assert.ok(fs.existsSync(other));
+    assert.equal(hl.cleanupNeutral(a.dir), true);
+    assert.equal(fs.existsSync(a.dir), false);
+    assert.equal(hl.cleanupNeutral(path.join(tmp, 'cheap-mem-headless-cwd-nofile')), false);
+    if (process.platform !== 'win32') {
+      const link = path.join(tmp, 'cheap-mem-headless-cwd-abcdef');
+      fs.symlinkSync(other, link);
+      assert.equal(hl.cleanupNeutral(link), false, 'a link is never followed');
+      assert.ok(fs.existsSync(other));
+    }
+    // MEM_HEADLESS_CWD names the parent; set, it is the only place tried
+    const mine = path.join(s.dir, 'mine');
+    const m = hl.neutralDir({ root, env: s.env({ MEM_HEADLESS_CWD: mine }), home: s.home, tmp });
+    assert.equal(m.dir, path.join(mine, 'headless-cwd'));
+    fs.writeFileSync(path.join(s.dir, 'blocker'), 'x');
+    assert.equal(hl.neutralDir({ root, env: s.env({ MEM_HEADLESS_CWD: path.join(s.dir, 'blocker') }), home: s.home, tmp }), null,
+      'set but unusable: refused, no fall-back to the temp directory');
   } finally { s.done(); }
 });
 
 test('an old claude is recognised by its refusal, and ordinary failures are not mistaken for it', () => {
   const yes = ["error: unknown option '--setting-sources'", "Error: Unrecognized option --setting-sources", 'unexpected argument --strict-mcp-config found',
-    "error: unknown option '--setting-sources'\n(Did you mean --settings?)"];
-  const no = ['', 'API Error: 529 overloaded', "error: unknown option '--frobnicate'", 'timeout: failed to run command', 'the setting-sources flag is great'];
+    "error: unknown option '--setting-sources'\n(Did you mean --settings?)", 'error: unknown option\n  --setting-sources', "error: unknown\noption '--setting-sources'", 'Unknown arguments: setting-sources'];
+  const no = ['', 'API Error: 529 overloaded', "error: unknown option '--frobnicate'", 'timeout: failed to run command', 'the setting-sources flag is great',
+    "error: unknown option '--frobnicate' (Did you mean --setting-sources?)"];
   for (const t of yes) assert.equal(hl.looksLikeOldClaude(t), true, t);
   for (const t of no) assert.equal(hl.looksLikeOldClaude(t), false, t);
 });
@@ -232,7 +344,9 @@ test('the command line: plan prints lines, old-claude reads a file, bad use exit
     assert.equal(lines[0], 'isolated=1');
     assert.match(lines[1], /^cwd=/);
     assert.deepEqual(lines.slice(2), ['arg=--setting-sources', 'arg=user', 'arg=--strict-mcp-config', 'arg=--add-dir', `arg=${root}`]);
-    assert.equal(run('plan', '--cmd', 'node x.mjs', '--root', root).stdout, 'isolated=0\n');
+    const other = run('plan', '--cmd', 'node x.mjs', '--root', root).stdout.trim().split('\n');
+    assert.deepEqual([other[0], other.length, other[2]], ['isolated=0', 3, `note=${hl.NOT_RECOGNISED_NOTE}`], 'neutral cwd, no flags, a note');
+    assert.match(other[1], /^cwd=/);
     assert.equal(run('plan', '--cmd', 'claude -p').status, 2, 'no root: refused');
     assert.equal(run('plan', '--bogus').status, 2);
     assert.equal(run().status, 2);
@@ -243,6 +357,8 @@ test('the command line: plan prints lines, old-claude reads a file, bad use exit
     assert.match(o.stdout, /does not know --setting-sources/);
     fs.writeFileSync(f, 'all fine\n');
     assert.equal(run('old-claude', f).status, 1);
+    const viaStdin = spawnSync('node', [bin('mem-headless.mjs'), 'old-claude', '-'], { input: "error: unknown option\n --setting-sources\n", encoding: 'utf8' });
+    assert.equal(viaStdin.status, 0, 'a pipe works too (no temp file)');
   } finally { s.done(); }
 });
 
@@ -329,10 +445,10 @@ test('GREEN reflector: the host repository\'s hook does not run, and no --add-di
   } finally { s.done(); }
 });
 
-test('a command that is not claude is left exactly as configured (cwd, no flags)', () => {
+test('B1(a): a command that is not claude gets no flags but the SAME neutral directory, and the log says so', () => {
   const s = scratch();
   try {
-    const { root } = hostileMemory(s);
+    const { root, canary, canaryMcp } = hostileMemory(s);
     const model = path.join(s.fakeDir, 'other-model.mjs');
     fs.copyFileSync(s.fake, model);
     const r = runDigest(bin('mem-digest'), s, root, { MEM_DIGEST_CMD: `node ${model.replace(/\\/g, '/')} -p` });
@@ -340,8 +456,12 @@ test('a command that is not claude is left exactly as configured (cwd, no flags)
     const c = s.calls()[0];
     assert.equal(c.argv.length, 4, JSON.stringify(c.argv));
     assert.deepEqual(c.argv.slice(2), ['--output-format', 'json']);
-    assert.equal(c.cwd, real(root), 'unchanged: it starts in the memory, as before');
-    assert.doesNotMatch(c.argv[1], /Your working directory is NOT the memory/);
+    assert.ok(!inside(c.cwd, root) && inside(c.cwd, s.home), `it must start in the neutral directory: ${c.cwd}`);
+    assert.deepEqual(c.fired, []);
+    assert.ok(!fs.existsSync(canary) && !fs.existsSync(canaryMcp));
+    assert.match(r.stdout, /command not recognised as claude: started in a neutral directory without the settings flags; if it runs claude, add --setting-sources user --strict-mcp-config/);
+    assert.match(c.argv[1], /Your working directory is NOT the memory: it is an empty folder, and the memory is /);
+    assert.doesNotMatch(c.argv[1], /is added to what you may read/);
   } finally { s.done(); }
 });
 
@@ -397,27 +517,30 @@ test('an old claude: the mail handler exits non-zero with the sentence on stderr
 
 // ---- no safe start: no start --------------------------------------------------------------------------------
 
-test('no neutral directory can be made: all three scripts REFUSE and start nothing', () => {
+test('no neutral directory can be made: all three scripts REFUSE and start nothing (any command, recognised or not)', () => {
   const s = scratch();
   try {
     const { root } = hostileMemory(s);
     const { project } = hostileProject(s);
-    // Every candidate is a regular file, so mkdir under/at it fails: the cache bases, and the one in the OS temp directory.
+    // MEM_HEADLESS_CWD names the parent; set and unusable (a regular file), it is the only place tried: no fall-back.
     const blocker = path.join(s.dir, 'blocker');
     fs.writeFileSync(blocker, 'x');
-    const tmp = path.join(s.dir, 'tmp');
-    fs.mkdirSync(tmp);
-    const user = (() => { try { return os.userInfo().username; } catch { return 'user'; } })().replace(/[^A-Za-z0-9_.-]/g, '_');
-    fs.writeFileSync(path.join(tmp, `cheap-mem-headless-cwd-${user}`), 'x');
-    const noDir = { XDG_CACHE_HOME: blocker, LOCALAPPDATA: blocker, HOME: blocker, USERPROFILE: blocker, TMPDIR: tmp, TEMP: tmp, TMP: tmp };
+    const noDir = { MEM_HEADLESS_CWD: blocker };
 
-    const probe = spawnSync('node', [bin('mem-headless.mjs'), 'plan', '--cmd', 'claude -p', '--root', root], { encoding: 'utf8', env: s.env(noDir) });
-    assert.equal(probe.status, 2, `the plan must fail closed: ${probe.stdout}${probe.stderr}`);
-    assert.match(probe.stderr, /neutral working directory/);
-
-    const d = runDigest(bin('mem-digest'), s, root, noDir);
-    assert.equal(d.status, 1, `${d.stderr}\n${d.stdout}`);
-    assert.match(d.stdout, /REFUSED: no safe way to start the model session/);
+    for (const cmd of ['claude -p', 'node ./fake-model.mjs']) {
+      const probe = spawnSync('node', [bin('mem-headless.mjs'), 'plan', '--cmd', cmd, '--root', root], { encoding: 'utf8', env: s.env(noDir) });
+      assert.equal(probe.status, 2, `the plan must fail closed for ${cmd}: ${probe.stdout}${probe.stderr}`);
+      assert.match(probe.stderr, /neutral working directory/);
+    }
+    for (const cmd of [s.cmd, `node ${s.fake.replace(/\\/g, '/')}`.replace(/claude\.mjs/, 'claude.mjs')]) {
+      const d = runDigest(bin('mem-digest'), s, root, { ...noDir, MEM_DIGEST_CMD: cmd });
+      assert.equal(d.status, 1, `${d.stderr}\n${d.stdout}`);
+      assert.match(d.stdout, /REFUSED: no safe way to start the model session/);
+    }
+    const other = path.join(s.fakeDir, 'other-model.mjs');
+    fs.copyFileSync(s.fake, other);
+    const o = runDigest(bin('mem-digest'), s, root, { ...noDir, MEM_DIGEST_CMD: `node ${other.replace(/\\/g, '/')}` });
+    assert.equal(o.status, 1, 'a command that is not claude is refused too: it would have started in the memory');
     const h = runHandler(bin('mem-handle-post'), s, root, noDir);
     assert.equal(h.status, 1, h.stderr);
     assert.match(h.stderr, /REFUSED - no safe way to start the model session/);
@@ -425,6 +548,145 @@ test('no neutral directory can be made: all three scripts REFUSE and start nothi
     assert.equal(r.status, 0, 'a Stop hook never blocks the host session');
     assert.match(r.stderr, /REFUSED - no safe way to start the model session/);
     assert.equal(s.calls().length, 0, 'nothing was started, by any of the three');
+  } finally { s.done(); }
+});
+
+// ---- B1: the ways round the command recognition -----------------------------------------------------------------
+
+/** Shims in a PATH directory (POSIX): every one ends in the stand-in, none looks at where it starts. */
+function shimPath(s) {
+  const d = path.join(s.dir, 'shims');
+  fs.mkdirSync(d);
+  const w = (name, body) => fs.writeFileSync(path.join(d, name), `#!/usr/bin/env bash\n${body}\n`, { mode: 0o755 });
+  const run = `exec node "${s.fake}" "$@"`;
+  w('claude', run);
+  w('cl', run); // an alias for claude under another name
+  w('my-claude', run); // a wrapper under another name
+  w('npx', `while [[ "\${1:-}" == -* ]]; do shift; done; shift; ${run}`);
+  w('bunx', `while [[ "\${1:-}" == -* ]]; do shift; done; shift; ${run}`);
+  w('sudo', 'while [[ "${1:-}" == -* ]]; do shift; done; exec "$@"');
+  return d;
+}
+
+test('B1: every way of starting claude that the recognition sees carries the flags, and runs neutral', () => {
+  const s = scratch();
+  try {
+    const { root, canary, canaryMcp } = hostileMemory(s);
+    if (process.platform === 'win32') {
+      // Honest platform branch: no bash shims for env/npx/sudo on a Windows box; the recognition itself is covered above.
+      for (const c of ['env claude -p', 'npx @anthropic-ai/claude-code -p', '"C:\\Program Files\\x\\claude.exe" -p']) assert.equal(hl.isClaudeCommand(c), true);
+      return;
+    }
+    const PATH = `${shimPath(s)}${path.delimiter}${process.env.PATH}`;
+    const forms = ['env claude -p', 'env FOO=1 claude -p', 'nice -n 5 claude -p', 'npx -y @anthropic-ai/claude-code -p',
+      'bunx @anthropic-ai/claude-code -p', 'sudo -E claude -p', 'sudo -E env X=1 nice -n 5 claude -p'];
+    for (const cmd of forms) {
+      const before = s.calls().length;
+      const h = runHandler(bin('mem-handle-post'), s, root, { MEM_HANDLER_CMD: cmd, PATH });
+      assert.equal(h.status, 0, `${cmd}: ${h.stderr}`);
+      const calls = s.calls();
+      assert.equal(calls.length, before + 1, `${cmd}: one start`);
+      const c = calls.at(-1);
+      assert.equal(c.argv.includes('--setting-sources'), true, `${cmd}: flags missing: ${JSON.stringify(c.argv)}`);
+      assertIsolated(c, root, s);
+      assert.doesNotMatch(h.stderr, /not recognised as claude/);
+    }
+    assert.ok(!fs.existsSync(canary) && !fs.existsSync(canaryMcp));
+  } finally { s.done(); }
+});
+
+test('B1: an alias or a wrapper under another name is NOT recognised: no flags, but neutral, quiet planted files, and the log says so', () => {
+  const s = scratch();
+  try {
+    const { root, canary, canaryMcp } = hostileMemory(s);
+    if (process.platform === 'win32') {
+      for (const c of ['cl -p', 'my-claude -p']) assert.equal(hl.isClaudeCommand(c), false);
+      return;
+    }
+    const PATH = `${shimPath(s)}${path.delimiter}${process.env.PATH}`;
+    for (const cmd of ['cl -p', 'my-claude -p', 'env FOO=1 cl -p']) {
+      const before = s.calls().length;
+      const h = runHandler(bin('mem-handle-post'), s, root, { MEM_HANDLER_CMD: cmd, PATH });
+      assert.equal(h.status, 0, `${cmd}: ${h.stderr}`);
+      const c = s.calls().at(-1);
+      assert.equal(s.calls().length, before + 1);
+      assert.equal(c.argv.includes('--setting-sources'), false, `${cmd}: not recognised, so no flags`);
+      assert.ok(!inside(c.cwd, root) && inside(c.cwd, s.home), `${cmd}: not neutral: ${c.cwd}`);
+      assert.deepEqual(c.fired, [], `${cmd}: the planted files ran`);
+      assert.match(h.stderr, /command not recognised as claude: started in a neutral directory without the settings flags; if it runs claude, add --setting-sources user --strict-mcp-config/);
+    }
+    assert.ok(!fs.existsSync(canary) && !fs.existsSync(canaryMcp));
+  } finally { s.done(); }
+});
+
+test('RED on the first version: wrappers, npx, sudo, aliases and a quoted path all started in the memory without a flag, and the planted hook ran', () => {
+  const s = scratch();
+  const dir = fs.mkdtempSync(path.join(spaceFreeBase(), 'cm-hl-old-'));
+  try {
+    const { root, canary } = hostileMemory(s);
+    if (process.platform === 'win32') return; // git archive | tar and bash shims: the same proof is made on POSIX
+    execFileSync('bash', ['-c', `git -C "${REPO}" archive ${ROUND1} bin src package.json | tar -x -C "${dir}"`]);
+    fs.symlinkSync(path.join(REPO, 'node_modules'), path.join(dir, 'node_modules'));
+    const PATH = `${shimPath(s)}${path.delimiter}${process.env.PATH}`;
+    for (const cmd of ['env claude -p', 'npx -y @anthropic-ai/claude-code -p', 'sudo -E claude -p', 'nice -n 5 claude -p', 'cl -p']) {
+      const h = spawnSync('bash', [path.join(dir, 'bin', 'mem-handle-post')], {
+        encoding: 'utf8', timeout: 120000, cwd: root,
+        env: s.env({ CHEAP_MEM_ROOT: root, MEM_WATCH_WHO: 'worker', MEM_HEADLESS: 'watcher', MEM_HANDLER_CMD: cmd, PATH }),
+      });
+      assert.equal(h.status, 0, `${cmd}: ${h.stderr}`);
+      assert.ok(fs.existsSync(canary), `${cmd}: the first version let the planted hook run (positive control for the green proofs above)`);
+      assert.equal(s.calls().at(-1).cwd, real(root));
+      fs.rmSync(canary);
+    }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); s.done(); }
+});
+
+test('B3: a per-run neutral directory is removed after the job, by all three scripts', () => {
+  const s = scratch();
+  try {
+    const { root } = hostileMemory(s);
+    const { project } = hostileProject(s);
+    const tmp = path.join(s.dir, 'tmp');
+    fs.mkdirSync(tmp);
+    fs.writeFileSync(path.join(s.dir, 'nocache'), 'a file: the cache base cannot be made');
+    const env = { XDG_CACHE_HOME: path.join(s.dir, 'nocache', 'x'), LOCALAPPDATA: path.join(s.dir, 'nocache', 'x'),
+      HOME: path.join(s.dir, 'nocache'), USERPROFILE: path.join(s.dir, 'nocache'), TMPDIR: tmp, TEMP: tmp, TMP: tmp };
+    const mine = () => fs.readdirSync(tmp).filter((n) => n.startsWith('cheap-mem-headless-cwd-'));
+    const seenCwd = [];
+    const d = runDigest(bin('mem-digest'), s, root, env);
+    assert.notEqual(d.status, 2, d.stderr);
+    seenCwd.push(s.calls().at(-1).cwd);
+    const h = runHandler(bin('mem-handle-post'), s, root, env);
+    assert.equal(h.status, 0, h.stderr);
+    seenCwd.push(s.calls().at(-1).cwd);
+    const r = runReflect(bin('mem-reflect'), s, root, project, env);
+    assert.equal(r.status, 0, r.stderr);
+    seenCwd.push(s.calls().at(-1).cwd);
+    assert.equal(s.calls().length, 3);
+    for (const c of seenCwd) assert.match(path.basename(c), /^cheap-mem-headless-cwd-[A-Za-z0-9]{6}$/, `ran in a per-run folder: ${c}`);
+    assert.equal(new Set(seenCwd).size, 3, 'a new name each time');
+    assert.deepEqual(mine(), [], 'and all three are gone again');
+  } finally { s.done(); }
+});
+
+test('B5: the reflector keeps no temp file for the model output (a TMPDIR inside the memory cannot put one there)', () => {
+  const sh = fs.readFileSync(bin('mem-reflect'), 'utf8').split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');
+  assert.doesNotMatch(sh, /mktemp/, 'the output is held in a variable');
+  assert.match(fs.readFileSync(bin('mem-reflect'), 'utf8'), /OUT_TEXT="\$\(capped /);
+  assert.doesNotMatch(fs.readFileSync(bin('_portable.sh'), 'utf8').split('\n').filter((l) => !/^\s*#/.test(l)).join('\n').slice(fs.readFileSync(bin('_portable.sh'), 'utf8').indexOf('MEM_HL_HELPER=') - 1), /mktemp/,
+    'nor does the starter helper');
+  assert.match(fs.readFileSync(bin('_headless.ps1'), 'utf8'), /old-claude' '-'/, 'PowerShell pipes it too');
+  const base = execFileSync('git', ['show', `${ROUND1}:bin/mem-reflect`], { cwd: REPO, encoding: 'utf8' });
+  assert.match(base, /OUT_FILE="\$\(mktemp\)"/, 'red: the first version made the file');
+  const s = scratch();
+  try {
+    // TMPDIR inside the memory: the mask copy refuses (that is its job), so use the old-claude path through a TMPDIR outside, and look at the memory.
+    const { root } = hostileMemory(s);
+    const { project } = hostileProject(s);
+    const before = fs.readdirSync(root).sort();
+    const r = runReflect(bin('mem-reflect'), s, root, project, { FAKE_MODE: 'old' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(fs.readdirSync(root).sort(), before, 'no stray file in the memory');
   } finally { s.done(); }
 });
 

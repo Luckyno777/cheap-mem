@@ -170,9 +170,9 @@ let d="";process.stdin.on("data",c=>d+=c).on("end",async()=>{
 
   $Listing = ($Chosen | ForEach-Object { "  $_" }) -join "`n"
 
-  # How the model session is started: `claude` gets `--setting-sources user
-  # --strict-mcp-config`, an empty working directory outside the memory and the
-  # memory as `--add-dir`, so a `.claude/settings.json` or `.mcp.json` pushed into
+  # How the model session is started: EVERY command starts in an empty working
+  # directory outside the memory; `claude` also gets `--setting-sources user
+  # --strict-mcp-config` and the memory as `--add-dir`, so a `.claude/settings.json` or `.mcp.json` pushed into
   # the memory runs nothing (bin/_headless.ps1, src/headless.mjs). No safe start,
   # no start: it never falls back to the open one.
   . (Join-Path $Here '_headless.ps1')
@@ -182,9 +182,11 @@ let d="";process.stdin.on("data",c=>d+=c).on("end",async()=>{
     Note "  Nothing was started. Run: node `"$Here\mem-headless.mjs`" plan --cmd `"$Cmd`" --root `"$Root`""
     exit 1
   }
-  $WhereLine = ''
+  if ($Plan.Note) { Note $Plan.Note }
   if ($Plan.Isolated) {
     $WhereLine = "`nYour working directory is NOT the memory: it is an empty folder, and $Root is added to what you may read. Use absolute paths, and run git as: git -C $Root <command>."
+  } else {
+    $WhereLine = "`nYour working directory is NOT the memory: it is an empty folder, and the memory is $Root. Use absolute paths, and run git as: git -C $Root <command>."
   }
 
   $Prompt = @"
@@ -241,7 +243,7 @@ condensing enough. Stop after the push.
   try {
     # The flags go AFTER the prompt and `--add-dir` last: it takes a list and would swallow a prompt that followed it.
     $StartArgs = $CmdArgs + @($Prompt) + @($Plan.Args | ForEach-Object { ConvertTo-StartProcessArg $_ })
-    $StartCwd = if ($Plan.Cwd) { $Plan.Cwd } else { $Root }
+    $StartCwd = $Plan.Cwd
     $proc = Start-Process -FilePath $Cmd -ArgumentList $StartArgs `
       -WorkingDirectory $StartCwd -NoNewWindow -PassThru `
       -RedirectStandardOutput $OutTmp -RedirectStandardError $ErrTmp
@@ -264,10 +266,12 @@ condensing enough. Stop after the push.
 
   if (-not $Finished) {
     try { $proc.Kill() } catch { }
+    Remove-HeadlessDir -Plan $Plan
     Note "model call timed out after ${Timeout}s"
     exit 1
   }
   $ModelExit = $proc.ExitCode
+  Remove-HeadlessDir -Plan $Plan
 
   if ($ModelExit -ne 0) {
     # An old claude does not know `--setting-sources` and stops on the unknown

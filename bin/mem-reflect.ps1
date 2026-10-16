@@ -131,9 +131,9 @@ $argList = @()
 if ($parts.Length -gt 1) { $argList = $parts[1..($parts.Length - 1)] }
 $argList += $prompt
 
-# How the session starts (bin/_headless.ps1, src/headless.mjs): `claude` gets
-# `--setting-sources user --strict-mcp-config` and an empty working directory
-# outside the memory. The folder this hook was called in is whatever repository
+# How the session starts (bin/_headless.ps1, src/headless.mjs): EVERY command
+# starts in an empty working directory outside the memory, and `claude` also
+# gets `--setting-sources user --strict-mcp-config`. The folder this hook was called in is whatever repository
 # the host session works in; its `.claude/settings.json` and `.mcp.json` must
 # not run. The reflector never reads the memory as files (absolute `git -C` and
 # `mem` calls only), so no `--add-dir`. No safe start, no start: the marker goes
@@ -145,6 +145,7 @@ if (-not $plan) {
   $lastSize | Set-Content -LiteralPath $marker
   exit 0
 }
+if ($plan.Note) { [Console]::Error.WriteLine("mem-reflect: $($plan.Note)") }
 # The flags go AFTER the prompt.
 $argList += $plan.Args
 
@@ -154,7 +155,7 @@ $job = Start-Job -ScriptBlock {
   $env:CHEAP_MEM_ROOT  = $root
   $env:MEM_HEADLESS    = $env_h
   if (-not $env:CHEAP_MEM_MAX_AUTHORITY) { $env:CHEAP_MEM_MAX_AUTHORITY = 'inferred' }
-  if ($cwd) { Set-Location -LiteralPath $cwd }
+  Set-Location -LiteralPath $cwd
   $ErrorActionPreference = 'Continue'
   $o = & $e @a 2>&1
   [pscustomobject]@{ Code = $LASTEXITCODE; Text = ($o | Out-String) }
@@ -172,6 +173,7 @@ if ($job.State -eq 'Running') {
   }
 }
 Remove-Job -Job $job -Force
+Remove-HeadlessDir -Plan $plan
 } finally {
   & node $maskScript --clean $maskedCopy 2>$null | Out-Null
 }

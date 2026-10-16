@@ -941,20 +941,20 @@ export const MUTANTS=[
 
  { name:'headless: the session starts in the memory itself',
    file:'src/headless.mjs',
-   from:"return { isolated: true, args: [...ISOLATION_FLAGS, ...(addDir ? ['--add-dir', root] : [])], cwd };",
-   to:"return { isolated: true, args: [...ISOLATION_FLAGS, ...(addDir ? ['--add-dir', root] : [])], cwd: root };  // MUTANT",
+   from:"return { isolated: true, args: [...ISOLATION_FLAGS, ...(addDir ? ['--add-dir', root] : [])], cwd: n.dir, cleanup: n.cleanup, note: null };",
+   to:"return { isolated: true, args: [...ISOLATION_FLAGS, ...(addDir ? ['--add-dir', root] : [])], cwd: root, cleanup: n.cleanup, note: null };  // MUTANT",
    tests:['test/headless-start.test.mjs'] },
 
  { name:'headless: claude is not recognised as claude',
    file:'src/headless.mjs',
-   from:"  if (named(w[0])) return true;",
-   to:"  // MUTANT: first word no longer checked",
+   from:"    if (WRAPPERS.has(s)) {",
+   to:"    if (false) {  // MUTANT: wrappers (env, sudo, nice, npx, ...) are not looked through",
    tests:['test/headless-start.test.mjs'] },
 
  { name:'headless: a neutral directory inside the memory is accepted',
    file:'src/headless.mjs',
-   from:"    if (rootReal && inside(real(dir), rootReal)) continue;",
-   to:"    // MUTANT: no containment check",
+   from:"    if (!outside(dir)) continue;",
+   to:"    // MUTANT: no containment check before anything is made",
    tests:['test/headless-start.test.mjs'] },
 
  { name:'headless: an old claude is never recognised',
@@ -983,20 +983,64 @@ export const MUTANTS=[
 
  { name:'headless: the mail handler stays in the memory',
    file:'bin/mem-handle-post',
-   from:'if [ -n "$MEM_HL_CWD" ]; then cd "$MEM_HL_CWD" || exit 1; fi',
-   to:'# MUTANT: no cd',
+   from:'cd "$MEM_HL_CWD" || exit 1',
+   to:'true  # MUTANT: no cd',
    tests:['test/headless-start.test.mjs'] },
 
  { name:'headless: the reflector stays in the host repository',
    file:'bin/mem-reflect',
-   from:'if [ -n "$MEM_HL_CWD" ]; then cd "$MEM_HL_CWD" ||',
-   to:'if false; then cd "$MEM_HL_CWD" ||',
+   from:'if ! cd "$MEM_HL_CWD"; then',
+   to:'if ! true; then',
    tests:['test/headless-start.test.mjs'] },
 
  { name:'headless: the reflector ignores a failed plan',
    file:'bin/mem-reflect',
    from:'if ! mem_headless_plan "$CMD" "$CHEAP_MEM_ROOT" 0; then',
    to:'if ! { mem_headless_plan "$CMD" "$CHEAP_MEM_ROOT" 0; true; }; then  # MUTANT',
+   tests:['test/headless-start.test.mjs'] },
+
+
+ { name:'headless: a command that is not claude starts in the memory again',
+   file:'src/headless.mjs',
+   from:"if (!claude) return { isolated: false, args: [], cwd: n.dir, cleanup: n.cleanup, note: NOT_RECOGNISED_NOTE };",
+   to:"if (!claude) return { isolated: false, args: [], cwd: root, cleanup: n.cleanup, note: NOT_RECOGNISED_NOTE };  // MUTANT",
+   tests:['test/headless-start.test.mjs'] },
+
+ { name:'headless: an unrecognised command is not announced in the log',
+   file:'src/headless.mjs',
+   from:"if (!claude) return { isolated: false, args: [], cwd: n.dir, cleanup: n.cleanup, note: NOT_RECOGNISED_NOTE };",
+   to:"if (!claude) return { isolated: false, args: [], cwd: n.dir, cleanup: n.cleanup, note: null };  // MUTANT",
+   tests:['test/headless-start.test.mjs'] },
+
+ { name:'headless: a neutral directory holding a project marker is reused',
+   file:'src/headless.mjs',
+   from:"  return !entries.some((e) => PROJECT_MARKERS.includes(e));",
+   to:"  return true;  // MUTANT",
+   tests:['test/headless-start.test.mjs'] },
+
+ { name:'headless: a symlink is accepted as the neutral directory',
+   file:'src/headless.mjs',
+   from:"  if (!st || st.isSymbolicLink() || !st.isDirectory()) return false;",
+   to:"  if (!st) return false;  // MUTANT",
+   tests:['test/headless-start.test.mjs'] },
+
+ { name:'headless: the cleanup removes any directory it is given',
+   file:'src/headless.mjs',
+   from:"    if (!/^(headless-cwd-|cheap-mem-headless-cwd-)[A-Za-z0-9]{6}$/.test(name)) return false;",
+   to:"    // MUTANT: no name check",
+   tests:['test/headless-start.test.mjs'] },
+
+ { name:'headless: a line break inside the old-claude sentence hides it',
+   file:'src/headless.mjs',
+   from:"  const t = String(text ?? '').replace(/\\s+/g, ' ');",
+   to:"  const t = String(text ?? '');  // MUTANT",
+   tests:['test/headless-start.test.mjs'] },
+
+
+ { name:'headless: the mail handler leaves its per-run directory behind',
+   file:'bin/mem-handle-post',
+   from:"mem_headless_cleanup\n\n# An old claude",
+   to:"true  # MUTANT: no cleanup\n\n# An old claude",
    tests:['test/headless-start.test.mjs'] },
 
 ];

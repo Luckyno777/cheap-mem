@@ -264,20 +264,24 @@ STALE_MIN="${MEM_DIGEST_STALE_MIN:-120}"
       try{process.stdout.write(String(JSON.parse(d).reserved.length))}catch{process.stdout.write("0")}})')"
   [ "$N_RESERVED" != "0" ] && note "age reserve: the $N_RESERVED oldest of them first"
 
-  # How the model session is started: `claude` gets `--setting-sources
-  # user --strict-mcp-config`, a neutral working directory and the memory
-  # as `--add-dir`, so a `.claude/settings.json` or `.mcp.json` pushed
-  # into the memory runs nothing (bin/_portable.sh, src/headless.mjs).
+  # How the model session is started: EVERY command starts in a neutral
+  # empty directory outside the memory, and `claude` also gets
+  # `--setting-sources user --strict-mcp-config` and the memory as
+  # `--add-dir`, so a `.claude/settings.json` or `.mcp.json` pushed into
+  # the memory runs nothing (bin/_portable.sh, src/headless.mjs).
   # No safe start, no start: it never falls back to the open one.
   if ! mem_headless_plan "$CMD" "$ROOT"; then
     note "REFUSED: no safe way to start the model session (the neutral working directory or the isolation flags could not be set up)."
     note "  Nothing was started. Run: node $HERE/mem-headless.mjs plan --cmd \"$CMD\" --root \"$ROOT\""
     exit 1
   fi
-  WHERE_LINE=""
+  [ -z "$MEM_HL_NOTE" ] || note "$MEM_HL_NOTE"
   if [ "$MEM_HL_ISOLATED" = "1" ]; then
     WHERE_LINE="
 Your working directory is NOT the memory: it is an empty folder, and $ROOT is added to what you may read. Use absolute paths, and run git as: git -C $ROOT <command>."
+  else
+    WHERE_LINE="
+Your working directory is NOT the memory: it is an empty folder, and the memory is $ROOT. Use absolute paths, and run git as: git -C $ROOT <command>."
   fi
 
   PROMPT="You are the digest for a cheap-mem memory. Read \$ROOT/DIGEST.md first and follow it.
@@ -423,6 +427,8 @@ condensing enough. Stop after the push."
       note "exit 126 and nothing written, but no detour available: $MEM_DETOUR_REASON"
     fi
   fi
+
+  mem_headless_cleanup
 
   # An old claude does not know `--setting-sources` and stops on the
   # unknown option. Say so, and do not start it again without the flag.

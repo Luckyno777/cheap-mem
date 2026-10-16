@@ -9,24 +9,31 @@
 // memory could plant `.claude/settings.json` with a hook and have the next
 // watcher or digest run execute it. A cloned memory must never run code.
 //
-// **Two layers, either one enough on its own:**
-//   1. `--setting-sources user --strict-mcp-config`: the session reads the
-//      user's own settings only (their permissions stay), no project settings,
-//      no `.mcp.json`, and — since skills, commands and agents of an `--add-dir`
-//      folder load through the `project` source — none of those either.
-//   2. A neutral working directory outside the memory, with the memory passed
-//      as `--add-dir` when the job needs to read it. The folder the session
-//      starts in is an empty one of ours.
+// **Two layers:**
+//   1. A NEUTRAL working directory for EVERY configured command, recognised or
+//      not: an empty folder outside the memory. The project's hooks and servers
+//      are read from the `.claude/` and `.mcp.json` of the working directory
+//      only, with no fall-back to a parent, so this protects wrappers, aliases
+//      and other agent CLIs (gemini reads its project configuration from the
+//      working directory, too). The memory is found through `CHEAP_MEM_ROOT`
+//      and absolute paths.
+//   2. For a command recognised as claude: `--setting-sources user
+//      --strict-mcp-config` (the session reads the user's own settings only and
+//      no `.mcp.json`; skills, commands and agents of an `--add-dir` folder load
+//      through the `project` source and are gone as well) and, where the job
+//      reads the memory, `--add-dir <memory>`.
 //
 // **Not `--bare`** (needs an API key; the owner logs in with an account) and
 // **not** `disableAllHooks` (it would also switch off the owner's own
 // protective hooks).
 //
-// **Only for `claude`.** The command is configurable (MEM_DIGEST_CMD, ...).
-// Another CLI has another flag grammar; adding claude's flags would break it, so
-// it is left as configured and docs/security-model.md says so. What counts as
-// claude: the first word (or the second after `node`) is `claude`, with or
-// without a directory or an extension, or the path names `claude-code`.
+// **Recognising claude** (`isClaudeCommand`): the words in front are skipped
+// (`env VAR=x`, `sudo`, `doas`, `nice`, `ionice`, `timeout 5`, `nohup`, `command`,
+// `exec`, `npx`, `bunx`, `pnpm dlx`, `yarn dlx`, `node`), then the program is
+// `claude`, `claude-code` or `@anthropic-ai/claude-code`, with or without a
+// directory, extension or `@version`. A quoted first word may hold spaces. An
+// alias (`cl`) or a wrapper under another name is NOT recognised: it runs in the
+// neutral directory without our flags, and the log says so.
 //
 // **An old claude refuses to start.** One without `--setting-sources` fails on
 // the unknown option; `looksLikeOldClaude()` reads that failure so the log says
@@ -39,6 +46,10 @@ import { pathToFileURL } from 'node:url';
 /** The flags every claude start carries. `--add-dir` is added per job and goes LAST. */
 export const ISOLATION_FLAGS = Object.freeze(['--setting-sources', 'user', '--strict-mcp-config']);
 
+/** Said in the log when the command is not recognised as claude. */
+export const NOT_RECOGNISED_NOTE = 'command not recognised as claude: started in a neutral directory without the settings flags; '
+  + 'if it runs claude, add --setting-sources user --strict-mcp-config';
+
 const OLD_CLAUDE_MESSAGE = [
   'headless: this claude does not know --setting-sources (too old).',
   '  cheap-mem will not start a model session that could read the memory\'s',
@@ -48,85 +59,169 @@ const OLD_CLAUDE_MESSAGE = [
 
 const stem = (w) => String(w ?? '').replace(/\\/g, '/').split('/').pop().toLowerCase().replace(/\.(exe|cmd|bat|ps1|js|mjs|cjs)$/, '');
 
-/** Split a configured command line on whitespace (the same split the shells do). */
-function splitCommand(line) {
-  return String(line ?? '').split(/\s+/).filter(Boolean);
+/** Split a command line on whitespace; a first word in quotes may hold spaces. */
+function words(line) {
+  const t = String(line ?? '').trim();
+  const q = /^(["'])(.*?)\1(?=\s|$)/.exec(t);
+  if (!q) return t.split(/\s+/).filter(Boolean);
+  return [q[2], ...t.slice(q[0].length).split(/\s+/).filter(Boolean)];
 }
+
+const named = (x) => {
+  const s = String(x ?? '');
+  return stem(s) === 'claude' || stem(s.replace(/@[^/@\s]+$/, '')) === 'claude-code'
+    || /(^|[\\/])claude-code([\\/]|$)/i.test(s) || /@anthropic-ai\/claude-code(@\S*)?$/i.test(s);
+};
+
+// Programs that only start another one. Flags that take a value, so the value is not taken for the program.
+const WRAPPERS = new Set(['env', 'sudo', 'doas', 'nice', 'ionice', 'timeout', 'gtimeout', 'nohup', 'command', 'exec', 'time',
+  'setsid', 'stdbuf', 'caffeinate', 'npx', 'bunx']);
+const VALUE_FLAGS = new Set(['-u', '-g', '-n', '-c', '-s', '-k', '-p', '-C', '-S', '-t', '--user', '--group']);
+const RUNNERS = new Set(['pnpm', 'yarn', 'npm', 'bun']);
+const RUNNER_VERBS = new Set(['dlx', 'exec', 'x']);
 
 /** True when the configured command starts claude (see the header for what counts). */
 export function isClaudeCommand(line) {
-  const w = splitCommand(line);
-  if (w.length === 0) return false;
-  const named = (x) => stem(x) === 'claude' || /(^|[\\/])claude-code([\\/]|$)/i.test(String(x));
-  // The whole line as ONE path: `C:\Program Files\claude\claude.exe` has a space in it (bin/mem-digest.ps1
-  // hands over just the executable), and its first "word" would be `C:\Program`.
-  if (named(String(line).trim())) return true;
-  if (named(w[0])) return true;
-  if (stem(w[0]) === 'node' && w.length > 1) return named(w[1]);
-  return false;
+  const text = String(line ?? '').trim();
+  if (!text) return false;
+  // The whole line as ONE path: `C:\Program Files\claude\claude.exe` (bin/mem-digest.ps1 hands over just the executable).
+  if (named(text)) return true;
+  const w = words(text);
+  let i = 0;
+  for (let guard = 0; i < w.length && guard < 64; guard += 1) {
+    const t = w[i];
+    const s = stem(t);
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(t)) { i += 1; continue; }
+    if (WRAPPERS.has(s)) {
+      i += 1;
+      while (i < w.length && (/^-/.test(w[i]) || /^[0-9]+[smhd]?$/.test(w[i]) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(w[i]))) {
+        i += VALUE_FLAGS.has(w[i]) && w[i + 1] !== undefined ? 2 : 1;
+      }
+      continue;
+    }
+    if (RUNNERS.has(s) && RUNNER_VERBS.has(stem(w[i + 1]))) { i += 2; while (i < w.length && /^-/.test(w[i])) i += 1; continue; }
+    if ((s === 'node' || s === 'deno' || s === 'bun') && w[i + 1] !== undefined) { i += 1; while (i < w.length && /^-/.test(w[i])) i += 1; continue; }
+    break;
+  }
+  return i < w.length && named(w[i]);
 }
 
-/** Does this text (a failed start's output) say that claude does not know our isolation flags? */
+/** Does this text (a failed start's output) say that claude does not know our isolation flags? Line breaks inside the sentence do not matter. */
 export function looksLikeOldClaude(text) {
-  return String(text ?? '').split('\n').some((l) =>
-    /(setting-sources|strict-mcp-config)/i.test(l)
-    && /(unknown|unrecogni[sz]ed|unexpected|invalid|not (a )?(valid|recogni[sz]ed|supported)|no such)/i.test(l));
+  const t = String(text ?? '').replace(/\s+/g, ' ');
+  const flag = '(?:setting-sources|strict-mcp-config)';
+  return new RegExp(`(?:unknown|unrecogni[sz]ed|unexpected|invalid|no such) (?:option|argument|flag)s?:? ?['"\`]?-{0,2}${flag}`, 'i').test(t)
+    || new RegExp(`${flag}['"\`]?(?: [a-z]+){0,3} (?:is )?(?:unknown|not (?:a )?(?:valid|recogni[sz]ed|supported))`, 'i').test(t);
 }
 
 const real = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+/** realpath of the deepest EXISTING ancestor plus the rest: where a path would land, before anything is made there. */
+function realFuture(p) {
+  let head = path.resolve(p); const tail = [];
+  while (!fs.existsSync(head) && path.dirname(head) !== head) { tail.unshift(path.basename(head)); head = path.dirname(head); }
+  return path.join(real(head), ...tail);
+}
 const inside = (child, parent) => {
   const rel = path.relative(parent, child);
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 };
 
+/** Names that make a folder a project to some agent CLI: none may be in the neutral directory. */
+const PROJECT_MARKERS = ['.claude', '.mcp.json', 'CLAUDE.md', '.gemini', 'GEMINI.md', 'AGENTS.md', '.codex'];
+
 /**
- * The neutral working directory: an empty folder of ours OUTSIDE the memory.
- * Same cache base as the hooks' compile cache (src of bin/_portable.sh, bin/mem-retrieve.ps1):
- * LOCALAPPDATA on Windows, ~/Library/Caches on macOS, XDG_CACHE_HOME or ~/.cache elsewhere.
- * No home at all: a per-user folder under the OS temp directory. Never inside the memory.
+ * Is this an acceptable neutral directory as it stands? Not a symlink, a directory, ours (POSIX), no group/other access
+ * (0700), and none of the files that make a folder a project. `st` is an `lstat`.
+ */
+export function dirIsAcceptable(st, entries, { uid = (typeof process.getuid === 'function' ? process.getuid() : null) } = {}) {
+  if (!st || st.isSymbolicLink() || !st.isDirectory()) return false;
+  if (uid !== null && st.uid !== uid) return false;
+  if (process.platform !== 'win32' && (st.mode & 0o077) !== 0) return false;
+  return !entries.some((e) => PROJECT_MARKERS.includes(e));
+}
+
+/**
+ * The neutral working directory: an empty folder of ours OUTSIDE the memory. `{ dir, cleanup }`, or null.
+ * `cleanup` is set when the folder is per run (to be removed after the job); the long-lived one is reused when it is acceptable.
+ *
+ * Where: `MEM_HEADLESS_CWD` (a parent folder; then ONLY there, no fall-back) or the cache base the hooks' compile cache uses
+ * (LOCALAPPDATA on Windows, ~/Library/Caches on macOS, XDG_CACHE_HOME or ~/.cache elsewhere) plus `cheap-mem/headless-cwd`,
+ * and last a fresh `mkdtemp` folder in the OS temp directory (unpredictable, removed after the run).
+ * Whether a place lies inside the memory is decided BEFORE anything is made there.
+ * A long-lived folder that is not acceptable (symlink, foreign, open permissions, holds a project marker) is left alone and a
+ * fresh per-run one is made next to it.
  */
 export function neutralDir({ root, env = process.env, platform = process.platform, home = os.homedir(), tmp = os.tmpdir(), create = true } = {}) {
-  const bases = [];
-  if (platform === 'win32' && env.LOCALAPPDATA) bases.push(env.LOCALAPPDATA);
-  else if (platform === 'darwin' && home) bases.push(path.join(home, 'Library', 'Caches'));
-  else if (env.XDG_CACHE_HOME && path.isAbsolute(env.XDG_CACHE_HOME)) bases.push(env.XDG_CACHE_HOME);
-  else if (home) bases.push(path.join(home, '.cache'));
-  const user = (() => { try { return os.userInfo().username; } catch { return 'user'; } })().replace(/[^A-Za-z0-9_.-]/g, '_');
-  const candidates = [
-    ...bases.map((b) => path.join(b, 'cheap-mem', 'headless-cwd')),
-    path.join(tmp, `cheap-mem-headless-cwd-${user}`),
-  ];
-  const rootReal = root ? real(root) : null;
-  for (const dir of candidates) {
-    if (create) {
-      try { fs.mkdirSync(dir, { recursive: true, mode: 0o700 }); } catch { continue; }
+  const rootReal = root ? realFuture(root) : null;
+  const outside = (p) => !rootReal || !inside(realFuture(p), rootReal);
+  const parents = [];
+  if (env.MEM_HEADLESS_CWD) parents.push(path.resolve(env.MEM_HEADLESS_CWD));
+  else {
+    if (platform === 'win32' && env.LOCALAPPDATA) parents.push(path.join(env.LOCALAPPDATA, 'cheap-mem'));
+    else if (platform === 'darwin' && home) parents.push(path.join(home, 'Library', 'Caches', 'cheap-mem'));
+    else if (env.XDG_CACHE_HOME && path.isAbsolute(env.XDG_CACHE_HOME)) parents.push(path.join(env.XDG_CACHE_HOME, 'cheap-mem'));
+    else if (home) parents.push(path.join(home, '.cache', 'cheap-mem'));
+  }
+  for (const parent of parents) {
+    const dir = path.join(parent, 'headless-cwd');
+    if (!outside(dir)) continue;
+    if (!create) return { dir, cleanup: null };
+    try {
+      fs.mkdirSync(parent, { recursive: true, mode: 0o700 });
+      let st = null;
+      try { st = fs.lstatSync(dir); } catch { st = null; }
+      if (!st) { fs.mkdirSync(dir, { mode: 0o700 }); return { dir, cleanup: null }; }
+      let entries = [];
+      try { entries = fs.readdirSync(dir); } catch { entries = ['.claude']; }
+      if (dirIsAcceptable(st, entries)) return { dir, cleanup: null };
+      const fresh = fs.mkdtempSync(path.join(parent, 'headless-cwd-'));
+      return { dir: fresh, cleanup: fresh };
+    } catch { /* next place */ }
+  }
+  if (!env.MEM_HEADLESS_CWD) {
+    const prefix = path.join(tmp, 'cheap-mem-headless-cwd-');
+    if (outside(prefix)) {
+      if (!create) return { dir: `${prefix}XXXXXX`, cleanup: null };
+      try { const fresh = fs.mkdtempSync(prefix); return { dir: fresh, cleanup: fresh }; } catch { /* none */ }
     }
-    if (rootReal && inside(real(dir), rootReal)) continue;
-    return dir;
   }
   return null;
 }
 
+/** Remove a per-run neutral directory made by `neutralDir` (nothing else: name, type and place are checked). */
+export function cleanupNeutral(dir) {
+  try {
+    const name = path.basename(String(dir ?? ''));
+    if (!/^(headless-cwd-|cheap-mem-headless-cwd-)[A-Za-z0-9]{6}$/.test(name)) return false;
+    const st = fs.lstatSync(dir);
+    if (st.isSymbolicLink() || !st.isDirectory()) return false;
+    fs.rmSync(dir, { recursive: true, force: true });
+    return true;
+  } catch { return false; }
+}
+
 /**
- * What a model start must carry. `{ isolated, args, cwd }`:
- * `args` go AFTER the prompt (`--add-dir` is variadic and would swallow a prompt that
- * followed it, so it is the last thing on the line), `cwd` is where the session starts.
- * Not claude: `{ isolated: false, args: [], cwd: null }` — left as configured.
- * Claude but no safe working directory: throws (refuse, never start open).
+ * What a model start must carry. `{ isolated, args, cwd, cleanup, note }`:
+ * `cwd` is where the session starts: ALWAYS a neutral directory, for any command. `isolated` is true when the command is
+ * recognised as claude; only then `args` hold the flags (they go AFTER the prompt; `--add-dir` is variadic and would swallow a
+ * prompt that followed it, so it is the last thing on the line). Not recognised: no flags, and `note` says so for the log.
+ * No safe working directory: throws (refuse, never start open).
  */
 export function planHeadless({ cmd, root, addDir = true, env = process.env, platform = process.platform, home, tmp, create = true } = {}) {
-  if (!isClaudeCommand(cmd)) return { isolated: false, args: [], cwd: null };
   if (!root || /[\r\n]/.test(root)) throw new Error('headless: no usable memory root to hand to the session');
-  const cwd = neutralDir({ root, env, platform, home, tmp, create });
-  if (!cwd) throw new Error('headless: no neutral working directory outside the memory could be made');
-  return { isolated: true, args: [...ISOLATION_FLAGS, ...(addDir ? ['--add-dir', root] : [])], cwd };
+  const claude = isClaudeCommand(cmd);
+  const n = neutralDir({ root, env, platform, home, tmp, create });
+  if (!n) throw new Error('headless: no neutral working directory outside the memory could be made');
+  if (!claude) return { isolated: false, args: [], cwd: n.dir, cleanup: n.cleanup, note: NOT_RECOGNISED_NOTE };
+  return { isolated: true, args: [...ISOLATION_FLAGS, ...(addDir ? ['--add-dir', root] : [])], cwd: n.dir, cleanup: n.cleanup, note: null };
 }
 
 // ---- command line (bin/mem-headless.mjs calls this) -------------------------------------------
 
 /**
- * `plan --cmd <line> --root <dir> [--no-add-dir]` prints `isolated=0|1`, `cwd=...`, `arg=...` lines.
- * `old-claude <file>` exits 0 and prints the message when the file's text is an old-claude refusal.
+ * `plan --cmd <line> --root <dir> [--no-add-dir]` prints `isolated=0|1`, `cwd=...`, `arg=...`, `note=...`, `cleanup=...` lines.
+ * `old-claude <file|->` exits 0 and prints the message when the text is an old-claude refusal.
+ * `cleanup <dir>` removes a per-run neutral directory.
  */
 export function main(argv, { out = (s) => process.stdout.write(s), err = (s) => process.stderr.write(s), env = process.env } = {}) {
   const [sub, ...rest] = argv;
@@ -140,23 +235,25 @@ export function main(argv, { out = (s) => process.stdout.write(s), err = (s) => 
     }
     let p;
     try { p = planHeadless({ ...v, env }); } catch (e) { err(`${e.message}\n`); return 2; }
-    const lines = [`isolated=${p.isolated ? 1 : 0}`];
-    if (p.cwd) lines.push(`cwd=${p.cwd}`);
+    const lines = [`isolated=${p.isolated ? 1 : 0}`, `cwd=${p.cwd}`];
     for (const a of p.args) {
       if (/[\r\n]/.test(a)) { err('headless: an argument contains a line break\n'); return 2; }
       lines.push(`arg=${a}`);
     }
+    if (p.note) lines.push(`note=${p.note}`);
+    if (p.cleanup) lines.push(`cleanup=${p.cleanup}`);
     out(`${lines.join('\n')}\n`);
     return 0;
   }
   if (sub === 'old-claude') {
     let text = '';
-    try { text = fs.readFileSync(rest[0], 'utf8'); } catch { return 1; }
+    try { text = fs.readFileSync(rest[0] === '-' ? 0 : rest[0], 'utf8'); } catch { return 1; }
     if (!looksLikeOldClaude(text)) return 1;
     out(`${OLD_CLAUDE_MESSAGE.join('\n')}\n`);
     return 0;
   }
-  err('usage: mem-headless.mjs plan --cmd <line> --root <dir> [--no-add-dir] | old-claude <file>\n');
+  if (sub === 'cleanup') return cleanupNeutral(rest[0]) ? 0 : 1;
+  err('usage: mem-headless.mjs plan --cmd <line> --root <dir> [--no-add-dir] | old-claude <file|-> | cleanup <dir>\n');
   return 2;
 }
 
