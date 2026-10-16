@@ -32,7 +32,7 @@ import * as authority from './authority.mjs';
 import * as integrity from './integrity.mjs';
 import * as mirror from './findingmirror.mjs';
 import * as provenanceMod from './provenance.mjs';
-import { trackedRuntimeFiles, untrackCommand } from './trackedruntime.mjs';
+import { trackedRuntimeFiles, untrackCommand, describeTracked, RUNTIME_RULES } from './trackedruntime.mjs';
 import * as environment from './environment.mjs';
 import * as clock from './clock.mjs';
 import * as drawermemo from './drawermemo.mjs';
@@ -2798,9 +2798,8 @@ export function checkGitignoreEffective(root) {
     // Runtime state of one clone (2026-10-14): written by the hooks on every call. Not ignored, `git add -A` tracks
     // them, the tree turns dirty and the recall hook's pull stops. A memory written before the rule has no line for it.
     '.pipeline/injections.jsonl', '.pipeline/clone-gate.json',
-    // The per-session marks, hook claims and lock files under `.mem/` (src/trackedruntime.mjs says why each is runtime only).
-    '.mem/before-edit/', '.mem/workflow-marks/', '.mem/command-guard-marks/', '.mem/locks/',
-    '.mem/retrieve-turns/', '.mem/catch-fail-turns/', '.mem/after-failure-turns/',
+    // Every other runtime path of ONE clone (src/trackedruntime.mjs says why each is runtime only).
+    ...RUNTIME_RULES.map((r) => r.probe).filter((x) => x !== '.pipeline/injections.jsonl'),
   ];
   if (!fs.existsSync(path.join(root, '.git'))) {
     return finding('gitignore', LEVEL.UNKNOWN, 'no git repository — nothing to ignore');
@@ -2824,9 +2823,9 @@ export function checkGitignoreEffective(root) {
       return finding('gitignore', LEVEL.UNKNOWN, 'git ls-files could not answer - tracked runtime files unknown');
     }
     if (tracked.length) {
-      const shown = tracked.slice(0, 4).join(', ') + (tracked.length > 4 ? `, +${tracked.length - 4} more` : '');
+      // Folders and counts only: the file names come out of the index and are printed (src/trackedruntime.mjs).
       return finding('gitignore', LEVEL.WARN,
-        `git ignores the runtime paths, but the memory STILL TRACKS ${tracked.length} runtime file(s) (${shown}) - `
+        `git ignores the runtime paths, but the memory STILL TRACKS ${tracked.length} runtime file(s) (${describeTracked(tracked)}) - `
         + 'the tree turns dirty at every hook write and the recall hook does not pull',
         `run \`${untrackCommand(tracked)}\` once and commit (removes them from the index, not from the disk)`);
     }

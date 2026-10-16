@@ -14,6 +14,21 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Fixed - review follow-up: no file name out of the index in the output, and the single runtime files under `.mem/` (B1, B2)
+
+- **B1** `mem init` and the doctor finding `gitignore` printed the first tracked runtime paths raw, from the index. A legal POSIX file name can hold an escape or OSC sequence, a bell,
+  a newline (a forged second line) or a U+202E, and the line goes to a terminal and from there into a model's context. They print folders and counts now
+  (`3 in .pipeline, 1 in .mem/locks`), never a name; the command is built from the table, not from the index. `test/tracked-names.test.mjs` builds such a name at run time
+  (Windows cannot hold a control character in a file name: that branch asserts the refusal and runs the bidi override alone); red on `862d815`, which printed the name.
+- **B2** The same gap for single files. `src/trackedruntime.mjs` is now ONE table (`RUNTIME_RULES`: gitignore rule, pathspec, doctor probe, reason) that `mem init`, the doctor's
+  required paths and the tracked check all read. New: `.mem/component-table.json`, `component-table-rebuild.log` and `.lock`, `backlinks.json`, `dashboard-head.json`, `timetrack/`
+  (derived), `watch.log`, `serve.log`, `.mem/*.lock`, `.mem/*.lock.d/` (logs and locks), and the files the code itself calls gitignored, machine-local or not versioned
+  (`console.json`, `console-log.jsonl`, `measurements.jsonl`, `raw-watermark.json`, `archive.json`, `rule-draft-week`, `embed.json`) or that this repo's own `.gitignore` lists as local state
+  (`inbox-seen.json`, `inbox-whoami`, `reflect-marker/`). Left out on purpose, each with its reason in `test/pipeline-ignore.test.mjs`: `config.json`, `thesaurus.json`,
+  `answer-patterns.json`, `langbridge/` (authored), `rewrites.jsonl`, `bridge-reports.jsonl`, `raw-exclusion-state.json`, `raw/`, and `keyring.json` (a committed shred key survives in
+  history: the owner decides). An inventory test scans `src/`, `bin/` and `install/` for every `.mem/<name>` and asks git whether a fresh memory ignores it: a new file under `.mem/`
+  is red until it is in the table or on the list.
+
 ### Fixed - finish of the hook work: tracked runtime files, a warning without a reason, cut before mask (M1-1, N5-1, N2, #27)
 
 - **M1-1** The doctor finding `gitignore` asked `git check-ignore --no-index`, which answers for the path and not for the index: a memory that had committed `.pipeline/*`
