@@ -152,14 +152,14 @@ A variable that is not in the table is not a switch: there is none.
 | `MEM_BEFORE_EDIT_MARKS` | `<root>/.mem/before-edit` | Directory of the per-session marks of the before-edit hook. |
 | `MEM_CATCH_FAIL_TURNS` | `<root>/.mem/catch-fail-turns` | Directory of the once-per-turn claims of the swallowed-failure hook. |
 | `MEM_COMMAND_GUARD_MARKS` | `<root>/.mem/command-guard-marks` | Directory of the per-session marks of the command guard. |
-| `MEM_DIGEST_CMD` | `claude -p` | The model command the digest starts (Windows: `claude`, arguments from `MEM_DIGEST_ARGS`). The job starts it in a neutral empty directory outside the memory (any command), and adds `--setting-sources user --strict-mcp-config` when it is recognised as `claude` (docs/security-model.md, section 11). |
+| `MEM_DIGEST_CMD` | `claude -p` | The model command the digest starts (Windows: `claude`, arguments from `MEM_DIGEST_ARGS`). Started in a neutral empty directory outside the memory; a `claude` also gets `--setting-sources user --strict-mcp-config` (security-model.md, 11). |
 | `MEM_DIGEST_LOG` | `<root>/.mem/digest.log` | Log file of `bin/mem-digest`. |
-| `MEM_HANDLER_CMD` | `claude -p` | The model command that handles an incoming letter. The job starts it in a neutral empty directory outside the memory (any command), and adds `--setting-sources user --strict-mcp-config` when it is recognised as `claude` (docs/security-model.md, section 11). |
-| `MEM_HEADLESS_CWD` | `~/.cache/cheap-mem` (user cache) | Parent folder of the neutral working directory `headless-cwd` in which the digest, the letter handler and the reflector start their model command. Set, it is the ONLY place tried (unusable: the start is refused); unset, the user cache, then a fresh folder in the OS temp directory. Never inside the memory. |
+| `MEM_HANDLER_CMD` | `claude -p` | The model command that handles an incoming letter. Started in a neutral empty directory outside the memory; a `claude` also gets `--setting-sources user --strict-mcp-config` (security-model.md, 11). |
+| `MEM_HEADLESS_CWD` | `~/.cache/cheap-mem` | Parent of the neutral working directory `headless-cwd` for the model command. Set, the only place tried (unusable: no start); unset, the user cache, then a fresh temp folder. Never inside the memory. |
 | `MEM_RECALL_SERVER_CODE_STATE` | the server's own code directory | Tests only: which directory's `src/` the server watches to restart itself after a code change. |
 | `MEM_RECALL_SERVER_DIR` | `.pipeline/` of the root | Where the warm recall server keeps its socket and key; set it when the root path is too long for a Unix socket. |
 | `MEM_RECALL_SERVER_SHORT_BASE` | `/tmp` | Base directory for the short socket directory the recall server picks on its own when the default socket path is too long (macOS temp dirs); only used when MEM_RECALL_SERVER_DIR is unset. |
-| `MEM_REFLECT_CMD` | `claude -p` | The model command of the reflector. The job starts it in a neutral empty directory outside the memory (any command), and adds `--setting-sources user --strict-mcp-config` when it is recognised as `claude` (docs/security-model.md, section 11). |
+| `MEM_REFLECT_CMD` | `claude -p` | The model command of the reflector. Started in a neutral empty directory outside the memory; a `claude` also gets `--setting-sources user --strict-mcp-config` (security-model.md, 11). |
 | `MEM_RETRIEVE_ROOTS` | `~/cheap-mem` | Space-separated roots the recall and after-failure hooks probe after `CHEAP_MEM_ROOT`; setting it replaces the default (a `;` list also works for the PowerShell twins). |
 | `MEM_RETRIEVE_TURNS` | `<root>/.mem/retrieve-turns` | Directory of the once-per-turn claims of the recall hook. |
 | `MEM_STOP_ROOTS` | `~/cheap-mem` | The same probe list for the stop hook. |

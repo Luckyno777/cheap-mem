@@ -170,11 +170,9 @@ let d="";process.stdin.on("data",c=>d+=c).on("end",async()=>{
 
   $Listing = ($Chosen | ForEach-Object { "  $_" }) -join "`n"
 
-  # How the model session is started: EVERY command starts in an empty working
-  # directory outside the memory; `claude` also gets `--setting-sources user
-  # --strict-mcp-config` and the memory as `--add-dir`, so a `.claude/settings.json` or `.mcp.json` pushed into
-  # the memory runs nothing (bin/_headless.ps1, src/headless.mjs). No safe start,
-  # no start: it never falls back to the open one.
+  # Every command starts in a neutral empty directory outside the memory; a recognised
+  # `claude` also gets the isolation flags and `--add-dir` (bin/_headless.ps1,
+  # src/headless.mjs). No safe start, no start.
   . (Join-Path $Here '_headless.ps1')
   $Plan = Get-HeadlessPlan -CmdLine $Cmd -Root $Root
   if (-not $Plan) {

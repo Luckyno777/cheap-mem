@@ -264,12 +264,9 @@ STALE_MIN="${MEM_DIGEST_STALE_MIN:-120}"
       try{process.stdout.write(String(JSON.parse(d).reserved.length))}catch{process.stdout.write("0")}})')"
   [ "$N_RESERVED" != "0" ] && note "age reserve: the $N_RESERVED oldest of them first"
 
-  # How the model session is started: EVERY command starts in a neutral
-  # empty directory outside the memory, and `claude` also gets
-  # `--setting-sources user --strict-mcp-config` and the memory as
-  # `--add-dir`, so a `.claude/settings.json` or `.mcp.json` pushed into
-  # the memory runs nothing (bin/_portable.sh, src/headless.mjs).
-  # No safe start, no start: it never falls back to the open one.
+  # Every command starts in a neutral empty directory outside the memory, and
+  # a recognised `claude` also gets the isolation flags and `--add-dir` (see
+  # bin/_portable.sh, src/headless.mjs). No safe start, no start.
   if ! mem_headless_plan "$CMD" "$ROOT"; then
     note "REFUSED: no safe way to start the model session (the neutral working directory or the isolation flags could not be set up)."
     note "  Nothing was started. Run: node $HERE/mem-headless.mjs plan --cmd \"$CMD\" --root \"$ROOT\""
@@ -397,11 +394,8 @@ condensing enough. Stop after the push."
   # stays directly on $LOG (mem_never_started/anmeldung detection reads
   # that file). `PIPESTATUS[0]`, not the pipeline's own exit value —
   # without that this would read node's exit code, not $CMD's.
-  # The flags go AFTER the prompt and `--add-dir` last: it takes a list
-  # and would swallow a prompt that followed it. The session starts in
-  # the neutral directory when the command is claude, else in the memory
-  # as before. CHEAP_MEM_ROOT is exported so `mem` finds the memory
-  # without the working directory.
+  # Flags AFTER the prompt, `--add-dir` last (it is variadic). CHEAP_MEM_ROOT lets
+  # `mem` find the memory from the neutral directory.
   ( cd "${MEM_HL_CWD:-$ROOT}" && CHEAP_MEM_ROOT="$ROOT" MEM_HEADLESS=digest capped "$TIMEOUT" $CMD "$PROMPT" --output-format json ${MEM_HL_ARGS[@]+"${MEM_HL_ARGS[@]}"} ) 2>>"$LOG" \
     | node "$HERE/../src/modelcost.mjs" "$ROOT" digest digest-run >>"$LOG"
   MODEL_EXIT=${PIPESTATUS[0]}

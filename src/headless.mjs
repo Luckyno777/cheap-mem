@@ -1,43 +1,15 @@
-// headless — the ONE place that decides how cheap-mem starts a model session
-// (`claude -p`) from an unattended job: the digest, the mail handler, the reflector.
+// headless - the ONE place that decides how cheap-mem starts a model session from an unattended job
+// (the digest, the mail handler, the reflector). Why, what and the limits: docs/security-model.md, section 11.
 //
-// **The finding (tool-trust review, 2026-10).** Without `--bare`, `claude -p`
-// runs the hooks of `.claude/settings.json` of the folder it starts in and
-// connects the servers of its `.mcp.json` — in a folder nobody ever trusted,
-// with no dialog (Claude Code docs, "What runs before you trust a folder").
-// The digest and the mail handler started IN the memory. Whoever can push to a
-// memory could plant `.claude/settings.json` with a hook and have the next
-// watcher or digest run execute it. A cloned memory must never run code.
-//
-// **Two layers:**
-//   1. A NEUTRAL working directory for EVERY configured command, recognised or
-//      not: an empty folder outside the memory. The project's hooks and servers
-//      are read from the `.claude/` and `.mcp.json` of the working directory
-//      only, with no fall-back to a parent, so this protects wrappers, aliases
-//      and other agent CLIs (gemini reads its project configuration from the
-//      working directory, too). The memory is found through `CHEAP_MEM_ROOT`
-//      and absolute paths.
-//   2. For a command recognised as claude: `--setting-sources user
-//      --strict-mcp-config` (the session reads the user's own settings only and
-//      no `.mcp.json`; skills, commands and agents of an `--add-dir` folder load
-//      through the `project` source and are gone as well) and, where the job
-//      reads the memory, `--add-dir <memory>`.
-//
-// **Not `--bare`** (needs an API key; the owner logs in with an account) and
-// **not** `disableAllHooks` (it would also switch off the owner's own
-// protective hooks).
-//
-// **Recognising claude** (`isClaudeCommand`): the words in front are skipped
-// (`env VAR=x`, `sudo`, `doas`, `nice`, `ionice`, `timeout 5`, `nohup`, `command`,
-// `exec`, `npx`, `bunx`, `pnpm dlx`, `yarn dlx`, `node`), then the program is
-// `claude`, `claude-code` or `@anthropic-ai/claude-code`, with or without a
-// directory, extension or `@version`. A quoted first word may hold spaces. An
-// alias (`cl`) or a wrapper under another name is NOT recognised: it runs in the
-// neutral directory without our flags, and the log says so.
-//
-// **An old claude refuses to start.** One without `--setting-sources` fails on
-// the unknown option; `looksLikeOldClaude()` reads that failure so the log says
-// WHY, and nothing runs open (a missing flag is never dropped).
+// Without `--bare`, `claude -p` runs the hooks of the `.claude/settings.json` and connects the servers of the
+// `.mcp.json` of its working directory, in a folder nobody trusted and with no dialog. A memory is a git repository
+// others can push to, so it must never be that folder. Two layers:
+//   1. EVERY configured command starts in a neutral empty directory outside the memory (hooks and `.mcp.json` come from
+//      the working directory only, so this protects wrappers, aliases and other agent CLIs too).
+//   2. A command recognised as claude also gets `--setting-sources user --strict-mcp-config` and, where the job reads the
+//      memory, `--add-dir <memory>`. Not `--bare` (needs an API key), not `disableAllHooks` (would switch off the owner's hooks).
+// An alias or a wrapper under another name is not recognised: neutral directory, no flags, and the log says so.
+// An old claude without `--setting-sources` fails on the unknown option; that is read, named, and never started open.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -115,7 +87,7 @@ export function looksLikeOldClaude(text) {
 }
 
 const real = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
-/** realpath of the deepest EXISTING ancestor plus the rest: where a path would land, before anything is made there. */
+/** Where a path would land, before anything is made there. */
 function realFuture(p) {
   let head = path.resolve(p); const tail = [];
   while (!fs.existsSync(head) && path.dirname(head) !== head) { tail.unshift(path.basename(head)); head = path.dirname(head); }
@@ -126,13 +98,10 @@ const inside = (child, parent) => {
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 };
 
-/** Names that make a folder a project to some agent CLI: none may be in the neutral directory. */
+/** Names that make a folder a project to some agent CLI; none may be in the neutral directory. */
 const PROJECT_MARKERS = ['.claude', '.mcp.json', 'CLAUDE.md', '.gemini', 'GEMINI.md', 'AGENTS.md', '.codex'];
 
-/**
- * Is this an acceptable neutral directory as it stands? Not a symlink, a directory, ours (POSIX), no group/other access
- * (0700), and none of the files that make a folder a project. `st` is an `lstat`.
- */
+/** Is this (an `lstat`) an acceptable neutral directory? A real directory, ours (POSIX), 0700, no project marker inside. */
 export function dirIsAcceptable(st, entries, { uid = (typeof process.getuid === 'function' ? process.getuid() : null) } = {}) {
   if (!st || st.isSymbolicLink() || !st.isDirectory()) return false;
   if (uid !== null && st.uid !== uid) return false;
@@ -141,15 +110,11 @@ export function dirIsAcceptable(st, entries, { uid = (typeof process.getuid === 
 }
 
 /**
- * The neutral working directory: an empty folder of ours OUTSIDE the memory. `{ dir, cleanup }`, or null.
- * `cleanup` is set when the folder is per run (to be removed after the job); the long-lived one is reused when it is acceptable.
- *
- * Where: `MEM_HEADLESS_CWD` (a parent folder; then ONLY there, no fall-back) or the cache base the hooks' compile cache uses
- * (LOCALAPPDATA on Windows, ~/Library/Caches on macOS, XDG_CACHE_HOME or ~/.cache elsewhere) plus `cheap-mem/headless-cwd`,
- * and last a fresh `mkdtemp` folder in the OS temp directory (unpredictable, removed after the run).
- * Whether a place lies inside the memory is decided BEFORE anything is made there.
- * A long-lived folder that is not acceptable (symlink, foreign, open permissions, holds a project marker) is left alone and a
- * fresh per-run one is made next to it.
+ * The neutral working directory: `{ dir, cleanup }` or null. `cleanup` is set for a per-run folder (removed after the job).
+ * Where: `MEM_HEADLESS_CWD` (parent folder; then ONLY there) or the user cache `cheap-mem/headless-cwd` (LOCALAPPDATA,
+ * ~/Library/Caches, XDG_CACHE_HOME or ~/.cache), and last a fresh `mkdtemp` folder in the OS temp directory. Whether a
+ * place is inside the memory is decided BEFORE anything is made there. A long-lived folder that is not acceptable is left
+ * alone and a fresh per-run one is made next to it.
  */
 export function neutralDir({ root, env = process.env, platform = process.platform, home = os.homedir(), tmp = os.tmpdir(), create = true } = {}) {
   const rootReal = root ? realFuture(root) : null;
@@ -201,11 +166,9 @@ export function cleanupNeutral(dir) {
 }
 
 /**
- * What a model start must carry. `{ isolated, args, cwd, cleanup, note }`:
- * `cwd` is where the session starts: ALWAYS a neutral directory, for any command. `isolated` is true when the command is
- * recognised as claude; only then `args` hold the flags (they go AFTER the prompt; `--add-dir` is variadic and would swallow a
- * prompt that followed it, so it is the last thing on the line). Not recognised: no flags, and `note` says so for the log.
- * No safe working directory: throws (refuse, never start open).
+ * What a model start must carry: `{ isolated, args, cwd, cleanup, note }`. `cwd` is ALWAYS a neutral directory. Only a command
+ * recognised as claude (`isolated`) gets `args` (flags go AFTER the prompt, `--add-dir` last: it is variadic and would swallow
+ * a prompt that followed it); any other gets a `note` for the log. No safe directory: throws (refuse, never start open).
  */
 export function planHeadless({ cmd, root, addDir = true, env = process.env, platform = process.platform, home, tmp, create = true } = {}) {
   if (!root || /[\r\n]/.test(root)) throw new Error('headless: no usable memory root to hand to the session');
@@ -218,11 +181,7 @@ export function planHeadless({ cmd, root, addDir = true, env = process.env, plat
 
 // ---- command line (bin/mem-headless.mjs calls this) -------------------------------------------
 
-/**
- * `plan --cmd <line> --root <dir> [--no-add-dir]` prints `isolated=0|1`, `cwd=...`, `arg=...`, `note=...`, `cleanup=...` lines.
- * `old-claude <file|->` exits 0 and prints the message when the text is an old-claude refusal.
- * `cleanup <dir>` removes a per-run neutral directory.
- */
+/** `plan --cmd <line> --root <dir> [--no-add-dir]` prints isolated/cwd/arg/note/cleanup lines; `old-claude <file|->`; `cleanup <dir>`. */
 export function main(argv, { out = (s) => process.stdout.write(s), err = (s) => process.stderr.write(s), env = process.env } = {}) {
   const [sub, ...rest] = argv;
   if (sub === 'plan') {

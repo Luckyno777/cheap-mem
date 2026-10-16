@@ -411,16 +411,10 @@ mem_never_started() {
 
 # --- How a model session is started from an unattended job ------------
 #
-# The ONE place for the shells (the .ps1 twins call the same helper).
-# `claude -p` without `--bare` runs the hooks of `.claude/settings.json`
-# and connects the servers of `.mcp.json` of the folder it starts in,
-# even a folder nobody trusted, with no dialog. The digest and the mail
-# handler used to start IN the memory: whoever could push to it could
-# plant a hook and have the next tick run it. src/headless.mjs says what
-# is done about it and why: EVERY configured command starts in a neutral
-# empty directory outside the memory (also a wrapper, an alias, another
-# agent CLI), and a command recognised as claude also gets
-# `--setting-sources user --strict-mcp-config`.
+# The ONE place for the shells (the .ps1 twins call the same helper). EVERY
+# configured command starts in a neutral empty directory outside the memory,
+# and a command recognised as claude also gets `--setting-sources user
+# --strict-mcp-config`; why: src/headless.mjs and docs/security-model.md, s. 11.
 #
 # mem_headless_plan <command-line> <memory-root> [0]
 #   Sets MEM_HL_CWD (where the session must start; never empty on

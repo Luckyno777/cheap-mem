@@ -29,12 +29,9 @@ if (-not $env:MEM_WATCH_WHO) {
 
 $CmdLine = if ($env:MEM_HANDLER_CMD) { $env:MEM_HANDLER_CMD } else { 'claude -p' }
 
-# How the model session is started: EVERY command starts in an empty working
-# directory outside the memory; `claude` also gets `--setting-sources user
-# --strict-mcp-config` and the memory as `--add-dir` (bin/_headless.ps1, src/headless.mjs). bin/mem-watch.ps1
-# starts this script IN the memory; without this a `.claude/settings.json` or
-# `.mcp.json` pushed into the memory would run when the session starts.
-# No safe start, no start.
+# Every command starts in a neutral empty directory outside the memory (bin/mem-watch.ps1
+# starts this script IN it); a recognised `claude` also gets the isolation flags and
+# `--add-dir` (bin/_headless.ps1, src/headless.mjs). No safe start, no start.
 . (Join-Path $PSScriptRoot '_headless.ps1')
 $plan = Get-HeadlessPlan -CmdLine $CmdLine -Root $env:CHEAP_MEM_ROOT
 if (-not $plan) {

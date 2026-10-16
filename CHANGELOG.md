@@ -17,27 +17,17 @@ are the day the work landed on `main`.
 ### Security - unattended model sessions no longer read a project's settings or `.mcp.json` (digest, mail handler, reflector)
 
 Without `--bare`, `claude -p` runs the hooks of the `.claude/settings.json` of its working directory and connects the servers of its `.mcp.json`, in a folder nobody trusted and with no dialog
-(Claude Code documentation, 2026-10: "What runs before you trust a folder"). `bin/mem-digest` and the mail handler (`bin/mem-handle-post`, started by `bin/mem-watch` inside the memory) started
-exactly there, `bin/mem-reflect` wherever the Stop hook was called: anyone who could push into a memory could plant a hook and have the next tick run it. One starter now decides it for every
-launch (`src/headless.mjs`, `bin/mem-headless.mjs`; `mem_headless_plan` in `bin/_portable.sh`, `Get-HeadlessPlan` in the new `bin/_headless.ps1`):
-- **Every configured command starts in a neutral empty directory outside the memory**, recognised as claude or not (a wrapper, an alias, `gemini`: hooks and `.mcp.json` come from the working
-  directory only). The memory is found through `CHEAP_MEM_ROOT` and absolute paths; the prompts say so and use `git -C`. `MEM_HEADLESS_CWD` names the parent folder of that directory.
-- **A command recognised as claude also gets `--setting-sources user --strict-mcp-config`**, and the memory as `--add-dir` where the job reads it (digest, mail handler; not the reflector).
-  Recognition looks through `env VAR=x`, `sudo`/`doas`, `nice`/`ionice`, `timeout N`, `nohup`, `command`, `exec`, `npx`/`bunx`/`pnpm dlx`/`yarn dlx` and `node`, and takes a quoted first word with spaces;
-  an alias or a wrapper under another name is not recognised, runs neutral without the flags, and the log says `command not recognised as claude: ...`.
-- The flags follow the prompt, `--add-dir` last (it takes a list). No neutral directory outside the memory (that is decided before anything is made there), no start: the job refuses and says so.
-  An existing neutral directory is reused only when it is a real directory (no symlink), the user's own, mode 0700 and without `.claude`, `.mcp.json`, `CLAUDE.md`, `.gemini` and the like; otherwise a fresh
-  per-run folder is made and removed after the job. The temp-directory fallback is a fresh `mkdtemp` folder, not a name to be guessed.
-- A claude too old for `--setting-sources` stops on the unknown option (also when the message breaks the line); each job reads that failure, logs one sentence telling to update, and never starts again
-  without the flag (no probe call: the first real call is the detection). The check goes through a pipe, and `bin/mem-reflect` no longer keeps its model output in a temp file, so a `TMPDIR` inside the memory
-  cannot put one there.
-- `bin/mem-handle-post.ps1` now hands on the exit code of the model (it ended without `exit` before). The Windows watcher counts a failed handler as a failure (the loop guard backs off for 900 s after
-  three in a row) and the mail is tried again later.
-- Not `--bare` (needs an API key) and not `disableAllHooks` (would also switch off the owner's own hooks). A custom `MEM_WATCH_HANDLER` still starts inside the memory (documented; it is the owner's code).
-- `DIGEST.md` tells the model `git -C <root> add/commit/push`; `docs/install-linux.md` and `docs/install-macos.md` say that `gemini` can load project configuration from its working directory and now runs neutral.
-Documented in `docs/security-model.md` section 11 (threat, protection, residual risk and limits: the memory's `CLAUDE.md` stays readable context, i.e. data; the ratchet is a text scanner and cannot see an
-`npx` inside `spawnSync` arguments). `test/headless-start.test.mjs`: a stand-in `claude` that runs the planted hook and server unless started with the flag - red on `9ee3441` for all three scripts and on the first
-version (`9efe57d`) for `env`, `npx`, `sudo`, `nice` and an alias, green now - plus a ratchet against any launch outside the starter; new mutants in `bench/mutation.mjs`.
+(Claude Code documentation, 2026-10). The digest and the mail handler started inside the memory, the reflector in the host session's repository: anyone who could push into a memory could plant a
+hook and have the next tick run it. One starter now decides every launch (`src/headless.mjs`, `bin/mem-headless.mjs`, `mem_headless_plan` in `bin/_portable.sh`, `bin/_headless.ps1`):
+- **Every configured command starts in a neutral empty directory outside the memory** (a wrapper, an alias, `gemini`: hooks come from the working directory only). The memory comes through
+  `CHEAP_MEM_ROOT` and absolute paths; `MEM_HEADLESS_CWD` names the parent folder. The directory is checked (no symlink, the user's own, 0700, no `.claude`/`.mcp.json`/`CLAUDE.md`/`.gemini`), else a
+  fresh per-run one is made and removed; the temp fallback is `mkdtemp`. Whether a place is inside the memory is decided before anything is made there; none outside means no start.
+- **A command recognised as claude also gets `--setting-sources user --strict-mcp-config`** (and `--add-dir <memory>` for the digest and the handler), after the prompt. Recognition looks through
+  `env`, `sudo`, `nice`, `timeout`, `nohup`, `npx`, `bunx`, `pnpm dlx` and the like; an alias is not recognised, runs neutral without the flags, and the log says `command not recognised as claude`.
+- A claude too old for the flag is named in the log (also across a line break) and never started open. `bin/mem-reflect` keeps no temp file for its output. `bin/mem-handle-post.ps1` now hands on the
+  model's exit code: the Windows watcher counts a failure (loop guard after three, 900 s) and the mail is tried again later.
+- `DIGEST.md` uses `git -C <root>`; the install docs say `gemini` runs neutral now. A custom `MEM_WATCH_HANDLER` still starts inside the memory (documented). Limits and residual risk, including that the
+  ratchet is a text scanner: `docs/security-model.md` section 11. `test/headless-start.test.mjs`: red on `9ee3441` and, for `env`/`npx`/`sudo`/`nice`/an alias, on the first version (`9efe57d`).
 
 ### Fixed - CI run 1060: a test helper red under `npm test`, and the mutation job without history
 

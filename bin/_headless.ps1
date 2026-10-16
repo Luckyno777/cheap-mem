@@ -1,19 +1,11 @@
 # SPDX-FileCopyrightText: 2026 Lucky H.
 # SPDX-License-Identifier: MIT
-# _headless.ps1 - how an unattended job starts `claude -p` (dot-sourced, never run).
+# _headless.ps1 - how an unattended job starts its model command (dot-sourced, never run).
 #
 # windows-parity-ok: the PowerShell half of one starter, dot-sourced and never run as a hook; the POSIX half is
 # `mem_headless_plan` in bin/_portable.sh (itself sourced), and both ask the same node program (bin/mem-headless.mjs).
 #
-# The PowerShell side of the one starter. The decision lives in
-# src/headless.mjs (reached through bin/mem-headless.mjs); the POSIX side is
-# mem_headless_plan in bin/_portable.sh. Why: `claude -p` without `--bare` runs
-# the hooks of `.claude/settings.json` and connects the servers of `.mcp.json`
-# of the folder it starts in, even one nobody trusted, with no dialog. The
-# digest, the mail handler and the reflector must not hand that to whoever can
-# push into the memory. EVERY command starts in a neutral empty directory
-# outside the memory; a command recognised as claude also gets the flags.
-# See docs/security-model.md.
+# The decision lives in src/headless.mjs; why and what it covers: docs/security-model.md, section 11.
 #
 # Used by bin/mem-digest.ps1, bin/mem-handle-post.ps1, bin/mem-reflect.ps1:
 #   . (Join-Path $PSScriptRoot '_headless.ps1')

@@ -32,13 +32,9 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 CMD="${MEM_HANDLER_CMD:-claude -p}"
 
-# How the model session is started: EVERY command starts in an empty
-# working directory outside the memory; `claude` also gets `--setting-sources
-# user --strict-mcp-config` and the memory as `--add-dir`. bin/mem-watch
-# starts this script IN the memory; without this a `.claude/settings.json` or
-# `.mcp.json` pushed into the memory would run when the session starts
-# (bin/_portable.sh, src/headless.mjs, docs/security-model.md).
-# No safe start, no start.
+# Every command starts in a neutral empty directory outside the memory (this
+# script is started IN it by bin/mem-watch); a recognised `claude` also gets the
+# isolation flags and `--add-dir`. See bin/_portable.sh, src/headless.mjs. No safe start, no start.
 if ! mem_headless_plan "$CMD" "$CHEAP_MEM_ROOT"; then
   echo "mem-handle-post: REFUSED - no safe way to start the model session; nothing was started." >&2
   echo "mem-handle-post:   run: node $HERE/mem-headless.mjs plan --cmd \"$CMD\" --root \"$CHEAP_MEM_ROOT\"" >&2
@@ -87,7 +83,7 @@ PROMPT="${MEM_HANDLER_PROMPT:-$DEFAULT_PROMPT}"
 SEEN="$(mktemp)"
 trap 'rm -f "$SEEN"' EXIT
 
-# The flags go AFTER the prompt and `--add-dir` last: it takes a list and would swallow a prompt that followed it.
+# Flags AFTER the prompt, `--add-dir` last (it is variadic).
 # shellcheck disable=SC2086
 $CMD "$PROMPT" ${MEM_HL_ARGS[@]+"${MEM_HL_ARGS[@]}"} 2>&1 | tee "$SEEN"
 CODE="${PIPESTATUS[0]}"
@@ -105,9 +101,7 @@ fi
 
 mem_headless_cleanup
 
-# An old claude does not know `--setting-sources` and stops on the unknown
-# option: say so (stderr, which mem-watch logs) and never start it again
-# without the flag.
+# An old claude stops on the unknown flag: say so (stderr), never start it open.
 if [ "$CODE" -ne 0 ] && [ "$MEM_HL_ISOLATED" = "1" ]; then
   mem_headless_old_claude "$SEEN" 0 >&2 || true
 fi

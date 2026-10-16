@@ -638,39 +638,34 @@ with the login of the person who runs the memory.
 The flags go AFTER the prompt and `--add-dir` is the last thing on the line: it takes a list, and a prompt that
 followed it would be read as a directory.
 
-**The neutral directory.** `<user cache>/cheap-mem/headless-cwd` (`~/.cache`, `~/Library/Caches`,
-`%LOCALAPPDATA%`), or `headless-cwd` under the folder `MEM_HEADLESS_CWD` names (then ONLY there; unusable means
-refused). Whether a place lies inside the memory is decided BEFORE anything is made there. An existing folder is
-reused only when it is a real directory (no symlink), owned by the user, mode 0700 (POSIX), and holds none of
-`.claude`, `.mcp.json`, `CLAUDE.md`, `.gemini`, `GEMINI.md`, `AGENTS.md`, `.codex`; otherwise a fresh
-`mkdtemp` folder is made next to it and removed after the job. With no usable cache at all the fallback is a fresh
-`mkdtemp` folder in the OS temp directory (an unpredictable name, removed after the job). No place outside the
-memory: the start is REFUSED and nothing is started.
+**The neutral directory.** `<user cache>/cheap-mem/headless-cwd`, or `headless-cwd` under the folder `MEM_HEADLESS_CWD`
+names (then ONLY there; unusable means refused). Whether a place lies inside the memory is decided BEFORE anything is
+made there. An existing folder is reused only when it is a real directory (no symlink), the user's own, mode 0700
+(POSIX) and free of `.claude`, `.mcp.json`, `CLAUDE.md`, `.gemini`, `GEMINI.md`, `AGENTS.md`, `.codex`; otherwise a fresh
+`mkdtemp` folder is made next to it and removed after the job. With no usable cache the fallback is a fresh `mkdtemp`
+folder in the OS temp directory (unpredictable, removed after the job). No place outside the memory: REFUSED.
 
 **Recognising claude.** The words in front are skipped (`env VAR=x`, `sudo`/`doas`, `nice`/`ionice`, `timeout N`,
-`nohup`, `command`, `exec`, `npx`/`bunx`/`pnpm dlx`/`yarn dlx`, `node`), then the program must be `claude`,
-`claude-code` or `@anthropic-ai/claude-code`, with or without directory, extension or `@version`; a quoted first
-word may hold spaces. An alias (`cl`) or a wrapper under another name is NOT recognised: it runs in the neutral
-directory WITHOUT our flags, and the log says so (`command not recognised as claude: started in a neutral
-directory without the settings flags; if it runs claude, add --setting-sources user --strict-mcp-config`). Another
-agent CLI has another flag grammar, so no flags are guessed for it.
+`nohup`, `command`, `exec`, `npx`/`bunx`/`pnpm dlx`/`yarn dlx`, `node`), then the program must be `claude`, `claude-code`
+or `@anthropic-ai/claude-code` (directory, extension, `@version` allowed; a quoted first word may hold spaces). An alias
+(`cl`) or a wrapper under another name is NOT recognised: neutral directory, NO flags, and the log says `command not
+recognised as claude: started in a neutral directory without the settings flags; if it runs claude, add
+--setting-sources user --strict-mcp-config`. No flags are guessed for another agent CLI.
 
-**What was not chosen, and why.** `--bare` needs an API key (the owner logs in with an account).
-`--settings '{"disableAllHooks": true}'` would also switch off the owner's own protective hooks.
+**Not chosen.** `--bare` needs an API key (the owner logs in with an account); `disableAllHooks` would also switch
+off the owner's own protective hooks.
 
 **An old claude refuses to start.** A claude without `--setting-sources` stops on the unknown option (a line break
-inside the sentence does not matter). Every job reads that failure (`looksLikeOldClaude`), writes one clear
-sentence ("this claude does not know --setting-sources (too old) ... update claude") into its log (digest:
-`.mem/digest.log`; handler: stderr, which `mem-watch` logs; reflector: stderr, exit 0 so the Stop hook never
-blocks the host session) and does NOT start again without the flag. There is no probe call beforehand: the first
-real call is the detection (a probe would be a second model call). The text is checked through a pipe; no temp
-file is made for it, so a `TMPDIR` that points into the memory cannot put one there.
+inside the sentence does not matter). Every job reads that failure, logs one sentence ("this claude does not know
+--setting-sources (too old) ... update claude": digest in `.mem/digest.log`, handler on stderr, reflector on stderr
+with exit 0 so the Stop hook never blocks) and does NOT start again without the flag. No probe call: the first real
+call is the detection. The text goes through a pipe; no temp file is made, so a `TMPDIR` inside the memory cannot
+put one there.
 
-**A custom `MEM_WATCH_HANDLER`.** `bin/mem-watch` still starts a handler of your own inside the memory
-(`CHEAP_MEM_ROOT` is in its environment): it is your code, and changing its working directory would break
-handlers that rely on it. The default handler (`bin/mem-handle-post`) moves to the neutral directory itself. A
-custom handler that starts claude or another agent must go through the starter
-(`node bin/mem-headless.mjs plan --cmd "<command>" --root "$CHEAP_MEM_ROOT"` prints the directory and flags).
+**A custom `MEM_WATCH_HANDLER`.** `bin/mem-watch` still starts it inside the memory (`CHEAP_MEM_ROOT` is in its
+environment): it is your code, and a new working directory would break handlers that rely on this one. The default
+handler moves to the neutral directory itself. A custom handler that starts an agent should ask the starter:
+`node bin/mem-headless.mjs plan --cmd "<command>" --root "$CHEAP_MEM_ROOT"`.
 
 **Residual risk and limits.**
 - The memory's own `CLAUDE.md` stays readable context where a session reads files of the memory
@@ -692,13 +687,10 @@ custom handler that starts claude or another agent must go through the starter
 - On Windows the PowerShell half was written and read, and its text is tested; it has not been run on a Windows
   machine by the people who wrote it.
 
-**Verified by** `test/headless-start.test.mjs`: a stand-in `claude` that, as documented, runs the project
-hook and connects the `.mcp.json` server unless started with `--setting-sources user`. Red on the base
-(`9ee3441`): all three scripts let a planted hook run. Red on the first version of this work (`9efe57d`, which
-recognised only a plain `claude`): `env claude`, `npx`, `sudo`, `nice` and an alias still started in the memory
-and the hook ran. Green now, for every spelling the recognition sees (flags and neutral directory) and for
-an alias and a wrapper (neutral directory, quiet planted files, a log sentence). Positive control: the stand-in
-fires when started open. A ratchet finds any new `claude`/`codex`/`gemini` launch in `bin/`, `src/`, `install/`,
-`hooks/`, `eval/` that does not go through the starter (two named exceptions: `mem setup`'s `claude
---version` / `claude mcp add`, and `eval/model-call.mjs`, which starts in its own empty directory). Mutants
-in `bench/mutation.mjs` for the starter, the three scripts and the neutral-directory checks.
+**Verified by** `test/headless-start.test.mjs`: a stand-in `claude` that, as documented, runs the project hook and
+connects the `.mcp.json` server unless started with `--setting-sources user`. Red on the base (`9ee3441`) for all three
+scripts, and on the first version (`9efe57d`, which recognised only a plain `claude`) for `env claude`, `npx`, `sudo`,
+`nice` and an alias. Green now: flags and neutral directory for every spelling the recognition sees, neutral directory
+and a log sentence for an alias or wrapper. A ratchet finds any `claude`/`codex`/`gemini` launch in `bin/`, `src/`,
+`install/`, `hooks/`, `eval/` outside the starter (named exceptions: `mem setup`'s `claude --version` / `claude mcp add`,
+and `eval/model-call.mjs`, which starts in its own empty directory). Mutants in `bench/mutation.mjs`.

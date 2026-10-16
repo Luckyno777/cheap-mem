@@ -131,13 +131,9 @@ $argList = @()
 if ($parts.Length -gt 1) { $argList = $parts[1..($parts.Length - 1)] }
 $argList += $prompt
 
-# How the session starts (bin/_headless.ps1, src/headless.mjs): EVERY command
-# starts in an empty working directory outside the memory, and `claude` also
-# gets `--setting-sources user --strict-mcp-config`. The folder this hook was called in is whatever repository
-# the host session works in; its `.claude/settings.json` and `.mcp.json` must
-# not run. The reflector never reads the memory as files (absolute `git -C` and
-# `mem` calls only), so no `--add-dir`. No safe start, no start: the marker goes
-# back so the next Stop tries again, and the reason goes to stderr.
+# Every command starts in a neutral empty directory outside the memory, and a recognised
+# `claude` also gets the isolation flags (no `--add-dir`: absolute `git -C` and `mem` calls
+# only). See bin/_headless.ps1, src/headless.mjs. No safe start, no start: marker back.
 . (Join-Path $PSScriptRoot '_headless.ps1')
 $plan = Get-HeadlessPlan -CmdLine $CmdLine -Root $env:CHEAP_MEM_ROOT -AddDir $false
 if (-not $plan) {
