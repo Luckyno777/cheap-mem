@@ -25,7 +25,10 @@
  *   - reading it is one shell loop, no `git` start on the hot path of every
  *     prompt (on Windows a `git` start alone costs more than the whole recall);
  *   - it is keyed by the real path, so a COPY or a moved memory does not
- *     inherit the trust, and one file shows every trusted memory at a glance;
+ *     inherit the trust, and one file shows every trusted memory at a glance.
+ *     The other side of that: the trust hangs on the PATH, so a memory that is
+ *     deleted and cloned again at the same path (from another remote, too) has
+ *     it. `mem trust-own-tool --off` before deleting the directory withdraws it.
  *   - `.git/config` is also a place git itself executes things from
  *     (`core.fsmonitor`, `core.pager`); no reason to make it a second trust file.
  * Neither a `git pull` nor anything inside the memory can write this file.
@@ -155,6 +158,9 @@ export function setTrusted(root, on, opts = {}) {
   if (sw.state === 'broken') throw new Error(`cannot read ${file}: ${sw.error}`);
   const mine = rootKeys(root, platform);
   if (!mine.length) throw new Error(`cannot resolve ${root}`);
+  // The file is one path per line. A path with a line break in it would be written as two lines - two
+  // different "paths", neither of them this memory - so it is refused instead.
+  if (mine.some((k) => /[\r\n]/.test(k))) throw new Error('the path of the memory contains a line break; it cannot be written to the switch file');
   const kept = sw.keys.filter((k) => !mine.includes(k));
   const next = on ? [...kept, ...mine] : kept;
   const changed = on ? mine.some((k) => !sw.keys.includes(k)) : kept.length !== sw.keys.length;

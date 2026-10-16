@@ -158,25 +158,66 @@ user's config directory and not `git config cheapmem.trustOwnTool`:
 - a memory need not be a git repository, and reading the file is one shell
   loop - no `git` start on the path of every prompt (on Windows that start alone
   costs more than the recall);
-- it is keyed by the real path: a copy, a move or a re-clone does not inherit
-  the trust, and one file lists every trusted memory;
+- it is keyed by the real path: a copy or a move does not inherit the trust,
+  and one file lists every trusted memory. The other side of that: the trust
+  hangs on the PATH, so a memory that is deleted and cloned again at the same
+  path (from another remote, too) HAS it. Run `mem trust-own-tool --off` before
+  deleting a memory you trusted;
 - `.git/config` is a place git itself runs things from (`core.fsmonitor`,
   `core.pager`); it should not become a second trust file;
 - neither a `git pull` nor anything else inside the memory can write it.
 
 `.mem/config.json` is NOT used: it is versioned, so the remote would set it.
 
-**Who may set it.** A person, in a terminal. The command refuses without a
-terminal (`--non-interactive` is for a provisioning script that does it on
-purpose), the installer puts `Bash(node <tool>/bin/mem trust-own-tool:*)` on the
-DENY list, and the command is not in the MCP server: a note in the memory that
-says "run mem trust-own-tool" gets a refusal at three places. `--off` and
-`--status` need no terminal.
+**Who may set it, and what holds that.** A person, in a terminal. Four
+things stand in the way of a model that was talked into it (a note in the memory
+saying "run mem trust-own-tool"), and none of them is a lock:
+
+1. The command refuses without a terminal. `--non-interactive` (for a
+   provisioning script) works only together with `CHEAP_MEM_PROVISION=1` in the
+   environment. A variable written in front of `node` takes the call out of the
+   allow list `node <tool>/bin/mem:*`, so a session that may call the tool
+   still has to ask the person. `--off` and `--status` need no terminal.
+2. The installer denies `Bash(*trust-own-tool*)` (and, on Windows,
+   `PowerShell(*trust-own-tool*)`): every spelling that has the word in the
+   line is refused - `--root` in front, `--root=`, `env A=1 node ...`,
+   `cd x && node ...`, doubled blanks, a relative path to `bin/mem`. The two
+   prefix forms stay for a Claude Code that does not read a `*` in the middle
+   of a rule. A spelling that hides the word from the rule (a quote splitting
+   it) passes the rule and meets point 1.
+3. `Write` and `Edit` of the switch directory are denied (`Write`/`Edit` are
+   allowed across the board otherwise).
+4. The command is not in the MCP server.
+
+**These work through the permission rules.** A session that may run ANY shell
+command (bypass or auto mode, or a person who answers "yes" to everything) can
+write the switch file with a redirection, and `CHEAP_MEM_PROVISION=1` is an
+ordinary variable. That is the residual risk, and it is not closed: the rules are
+a fence for a model that asks, not protection against one that is allowed to do
+anything. `test/own-tool.test.mjs` matches a list of real call spellings against
+the rules the installer writes, with the documented reading of Claude Code's
+rule syntax (prefix, glob, compound commands split and judged part by part); it
+is a model of that reading, not Claude Code itself.
 
 **What you are told.** A memory that ships its own tool while the switch is off
-makes the session start say, once: `memory ships its own tool; using the
+makes every SessionStart event say (a start, a resume, a clear, a compaction -
+each one, not once per machine): `memory ships its own tool; using the
 installed one. To trust it: mem trust-own-tool` (without an installed tool: the
-header says nothing is loaded, and the other hooks say why they are silent).
+header says nothing is loaded, and the other hooks say why they are silent -
+telling apart a tool that is MISSING from one that is there but lies in the
+memory and was passed over). That message, a hook's "cannot find its tool"
+message, is limited to once per 30 minutes by a marker in the user's state
+directory (`$XDG_STATE_HOME/cheap-mem`, `%LOCALAPPDATA%\cheap-mem`), never a
+file in the memory: a committed symlink at the old place made the shim cut a
+user's file to zero bytes.
+
+**Hooks installed before this rule** still look in the memory first. The
+protection exists on a machine only after the installer has run again; until
+then `mem doctor` (finding `integration-contract`) warns "installed hooks
+predate the own-tool rule - run the installer". An `allow` entry for the
+memory's own tool that an older installer wrote is removed again on that run
+(both slash spellings); an identical entry the user typed by hand cannot be told
+apart from it and goes with it.
 
 **Residual, stated.** A process that runs as the user can write the switch file
 too; the switch stops a pushed commit, a poisoned note and a talked-into model,
@@ -186,8 +227,13 @@ push to that memory's remote runs code on this machine, so switch it on only for
 a memory whose remote you control. On macOS the real path is compared as it is
 spelled (APFS ignores case, the comparison does not): a different spelling reads
 "not trusted", never a wrong match. On Windows the comparison is
-case-insensitive and PowerShell does not resolve junctions or 8.3 names; the
-command writes every spelling it can resolve, a miss reads "not trusted".
+case-insensitive; PowerShell follows a directory that is itself a link or
+junction (`ResolveLinkTarget` on PowerShell 7, the first `Target` on 5.1) and
+reads a relative path against `$PWD`, but does not resolve a link in the MIDDLE
+of a path or 8.3 names; the command writes every spelling it can resolve, a miss
+reads "not trusted", never a wrong match. A memory path with a line break in it
+is refused (one path per line). Other files the hooks write into the memory
+(turn counters, journals) are not part of this change.
 
 ---
 
@@ -332,7 +378,7 @@ every fresh memory started without the guarantee its own design depends on.
 | **T3** | secret in a body | redacted before disk | canary, hook | 7 separator + 7 space look-alikes; a string value under a secret key falls whole (blanks, escaped quotes and markers inside it; `test/redaction-json-string.test.mjs`); an object field under a secret key falls whole at any depth, numbers and booleans directly under it too, a single number under a counter key (`max_tokens`, `secrets: 120`) and cursors stay, object-only key words `pin`/`pwd`/`passcode`/`credential(s)`/`privateKey`; a key is read in linear time and a key past 512 characters is a secret in doubt (`walkSecrets`, used by `redactObject`/`redactEntry` and `maskEntry`: raw capture `tool_use.input`, every output; `test/redaction-object-keys.test.mjs`); `Bearer`/`Basic`/`Authorization: Token` behind a marker | an unknown shape; an unquoted `key=value` with blanks ends at the blank; a passphrase of twelve plain words behind a bare key; Unicode quotation marks, `&quot;`, YAML block values, a raw line break inside a value; key words `pwd`, `pin`, `passcode`, `credentials`, `authorization`, `kennwort`, `passwort`; a secret under a key that is not on the list (an object field named `otp`, a header other than `authorization`); a secret in an object KEY; a number under a counter-like key (`tokens`, `password_length`, left on purpose) |
 | **T3** | a secret that reached a drawer PAST the write path (typed by hand, an older version, a merge) | masked at the OUTPUT as `[REDACTED:type]`; the line on disk is untouched | `src/outputguard.mjs` — the very `PATTERNS` of `redaction.mjs`, no second list; `test/output-guard.test.mjs` | `maskText`/`maskEntry` at every render path: `display.compactLine` and `sanitizeForDisplay` (find, show, when, retrieve, the bridge), `shortline`, `memory.context()`, `browse`, the viewer payload, `recallrender` and the three hook outputs; plus `out()` for EVERY command (on by default; the short exception list `UNGUARDED` in `src/cli/shell.mjs`), the one exit of `mem serve` (`src/servemask.mjs`, all JSON answers) and the direct stdout writers (`context`, `core`, `raw show`, `inbox show`). **Mask before cut:** every site that shortens entry text masks first (`cutMasked`, `windowMasked`, or `maskText` in front of its own cutter), otherwise a key crossing the cut leaves a stump below its pattern's minimum length; `test/mask-before-cut.test.mjs`, ratchet `test/mask-before-cut-ratchet.test.mjs` | an unknown shape stays; a command that prints through `process.stdout.write` instead of `out()` and forgets the mask; the env-value layer is write-time only |
 | **T5 malicious merge** | conflict destroys lines | prevented | `env/merge-driver` | `merge=union` | driver must be present |
-| **T10 hostile remote** | a push to the memory's remote ships `bin/mem-retrieve`, `bin/mem` or `src/*.mjs`; the ten-minute pull brings it in; a hook runs it | not run | session start says "memory ships its own tool; using the installed one"; `mem trust-own-tool --status` | installed tool first, memory's own only with a local unversioned switch, never on the allow list without it (§4.1; `test/own-tool.test.mjs` runs the hooks against a planted marker writer) | a memory the user trusted; a process running as the user that writes the switch file itself |
+| **T10 hostile remote** | a push to the memory's remote ships `bin/mem-retrieve`, `bin/mem` or `src/*.mjs`; the ten-minute pull brings it in; a hook runs it | not run | session start says "memory ships its own tool; using the installed one"; `mem trust-own-tool --status` | installed tool first, memory's own only with a local unversioned switch, never on the allow list without it (§4.1; `test/own-tool.test.mjs` runs the hooks against a planted marker writer); the switch command is refused by the rules, by the command without a terminal and by the missing provisioning variable | a memory the user trusted (its path stays trusted if it is re-cloned there); a session allowed to run any shell command, which can write the switch file; hooks installed before the rule until the installer runs again |
 | **T7 corruption** | truncated line | skipped **and counted** | `doctor` integrity | — | the entry is gone |
 | **T7** | a historical line edited in the working tree, not merely appended to | flagged, first differing line named | `doctor` append-only-git (`checkAppendOnlyGit`) | working tree checked against `git show HEAD:<path>` — old must be a prefix of new | **whoever edits AND commits, or force-pushes rewritten history this clone then pulls, is invisible** — checked against git, deliberately not a second, weaker hash chain (see the long comment on `checkAppendOnlyGit` in `src/doctor.mjs`) |
 | **T3** | Trojan-Source bidi-override characters ([CVE-2021-42574](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2021-42574)) reorder how a body reads in a terminal or an agent's context | neutralised at DISPLAY time | `src/bidi.mjs` — a closed nine-codepoint list (U+202A-U+202E, U+2066-U+2069) | `bidi.visible()` in every render path: `display.compactLine` (`mem find`, `mem component`/pre-edit hook, `mem when`, board), `memory.context()` (SessionStart hook), `browse.fit()` (`mem browse`), and directly in `bin/mem-retrieve`'s per-turn hook (which reads the raw entry, not `compactLine`'s output) | the character is still ON DISK, unmarked, in any consumer that reads the JSONL directly instead of through one of these render paths — e.g. `git show`, a raw `cat`, or a future display path that forgets to call `bidi.visible()` |

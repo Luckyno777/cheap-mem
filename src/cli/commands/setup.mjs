@@ -401,7 +401,10 @@ export const COMMANDS = {
         '  The switch is one line in a file outside every repository',
         `  (${owntool.switchFile()}); a git pull cannot write it.`,
         '  Setting it needs a terminal, because it is a decision for a person.',
-        '  --non-interactive  for a provisioning script that runs it on purpose.',
+        '  --non-interactive  for a provisioning script that runs it on purpose; it works only',
+        '                     together with CHEAP_MEM_PROVISION=1 in the environment (a model',
+        '                     that is allowed to call this tool cannot add a variable in front',
+        '                     of the command without leaving the allow list).',
         '',
         '  After setting it, run the installer again (mem setup claude) so that',
         '  `node <memory>/bin/mem` is also allowed without asking. See docs/security-model.md.',
@@ -434,14 +437,23 @@ export const COMMANDS = {
       return;
     }
     const terminal = process.stdin.isTTY && process.stdout.isTTY;
-    if (!terminal && !args['non-interactive']) {
-      die([
-        'trust-own-tool: refused - this needs a terminal.',
-        '  It lets the memory run its own code. That is a decision for a person at a',
-        '  keyboard, not for a script, a hook or a model; no note in the memory can ask for it.',
-        '  Run it yourself, or from a provisioning script pass --non-interactive.',
-        '  Nothing was changed.',
-      ].join('\n'));
+    if (!terminal) {
+      // Without a terminal the switch is for a provisioning script, and a script says so twice: the flag AND the
+      // variable. The variable is the point. `--root` and friends can be spelled in front of or behind the command
+      // in many ways and a permission rule on the command text cannot list them all; a variable set in front of
+      // `node` takes the call out of the allow list `node <tool>/bin/mem:*`, so a model that is allowed to run the
+      // tool still has to ask the person (tool-trust-cm follow-up, 2026-10-16).
+      const provision = process.env.CHEAP_MEM_PROVISION === '1';
+      if (!args['non-interactive'] || !provision) {
+        die([
+          'trust-own-tool: refused - this needs a terminal.',
+          '  It lets the memory run its own code. That is a decision for a person at a',
+          '  keyboard, not for a script, a hook or a model; no note in the memory can ask for it.',
+          '  Run it yourself in a terminal. A provisioning script that does it on purpose passes',
+          '  --non-interactive AND sets CHEAP_MEM_PROVISION=1.',
+          '  Nothing was changed.',
+        ].join('\n'));
+      }
     }
     if (!ships) warn('this memory ships no tool of its own (no bin/mem*); the switch has no effect until it does.');
     let r;

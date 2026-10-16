@@ -129,7 +129,12 @@ cp "$CODE_ROOT/bin/_owntool.sh" "$HOOKS_DIR/cheap-mem-own-tool.sh"
 . "$CODE_ROOT/bin/_owntool.sh"
 OWN_TRUSTED=0
 mem_own_tool_trusted "$CHEAP_MEM_ROOT" && OWN_TRUSTED=1
+# Where the switch file lives (its directory goes on the Write/Edit deny list below).
+SWITCH_DIR=""
+if mem_own_file; then SWITCH_DIR="${mem_own_f%/*}"; fi
+CODE_INSIDE=0
 if mem_own_inside "$CODE_ROOT" "$CHEAP_MEM_ROOT"; then
+  CODE_INSIDE=1
   # The installed tool lies inside the memory: that is the memory's own tool,
   # whoever installed it - a git pull would change it under the hooks.
   if [ "$OWN_TRUSTED" = 1 ]; then
@@ -228,10 +233,10 @@ chmod +x "$HOOKS_DIR/cheap-mem-after-failure.sh"
 chmod +x "$HOOKS_DIR/cheap-mem-subagent-start.sh"
 
 # Merge settings.json without touching unrelated config.
-node - "$SETTINGS" "$HOOKS_DIR_CMD" "$CHEAP_MEM_ROOT" "$BASH_BIN" "$CODE_ROOT" "$OWN_TRUSTED" <<'NODE_MERGE'
+node - "$SETTINGS" "$HOOKS_DIR_CMD" "$CHEAP_MEM_ROOT" "$BASH_BIN" "$CODE_ROOT" "$OWN_TRUSTED" "$SWITCH_DIR" <<'NODE_MERGE'
 const fs = require('fs');
 const path = require('path');
-const [, , hooksDir, memRoot, bashBin, codeRoot, ownTrusted] = process.argv.slice(1);
+const [, , hooksDir, memRoot, bashBin, codeRoot, ownTrusted, switchDir] = process.argv.slice(1);
 const settingsPath = process.argv[2];
 
 // Checked above already; a parse failure here still stops the run
@@ -329,17 +334,35 @@ const deny = [
   'Bash(git push --force:*)',
   'Bash(git push -f:*)',
   'Bash(git reset --hard:*)',
-  // The switch is for a person, in a terminal. A model that was talked into
-  // it (a note in the memory saying "run mem trust-own-tool") gets a refusal
-  // here, and the command itself refuses without a terminal.
+  // The switch is for a person, in a terminal. What these rules do and do not do:
+  //  - `Bash(*trust-own-tool*)` refuses the command wherever the words stand in the line
+  //    (`--root X` in front of it, `cd x && ...`, `env A=1 node ...`, a relative path to bin/mem). The two
+  //    prefix forms below are for a Claude Code that does not read `*` in the middle of a rule.
+  //  - The command itself refuses without a terminal unless CHEAP_MEM_PROVISION=1 is set, and a variable
+  //    written in front of `node` takes the call out of the allow list `node <tool>/bin/mem:*`.
+  //  - `Write`/`Edit` of the switch file are denied below. A model that may run any shell command
+  //    (bypass/auto mode) can still write that file with a redirection: these rules are a fence, not a lock.
+  'Bash(*trust-own-tool*)',
+  ...(process.platform === 'win32' ? ['PowerShell(*trust-own-tool*)'] : []),
   `Bash(node ${codeRoot.replace(/\\/g, '/')}/bin/mem trust-own-tool:*)`,
   `Bash(node ${memRoot.replace(/\\/g, '/')}/bin/mem trust-own-tool:*)`,
 ];
-// An allow entry for the memory's own tool that an earlier run of this
-// installer wrote stays only while the switch is on.
+// Write and Edit are allowed across the board above; the switch file is taken out again. Path syntax of
+// Claude Code's file rules: `//abs/path` is an absolute path (a Windows path is written the POSIX way,
+// `//c/Users/...`), `~/path` is relative to the home directory, `**` is any depth.
+if (switchDir) {
+  const sw = switchDir.replace(/\\/g, '/').replace(/\/+$/, '');
+  const forms = [`/${sw}/**`];
+  const home = process.env.HOME ? process.env.HOME.replace(/\\/g, '/').replace(/\/+$/, '') : '';
+  if (home && (sw + '/').startsWith(home + '/')) forms.push(`~${sw.slice(home.length)}/**`);
+  for (const f of forms) for (const tool of ['Write', 'Edit']) deny.push(`${tool}(${f})`);
+}
+// An allow entry for the memory's own tool that an earlier run of this installer wrote stays only
+// while the switch is on. Both spellings go (a Windows installer wrote it with backslashes in some
+// versions); an identical entry the user typed by hand cannot be told apart and goes with them.
 if (ownTrusted !== '1') {
   const stale = memCmd(memRoot);
-  cfg.permissions.allow = (cfg.permissions.allow || []).filter((e) => e !== stale);
+  cfg.permissions.allow = (cfg.permissions.allow || []).filter((e) => String(e).replace(/\\/g, '/') !== stale);
 }
 cfg.permissions.allow = Array.from(new Set([...(cfg.permissions.allow || []), ...allow]));
 cfg.permissions.deny  = Array.from(new Set([...(cfg.permissions.deny  || []), ...deny]));
@@ -353,7 +376,10 @@ echo ""
 echo "=== done ==="
 echo "hooks:    $HOOKS_DIR/cheap-mem-{session-start,session-stop,user-prompt,pre-edit,catch-fail,after-failure,subagent-start,tool-missing,own-tool}.sh"
 echo "          (tool-missing and own-tool are not hooks: what the others say when they cannot find their tool, and the rule for which copy of it they may run)"
-if [ "$OWN_TRUSTED" = 1 ]; then
+if [ "$CODE_INSIDE" = 1 ] && [ "$OWN_TRUSTED" != 1 ]; then
+  echo "tool:     NONE - this checkout lies inside the memory and is not trusted, so the hooks run nothing until you trust it (mem trust-own-tool)"
+  echo "          or install from a checkout outside the memory."
+elif [ "$OWN_TRUSTED" = 1 ]; then
   echo "tool:     the hooks run $CODE_ROOT (installed) - and the memory's own bin/ first, because you trusted it."
 else
   echo "tool:     the hooks run the installed tool ($CODE_ROOT); the memory's own bin/ is not used (mem trust-own-tool changes that)."

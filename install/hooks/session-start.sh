@@ -151,7 +151,8 @@ else
     echo "The other hooks (prompt recall, before-edit, subagent, stop) are SILENT for the same reason."
     echo "Fix: run install/claude-code.sh from a current cheap-mem checkout: CHEAP_MEM_ROOT=$CHEAP_MEM_ROOT bash <checkout>/install/claude-code.sh (or mem setup claude)."
   else
-    echo "Fix: check out the tool into that memory, or re-run install/claude-code.sh from the code checkout (it sets CHEAP_MEM_CODE)."
+    echo "Fix: run install/claude-code.sh from a cheap-mem checkout (it sets CHEAP_MEM_CODE and installs the tool the hooks run)."
+    echo "A tool inside the memory is not run unless you trust that memory yourself (mem trust-own-tool)."
   fi
 fi
 if [ -n "$own_tool_note" ]; then

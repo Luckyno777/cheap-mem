@@ -178,6 +178,22 @@ test('set and withdraw: other memories stay, repeating changes nothing, the path
   assert.equal(owntool.isTrusted(copy, o), false, 'a copy does not inherit the trust');
 });
 
+test('a memory path with a line break is refused, not written as two lines', () => {
+  const dir = temp('cm-ot-nl-');
+  const home = path.join(dir, 'home');
+  const o = optsOf(home);
+  // The key of a path with a line break, on any platform (win32 keeps the unresolved spelling as a key).
+  assert.throws(() => owntool.setTrusted(path.join(dir, 'a\nb'), true, { ...o, platform: 'win32' }), /line break/);
+  assert.throws(() => owntool.setTrusted(path.join(dir, 'a\rb'), true, { ...o, platform: 'win32' }), /line break/);
+  assert.equal(fs.existsSync(switchOf(home)), false, 'a refused path left a switch file');
+  if (!WIN) {
+    const odd = path.join(dir, 'x\ny');
+    fs.mkdirSync(odd);
+    assert.throws(() => owntool.setTrusted(odd, true, o), /line break/);
+    assert.equal(fs.existsSync(switchOf(home)), false);
+  }
+});
+
 test('shipsOwnTool: a bin/mem*, or a src module a hook would load; nothing else', () => {
   const dir = temp('cm-ot-ships-');
   const root = initMemory(dir);
@@ -373,8 +389,9 @@ function runShims(ctx, extraEnv = {}) {
   }
   return { got, out };
 }
+// CHEAP_MEM_PROVISION=1 is what a provisioning script sets; `noProvision` is the call of somebody who did not.
 const trustCli = (ctx, ...a) => spawnSync(process.execPath, [MEM, '--root', ctx.root, 'trust-own-tool', ...a], {
-  encoding: 'utf8', timeout: 30000, env: bareEnv(ctx.home),
+  encoding: 'utf8', timeout: 30000, env: bareEnv(ctx.home, ctx.noProvision ? {} : { CHEAP_MEM_PROVISION: '1' }),
 });
 
 test('RED/GREEN: planted code in the memory is not run by any installed shim; with the switch it is; after --off it is not', () => {
@@ -437,7 +454,7 @@ test('no installed tool and an untrusted own tool: the hooks SAY so (no silent d
   assert.deepEqual(markersOf(dir), [], 'the planted tool ran');
   const msg = JSON.parse(r.stdout).systemMessage;
   assert.match(msg, /user-prompt hook is SILENT/);
-  assert.match(msg, /ships its own tool and it is not trusted/);
+  assert.match(msg, /ships its own tool, which is not trusted, and no installed tool is configured/);
   assert.match(msg, /mem trust-own-tool/);
   assert.equal(run().stdout, '', 'at most once per 30 minutes');
   // With the switch the same shim runs the memory's tool.
@@ -461,7 +478,7 @@ test('the doctor: a registered hook whose only tool is the memory\'s untrusted o
   assert.equal(before.level, doctor.LEVEL.ERROR, before.text);
   assert.match(before.text, /SILENT/);
   assert.match(before.advice, /trust-own-tool/, 'the advice names the switch');
-  const set = spawnSync(process.execPath, [MEM, '--root', ctx.root, 'trust-own-tool', '--non-interactive'], { encoding: 'utf8', env: bareEnv(ctx.home) });
+  const set = spawnSync(process.execPath, [MEM, '--root', ctx.root, 'trust-own-tool', '--non-interactive'], { encoding: 'utf8', env: bareEnv(ctx.home, { CHEAP_MEM_PROVISION: '1' }) });
   assert.equal(set.status, 0, set.stderr);
   const prev = { ...process.env };
   process.env.HOME = ctx.home;
@@ -644,6 +661,170 @@ test('a checkout installed from INSIDE the memory is the memory\'s own tool: not
   assert.match(probe2.stdout, /=== cheap-mem attached ===/);
 });
 
+// --- The permission rules, matched the way Claude Code reads them ------------------------------------------------
+//
+// Claude Code reads `Bash(prefix:*)` as a prefix, `Bash(a*b)` as a glob, splits a compound command at `&&`, `||`, `;`,
+// `|` and a line break, and refuses it when ANY part is denied; it runs it without asking only when EVERY part is
+// allowed. A word in front of `node` (a variable, `env`, `cd x &&`) leaves the allow list. This is a model of that
+// (the documentation's reading, not Claude Code itself); the test holds the rules the installer WRITES to it.
+function bashVerdict(cmd, rules) {
+  const specOf = (r, tool) => { const m = new RegExp(`^${tool}\\((.*)\\)$`, 's').exec(r); return m ? m[1] : null; };
+  const hits = (spec, c) => {
+    if (spec.endsWith(':*')) { const pre = spec.slice(0, -2); return c === pre || c.startsWith(`${pre} `); }
+    if (spec.includes('*')) return new RegExp(`^${spec.split('*').map((x) => x.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`, 's').test(c);
+    return c === spec;
+  };
+  const parts = cmd.split(/&&|\|\||;|\||\n/).map((x) => x.trim()).filter(Boolean);
+  const on = (list, c) => list.some((r) => { const sp = specOf(r, 'Bash'); return sp !== null && hits(sp, c); });
+  const denied = on(rules.deny, cmd) || parts.some((c) => on(rules.deny, c));
+  const allowed = parts.length > 0 && parts.every((c) => on(rules.allow, c));
+  return { denied, allowed };
+}
+// A file rule: a leading double slash is an absolute path, `~/` the home directory, a trailing double star any depth.
+function fileDenied(tool, file, home, deny) {
+  return deny.some((r) => {
+    const m = new RegExp(`^${tool}\\((.*)\\)$`).exec(r);
+    if (!m) return false;
+    let spec = m[1];
+    if (spec.startsWith('//')) spec = spec.slice(1);
+    else if (spec.startsWith('~/')) spec = `${home.replace(/\\/g, '/')}${spec.slice(1)}`;
+    else return false;
+    const f = file.replace(/\\/g, '/');
+    const deep = `/${'*'.repeat(2)}`;
+    return spec.endsWith(deep) ? f.startsWith(spec.slice(0, -2)) : f === spec;
+  });
+}
+
+test('the written rules: every real way to call the switch command is refused or not allowed; Write/Edit of the switch file are denied', () => {
+  const ctx = install();
+  const cfg = JSON.parse(fs.readFileSync(path.join(ctx.claudeHome, 'settings.json'), 'utf8'));
+  const rules = { allow: cfg.permissions.allow, deny: cfg.permissions.deny };
+  const code = REPO.replace(/\\/g, '/');
+  const mem = ctx.root.replace(/\\/g, '/');
+  const forms = {
+    'plain': `node ${code}/bin/mem trust-own-tool --non-interactive`,
+    '--root in front': `node ${code}/bin/mem --root ${mem} trust-own-tool --non-interactive`,
+    '--root= in front': `node ${code}/bin/mem --root=${mem} trust-own-tool --non-interactive`,
+    'variable in front': `CHEAP_MEM_PROVISION=1 node ${code}/bin/mem trust-own-tool --non-interactive`,
+    'env in front': `env CHEAP_MEM_PROVISION=1 node ${code}/bin/mem trust-own-tool --non-interactive`,
+    'export first': `export CHEAP_MEM_PROVISION=1 && node ${code}/bin/mem trust-own-tool --non-interactive`,
+    'cd first': `cd ${mem} && node ${code}/bin/mem trust-own-tool --non-interactive`,
+    'doubled blanks': `node  ${code}/bin/mem   trust-own-tool  --non-interactive`,
+    'relative path to bin/mem': `node ../../${path.basename(code)}/bin/mem trust-own-tool --non-interactive`,
+    'the memory\'s own bin/mem': `node ${mem}/bin/mem trust-own-tool --non-interactive`,
+    'a pipe behind': `node ${code}/bin/mem trust-own-tool --non-interactive | cat`,
+  };
+  for (const [name, cmd] of Object.entries(forms)) {
+    const v = bashVerdict(cmd, rules);
+    assert.ok(v.denied || !v.allowed, `[${name}] would run WITHOUT asking: ${cmd}\n(denied=${v.denied}, allowed=${v.allowed})`);
+  }
+  // Control: the matcher is not simply refusing everything - the installed tool's ordinary use goes through.
+  const ok = bashVerdict(`node ${code}/bin/mem find "x" --top 3`, rules);
+  assert.equal(ok.allowed && !ok.denied, true, 'the installed tool\'s ordinary commands must stay allowed');
+  assert.equal(bashVerdict(`node ${code}/bin/mem --root ${mem} log event --title x`, rules).allowed, true);
+
+  // The last line of defence, for a spelling no rule lists (a quote splits the word): it matches the allow rule and
+  // slips past the deny rule, and then the COMMAND refuses, because nothing in front of `node` set the variable.
+  const sneaky = `node ${code}/bin/mem trust-own-"tool" --non-interactive`;
+  const v = bashVerdict(sneaky, rules);
+  assert.equal(v.allowed && !v.denied, true, 'fixture: this spelling is meant to pass the rules');
+  const r = spawnSync(BASH, ['-c', `${sneaky.replace(`bin/mem trust`, `bin/mem --root "${mem}" trust`)}`], { encoding: 'utf8', timeout: 30000, env: bareEnv(ctx.home) });
+  assert.notEqual(r.status, 0, 'the command must refuse a call that carries no CHEAP_MEM_PROVISION');
+  assert.equal(owntool.isTrusted(ctx.root, optsOf(ctx.home)), false, 'the quote-split spelling switched the memory on');
+
+  // Write and Edit of the switch file are denied, others are not.
+  const file = switchOf(ctx.home);
+  for (const tool of ['Write', 'Edit']) {
+    assert.equal(fileDenied(tool, file.replace(/\\/g, '/'), ctx.home, rules.deny), true, `${tool} of ${file} is not denied:\n${rules.deny.join('\n')}`);
+    assert.equal(fileDenied(tool, path.join(ctx.home, 'notes.txt').replace(/\\/g, '/'), ctx.home, rules.deny), false, `${tool} of an ordinary file is denied`);
+  }
+});
+
+test('an installer from before the follow-up: the stale allow entry goes in its backslash spelling too', () => {
+  const ctx = install();
+  const settingsPath = path.join(ctx.claudeHome, 'settings.json');
+  const cfg = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+  const fwd = `Bash(node ${ctx.root.replace(/\\/g, '/')}/bin/mem:*)`;
+  cfg.permissions.allow.push(fwd.replace(/\//g, '\\'));
+  fs.writeFileSync(settingsPath, JSON.stringify(cfg));
+  const r = spawnSync(BASH, [path.join(REPO, 'install', 'claude-code.sh')], {
+    encoding: 'utf8', timeout: 60000, env: bareEnv(ctx.home, { CHEAP_MEM_ROOT: ctx.root, CLAUDE_HOME: ctx.claudeHome }),
+  });
+  assert.equal(r.status, 0, r.stderr);
+  const after = JSON.parse(fs.readFileSync(settingsPath, 'utf8')).permissions.allow;
+  assert.ok(!after.some((e) => e.replace(/\\/g, '/') === fwd), 'the backslash spelling of the stale entry was kept');
+});
+
+// --- Hooks installed before the rule ---------------------------------------------------------------------------
+test('the doctor warns about hooks installed before the own-tool rule, until the installer has run again', async () => {
+  const ctx = install();
+  const doctor = await import('../src/doctor.mjs');
+  const o = { settingsPaths: [path.join(ctx.claudeHome, 'settings.json')] };
+  const clean = doctor.checkIntegrationContract(ctx.root, o);
+  assert.doesNotMatch(clean.text, /predate/, `a fresh install must not be accused: ${clean.text}`);
+  const hooks = path.join(ctx.claudeHome, 'hooks');
+  // (a) the rule file is gone from beside the shims
+  fs.renameSync(path.join(hooks, 'cheap-mem-own-tool.sh'), path.join(hooks, 'moved-own-tool.sh'));
+  const a = doctor.checkIntegrationContract(ctx.root, o);
+  assert.equal(a.level, doctor.LEVEL.WARN, a.text);
+  assert.match(a.text, /installed hooks predate the own-tool rule - run the installer/);
+  assert.match(a.text, /cheap-mem-own-tool\.sh is not installed next to it/);
+  fs.renameSync(path.join(hooks, 'moved-own-tool.sh'), path.join(hooks, 'cheap-mem-own-tool.sh'));
+  // (b) a shim that never asks the rule (what the installer wrote before): put the old look-in-the-memory-first back
+  const shim = path.join(hooks, 'cheap-mem-user-prompt.sh');
+  const text = fs.readFileSync(shim, 'utf8');
+  fs.writeFileSync(shim, text.replace(/mem_pick_tool/g, 'mem_pick_nothing'));
+  const b = doctor.checkIntegrationContract(ctx.root, o);
+  assert.equal(b.level, doctor.LEVEL.WARN, b.text);
+  assert.match(b.text, /cheap-mem-user-prompt\.sh \(does not ask the rule\)/);
+  assert.match(b.advice, /installer/);
+  fs.writeFileSync(shim, text);
+  assert.doesNotMatch(doctor.checkIntegrationContract(ctx.root, o).text, /predate/);
+});
+
+// --- The "at most every 30 minutes" marker must not be written through a symlink of the memory ---------------------
+test('tool-missing: a symlink in the memory at the old marker place does not cut a file of the user (and nothing is written into the memory)', () => {
+  const ctx = install();
+  const victim = path.join(ctx.scratch, 'victim.txt');
+  const victimDir = path.join(ctx.scratch, 'victim-dir');
+  fs.mkdirSync(victimDir);
+  fs.writeFileSync(victim, 'precious\n');
+  const link = (target, at) => { try { fs.symlinkSync(target, at, WIN ? 'junction' : undefined); return true; } catch { return false; } };
+  // a committed symlink at the marker itself, and (second run) at .pipeline
+  fs.mkdirSync(path.join(ctx.root, '.pipeline'), { recursive: true });
+  const marker = path.join(ctx.root, '.pipeline', 'tool-missing-user-prompt');
+  if (!WIN) {
+    assert.ok(link(victim, marker), 'fixture: symlink');
+    // An old link: a fresh one would be read as "said a minute ago" and the old code would stay silent without writing.
+    const old = new Date(Date.now() - 3 * 3600 * 1000);
+    fs.lutimesSync(marker, old, old);
+  }
+  const hooks = path.join(ctx.claudeHome, 'hooks');
+  const lines = fs.readFileSync(path.join(hooks, 'cheap-mem-user-prompt.sh'), 'utf8').split('\n');
+  const bare = path.join(hooks, 'bare-user-prompt.sh');
+  fs.writeFileSync(bare, lines.filter((l) => !l.startsWith('export CHEAP_MEM_CODE=')).join('\n'));
+  const run = () => spawnSync(BASH, [bare], {
+    input: '{"prompt":"x"}', encoding: 'utf8', timeout: 30000,
+    env: bareEnv(ctx.home, { XDG_STATE_HOME: path.join(ctx.home, 'state') }),
+  });
+  const r = run();
+  assert.equal(r.status, 0);
+  assert.match(JSON.parse(r.stdout).systemMessage, /user-prompt hook is SILENT/);
+  assert.equal(fs.readFileSync(victim, 'utf8'), 'precious\n', 'the shim wrote through the symlink and cut the user\'s file');
+  // .pipeline itself a link to a directory of the user's
+  removeTree(path.join(ctx.root, '.pipeline'));
+  if (!WIN) {
+    assert.ok(link(victimDir, path.join(ctx.root, '.pipeline')), 'fixture: directory symlink');
+    run();
+    assert.deepEqual(fs.readdirSync(victimDir), [], 'the shim wrote a marker through the .pipeline link');
+  }
+  // The marker really is in the user's state directory, and it limits the message to once per 30 minutes.
+  const state = path.join(ctx.home, 'state', 'cheap-mem');
+  assert.ok(fs.readdirSync(state).some((f) => f.startsWith('tool-missing-user-prompt-')), 'no marker in the user\'s state directory');
+  assert.equal(run().stdout, '', 'the second call inside 30 minutes repeats itself');
+  assert.ok(!fs.existsSync(path.join(ctx.root, '.pipeline', 'tool-missing-user-prompt')) || WIN, 'a marker was written into the memory');
+});
+
 // ---------------------------------------------------------------------------
 // 5. The command
 // ---------------------------------------------------------------------------
@@ -665,6 +846,16 @@ test('mem trust-own-tool: refuses without a terminal, --non-interactive sets, --
   assert.notEqual(refused.status, 0, 'no terminal: must refuse');
   assert.match(refused.stderr, /needs a terminal/);
   assert.equal(fs.existsSync(switchOf(home)), false, 'a refused run wrote the switch');
+
+  // --non-interactive alone is not enough: the variable is what a provisioning script adds on purpose.
+  const noVar = trustCli({ root, home, noProvision: true }, '--non-interactive');
+  assert.notEqual(noVar.status, 0, '--non-interactive without CHEAP_MEM_PROVISION=1 must refuse');
+  assert.match(noVar.stderr, /CHEAP_MEM_PROVISION=1/, 'the refusal names what is missing');
+  assert.equal(fs.existsSync(switchOf(home)), false, 'a refused run wrote the switch');
+  const noFlag = spawnSync(process.execPath, [MEM, '--root', root, 'trust-own-tool'], {
+    encoding: 'utf8', timeout: 30000, env: bareEnv(home, { CHEAP_MEM_PROVISION: '1' }),
+  });
+  assert.notEqual(noFlag.status, 0, 'the variable without the flag must refuse');
 
   const status0 = run('--status');
   assert.equal(status0.status, 0);
@@ -763,6 +954,15 @@ test('windows.ps1: all seven generated hooks use the rule; the memory\'s bin is 
   assert.match(text, /if \(\$ownTrusted\) \{ \$allowNeeded \+= \(Get-MemCmd \$env:CHEAP_MEM_ROOT\) \}/);
   assert.match(text, /\(-not \$codeInsideMem\) -or \$ownTrusted/);
   assert.match(text, /trust-own-tool:\*\)/, 'the switch command is on the deny list');
+  // The deny list: the glob form (every spelling), the PowerShell tool, and Write/Edit of the switch file.
+  assert.match(text, /'Bash\(\*trust-own-tool\*\)', 'PowerShell\(\*trust-own-tool\*\)'/);
+  assert.match(text, /foreach \(\$tool in @\('Write', 'Edit'\)\) \{ \$denyNeeded \+= "\$tool\(\/\$swPosix\/\*\*\)" \}/);
+  assert.match(text, /\(\[string\]\$_\)\.Replace\('\\', '\/'\) -ne \$stale/, 'the stale entry goes in its backslash spelling too');
+  // The tool-missing marker is in the user's state directory, never written through the memory.
+  const tm = text.slice(text.indexOf('param([string]$Name'), text.indexOf("'@ | Set-Content -LiteralPath $missingHookDst"));
+  assert.doesNotMatch(tm, /Join-Path \(Join-Path \$Root|\.pipeline'\)/, 'tool-missing still writes into the memory');
+  assert.match(tm, /\$env:LOCALAPPDATA/);
+  assert.match(tm, /ReparsePoint/, 'a link at the marker place must not be written through');
   // The tool-missing message speaks for a skipped own tool even without a code path.
   assert.match(text, /\[switch\]\$Skipped/);
   assert.match(text, /memory ships its own tool; using the installed one\. To trust it: mem trust-own-tool/);
@@ -778,6 +978,10 @@ test('bin/_owntool.ps1: balanced, ASCII, the functions the hooks call', () => {
   for (const fn of ['Get-OwnToolKey', 'Get-OwnToolFile', 'Test-OwnToolTrusted', 'Test-OwnToolInside', 'Test-OwnToolShips', 'Find-OwnTool']) {
     assert.match(text, new RegExp(`function ${fn}\\b`), `${fn} is missing`);
   }
+  // A relative path is read against the PowerShell location; a link or junction is followed.
+  assert.match(text, /Join-Path \(Get-Location\)\.ProviderPath \$Path/, 'a relative path must be resolved against $PWD');
+  assert.match(text, /\[System\.IO\.Directory\]::ResolveLinkTarget\(\$full, \$true\)/, 'a link or junction must be followed');
+  assert.match(text, /\$item\.Target/, 'the 5.1 fallback for a link target');
   // The decisions themselves, each pinned (the mutation sweep removes them one by one).
   assert.match(text, /foreach \(\$line in \$lines\) \{ if \(\$line -ceq \$key\) \{ return \$true \} \}/, 'the line must equal the key, exactly');
   assert.match(text, /if \(\$trusted\) \{ \$res\.Path = \$own; return \$res \}\s+\$res\.Skipped = \$true/, 'the memory\'s own copy only when trusted, else reported as passed over');

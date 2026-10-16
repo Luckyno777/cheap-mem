@@ -14,6 +14,25 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Security - follow-up on the own-tool rule: the switch command could be reached around the deny rule, hooks installed earlier, a marker written through a symlink (tool-trust-cm, review)
+
+- **The deny rule was narrow.** `Bash(node <tool>/bin/mem trust-own-tool:*)` is a prefix; `node <tool>/bin/mem --root <memory> trust-own-tool --non-interactive` matched the ALLOW rule `node <tool>/bin/mem:*`
+  and not the deny rule, and ran ("Trusted", reproduced in a scratch). Now: (a) `--non-interactive` works only with `CHEAP_MEM_PROVISION=1` in the environment (new variable, `src/envregister.mjs`,
+  `docs/environment-variables.md`); a variable in front of `node` takes the call out of the allow list; (b) the deny list holds `Bash(*trust-own-tool*)` (and `PowerShell(*trust-own-tool*)` on Windows);
+  (c) `test/own-tool.test.mjs` matches eleven real call spellings against the rules the installer WRITES, with the documented reading of Claude Code's rule syntax; (d) the documentation says what this is:
+  the rules work through the permission system, a session allowed to run any shell command (bypass/auto) can still write the switch file. Restrisiko, not closed.
+- **`Write`/`Edit` were allowed across the board**, the switch file included: both are denied for `~/.config/cheap-mem/**` (or `$XDG_CONFIG_HOME`, `%APPDATA%\cheap-mem` in the `//c/Users/...` form).
+- **Hooks installed before the rule are not protected.** `mem doctor` (`integration-contract`) now WARNs "installed hooks predate the own-tool rule - run the installer" for a shim that does not ask the rule or has no
+  `cheap-mem-own-tool.sh|.ps1` beside it. The protection works only after the installer has run again.
+- **A marker written through a symlink.** `install/support/tool-missing.sh` wrote `<memory>/.pipeline/tool-missing-<hook>` with `: >`; a committed symlink there cut a user's file to zero bytes (reproduced:
+  `'' !== 'precious'`). The marker now lives in the user's state directory (`$XDG_STATE_HOME/cheap-mem`, `%LOCALAPPDATA%\cheap-mem`), a link at the marker place is not written through; the `.ps1` twin likewise.
+- **Texts made true:** the start hook no longer advises checking the tool out "into that memory"; the installer's closing "tool:" line says NONE when the checkout lies inside the memory and is untrusted; the
+  tool-missing message tells a MISSING tool from one that is there but lies in the memory; the start message comes at every SessionStart event (not "once"); the trust hangs on the PATH, so a re-clone at the same
+  path inherits it (`--off` before deleting); a stale `allow` entry goes in its backslash spelling too, and an identical entry typed by hand cannot be told apart and goes with it.
+- **PowerShell twin:** a directory that is itself a link/junction is followed (`ResolveLinkTarget`, 5.1: `Target`), a relative path is read against `$PWD`; a link in the middle of the path and 8.3 names stay
+  unresolved and read "not trusted". **`setTrusted`** refuses a memory path with a line break.
+- Unchanged and out of this change: files the hooks write into the memory elsewhere (turn counters, journals), and `claude -p` with its working directory in the memory (`bin/mem-watch`, `bin/mem-digest`).
+
 ### Security - a memory no longer runs its own code unless the user says so (tool-trust-cm; Lucky's decision 2026-10-16: only the installed tool, the exception by switch)
 
 - **The hole.** All seven Claude Code hook shims looked for `<memory>/bin/mem-retrieve` (and the six others) BEFORE the installed tool (`CHEAP_MEM_CODE`). `bin/mem-retrieve`, `bin/mem-before-edit`,

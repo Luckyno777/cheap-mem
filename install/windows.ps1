@@ -263,16 +263,33 @@ param([string]$Name, [string]$Tool, [string]$Code, [string]$Root, [switch]$Skipp
 # That case speaks even without a code path: the hook would otherwise be silent
 # on every prompt for a reason a person can fix in one line.
 if (-not $Code -and -not $Skipped) { exit 0 }
-if ($Skipped) { $why = 'the memory ships its own tool and it is not trusted, and no installed tool was found' }
+if ($Skipped) {
+  # Two different facts, said apart: the tool is MISSING, or it is THERE but lies in the memory and was passed over.
+  $why = 'the memory ships its own tool, which is not trusted'
+  if (-not $Code) { $why = "$why, and no installed tool is configured" }
+  elseif (Test-Path -LiteralPath (Join-Path $Code "bin\$Tool")) { $why = "$why; the installed tool ($Code) lies inside the memory, so it counts as the memory's own and was passed over" }
+  else { $why = "$why, and the installed tool is missing ($Code has no bin\$Tool)" }
+}
 elseif (-not (Test-Path -LiteralPath $Code)) { $why = "the code path $Code does not exist" } else { $why = "$Code has no bin\$Tool" }
+# The "at most every 30 minutes" marker lives in the USER's state directory, never in the memory: a memory is a
+# git clone, and a committed symlink or junction at the old place (<memory>\.pipeline\tool-missing-<hook>) made the
+# write land in whatever it pointed at (reviewer, 2026-10-16). The memory contributes only its path, as a hash.
 if ($Root) {
-  $mark = Join-Path (Join-Path $Root '.pipeline') "tool-missing-$Name"
-  if (Test-Path -LiteralPath $mark) {
-    if (((Get-Date) - (Get-Item -LiteralPath $mark).LastWriteTime).TotalMinutes -lt 30) { exit 0 }
-  }
   try {
-    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $mark) | Out-Null
-    Set-Content -LiteralPath $mark -Value ''
+    $base = $env:LOCALAPPDATA
+    if (-not $base) { $base = Join-Path $HOME '.local\state' }
+    $sha = New-Object System.Security.Cryptography.SHA1Managed
+    $hash = [System.BitConverter]::ToString($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($Root))).Replace('-', '').Substring(0, 8)
+    $dir = Join-Path $base 'cheap-mem'
+    $mark = Join-Path $dir "tool-missing-$Name-$hash"
+    $dirItem = Get-Item -LiteralPath $dir -Force -ErrorAction SilentlyContinue
+    $markItem = Get-Item -LiteralPath $mark -Force -ErrorAction SilentlyContinue
+    $linked = ($dirItem -and ($dirItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) -or ($markItem -and ($markItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint))
+    if (-not $linked) {
+      if ($markItem -and ((Get-Date) - $markItem.LastWriteTime).TotalMinutes -lt 30) { exit 0 }
+      New-Item -ItemType Directory -Force -Path $dir | Out-Null
+      Set-Content -LiteralPath $mark -Value ''
+    }
   } catch { }
 }
 $msg = "cheap-mem: the $Name hook is SILENT - it cannot find its tool ($why), so it recalls nothing. Fix: run install\windows.ps1 from a current cheap-mem checkout."
@@ -367,7 +384,8 @@ if (`$memOk) {
     Write-Host 'The other hooks (prompt recall, before-edit, subagent, stop) are SILENT for the same reason.'
     Write-Host "Fix: run install\windows.ps1 from a current cheap-mem checkout (CHEAP_MEM_ROOT=`$env:CHEAP_MEM_ROOT)."
   } else {
-    Write-Host 'Fix: check out the tool into that memory, or re-run install\windows.ps1 from the code checkout (it names the code location).'
+    Write-Host 'Fix: run install\windows.ps1 from a cheap-mem checkout (it names the code location and installs the tool the hooks run).'
+    Write-Host 'A tool inside the memory is not run unless you trust that memory yourself (mem trust-own-tool).'
   }
 }
 if (`$ownShips) {
@@ -967,17 +985,32 @@ if (-not `$subagent) {
     $denyNeeded = @(
       'Bash(rm -rf:*)', 'Bash(git push --force:*)',
       'Bash(git push -f:*)', 'Bash(git reset --hard:*)',
-      # The switch is for a person, in a terminal; the command refuses
-      # without one, and a model gets a refusal here as well.
+      # The switch is for a person, in a terminal. The command refuses without
+      # one (unless CHEAP_MEM_PROVISION=1), and a variable written in front of
+      # `node` takes the call out of the allow list. `*trust-own-tool*` refuses it
+      # wherever the words stand in the line (--root in front, cd x && ..., env A=1
+      # node ..., a relative path), for Bash and for the PowerShell tool; the two
+      # prefix forms are for a Claude Code that does not read a `*` in the middle.
+      # A session that may run any shell command (bypass/auto) can still write the
+      # switch file: these rules are a fence, not a lock (docs/security-model.md).
+      'Bash(*trust-own-tool*)', 'PowerShell(*trust-own-tool*)',
       "Bash(node $($RepoRoot -replace '\\','/')/bin/mem trust-own-tool:*)",
       "Bash(node $($env:CHEAP_MEM_ROOT -replace '\\','/')/bin/mem trust-own-tool:*)"
     )
+    # Write and Edit are allowed across the board; the switch file is taken out
+    # again. Claude Code writes a Windows path the POSIX way in file rules
+    # (//c/Users/...), `**` is any depth.
+    $swDir = Split-Path -Parent (Get-OwnToolFile)
+    if ($swDir -and $swDir.Length -gt 2 -and $swDir[1] -eq ':') {
+      $swPosix = '/' + $swDir.Substring(0, 1).ToLowerInvariant() + $swDir.Substring(2).Replace('\', '/')
+      foreach ($tool in @('Write', 'Edit')) { $denyNeeded += "$tool(/$swPosix/**)" }
+    }
     if (-not $cfg['permissions'].ContainsKey('allow')) { $cfg['permissions']['allow'] = @() }
     # An allow entry for the memory's own tool that an earlier run wrote stays
     # only while the switch is on.
     if (-not $ownTrusted) {
       $stale = Get-MemCmd $env:CHEAP_MEM_ROOT
-      $cfg['permissions']['allow'] = @($cfg['permissions']['allow'] | Where-Object { $_ -ne $stale })
+      $cfg['permissions']['allow'] = @($cfg['permissions']['allow'] | Where-Object { ([string]$_).Replace('\', '/') -ne $stale })
     }
     if (-not $cfg['permissions'].ContainsKey('deny'))  { $cfg['permissions']['deny']  = @() }
     $cfg['permissions']['allow'] = @($cfg['permissions']['allow'] + $allowNeeded | Select-Object -Unique)
