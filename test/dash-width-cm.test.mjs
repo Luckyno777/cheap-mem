@@ -64,7 +64,7 @@ function world() {
 
 // One server, one context per size; `oldStyle` plays the stylesheet of the fixed old commit into the page.
 async function measure(browser, [w, h], { oldStyle = false, light = false } = {}) {
-  const s = await startView(world(), { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', MEM_RECALL_SERVER: '0' }, { serveOpts: { allowWrites: true } });
+  const s = await startView(world(), { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1', MEM_RECALL_SERVER: '0' }, { serveOpts: { allowWrites: true } });
   const out = {};
   try {
     const ctx = await browser.newContext({ viewport: { width: w, height: h }, reducedMotion: 'reduce' });

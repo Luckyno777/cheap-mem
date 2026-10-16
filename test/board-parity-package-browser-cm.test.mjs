@@ -38,7 +38,7 @@ async function startServer() {
   for (let i = 0; i < 4; i++) memory.logEntry(r, 'learning', { title: `Global ${i}`, text: 'x' });
   for (let i = 0; i < 7; i++) memory.logEntry(r, 'learning', { title: `Demo ${i}`, text: 'x' }, { project: 'demo' });
   // warm: the cold start of the server is not part of the browser deadlines
-  return startView(r, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '' });
+  return startView(r, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1', CHEAP_MEM_SERVE_TOKEN: '' });
 }
 
 async function openExport(base, oldScript = null) {

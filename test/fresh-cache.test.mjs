@@ -35,7 +35,7 @@ import { startView } from './fixture/browser.mjs';
 // and the cache builds in the background worker; which lane a probe runs in would depend on the load. This file
 // forces the synchronous lane with the probe switch (syncUpToMs = one hour).
 const SYNC = {
-  CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '',
+  CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1', CHEAP_MEM_SERVE_TOKEN: '',
   CHEAP_MEM_SERVE_CACHE_SYNC_TEST_MS: String(3600 * 1000),
 };
 

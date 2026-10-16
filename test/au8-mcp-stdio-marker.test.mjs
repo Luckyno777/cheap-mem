@@ -91,7 +91,7 @@ test('AU8 counter-probe: the marker of the long-lived HTTP bridge (mcp-http) is 
 test('AU8 counter-probe: HTTP mode still writes mcp-http (and no mcp-stdio)', { skip }, async () => {
   const root = memory();
   const port = await freePort();
-  const p = start(root, ['--http'], { CHEAP_MEM_MCP_HOST: '127.0.0.1', CHEAP_MEM_MCP_PORT: String(port) });
+  const p = start(root, ['--http'], { CHEAP_MEM_MCP_HOST: '127.0.0.1', CHEAP_MEM_MCP_LOCAL_NO_TOKEN: '1', CHEAP_MEM_MCP_PORT: String(port) });
   try {
     const m = await until(() => runningmark.readMarker(root, 'mcp-http'));
     assert.ok(m, `no marker in HTTP mode. stderr:\n${p.stderr()}`);

@@ -52,7 +52,7 @@ const tone = (html) => /class="badge ([a-z]*)" id="state"/.exec(html)?.[1];
 
 async function start(root, env = {}) {
   const mod = await import(`${pathToFileURL(SERVE).href}?entries=${Math.random()}`);
-  const { server } = await mod.serve(root, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '', ...env });
+  const { server } = await mod.serve(root, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1', CHEAP_MEM_SERVE_TOKEN: '', ...env });
   const port = server.address().port;
   return { mod, port, stop: () => new Promise((res) => { server.closeAllConnections?.(); server.close(res); }) };
 }
@@ -216,7 +216,7 @@ const B = lazyBrowser();
 browserStartProbe(B);
 
 // The server for the browser probes: warm (the HTTP probes above keep the plain `start`).
-const startBrowserView = (root) => startView(root, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '' });
+const startBrowserView = (root) => startView(root, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1', CHEAP_MEM_SERVE_TOKEN: '' });
 
 test('browser: the state badge and the rows are visible, unknown looks different from warning', async (t) => {
   if (!(await B.need(t))) return;

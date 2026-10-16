@@ -330,7 +330,7 @@ test('dashboard (mem serve): every screen with the hostile memory shows text onl
   const browser = await B.need(t);
   if (!browser) return;
   const root = hostileRoot(t, { long: true });
-  const env = { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_TOKEN: '', CHEAP_MEM_SERVE_LOGIN: 'off' };
+  const env = { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_TOKEN: '', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1' };
   const view = await startView(root, env, { serveOpts: { allowWrites: true } });
   t.after(() => view.stop());
   // The JSON the page lives on is never sniffed into HTML.

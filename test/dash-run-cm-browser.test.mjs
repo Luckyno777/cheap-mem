@@ -61,7 +61,7 @@ function world({ n, textLength = 20, messages = 0 }) {
 async function withPage(root, { script = null, env = {} } = {}, fn) {
   // warm: the cold start of the server is not part of the browser deadlines
   const { base, stop } = await startView(root, {
-    CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', MEM_RECALL_SERVER: '0',
+    CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1', MEM_RECALL_SERVER: '0',
     CHEAP_MEM_SERVE_TEMPO_TEST_MS: '5', ...env,
   });
   let ctx = null;

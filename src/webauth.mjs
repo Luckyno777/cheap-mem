@@ -40,6 +40,65 @@ export function bindAllowed({ host, token, variable = 'TOKEN' }) {
 }
 
 /**
+ * The command that makes a token, for the refusal message. Double quotes only, so it runs unchanged in bash, PowerShell
+ * and cmd; it prints a value once and stores nothing.
+ */
+export const MAKE_TOKEN_COMMAND = 'node -e "console.log(require(\'node:crypto\').randomBytes(24).toString(\'hex\'))"';
+
+/**
+ * May this HTTP service START at all? (Owner decision 2026-10-14: a service without a token refuses to start, unless the
+ * local-no-token switch is set on purpose.)
+ *
+ * The door is open when NOTHING stands behind it: no token and no login (the dashboard's password). A password is a
+ * credential, so a dashboard with its login on and no token keeps starting as before; the MCP bridge has no login and
+ * always needs the token. Three outcomes:
+ *
+ * - a credential stands behind the door: `{ ok: true, withoutToken: false }`;
+ * - no credential, the switch set, the bind is loopback: `{ ok: true, withoutToken: true, notice }` - the caller prints
+ *   `notice` on its start line;
+ * - anything else: `{ ok: false, reason }`. A public bind without a token is refused FIRST ({@link bindAllowed}) and the
+ *   switch never changes that: it is an allow list of three loopback names, not a block list of public ones.
+ *
+ * What the switch does NOT lift, per request: a loopback socket that carries a proxy header is not local
+ * ({@link remoteIsLoopback} strict), so a tunnel in front of a token-less service is turned away even with the switch.
+ *
+ * `variable` is the token variable, `switchVariable` the environment form of the switch, `flag` its command-line form.
+ */
+export function startDecision({
+  host, token = '', login = false, localNoToken = false,
+  variable = 'TOKEN', switchVariable = 'LOCAL_NO_TOKEN', flag = '--local-no-token',
+} = {}) {
+  const bind = bindAllowed({ host, token, variable });
+  if (!bind.ok) {
+    return {
+      ok: false,
+      reason: localNoToken
+        ? `${bind.reason} The local-no-token switch (${flag}) works on loopback only and does not apply to ${host}.`
+        : bind.reason,
+    };
+  }
+  if (token || login) return { ok: true, withoutToken: false };
+  if (!localNoToken) {
+    return {
+      ok: false,
+      reason:
+        `Refusing to start without a token: ${variable} is not set and no password login stands behind this door. `
+        + `Set a token: ${variable}=<secret> (bash) or $env:${variable}='<secret>' (PowerShell); make one with: ${MAKE_TOKEN_COMMAND}. `
+        + `For a purely local run, say so on purpose: ${flag} or ${switchVariable}=1 `
+        + '(loopback only; a request that carries a proxy header is still turned away).',
+    };
+  }
+  return {
+    ok: true,
+    withoutToken: true,
+    notice: `running WITHOUT a token on ${host} (${flag}): loopback only, no password login. `
+      + 'A request that carries forwarding headers (a tunnel, most proxies) is turned away; a reverse proxy on this machine that '
+      + 'adds none (nginx with its defaults) cannot be told from this machine and would be served as local, so set a token '
+      + 'before putting any proxy in front',
+  };
+}
+
+/**
  * Compare two strings without leaking, through time, where they differ.
  *
  * `timingSafeEqual` requires equal length. Both sides are first reduced
@@ -80,7 +139,7 @@ export function bearerFrom(req) {
  * one: whole families by prefix (`x-forwarded-*`, `x-real-*`, `cf-*`) and the single names common proxies, CDNs and
  * load balancers add (`via`, `true-client-ip`, `cdn-loop`, `fastly-client-ip`, `x-client-ip`, `x-cluster-client-ip`,
  * `x-original-forwarded-for`). It only ever takes trust AWAY: a header a client forges costs it the local standing.
- * What it cannot see is a proxy that adds none of them (nginx with its defaults): see {@link openDoorNotice}.
+ * What it cannot see is a proxy that adds none of them (nginx with its defaults): the start notice of {@link startDecision} says so.
  */
 const PROXY_HEADER_NAMES = Object.freeze([
   'forwarded', 'via', 'true-client-ip', 'cdn-loop', 'fastly-client-ip', 'x-client-ip', 'x-cluster-client-ip',
@@ -112,25 +171,6 @@ export function hasProxyHeader(req) {
     const h = String(raw).toLowerCase();
     return PROXY_HEADER_NAMES.includes(h) || PROXY_HEADER_PREFIXES.some((p) => h.startsWith(p));
   });
-}
-
-/**
- * The start-up notice for a door with no token and no login (the bridge over HTTP always, the viewer with its login off).
- * `null` when a token or a login stands behind the door.
- *
- * Without a credential the only thing that keeps a stranger out is "the connection is from this machine, and no proxy
- * header says otherwise". A reverse proxy on this machine in front of the port - nginx with its defaults sets `Host` to
- * the upstream `127.0.0.1:<port>` and adds no forwarding header - passes every one of those checks, so whoever reaches the
- * proxy is served as local (and on the bridge with `CHEAP_MEM_MCP_READONLY=0`, may write). That cannot be detected from
- * here; it can be said. Nothing is refused: a configured host name without a token is a tested, deliberate setup.
- */
-export function openDoorNotice({ token = '', login = false, hosts = [], origins = [] } = {}) {
-  if (token || login) return null;
-  const names = [...hosts, ...origins.map((o) => { try { return new URL(o).host; } catch { return String(o); } })];
-  const named = names.some((n) => !hostAllowed(n, []));
-  return 'no token: anything that reaches this port through a local reverse proxy counts as local - '
-    + 'set a token before putting a proxy in front'
-    + (named ? ' (a non-loopback host name is configured, so a proxy in front is the expected setup here)' : '');
 }
 
 /**

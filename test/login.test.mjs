@@ -107,7 +107,7 @@ test('without a session: page -> /login, data and writing routes -> 401 JSON (co
     assert.match(await page.text(), /data-login="1"/);
   } finally { await s.stop(); }
 
-  const s2 = await start(newRoot(), { CHEAP_MEM_SERVE_LOGIN: 'off' });
+  const s2 = await start(newRoot(), { CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1' });
   try {
     assert.equal((await fetch(s2.base + '/dashboard.json')).status, 200);
     assert.equal((await fetch(s2.base + '/login')).status, 404, 'no login routes when off');

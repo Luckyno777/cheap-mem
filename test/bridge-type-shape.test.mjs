@@ -100,7 +100,7 @@ test('--http: the same refusals over the network door (full profile)', async (t)
   const port = await freePort();
   let errors = '';
   const child = spawn(process.execPath, [MCP, '--http'], { cwd: ROOT, stdio: ['ignore', 'ignore', 'pipe'],
-    env: { ...process.env, CHEAP_MEM_ROOT: root, CHEAP_MEM_MCP_PORT: String(port), CHEAP_MEM_MCP_READONLY: '0', CHEAP_MEM_AGENT: 'foreign' } });
+    env: { ...process.env, CHEAP_MEM_ROOT: root, CHEAP_MEM_MCP_PORT: String(port), CHEAP_MEM_MCP_LOCAL_NO_TOKEN: '1', CHEAP_MEM_MCP_READONLY: '0', CHEAP_MEM_AGENT: 'foreign' } });
   child.stderr.setEncoding('utf8'); child.stderr.on('data', (c) => { errors += c; });
   try {
     for (let i = 0; i < 200; i += 1) {

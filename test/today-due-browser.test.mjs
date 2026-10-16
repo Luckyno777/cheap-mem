@@ -43,7 +43,7 @@ async function startServer() {
     { id: 'bd000005', title: 'Agent task, due', owner: 'vm-admin', due: day(0) },
   ].map((o, i) => ({ ts: `2026-09-01T00:0${i}:00Z`, agent: 'human:alex', ...o }));
   fs.writeFileSync(path.join(r, 'global', 'duties.jsonl'), rows.map((o) => `${JSON.stringify(o)}\n`).join(''));
-  return startView(r, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '' });
+  return startView(r, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1', CHEAP_MEM_SERVE_TOKEN: '' });
 }
 
 async function open(browser, base, { width, light, oldScript = null }) {

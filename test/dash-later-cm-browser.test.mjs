@@ -44,7 +44,7 @@ function world() {
 
 async function scenario({ script = null }, fn) {
   // warm: the inbox part is answered by page.route (building) or by the real server later; the cold start is not part of the deadlines
-  const { base, stop } = await startView(world(), { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', MEM_RECALL_SERVER: '0', CHEAP_MEM_SERVE_TEMPO_TEST_MS: '5' });
+  const { base, stop } = await startView(world(), { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1', MEM_RECALL_SERVER: '0', CHEAP_MEM_SERVE_TEMPO_TEST_MS: '5' });
   let ctx = null;
   try {
     ctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });

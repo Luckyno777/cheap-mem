@@ -14,6 +14,15 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Changed / Security - the HTTP services refuse to start without a token, unless "local, no token" is set on purpose (serve-token-refuse-cm; owner decision 2026-10-14)
+
+`mem serve` (`bin/mem-serve`) and `mem-mcp --http` are the two HTTP services in cheap-mem (the warm recall server is a Unix socket or named pipe with a key file, not a TCP port; `test/serve-token-refuse-cm.test.mjs` pins the list: a file under `bin/`, `src/`, `install/`, `hooks/`, `shared/`, `bench/` or `eval/` that imports `net`, `http`, `https`, `http2`, `tls` or `dgram` (static, dynamic or `require`) and creates a server by any of the common shapes must be one of the two doored services or a named exemption - a ratchet against the common shapes with a counter-probe per pattern, not a proof: a name built at run time is not seen).
+Until now a door with no token and nothing else behind it started anyway and printed a `NOTICE`; the rule is now one shared decision, `webauth.startDecision`: no token, no password login (the dashboard's own credential) and no switch means the process exits with a code other than 0, a message that names the token variable, a command that makes a token and the switch, and **no port is bound**.
+The switch is `--local-no-token` (on `mem serve`, `bin/mem-serve` and `mem-mcp --http`) or `CHEAP_MEM_SERVE_LOCAL_NO_TOKEN=1` / `CHEAP_MEM_MCP_LOCAL_NO_TOKEN=1` for a service unit. It lifts only that one refusal: it is honoured on loopback only (an allow list of three names; `0.0.0.0`, `::`, `127.0.0.2` and every other spelling refuse), a request that carries a proxy header is still turned away, and the start prints a `NOTICE` that the service runs without a token.
+**What breaks:** a dashboard started with `CHEAP_MEM_SERVE_LOGIN=off` and no token, and an HTTP bridge started with no token; both now need a token or the switch. **What does not:** a dashboard with its password login on (the default, and what `install/serve-service.sh` installs) keeps starting, because the password is a credential; a start with a token is unchanged. The probes that started token-less servers (about 50 test files, three bench scripts) set the switch.
+New environment variables `CHEAP_MEM_SERVE_LOCAL_NO_TOKEN` and `CHEAP_MEM_MCP_LOCAL_NO_TOKEN` are in `src/envregister.mjs` and `docs/environment-variables.md`; the way to a token is in `docs/dashboard.md`, `docs/mcp-setup.md` and in every refusal message.
+Follow-up on the same branch: a refusal is now a message and exit 1 from `bin/mem-serve` and `bin/mem-mcp` too (it was a stack trace), the refusal names the PowerShell form of the token, and the older `openDoorNotice` (which said every proxy hit counts as local, against the new check that turns a forwarding-header request away) is replaced by one accurate start notice.
+
 ### Fixed / Performance - eighteen sites that took quadratic time on one long run of the same character (linear-regex-cm, task 26; cheap-mem only)
 
 The redaction-keys round measured it: a run of 100,000 blanks, hyphens or line breaks plus one letter took 3.7 to 4.3 s PER pattern that ends in `+$` or `*$`
@@ -42,6 +51,7 @@ Guards: `test/linear-trim.test.mjs` (20 probes: the site on 1 MB of the bad inpu
 ceiling of 2 s; the state before is killed, over the ceiling or wrong on all 20),
 `test/linear-trim-golden.test.mjs` (the old pattern written out as the reference, 4,000 to 120,000 random strings per site; `git check-attr` as the truth for the attributes; 17 mutants red).
 
+
 ### Fixed - review of the hook-shim fix: the time-cap branch, a dead code path, an apostrophe in a path (hook-shims-code-cm, second round)
 
 - **The start hook died when the alarm hit its time cap.** `install/hooks/session-start.sh` named `$mem_show` in the "alarm hit its time cap" line, but set it only at the bottom; under `set -u`
@@ -68,6 +78,7 @@ shape in all seven generated PowerShell hooks (and set `CHEAP_MEM_CODE` in none)
 `install/linux.sh` and `install/macos.sh` install the watcher service and write no hook shims; `mem setup claude` runs `claude-code.sh`. New guard `test/installed-hooks-run.test.mjs`:
 installs into a scratch HOME, starts every registered hook with a bare environment and a real hook JSON, and demands bytes in the context (and a capture from the Stop hook); the
 .ps1 hooks are run on win32 with PowerShell, and checked statically on every platform.
+
 ### Fixed - reflector follow-up: lines that belong together, the env route, a temp directory inside the memory root (small-parity-cm, point 3; Parity lm=open)
 
 - **A secret across lines is masked.** `bin/mem-mask-copy.mjs` masked a plain (non-JSON-object) line on its own, so a PEM private key lost its mask: no single line has its shape. Consecutive plain lines are now masked as one block, cut at

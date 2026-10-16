@@ -739,7 +739,7 @@ add({ id: 'E mem serve: inbox subject/text/replies, facts, experiences (all JSON
     await plant(tree, root, 'learning', { id: 'servelrn1', title: b.text, text: `zebra ${b.text}` });
     await plant(tree, root, 'learning', { id: 'servelrn2', title: 'zebra cited', learning: b.text });
     const serve = await imp(tree, 'bin/mem-serve');
-    const s = await serve.serve(root, { ...process.env, CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '' }, { allowWrites: false });
+    const s = await serve.serve(root, { ...process.env, CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1', CHEAP_MEM_SERVE_TOKEN: '' }, { allowWrites: false });
     try {
       const base = `http://127.0.0.1:${s.server.address().port}`;
       const got = [];
@@ -775,7 +775,7 @@ add({ id: 'E bin/mem-mcp: the error text of a failed call (whole)', mode: 'whole
 /** A running server on a scratch root, in this process; `stop()` closes it. */
 async function withServer(tree, root, fn) {
   const serve = await imp(tree, 'bin/mem-serve');
-  const s = await serve.serve(root, { ...process.env, CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '' }, { allowWrites: false });
+  const s = await serve.serve(root, { ...process.env, CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1', CHEAP_MEM_SERVE_TOKEN: '' }, { allowWrites: false });
   try { return await fn(`http://127.0.0.1:${s.server.address().port}`); } finally { await new Promise((r) => { s.server.close(r); s.server.closeAllConnections?.(); }); }
 }
 
