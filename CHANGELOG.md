@@ -14,6 +14,14 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Fixed - pin words with digits, `pinhash`/`pinvalue`/`pinnumber`, and the plural of a compound (small-parity-cm, follow-up to point 1; Parity lm=yes)
+
+A word that ends in `pin` and digits (`pin1`, `PIN2`, `myPIN2`, `userpin2`) is a pin word, and so is `pin` + `code|hash|value|number|num|digest|salt` spelled in one word (`pinhash`, `pinvalue`, `pinnumber`, `userpinhash`).
+The compound PLURAL (`userpins`, `bankpins`) follows the plural rule of the other keywords (`tokens`): a counter key, so a string falls and one number stays. The bare word `pins` stays free, also as a word of
+`userPins`/`user_pins` (51 uses of `pins` in this tree, all the English word). Corpus measure (docs, test, README, src, bin, bench, shared, eval, CHANGELOG; and the 52 MB of node_modules): no word ends in `pin<digits>`, none is a
+compound plural of `pin`, none is `pinhash`/`pinvalue`/`pinnumber`, so the stricter reading costs no false alarm there. `spin`, `spin2` and `spinvalue` stay (the English-words list is tested on the part up to `pin`).
+Monotone against 870788f: 40,105 text cases and 60,000 random objects with the new key shapes, 0 regressions, every newly masked field under a path that holds `pin`. Four mutants added, 13/13 of `src/redaction.mjs` caught.
+
 ### Fixed - the reflector reads a MASKED copy of the transcript (small-parity-cm, point 3; Parity lm=open; decision "outgoing paths stay, with a mask")
 
 `bin/mem-reflect` (and its `.ps1` twin) handed `claude -p` the path of the transcript as it lies on disk, so the model saw every secret in it, while the digest (`mem raw show`) and the mail handler (`mem inbox show`) read masked.
