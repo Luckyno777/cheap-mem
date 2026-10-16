@@ -31,7 +31,7 @@ are the day the work landed on `main`.
   when the switch is off. `mem-handle-post`, `mem-reflect` and the sub-agent hint now tell the model to call the installed tool (they named `<memory>/bin/mem`).
 - **No silent deviation.** A memory that ships its own tool with the switch off: the session start says once `memory ships its own tool; using the installed one. To trust it: mem trust-own-tool`;
   with no installed tool it says nothing is loaded, and the other hooks' tool-missing message (`MEM_OWN_SKIPPED`, now also spoken without `CHEAP_MEM_CODE`) says why.
-- **Cost, measured** (idle machine, Linux, bash 5.2, 200 calls): the decision in a shim (`mem_pick_tool`, switch off, one candidate passed over) takes 0.53 ms, the trust check alone 0.19 ms. A first version
+- **Cost, measured** (idle machine, Linux, bash 5.2, 200 calls): the decision in a shim (the picking function of `bin/_owntool.sh`, switch off, one candidate passed over) takes 0.53 ms, the trust check alone 0.19 ms. A first version
   that returned its results through `$(...)` took 16.7 ms: every command substitution is a fork, so `bin/_owntool.sh` hands results over in variables and runs no subshell and no `dirname`.
 - **Changed behaviour.** An existing install whose memory carries its own tool (a lucky-mem style memory) runs the installed tool after this change until `mem trust-own-tool` is run for it and the installer
   is run again. `docs/security-model.md` section 4.1 and threat row T10; guard `test/own-tool.test.mjs`. `CHEAP_MEM_CODE`'s register row changed from "memory first" to "installed first".

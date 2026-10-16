@@ -900,8 +900,8 @@ export const MUTANTS=[
 
  { name:"own-tool: a checkout inside the memory counts as installed",
    file:"bin/_owntool.sh",
-   from:"if [ \"$trusted\" = 0 ] && mem_own_inside \"${c%/*}\" \"$root\"; then MEM_OWN_SKIPPED=1; continue; fi",
-   to:"if false && mem_own_inside \"${c%/*}\" \"$root\"; then MEM_OWN_SKIPPED=1; continue; fi  # MUTANT",
+   from:"if [ \"$trusted\" = 0 ] && mem_own_inside \"${c%/" + "*}\" \"$root\"; then MEM_OWN_SKIPPED=1; continue; fi",
+   to:"if false && mem_own_inside \"${c%/" + "*}\" \"$root\"; then MEM_OWN_SKIPPED=1; continue; fi  # MUTANT",
    tests:['test/own-tool.test.mjs'] },
 
  { name:"own-tool: any line of the switch file trusts the memory",
