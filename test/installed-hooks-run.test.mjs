@@ -85,6 +85,15 @@ function bareEnv(home, extra = {}) {
     if (WIN && fs.existsSync(usr)) dirs.push(usr);
   }
   if (!WIN) dirs.push('/usr/bin', '/bin');
+  // The system ones on Windows too (CI run 1074): every .ps1 shim hands over with `& powershell -File ...`,
+  // the way the registered command itself starts it, and a PATH without System32\WindowsPowerShell\v1.0 is
+  // no Windows a hook ever runs on - the shims then failed with "'powershell' is not recognized" and the
+  // probe read that as a mute recall lane.
+  if (WIN && process.env.SystemRoot) {
+    dirs.push(path.join(process.env.SystemRoot, 'System32'),
+      path.join(process.env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0'));
+  }
+  if (WIN && POWERSHELL) dirs.push(path.dirname(POWERSHELL));
   const env = { PATH: [...new Set(dirs)].join(path.delimiter), HOME: home };
   if (WIN) {
     for (const k of ['SystemRoot', 'ComSpec', 'TEMP', 'TMP', 'PATHEXT']) {

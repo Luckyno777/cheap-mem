@@ -58,8 +58,17 @@ function run(hookPath, root, h, extra = {}, input = null, session = `s-cc-${Math
   waitForRebuildIdle(root);
   return r;
 }
-/** Where the hook shells put their cache base for a scratch HOME: Linux/macOS-style `.cache`, Git Bash on Windows LOCALAPPDATA. */
-const cacheBase = (h) => (process.platform === 'win32' ? path.join(h, 'AppData', 'Local') : path.join(h, '.cache'));
+/**
+ * Where the hook shells put their cache base for a scratch HOME - the same three branches as mem_compile_cache:
+ * Git Bash on Windows LOCALAPPDATA, macOS `Library/Caches`, everything else `.cache`. (CI run 1074: this said `.cache`
+ * for macOS too, so the red proof looked for the cache where the hook never puts it, and the mutation and user-value
+ * probes passed there without looking at the right directory at all.)
+ */
+const cacheBase = (h) => {
+  if (process.platform === 'win32') return path.join(h, 'AppData', 'Local');
+  if (process.platform === 'darwin') return path.join(h, 'Library', 'Caches');
+  return path.join(h, '.cache');
+};
 const ccDir = (h) => path.join(cacheBase(h), 'cheap-mem', 'node-cc');
 const nothingInMemory = (root) => {
   assert.equal(fs.existsSync(path.join(root, '.pipeline', 'node-cc')), false, 'a cache directory appeared in the memory');
@@ -157,23 +166,37 @@ test('a directory that cannot be made: the hook answers all the same', (t) => {
 
 test('mem_compile_cache by platform: Linux with and without XDG_CACHE_HOME, macOS, Git Bash on Windows, no HOME', (t) => {
   const scratch = tempDir('cm-cc-fn-', t);
+  // Prints the HOME the shell itself sees, then the cache it chose. Git Bash (MSYS2) turns a Windows HOME into its
+  // POSIX form when it starts (CI run 1074: the drive path of the user temp directory came back as /tmp/...), so on
+  // Windows the expected paths are built from what bash reports; everywhere else bash must see the HOME it was
+  // handed, byte for byte.
   const probe = (pre, env) => {
-    const r = spawnSync('bash', ['-c', `${pre}\n. "${PORTABLE.replaceAll('\\', '/')}"\nmem_compile_cache\nprintf '%s' "\${NODE_COMPILE_CACHE:-}"`], {
+    const r = spawnSync('bash', ['-c', `${pre}\n. "${PORTABLE.replaceAll('\\', '/')}"\nmem_compile_cache\nprintf '%s\\n%s' "\${HOME:-}" "\${NODE_COMPILE_CACHE:-}"`], {
       cwd: scratch, encoding: 'utf8', env: { PATH: process.env.PATH, ...env },
     });
     assert.equal(r.status, 0, r.stderr);
-    return r.stdout;
+    const [home, cache] = r.stdout.split('\n');
+    return { home, cache };
   };
+  const WIN = process.platform === 'win32';
   const h = path.join(scratch, 'h o m e').replaceAll('\\', '/');
   fs.mkdirSync(h);
-  assert.equal(probe('uname() { echo Linux; }', { HOME: h }), `${h}/.cache/cheap-mem/node-cc`);
-  const xdg = path.join(scratch, 'xdg').replaceAll('\\', '/');
-  assert.equal(probe('uname() { echo Linux; }', { HOME: h, XDG_CACHE_HOME: xdg }), `${xdg}/cheap-mem/node-cc`);
-  assert.equal(probe('uname() { echo Linux; }', { HOME: h, XDG_CACHE_HOME: 'relative/dir' }), `${h}/.cache/cheap-mem/node-cc`, 'a relative XDG_CACHE_HOME is ignored');
-  assert.equal(probe('uname() { echo Darwin; }', { HOME: h }), `${h}/Library/Caches/cheap-mem/node-cc`);
-  // Git Bash: backslashes of LOCALAPPDATA become slashes (the directory is made relative to the scratch cwd here).
-  assert.equal(probe('uname() { echo MINGW64_NT-10.0; }', { HOME: h, LOCALAPPDATA: 'D:\\data\\x\\Local' }), 'D:/data/x/Local/cheap-mem/node-cc');
-  assert.equal(probe('uname() { echo MINGW64_NT-10.0; }', { HOME: h }), '', 'Git Bash without LOCALAPPDATA: no cache, no error');
-  assert.equal(probe('uname() { echo Linux; }', {}), '', 'no HOME: no cache, no error');
-  if (process.platform !== 'win32') assert.equal((fs.statSync(`${h}/.cache/cheap-mem/node-cc`).mode & 0o077), 0, 'the cache directory must be private');
+  const linux = probe('uname() { echo Linux; }', { HOME: h });
+  const bh = linux.home;
+  if (WIN) assert.match(bh, /\/h o m e$/, `Git Bash lost the HOME it was handed: ${bh}`);
+  else assert.equal(bh, h, 'bash must see the HOME it was handed');
+  assert.equal(linux.cache, `${bh}/.cache/cheap-mem/node-cc`);
+  // An absolute XDG_CACHE_HOME in the form bash reads (on Windows a POSIX path under the HOME bash reported).
+  const xdg = WIN ? `${bh}/xdg` : path.join(scratch, 'xdg');
+  assert.equal(probe('uname() { echo Linux; }', { HOME: h, XDG_CACHE_HOME: xdg }).cache, `${xdg}/cheap-mem/node-cc`);
+  assert.equal(probe('uname() { echo Linux; }', { HOME: h, XDG_CACHE_HOME: 'relative/dir' }).cache, `${bh}/.cache/cheap-mem/node-cc`, 'a relative XDG_CACHE_HOME is ignored');
+  assert.equal(probe('uname() { echo Darwin; }', { HOME: h }).cache, `${bh}/Library/Caches/cheap-mem/node-cc`);
+  // Git Bash: backslashes of LOCALAPPDATA become slashes. Elsewhere the directory is made relative to the scratch
+  // cwd; on Windows a drive path would leave the scratch, so there it is a backslash path inside it.
+  const local = WIN ? path.join(scratch, 'la') : 'D:\\data\\x\\Local';
+  assert.equal(probe('uname() { echo MINGW64_NT-10.0; }', { HOME: h, LOCALAPPDATA: local }).cache, `${local.replaceAll('\\', '/')}/cheap-mem/node-cc`);
+  assert.equal(probe('uname() { echo MINGW64_NT-10.0; }', { HOME: h }).cache, '', 'Git Bash without LOCALAPPDATA: no cache, no error');
+  // No HOME: unset inside the shell, because Git Bash makes one up when the environment has none.
+  assert.equal(probe('uname() { echo Linux; }\nunset HOME', {}).cache, '', 'no HOME: no cache, no error');
+  if (!WIN) assert.equal((fs.statSync(`${h}/.cache/cheap-mem/node-cc`).mode & 0o077), 0, 'the cache directory must be private');
 });

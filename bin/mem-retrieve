@@ -105,7 +105,8 @@ done
 # so HOOK_DIR became the CURRENT directory instead of bin/. The tool
 # next to the hook was then not found and the hook exited 0 in
 # silence — the same failure as the root lookup, one line further on.
-HOOK_DIR="$(cd "$(dirname "$(to_slashes "$0")")" && pwd)"
+# Git Bash: `pwd -W` is the Windows form node.exe can open (MSYS2 leaves a path with an apostrophe untranslated; install/claude-code.sh).
+HOOK_DIR="$(cd "$(dirname "$(to_slashes "$0")")" && { pwd -W 2>/dev/null || pwd; })"
 # TOOL_ROOT travels with RUN_MEM on purpose: `src/bidi.mjs` is TOOL code,
 # not memory data, so it lives beside whichever `bin/mem` is actually
 # about to run, not necessarily beside $ROOT. Getting this wrong is a
