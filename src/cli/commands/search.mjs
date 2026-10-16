@@ -228,8 +228,15 @@ export const COMMANDS = {
     // tissue. Not the default: whoever types `mem find "..."` by hand has
     // already chosen the words.
     const askedAs = query;
+    // The index is opened ONCE per question, and only when something needs it (a long question to shorten, the ranked
+    // search): `--content-words` used to load it for the shortening and `find` again for the search.
+    let opened = null;
+    const openIndex = () => {
+      opened ??= search.loadIndex(root, { fresh: Boolean(args.fresh), language: cfg.language, env: conf.env });
+      return opened;
+    };
     if (args['content-words']) {
-      const shortened = search.retrievalQuery(query, { root, requestFrame: conf.requestFrame });
+      const shortened = search.retrievalQuery(query, { root, requestFrame: conf.requestFrame, loadIndex: openIndex });
       if (shortened && shortened !== query) query = shortened;
     }
     // --category: only entries whose topic is assigned to the category (src/categories.mjs).
@@ -365,7 +372,7 @@ export const COMMANDS = {
 
     thesaurus.loadUserGroups(root, fs, path);
     const t0 = Date.now();
-    const index = search.loadIndex(root, { fresh: Boolean(args.fresh), language: cfg.language, env: conf.env });
+    const index = openIndex();
     if (index.bridgeError) process.stderr.write(`mem find: language bridge off: ${index.bridgeError}\n`);
     // The `word*` prefix operator (Windows-search style). OPT-IN via
     // `--wildcard`, deliberately not merely "a `*` appears in the query":

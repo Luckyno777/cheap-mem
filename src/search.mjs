@@ -44,6 +44,7 @@ import * as indexcache from './indexcache.mjs';
 import * as expand from './expand.mjs';
 import * as statequestion from './statequestion.mjs';
 import { dateAnchors } from './timeexpr.mjs';
+import { configPath } from './config.mjs';
 import { dropRequestFrame, requestFrameOn } from './requestframe.mjs';
 
 // Crypto-shredding reader (src/shred.mjs), loaded as tolerantly as
@@ -2845,7 +2846,25 @@ function loadMemoized(root, opts) {
   return { ...served, fromCache: true, appended, graphsStale, cacheStatus: 'hit' };
 }
 
+/**
+ * The language the memory's config names (`.mem/config.json`), or 'en' when there is no config, no such field or the
+ * file cannot be read. Light on purpose: one small JSON file, no participant merge.
+ */
+function configuredLanguage(root) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(configPath(root), 'utf8'));
+    return typeof raw?.language === 'string' && raw.language ? raw.language : 'en';
+  } catch { return 'en'; }
+}
+
 export function loadIndex(root, opts = {}) {
+  // **One memory, one index language (abruf-stamm-cm, step 3).** The cache is kept per language, and a cache of another
+  // language is "stale": rebuilt and rewritten. `mem find` always asked for the memory's configured language; the
+  // SubagentStart block, the short-prompt check of the hook, the content-word shortening and a dozen readers asked for
+  // nothing, i.e. for 'en'. On a memory configured for another language those calls and `mem find` took turns rebuilding
+  // the cache (measured: `stale` on every alternate load), and they searched different indexes. A caller that names a
+  // language still gets that one (the benches pass 'en').
+  if (opts.language === undefined) opts = { ...opts, language: configuredLanguage(root) };
   let index;
   if (processMemoOn && !opts.fresh) {
     index = loadMemoized(root, opts);
@@ -3194,7 +3213,7 @@ export function typedWords(text) {
  */
 export const RETRIEVE_WORDS_MAX = 8;
 
-export function retrievalQuery(text, { root = null, index = null, requestFrame = undefined } = {}) {
+export function retrievalQuery(text, { root = null, index = null, loadIndex: open = null, requestFrame = undefined } = {}) {
   // **Date anchors survive the shortening (ported from lucky-mem,
   // 2026-10-01).** "what was on 2028-10-04" came out as "2028": "on" is
   // filler and the date crumbled into its parts. `mem find
@@ -3212,8 +3231,12 @@ export function retrievalQuery(text, { root = null, index = null, requestFrame =
   if (!w.length) return anchors.length ? withAnchors([]) : String(text ?? '').trim();
   if (w.length <= RETRIEVE_WORDS_MAX) return withAnchors(w);
 
+  // `open`: the caller's own way to the index (`mem find` opens it once and uses it again for the search); without
+  // it the index is loaded here, as before.
   let idx = index;
-  if (!idx && root) {
+  if (!idx && open) {
+    try { idx = open(); } catch { idx = null; }
+  } else if (!idx && root) {
     try { idx = loadIndex(root); } catch { idx = null; }
   }
   const df = idx?.statsDocFreq ?? idx?.docFreq;

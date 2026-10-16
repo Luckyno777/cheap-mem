@@ -973,6 +973,24 @@ export const MUTANTS=[
    to:"  return { raw, shown: raw.filter((h) => h.score >= BAR || h.exact.length) };  // MUTANT",
    tests:['test/recall-bar.test.mjs'] },
 
+ { name:'AI an index load without a language takes English again',
+   file:'src/search.mjs',
+   from:"  if (opts.language === undefined) opts = { ...opts, language: configuredLanguage(root) };",
+   to:"  // MUTANT: the unnamed language is English, the cache of a German memory is rebuilt on every alternate load",
+   tests:['test/abruf-index.test.mjs'] },
+
+ { name:'AI `mem find` loads the index a second time for the search',
+   file:'src/cli/commands/search.mjs',
+   from:"    const index = openIndex();\n    if (index.bridgeError)",
+   to:"    const index = search.loadIndex(root, { fresh: Boolean(args.fresh), language: cfg.language, env: conf.env });  // MUTANT\n    if (index.bridgeError)",
+   tests:['test/abruf-index.test.mjs'] },
+
+ { name:'AI the content-word shortening ignores the index its caller opened',
+   file:'src/search.mjs',
+   from:"  if (!idx && open) {",
+   to:"  if (false && open) {  // MUTANT",
+   tests:['test/abruf-index.test.mjs'] },
+
 ];
 
 // The modules whose failure is a security or data-integrity failure. The

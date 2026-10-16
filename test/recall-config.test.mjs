@@ -97,6 +97,8 @@ const QUESTIONS = [
   'what does src/payments.mjs do',
   'quantum flux capacitor calibration',
   'can you show me why the lockfile race failed',
+  // more than eight content words: the rarity cut of `--content-words` needs the index (its own load, once)
+  'what is the reason why the payment retry step failed in round fourteen after the nightly deploy gate job',
 ];
 const SHAPES = [
   ['--json'],
