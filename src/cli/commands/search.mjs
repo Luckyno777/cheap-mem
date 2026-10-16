@@ -136,7 +136,9 @@ async function printHybrid({ root, memCfg, query, args, plan }) {
 
 /** 15 commands. */
 export const COMMANDS = {
-  find: async ({ rest, args }) => {
+  // `env`: the switches of THIS call. The warm recall server answers under the caller's (src/recallserver.mjs);
+  // everyone else gets the process environment.
+  find: async ({ rest, args, env = process.env }) => {
     if (isHelp(args)) {
       out([
         'mem find "<query>" [--type <t>] [--project <name>|global]',
@@ -406,11 +408,11 @@ export const COMMANDS = {
     // loses it; the exact lane, the echo filter and the time router below keep
     // the question as typed. A question that would be left without a content
     // word keeps the frame (better a vague search than none).
-    if (args.recall && requestframe.requestFrameOn()) {
+    if (args.recall && requestframe.requestFrameOn(env)) {
       const bare = requestframe.dropRequestFrame(rankedQuery);
       if (bare !== rankedQuery && search.contentWords(bare).length) rankedQuery = bare;
     }
-    if (levers.active('h1')) {
+    if (levers.active('h1', env)) {
       const built = questionsplit.buildQuery(rankedQuery, index);
       if (built) {
         rankedQuery = built.query;
@@ -441,7 +443,7 @@ export const COMMANDS = {
       withRetired: withRetiredForFetch,
       extraTerms,
       // h3's answer gate reads how much of the question each hit carries.
-      withCoverage: levers.active('h3'),
+      withCoverage: levers.active('h3', env),
       // Deliberately NOT `language: cfg.language`. `cfg.language` is the
       // memory's configured DEFAULT (src/config.mjs, 'en' unless set), not
       // a per-query "the user asked for one language" signal — `find` has
@@ -534,7 +536,7 @@ export const COMMANDS = {
     // scores within 1 % of the last one shown comes along, at most one. The
     // answer gate below decides on the hard cut `base` alone, so the extra hit
     // never turns a withheld answer into a shown one.
-    const listed = args.recall ? tiecut.cutWithTie(ordered, wanted, tiecut.tieSpread()) : base;
+    const listed = args.recall ? tiecut.cutWithTie(ordered, wanted, tiecut.tieSpread(env)) : base;
     // **H3 (Block H, ported from lucky-mem): threshold by score gap, for
     // the answer as a whole.** A list in which no hit is exact, strong, or
     // clearly ahead of the second is a flat field of near-equal scores —
@@ -543,7 +545,7 @@ export const COMMANDS = {
     // in which ONE hit passes is shown unchanged, weaker hits included.
     // The rule and its calibration: `src/searchlevers.mjs` (occasion
     // `find`). `--weak` shows the list anyway.
-    const gated = !args.weak && levers.active('h3')
+    const gated = !args.weak && levers.active('h3', env)
       && !levers.answerHolds(base, { occasion: 'find', bar: levers.findBar(index.statsN ?? index.N) });
     const withheld = gated ? base.length : 0;
     for (const h of listed) delete h.covered;   // the gate's input, not part of the answer

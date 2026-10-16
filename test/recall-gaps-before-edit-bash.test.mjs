@@ -104,7 +104,10 @@ test('INSTALLERS: both register Bash for the before-edit hook, the ps1 hook read
   assert.match(sh, /upsertHook\('PreToolUse', 'pre-edit', 'Edit\|Write\|NotebookEdit\|Bash'\)/);
   const ps = fs.readFileSync(path.join(REPO, 'install', 'windows.ps1'), 'utf8');
   assert.match(ps, /'PreToolUse' 'cheap-mem-pre-edit\.ps1' .*'Edit\|Write\|NotebookEdit\|Bash'/);
+  // The Bash target is read by the one node process both shells start (src/beforeedit.mjs, since TB5).
+  const core = fs.readFileSync(path.join(REPO, 'src', 'beforeedit.mjs'), 'utf8');
+  assert.match(core, /bashtargets\.mjs/);
+  assert.match(core, /writeTargets/);
   const hookPs = fs.readFileSync(path.join(REPO, 'bin', 'mem-before-edit.ps1'), 'utf8');
-  assert.match(hookPs, /src\/bashtargets\.mjs/);
-  assert.match(hookPs, /writeTargets/);
+  assert.match(hookPs, /bin\/mem-before-edit-core\.mjs/);
 });

@@ -109,6 +109,10 @@ function git(root, args) {
   try {
     return execFileSync('git', args, {
       cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+      // stderr is dropped: "not a git repository" is an ANSWER here (null), not
+      // noise for whoever called us — the before-edit hook runs this in its own
+      // process now and its stderr belongs to the trace alone.
+      stdio: ['ignore', 'pipe', 'ignore'],
     });
   } catch {
     return null; // not a git repo, or the command failed — never throw, just "unavailable"

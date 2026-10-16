@@ -477,6 +477,13 @@ each was reproduced against a throwaway root here first.
 
 ### Unsolved, explicitly
 
+- **The shred keyring has no distribution and no backup (round 3, 2026-10-16).** `.mem/keyring.json` is kept out of git on purpose
+  (`mem init` ignores it, the doctor finding `gitignore` is an ERROR when it is missing or already tracked): a keyring under
+  history keeps every destroyed key in the commit before. So it does not travel: a second clone reads the entries written with
+  `shred: true` as `unreadable: keyring-absent`, and a lost file makes all of them permanently unreadable, the same as a
+  deletion. It is a single copy. Moving it to another machine, and keeping one encrypted backup, is manual and outside git
+  (copy it encrypted). A restored OLD copy un-shreds whatever was destroyed after it was taken. A memory that committed the
+  file before the rule keeps the keys in its history after `git rm --cached`; entries shredded until then must not count as deleted.
 - **Ranking eviction.** A short claim containing the query terms outranks
   fifty genuine ones on BM25 length normalisation alone (measured; no term
   stuffing needed). Authority tiering only helps where the claims
@@ -573,7 +580,7 @@ Answered by breaking each mechanism on purpose and checking that a test
 notices (`node bench/mutation.mjs`). A mutant that SURVIVES marks a
 guarantee that lives in documentation and nowhere else.
 
-**131 mutants, 131 caught.** Including: supersession always allowed,
+**138 mutants, 138 caught.** Including: supersession always allowed,
 `admits()` always true, the disputed filter removed, deduplication removed,
 resource limits ignored, the redaction class narrowed back to ASCII, broken
 lines silently skipped again, cycles never reported, the merge driver
