@@ -889,6 +889,30 @@ export const MUTANTS=[
    from:"  if (path.basename(target) !== FILE_NAME || !path.basename(dir).startsWith(DIR_PREFIX)) return false;",
    to:"  // MUTANT: any directory",
    tests:['test/reflect-masked-copy.test.mjs'] },
+ { name:'K1 the question query cuts an identifier at the underscore again',
+   file:'src/search.mjs',
+   from:"    .split(/[^a-z0-9_\\u00e4\\u00f6\\u00fc\\u00df]+/)",
+   to:"    .split(/[^a-z0-9\\u00e4\\u00f6\\u00fc\\u00df]+/)  // MUTANT: `a_b` falls apart again",
+   tests:['test/k1-underscore.test.mjs'] },
+
+ { name:'K1 the question query puts umlauts into `ae` spelling again',
+   file:'src/search.mjs',
+   from:"    if ((w.length >= 4 || SHORT_OK.has(w)) && !out.has(w)) out.set(w, tw);",
+   to:"    if ((w.length >= 4 || SHORT_OK.has(w)) && !out.has(w)) out.set(w, w);  // MUTANT: English entries are missed",
+   tests:['test/k1-underscore.test.mjs'] },
+
+ { name:'K1 retrievalQuery asks for the plain cut',
+   file:'src/search.mjs',
+   from:"  const w = contentWords(text, { withoutRequest: requestFrame ?? requestFrameOn(), typed: true })",
+   to:"  const w = contentWords(text, { withoutRequest: requestFrame ?? requestFrameOn() })  // MUTANT",
+   tests:['test/k1-underscore.test.mjs'] },
+
+ { name:'K1 the H1 split cuts the question the old way',
+   file:'src/questionsplit.mjs',
+   from:"const plainWords = search.typedWords;",
+   to:"const plainWords = (text) => String(text ?? '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);  // MUTANT",
+   tests:['test/k1-underscore.test.mjs'] },
+
 ];
 
 // The modules whose failure is a security or data-integrity failure. The
