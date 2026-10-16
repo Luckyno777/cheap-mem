@@ -264,7 +264,7 @@ test('gauges.pathsOf: the paths the pattern found, on every command - and a long
     }
   }
   // the paths the bound of 512 characters cut or lost (the review's measures): all of them come back whole
-  const deep = `/home/user/${'d/'.repeat(300)}file.mjs`;
+  const deep = `deep/${'d/'.repeat(300)}file.mjs`;
   for (const command of [`cat ${deep}`, `cat ${'a'.repeat(600)}/x.md`, `cat a.md ${'z'.repeat(520)} b.md`, `echo ${'/x'.repeat(260)}`, `cat ${'a'.repeat(605)}.md`]) {
     assert.deepEqual(gauges.pathsOf('Bash', { command }), oldPaths(command), command.slice(0, 40));
   }
