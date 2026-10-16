@@ -21,7 +21,7 @@ import * as subagenttask from '../src/subagenttask.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MEM = path.join(REPO, 'bin', 'mem');
-const BASE = 'dc6b69d58cbc90e35827f62381897bc3abe8fee6';
+const BASE = '9ee34416b4bc8ac452ec39bcac8ce3c1c56e96f6';
 const TASK = 'Explain relativity';
 
 function world(t) {

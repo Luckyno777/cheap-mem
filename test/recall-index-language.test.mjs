@@ -8,7 +8,7 @@
 // (`recallhook.signal`), the content-word shortening of a long question (`retrievalQuery`) and a dozen readers asked for
 // nothing, which meant 'en'. On a memory configured for another language each of those calls rebuilt the cache that the
 // next `mem find` rebuilt again: `cacheStatus` read `stale` on every alternate load, on the path of every turn.
-// (The answers of the two indexes were the same on the probe corpus below; the cost was the rebuild.)
+// (Whether the two language indexes also ANSWER differently was not measured here; the proof below is the rebuild.)
 //
 // The proof counts rebuilds: a rebuild replaces the cache DIRECTORY (one atomic rename), so its inode changes.
 //   A. the state: `cacheStatus` of an unnamed-language load next to a named one;
@@ -27,7 +27,7 @@ import * as search from '../src/search.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MEM = path.join(REPO, 'bin', 'mem');
-const BASE = 'dc6b69d58cbc90e35827f62381897bc3abe8fee6';
+const BASE = '9ee34416b4bc8ac452ec39bcac8ce3c1c56e96f6';
 const TOPICS = ['database migration', 'payment settlement', 'backup rotation', 'invoice batch', 'customer sync'];
 // more than eight content words: the rarity cut of `--content-words` needs the index
 const LONG = 'we discussed at length database migration payment settlement backup rotation invoice batch customer synchronisation decisions';

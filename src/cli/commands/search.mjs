@@ -42,6 +42,7 @@ import * as categories from '../../categories.mjs';
 import { out, die, warn, checkFlags, numberFlag, isHelp, findRoot, requireConfig } from '../shell.mjs';
 import { asOfOf, sinceOf, showWindow, compactLine, markedEntry, sanitizeForDisplay } from '../display.mjs';
 import { maskText } from '../../outputguard.mjs';
+import { clears, RECALL_MIN } from '../../recallrender.mjs';
 
 // What a raw hit shows when no real user line carries a query word: never
 // the entry text (an unfiltered join of every role).
@@ -567,8 +568,8 @@ export const COMMANDS = {
     // score at or over `--journal-min`, or an exact hit.
     if (typeof args['journal-session'] === 'string' && args['journal-session']) {
       const injection = await import('../../injection.mjs');
-      const min = numberFlag('journal-min', args['journal-min'], { fallback: 5 });
-      const shown = hits.filter((h) => Number(h.score) >= min || (h.exact && h.exact.length));
+      const min = numberFlag('journal-min', args['journal-min'], { fallback: RECALL_MIN });
+      const shown = hits.filter((h) => clears(h, min));
       injection.book(root, {
         session: args['journal-session'],
         occasion: injection.OCCASION.QUESTION,

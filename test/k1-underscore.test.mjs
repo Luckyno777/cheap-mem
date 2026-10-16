@@ -5,8 +5,9 @@
 // QUESTION is not found. The index keeps `a_b` as ONE term (`tokenizeGroupsMulti` splits on
 // `[^\p{L}\p{N}_-]`); every question-side word cutter (`contentWords`, therefore `retrievalQuery`, and
 // the H1 question split) cut the question at `_` and searched `absichlaech` + `keinnern` - terms no entry
-// carries. The capital umlaut in the sibling's example was a red herring: lower-casing and the
-// transliteration run on both sides alike.
+// carries. In the sibling the capital umlaut of the example is innocent (lower-casing and the transliteration
+// run on both sides alike). Here the `ae` spelling that the cutter wrote ALSO misses an entry that the index read as
+// English (it holds `absichlach_..` and the typed form, never `ae`), so the typed spelling is part of the fix.
 //
 // Paths with a question-side cutter: `mem find --content-words` (also the after-failure hook), the H1
 // lever of the recall hook (`MEM_SEARCH_LEVERS=h1`), and the task query of the SubagentStart block.
@@ -28,7 +29,7 @@ import * as subagenttask from '../src/subagenttask.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MEM = path.join(REPO, 'bin', 'mem');
-const BASE = 'dc6b69d58cbc90e35827f62381897bc3abe8fee6';
+const BASE = '9ee34416b4bc8ac452ec39bcac8ce3c1c56e96f6';
 const TARGET = 'k1-target';
 // Escapes, not literals: no umlaut in source lines (test/f5-umlaut-riegel).
 const IDENT_UP = 'ABSICHL\u00c4CH_KEINNERN';
@@ -162,4 +163,35 @@ test('C: at BASE the question-side paths miss the entry (the probes above would 
   const r = await oldTask.forTask(root, { prompt: TASK },
     { env: { ...process.env, MEM_RETRIEVE_MIN: '0.5' } });
   assert.ok(!r || !r.ids.includes('k1-error'), 'base subagent');
+});
+
+// --- D. what K1 costs, held on purpose ---------------------------------------------------
+
+test('D: a snake_case token is searched as a WHOLE word only - loose part hits on prose are gone (named, held)', (t) => {
+  // Parity with the sibling house (the underscore rule for the question only). The price: an entry that says
+  // "the peer closed the socket" is no longer found by the question `socket_closed_by_peer` over the path of the
+  // after-failure hook (`find --content-words --weak`). At BASE that path scored 16.88 on it. "Whole word AND parts"
+  // is an open question for the owner of the sibling parity; if it is answered, this probe is changed on purpose.
+  const root = tempDir('cm-k1-loss-', t);
+  assert.equal(spawnSync(process.execPath, [MEM, 'init', '--root', root], { input: '' }).status, 0);
+  for (let i = 0; i < 6; i += 1) {
+    memory.logEntry(root, 'decision', { id: `k1-l-filler-${i}`, topic: `unrelated ${i}`, choice: `the cache is warmed at night, round ${i}`, why: 'load' });
+  }
+  memory.logEntry(root, 'decision', { id: 'k1-l-prose', topic: 'socket', choice: 'the peer closed the socket', why: 'seen in the log' });
+  memory.logEntry(root, 'decision', { id: 'k1-l-whole', topic: 'identifier', choice: 'the name socket_closed_by_peer is the error code', why: 'it is a code' });
+  const ask = (tree, q) => {
+    const r = spawnSync(process.execPath, [path.join(tree, 'bin', 'mem'), '--root', root, 'find', q, '--content-words', '--weak', '--top', '5', '--json'], {
+      encoding: 'utf8', timeout: 120000, env: { ...process.env, CHEAP_MEM_ROOT: '', MEM_SEARCH_LEVERS: '' } });
+    assert.equal(r.status, 0, r.stderr);
+    return JSON.parse(r.stdout).hits.map((h) => h.entry.id);
+  };
+  // now: the whole word finds the entry that carries it, and ONLY that one
+  assert.deepEqual(ask(REPO, 'socket_closed_by_peer'), ['k1-l-whole']);
+  assert.ok(!ask(REPO, 'socket_closed_by_peer').includes('k1-l-prose'), 'the loose part hit on prose is gone');
+  // control: the same words typed as words still find the prose entry
+  assert.ok(ask(REPO, 'socket closed by peer').includes('k1-l-prose'));
+  // base: the question fell apart into its parts and found the prose entry (the loss), but not the whole-word entry first
+  const old = tempDir('cm-k1-loss-base-', t);
+  exportCommit(REPO, BASE, ['bin', 'src', 'package.json'], old);
+  assert.ok(ask(old, 'socket_closed_by_peer').includes('k1-l-prose'), 'base found the prose entry through the parts');
 });

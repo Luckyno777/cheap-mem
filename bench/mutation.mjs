@@ -989,7 +989,7 @@ export const MUTANTS=[
  { name:'AI `mem find` loads the index a second time for the search',
    file:'src/cli/commands/search.mjs',
    from:"    const index = openIndex();\n    if (index.bridgeError)",
-   to:"    const index = search.loadIndex(root, { fresh: Boolean(args.fresh), language: cfg.language, env: conf.env });  // MUTANT\n    if (index.bridgeError)",
+   to:"    const index = search.loadIndex(root, { fresh: Boolean(args.fresh), language: cfg.language });  // MUTANT: a second load\n    if (index.bridgeError)",
    tests:['test/recall-index-language.test.mjs'] },
 
  { name:'AI the content-word shortening ignores the index its caller opened',
@@ -1003,6 +1003,12 @@ export const MUTANTS=[
    from:"retrievalQuery(task, { root, index, requestFrame: requestFrameOn(env) })",
    to:"retrievalQuery(task, { root, index })  /* MUTANT */",
    tests:['test/subagent-given-env.test.mjs'] },
+
+ { name:'RB the journal line of `mem find` keeps its own copy of the bar',
+   file:'src/cli/commands/search.mjs',
+   from:"      const shown = hits.filter((h) => clears(h, min));",
+   to:"      const shown = hits.filter((h) => Number(h.score) >= min);  // MUTANT",
+   tests:['test/recall-bar.test.mjs'] },
 
 ];
 

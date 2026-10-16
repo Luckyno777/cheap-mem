@@ -4,9 +4,9 @@
 // abruf-stamm-cm, step 2: what the hook SHOWS is decided in one place (src/recallrender.mjs `clears`, `RECALL_MIN`),
 // and the measurements call it instead of keeping a mirror.
 //
-// The finding. "Score at or over the bar, or an exact hit" was written out in five places: the renderer, the H5 path of
-// the hook, the SubagentStart block (its number), `bench/recall-levers.mjs` (twice, with its own `BAR = 5.0`) and, as a
-// string, in the two shell hooks. A measurement that re-implements the selection measures its own copy; the sibling house
+// The finding. "Score at or over the bar, or an exact hit" was written out in seven places: the renderer, the H5 path of
+// the hook, the journal line of `mem find --journal-session`, `bench/recall-levers.mjs` (twice, with its own `BAR = 5.0`),
+// `bench/coverage-floor-sweep.mjs`, and, as a number, in the SubagentStart block and the two shell hooks. A measurement that re-implements the selection measures its own copy; the sibling house
 // had a gold check that disagreed with the hook on echoes and on the byte budget. Here the copies are fewer and the
 // bench was the one that could drift.
 //
@@ -27,7 +27,7 @@ import * as recallhook from '../src/recallhook.mjs';
 import { REGISTER as ENV_REGISTER } from '../src/envregister.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const BASE = 'dc6b69d58cbc90e35827f62381897bc3abe8fee6';
+const BASE = '9ee34416b4bc8ac452ec39bcac8ce3c1c56e96f6';
 const read = (rel) => fs.readFileSync(path.join(REPO, rel), 'utf8');
 
 // --- A. the predicate ---------------------------------------------------------
@@ -113,8 +113,8 @@ test('C: every default of the bar in the repository is RECALL_MIN', () => {
 
 // --- D. the guard (red at the base) -----------------------------------------------------
 
-const COPY = /score\)?\s*>=\s*(?:min|bar|BAR|MIN)\b/;
-const GUARDED = ['src/recallhook.mjs', 'bench/recall-levers.mjs'];
+const COPY = /score\)?\s*>=\s*(?:min|bar|BAR|MIN|RETRIEVE_MIN)\b/;
+const GUARDED = ['src/recallhook.mjs', 'src/cli/commands/search.mjs', 'bench/recall-levers.mjs', 'bench/coverage-floor-sweep.mjs'];
 
 test('D: no file of the selection or of the measurement writes the comparison again', () => {
   for (const rel of GUARDED) {
@@ -122,6 +122,8 @@ test('D: no file of the selection or of the measurement writes the comparison ag
     assert.doesNotMatch(code, COPY, `${rel} compares the score with the bar itself`);
   }
   assert.match(read('bench/recall-levers.mjs'), /clears\(h, BAR\)/);
+  assert.match(read('src/cli/commands/search.mjs'), /hits\.filter\(\(h\) => clears\(h, min\)\)/);
+  assert.match(read('bench/coverage-floor-sweep.mjs'), /clears\(h, RETRIEVE_MIN\)/);
   assert.match(read('src/recallrender.mjs'), /if \(!clears\(h, min\)\) continue;/);
 });
 
@@ -131,4 +133,6 @@ test('D2: the guard is red on the base (positive control)', (t) => {
   const code = (rel) => fs.readFileSync(path.join(old, rel), 'utf8').replace(/\/\/.*$/gm, '');
   assert.match(code('bench/recall-levers.mjs'), COPY, 'the base bench wrote the comparison itself');
   assert.match(code('src/recallhook.mjs'), /score\) >= min/, 'the base H5 path wrote it too');
+  assert.match(code('src/cli/commands/search.mjs'), COPY, 'the base journal line of `find` wrote it too');
+  assert.match(code('bench/coverage-floor-sweep.mjs'), COPY, 'the base sweep wrote it too');
 });
