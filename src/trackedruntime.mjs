@@ -16,6 +16,10 @@
 
 import { spawnSync } from 'node:child_process';
 
+// The wildcard is built from parts: a slash and a star side by side inside a string open a block comment for the source scanners
+// of the guards (test/english-only.test.mjs and its kin), which then read code as comment text to the end of the file.
+const STAR = '*';
+
 /**
  * Every path under `.pipeline/` and `.mem/` that is runtime state of ONE clone and nothing else, with the gitignore rule
  * `mem init` writes for it, the pathspec git is asked with (and `git rm --cached` is told), a concrete path the doctor
@@ -28,9 +32,6 @@ import { spawnSync } from 'node:child_process';
  * `.mem/bridge-reports.jsonl`, `.mem/raw-exclusion-state.json`, `.mem/keyring.json` (the shred keys: a committed key
  * survives in history and defeats the shredding - the owner decides), `raw/` and the ledgers (tracked on purpose).
  */
-// The wildcard is built from parts: a slash and a star side by side inside a string open a block comment for the source scanners
-// of the guards (test/english-only.test.mjs and its kin), which then read code as comment text to the end of the file.
-const STAR = '*';
 export const RUNTIME_RULES = Object.freeze([
   // The WHOLE folder (2026-10-14), not file by file. `.pipeline/` is runtime state of ONE clone: the injection journal, the
   // clone-gate verdict, the recall server's socket and key, the command-guard booklet, the cost journal, the shrink
