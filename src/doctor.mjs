@@ -2804,16 +2804,20 @@ export function checkGitignoreEffective(root) {
   if (!fs.existsSync(path.join(root, '.git'))) {
     return finding('gitignore', LEVEL.UNKNOWN, 'no git repository — nothing to ignore');
   }
+  // ONE git call for all paths (about 35 of them: one process each cost a median 120 ms more): `-v -n --stdin -z` answers every
+  // path, a path no rule matches comes back with an empty source. Exit 0 = something ignored, 1 = nothing ignored,
+  // anything else = git could not answer.
+  const r = spawnSync('git', ['-C', root, 'check-ignore', '--no-index', '-v', '-n', '--stdin', '-z'],
+    { encoding: 'utf8', input: `${REQUIRED_IGNORES.join('\0')}\0` });
+  if (r.status !== 0 && r.status !== 1) {
+    return finding('gitignore', LEVEL.UNKNOWN,
+      `git check-ignore could not answer (${r.status})`);
+  }
+  const cells = String(r.stdout).split('\0');
   const notIgnored = [];
-  for (const ignoreRule of REQUIRED_IGNORES) {
-    const r = spawnSync('git', ['-C', root, 'check-ignore', '-q', '--no-index', ignoreRule],
-      { encoding: 'utf8' });
-    // 0 = ignored, 1 = not ignored, anything else = git could not answer.
-    if (r.status === 1) notIgnored.push(ignoreRule);
-    else if (r.status !== 0) {
-      return finding('gitignore', LEVEL.UNKNOWN,
-        `git check-ignore could not answer (${r.status})`);
-    }
+  for (let i = 0; i + 3 < cells.length; i += 4) if (cells[i] === '') notIgnored.push(cells[i + 3]);
+  if (cells.length < REQUIRED_IGNORES.length * 4) {
+    return finding('gitignore', LEVEL.UNKNOWN, 'git check-ignore answered for fewer paths than were asked');
   }
   if (!notIgnored.length) {
     // `check-ignore --no-index` answers for the PATH, not for the index: a memory that committed files under `.pipeline/` (or a runtime

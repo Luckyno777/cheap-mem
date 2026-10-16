@@ -28,6 +28,7 @@ are the day the work landed on `main`.
   `answer-patterns.json`, `langbridge/` (authored), `rewrites.jsonl`, `bridge-reports.jsonl`, `raw-exclusion-state.json`, `raw/`, and `keyring.json` (a committed shred key survives in
   history: the owner decides). An inventory test scans `src/`, `bin/` and `install/` for every `.mem/<name>` and asks git whether a fresh memory ignores it: a new file under `.mem/`
   is red until it is in the table or on the list.
+  With about 35 paths the doctor asks git ONCE (`check-ignore -v -n --stdin -z`) instead of once per path: median 149 ms -> 7 ms for the finding (7 runs, this machine, loaded).
 
 ### Fixed - finish of the hook work: tracked runtime files, a warning without a reason, cut before mask (M1-1, N5-1, N2, #27)
 

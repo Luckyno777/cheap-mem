@@ -82,7 +82,7 @@ function specMatcher(spec) {
 const shellWord = (spec) => (spec.includes('*') ? `'${spec}'` : spec);
 
 /** The tracked paths grouped by the runtime path they sit in: `[{ spec, count }]`, in table order. Never a file name. */
-export function groupTracked(files) {
+function groupTracked(files) {
   return RUNTIME_RULES.map((r) => ({ spec: r.spec, count: files.filter(specMatcher(r.spec)).length })).filter((g) => g.count > 0);
 }
 
