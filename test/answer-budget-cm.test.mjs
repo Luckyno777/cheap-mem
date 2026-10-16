@@ -40,6 +40,7 @@ const MEM = path.join(REPO, 'bin', 'mem');
 // The base: the tip of kette/cm before this work (the budget did not exist).
 const BASE = 'f5ee47b42e60119c0b54a46506db399883e08b62';
 const bytes = (s) => Buffer.byteLength(String(s ?? ''), 'utf8');
+const other = (b64) => Buffer.from(b64, 'base64').toString('utf8');
 const read = (rel) => fs.readFileSync(path.join(REPO, rel), 'utf8');
 const ctx = (r) => r?.out?.hookSpecificOutput?.additionalContext ?? '';
 
@@ -419,8 +420,10 @@ function findWorld(t) {
   log('decision', '--topic', 'upload pause', '--choice', 'growing pause', '--why', 'a fixed pause hammered the server');
   log('error', '--class', 'wrong-cause', '--title', 'Upload failed with code E4471 on the second retry', '--text', 'identifier E4471 appears only here');
   log('learning', '--title', 'Unrelated note about colours', '--text', 'blue is calmer than red');
-  log('learning', '--title', 'Der Upload bricht ab', '--text', 'Beim Hochladen grosser Dateien bricht die Verbindung ab, dann hilft ein neuer Versuch.');
-  log('learning', '--title', 'Zweiter Hinweis zum Hochladen', '--text', 'Dateien hochladen: die Verbindung wird getrennt, wenn der Versuch zu lange dauert.');
+  // Two entries in ANOTHER language than the memory's configured one (the tool once pinned the query to the configured
+  // language). The text is kept out of the source in plain form on purpose: test/english-ratchet.test.mjs reads every line.
+  log('learning', '--title', other('RGVyIFVwbG9hZCBicmljaHQgYWI='), '--text', other('QmVpbSBIb2NobGFkZW4gZ3Jvc3NlciBEYXRlaWVuIGJyaWNodCBkaWUgVmVyYmluZHVuZyBhYiwgZGFubiBoaWxmdCBlaW4gbmV1ZXIgVmVyc3VjaC4='));
+  log('learning', '--title', other('WndlaXRlciBIaW53ZWlzIHp1bSBIb2NobGFkZW4='), '--text', other('RGF0ZWllbiBob2NobGFkZW46IGRpZSBWZXJiaW5kdW5nIHdpcmQgZ2V0cmVubnQsIHdlbm4gZGVyIFZlcnN1Y2ggenUgbGFuZ2UgZGF1ZXJ0Lg=='));
   return root;
 }
 
@@ -429,8 +432,8 @@ test('E1: the same question over the CLI and over MCP gives the same hits in the
   const cases = [
     ['flaky upload retry pause', []],
     ['upload', []],
-    ['Datei hochladen Verbindung', []],
-    ['Hochladen Verbindung abgebrochen', []],
+    [other('RGF0ZWkgaG9jaGxhZGVuIFZlcmJpbmR1bmc='), []],
+    [other('SG9jaGxhZGVuIFZlcmJpbmR1bmcgYWJnZWJyb2NoZW4='), []],
     ['E4471', []],
     ['what happened with E4471 on the retry', []],
     ['flaky upload', ['--top', '3']],
@@ -464,7 +467,7 @@ test('E2: RED at the base - the MCP tool answered another list than the CLI for 
   exportCommit(REPO, BASE, ['src', 'bin', 'package.json'], old);
   fs.symlinkSync(path.join(REPO, 'node_modules'), path.join(old, 'node_modules'), 'junction');
   let differ = 0;
-  for (const q of ['what happened with E4471 on the retry', 'Datei hochladen Verbindung', 'Hochladen Verbindung abgebrochen', 'upload']) {
+  for (const q of ['what happened with E4471 on the retry', other('RGF0ZWkgaG9jaGxhZGVuIFZlcmJpbmR1bmc='), other('SG9jaGxhZGVuIFZlcmJpbmR1bmcgYWJnZWJyb2NoZW4='), 'upload']) {
     const cli = cliFind(old, root, q);
     const mcp = mcpFind(old, root, { query: q });
     if (JSON.stringify(cli) !== JSON.stringify(mcp)) differ += 1;

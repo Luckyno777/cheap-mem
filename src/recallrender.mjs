@@ -196,7 +196,7 @@ export function renderPointer(hit) {
 }
 
 /** Characters of head in a pointer line. */
-export const POINTER_HEAD = 80;
+const POINTER_HEAD = 80;
 
 /**
  * The attacher for these hits (`src/recallattach.mjs`, L3: the solution of an error
