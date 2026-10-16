@@ -127,8 +127,22 @@ function numberOrNull(v) {
   return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
+// `Q1 + Q2` and `Q1 and Q2` both name the package `q1+q2`. Linear: the first spelling was two patterns, one for the plus
+// (blanks, a plus, blanks) and one for `and` between blanks. Both start at every blank of a long run of blanks and fail at
+// its end: quadratic on a `package` field of a megabyte of blanks. Same result, shown by test/linear-trim-golden.test.mjs.
 function normalizePackage(p) {
-  return String(p ?? '').trim().replace(/\s*\+\s*/g, '+').replace(/\s+and\s+/gi, '+');
+  const around = String(p ?? '').trim().split('+').map((part) => part.trim()).join('+');
+  // Split with the blanks kept: the pieces alternate word, blanks, word, blanks, ... `blanks and blanks` becomes `+`;
+  // a word that was used up as the `and` of one pair is not the start of the next.
+  const pieces = around.split(/(\s+)/);
+  let out = '';
+  for (let i = 0; i < pieces.length; i += 1) {
+    if (i % 2 === 1 && i + 2 < pieces.length && pieces[i + 1].toLowerCase() === 'and') {
+      out += '+';
+      i += 2;
+    } else out += pieces[i];
+  }
+  return out;
 }
 
 /**
