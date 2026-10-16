@@ -880,9 +880,27 @@ export const MUTANTS=[
 
  { name:'mask-copy: a line that is no JSON is copied unmasked',
    file:'bin/mem-mask-copy.mjs',
-   from:"      const text = maskText(block.join('\\n'));",
-   to:"      const text = block.join('\\n');  // MUTANT",
+   from:"      let masked = maskText(text);",
+   to:"      let masked = text;  // MUTANT",
    tests:['test/reflect-masked-copy.test.mjs'] },
+
+ { name:'mask-copy: a cut gives up a PEM block that is still open (no END yet): the rest of the key stays in the clear',
+   file:'bin/mem-mask-copy.mjs',
+   from:"      carry = cut ? openBlockHeader(text) : '';",
+   to:"      carry = '';  // MUTANT",
+   tests:['test/small-rest2-cm.test.mjs'] },
+
+ { name:'redaction: the short last line of a PEM key (an open block, or one past the 8 KB bound) stays in the clear',
+   file:'src/redaction.mjs',
+   from:"(?:[A-Za-z0-9+/=]{1,19}(?=\\r?\\n|\\\\[nr]|$|[\"']|-----END))?/g],",
+   to:"/g],  // MUTANT",
+   tests:['test/small-rest2-cm.test.mjs'] },
+
+ { name:'redaction: pinhashes (the plural of pinhash, in one word) is no counter key',
+   file:'src/redaction.mjs',
+   from:"|| (w.endsWith('hashes') && isExtraWord(w.slice(0, -2)))",
+   to:"|| false",
+   tests:['test/small-rest2-cm.test.mjs'] },
 
  { name:'mask-copy: --clean removes a directory it did not make',
    file:'bin/mem-mask-copy.mjs',

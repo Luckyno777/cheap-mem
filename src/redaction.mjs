@@ -145,9 +145,12 @@ export const PATTERNS = Object.freeze([
   // pattern above, so a complete block has already fallen; what is left is open. Only the key MATERIAL falls:
   // the header, then base64 runs of 20+ characters (lines, or the literal \n of a JSON string between them).
   // A header alone ("-----BEGIN CERTIFICATE-----" in prose) is not touched.
+  // The LAST line of a key is shorter than a run of 20 (a wrapped key ends in a stump of 1 to 63 characters): one short run
+  // falls too, but only when it ends its line (a line end, a literal \n, the end of the text, a closing quote or an END line),
+  // so "Next steps" after an open block stays (small-rest2: a 13-character tail survived a block past the 8 KB bound).
   // Unambiguous by construction (no two ways to read the same characters, so no backtracking blow-up): blank space; then
   // header lines (`Proc-Type: 4,ENCRYPTED`: a letter-led name, a colon, a bounded value, a line end); then base64 runs.
-  ['pem-block',       /-----BEGIN[^-]{0,40}-----(?:\s|\\[nr])*(?:[A-Za-z][A-Za-z0-9-]{0,30}:[^\n\\]{0,61}(?:\r?\n|\\n)(?:\s|\\[nr])*)*(?:[A-Za-z0-9+/=]{20,}(?:\s|\\[nr])*)+/g],
+  ['pem-block',       /-----BEGIN[^-]{0,40}-----(?:\s|\\[nr])*(?:[A-Za-z][A-Za-z0-9-]{0,30}:[^\n\\]{0,61}(?:\r?\n|\\n)(?:\s|\\[nr])*)*(?:[A-Za-z0-9+/=]{20,}(?:\s|\\[nr])*)+(?:[A-Za-z0-9+/=]{1,19}(?=\r?\n|\\[nr]|$|["']|-----END))?/g],
   ['ssh-key',         /\bssh-(?:rsa|ed25519|dss)\s+[A-Za-z0-9+/=]{50,}/g],
 
   // --- Headers / URLs ------------------------------------------------
@@ -755,8 +758,9 @@ const isExtraWord = (w) => {
   const m = PIN_END.exec(w);
   return m !== null && !NOT_PIN_WORDS.has(m[1]);
 };
-// `pins` itself is 4 characters: only a compound (a stem longer than `pin`) is a plural of a pin word
-const isPinPlural = (w) => w.length > 4 && w.endsWith('s') && isExtraWord(w.slice(0, -1));
+// `pins` itself is 4 characters: only a compound (a stem longer than `pin`) is a plural of a pin word. The plural of `hash` is
+// `hashes`: `pinhashes` is read as `pinhash` + `es` (a stem of `pin` alone, `pines`, stays the English word).
+const isPinPlural = (w) => w.length > 4 && w.endsWith('s') && (isExtraWord(w.slice(0, -1)) || (w.endsWith('hashes') && isExtraWord(w.slice(0, -2))));
 const CREDENTIAL_WORDS = new Set(['credential', 'credentials']);
 const FETCH_CREDENTIALS = /^(?:same-origin|include|omit)$/;
 const COUNTER_WORDS = new RegExp(`(?:${KEY_WORDS_FLEX})(?:s|[_-]?(?:count|counts|limit|limits|budget|usage|used|len|length|total|num|number))|(?:max|min|num|total)[_-]?token`, 'gi');
