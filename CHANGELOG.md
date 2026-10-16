@@ -40,6 +40,44 @@ shape in all seven generated PowerShell hooks (and set `CHEAP_MEM_CODE` in none)
 `install/linux.sh` and `install/macos.sh` install the watcher service and write no hook shims; `mem setup claude` runs `claude-code.sh`. New guard `test/installed-hooks-run.test.mjs`:
 installs into a scratch HOME, starts every registered hook with a bare environment and a real hook JSON, and demands bytes in the context (and a capture from the Stop hook); the
 .ps1 hooks are run on win32 with PowerShell, and checked statically on every platform.
+### Fixed - reflector follow-up: lines that belong together, the env route, a temp directory inside the memory root (small-parity-cm, point 3; Parity lm=open)
+
+- **A secret across lines is masked.** `bin/mem-mask-copy.mjs` masked a plain (non-JSON-object) line on its own, so a PEM private key lost its mask: no single line has its shape. Consecutive plain lines are now masked as one block, cut at
+  20,000 lines or 2 MiB so the work stays linear (8 MB of plain lines took 2.0 s, measured). A bare number or string line counts as text. A secret longer than a cut (2 MiB) is the only thing a cut can split.
+- **The env route.** `TRANSCRIPT_PATH_ENV` is unset right after it is read, so the model no longer inherits the raw path through it.
+- **A temp directory inside the memory root fails closed.** If `TMPDIR`/`TEMP`/`TMP` points into the memory root the copy would be picked up by `git add -A`: the helper (`--root`) refuses, no model starts, the marker goes back.
+- **ps1:** everything from the copy to the end of the job sits in one `try`/`finally` that removes the copy.
+Probes in `test/reflect-masked-copy.test.mjs`, red against 37e1e25; five mutants added or re-anchored.
+
+### Fixed - pin words with digits, `pinhash`/`pinvalue`/`pinnumber`, and the plural of a compound (small-parity-cm, follow-up to point 1; Parity lm=yes)
+
+A word that ends in `pin` and digits (`pin1`, `PIN2`, `myPIN2`, `userpin2`) is a pin word, and so is `pin` + `code|hash|value|number|num|digest|salt` spelled in one word (`pinhash`, `pinvalue`, `pinnumber`, `userpinhash`).
+The compound PLURAL (`userpins`, `bankpins`) follows the plural rule of the other keywords (`tokens`): a counter key, so a string falls and one number stays. The bare word `pins` stays free, also as a word of
+`userPins`/`user_pins` (51 uses of `pins` in this tree, all the English word). Corpus measure (docs, test, README, src, bin, bench, shared, eval, CHANGELOG; and the 52 MB of node_modules): no word ends in `pin<digits>`, none is a
+compound plural of `pin`, none is `pinhash`/`pinvalue`/`pinnumber`, so the stricter reading costs no false alarm there. `spin`, `spin2` and `spinvalue` stay (the English-words list is tested on the part up to `pin`).
+Monotone against 870788f: 40,105 text cases and 60,000 random objects with the new key shapes, 0 regressions, every newly masked field under a path that holds `pin`. Four mutants added, 13/13 of `src/redaction.mjs` caught.
+
+### Fixed - the reflector reads a MASKED copy of the transcript (small-parity-cm, point 3; Parity lm=open; decision "outgoing paths stay, with a mask")
+
+`bin/mem-reflect` (and its `.ps1` twin) handed `claude -p` the path of the transcript as it lies on disk, so the model saw every secret in it, while the digest (`mem raw show`) and the mail handler (`mem inbox show`) read masked.
+New `bin/mem-mask-copy.mjs` writes a copy through the same masking (`maskEntry` per JSON line, `maskText` for any other line) into a private directory under the OS temp directory (never under the memory root: the reflector
+commits with `git add -A`); `$TRANSCRIPT_PATH` is the copy and it is removed when the reflector ends: on a normal end and on a timeout (sh: trap EXIT; ps1: `finally` around the whole run from the copy to the job). Honest limits: SIGKILL (or a power cut) cannot clean up; and a TERM, INT or HUP that reaches the sh script while the model runs is deferred by bash until the model has ended, then the copy is removed. Fail closed: if the copy cannot be made no model starts and the marker goes back
+to where it was. `MEM_HEADLESS` is untouched. Probe `test/reflect-masked-copy.test.mjs` with a stand-in model (token, keyed value and PIN do not arrive; the raw path is in neither argument nor environment), red against the base; six mutants added.
+The original path is not given to the model: not in the prompt, not in `TRANSCRIPT_PATH`, and the hand-in variable `TRANSCRIPT_PATH_ENV` is unset (`Remove-Item Env:` in the ps1) before the model starts. A model with file tools that guesses where its host keeps transcripts can still open one, which only a sandbox would prevent.
+
+### Fixed - the answer check asks for the WHOLE corrected answer, not an addendum (small-parity-cm, point 2; Parity lm=yes)
+
+After a block by the Stop hook the reason said "fix the answer if it applies". Under `claude -p` and over a bridge only the last message reaches the reader, and what came was an addendum that pointed at a first answer
+the reader never saw. The reason now says: output the WHOLE answer again, corrected, not just an addendum, because whoever reads only the last message never sees the first one; a false alarm is still one sentence.
+Held by `test/answer-check.test.mjs` (both `checkStop` and `bin/mem-stop`), red against the old wording; one mutant added to `bench/mutation.mjs`, caught.
+
+### Fixed - `pincode`, `userpin` and `pincode_hash` fell open in an object (small-parity-cm, point 1; Parity lm=yes)
+
+The object key rule knew `pin`, `pwd` and `passcode` as whole words only, so `{pincode: "4711"}`, `PINCODE`, `userpin` and `pincode_hash` stayed open in `redactObject` and `maskEntry`, as a string and as a number.
+Now `pincode` is a pin word, and so is a one-word compound that ENDS in `pin` or `pincode` (`userpin`, `bankpin`, `userpincode`). A word that STARTS with `pin` is not (`pinned: true` is a flag; 194 uses of `pinned`,
+44 of `pins`, 24 of `ping`, 22 of `pinning` in this tree). The one word of the corpus that ends in `pin` is `spin` (8 uses, none as a key); it and a short list of English words that end in `pin` (`hairpin`, `kingpin`, ...) stay.
+The counter rule is that of `pin`: `pincode_count: 3` and `userpin_length: 4` are free numbers, `pincode_count: "1234"` falls. Measured against 870788f: 40,105 text cases and 60,000 random objects (two walkers), 0 regressions;
+every newly masked field sits under a path that holds `pin`. Five mutants added to `bench/mutation.mjs`, 9/9 of `src/redaction.mjs` caught.
 
 ### Performance - measured, not built: a word-normalisation memo for the cold index build (cli-speed-cm TB9; cheap-mem only)
 

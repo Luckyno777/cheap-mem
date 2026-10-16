@@ -76,6 +76,8 @@ fi
 if [ -z "$TRANSCRIPT_PATH" ] && [ -n "${TRANSCRIPT_PATH_ENV:-}" ]; then
   TRANSCRIPT_PATH="$TRANSCRIPT_PATH_ENV"
 fi
+# The variable held the raw path; the model must not inherit it (it would still point at the file as it lies on disk).
+unset TRANSCRIPT_PATH_ENV
 
 if [ -z "$TRANSCRIPT_PATH" ] || [ ! -f "$TRANSCRIPT_PATH" ]; then
   # No transcript to reflect on — silent success.
@@ -108,7 +110,36 @@ fi
 # then run the AI reflector.
 echo "$CUR_SIZE" > "$MARKER"
 
-DEFAULT_PROMPT="You are the reflector for cheap-mem. Read the transcript at \$TRANSCRIPT_PATH (env). Decide whether anything substantial happened since the last reflect (marker-based throttling handled the trigger; you decide relevance).
+# The model reads a MASKED copy of the transcript, never the file as it lies on
+# disk. The digest reads captures through `mem raw show` and the mail handler
+# reads mail through `mem inbox show`, both masked; the reflector alone handed
+# the model the raw path, secrets and all. The copy is made by
+# bin/mem-mask-copy.mjs (the masking of `mem raw show`: maskEntry per JSON
+# line, maskText for the rest), sits under the OS temp directory (not under the
+# memory root: the reflector commits with `git add -A`; if TMPDIR points into the
+# memory root the helper refuses), and is removed when this script ends. Fails
+# CLOSED: no copy, no model. The marker then goes back
+# to where it was, so the next Stop tries again.
+HERE="$(cd "$(dirname "$(to_slashes "$0")")" && pwd)"
+MASKED_COPY=""
+cleanup_masked() {
+  if [ -n "$MASKED_COPY" ]; then
+    node "$HERE/mem-mask-copy.mjs" --clean "$MASKED_COPY" >/dev/null 2>&1 || true
+    MASKED_COPY=""
+  fi
+}
+trap cleanup_masked EXIT
+trap 'exit 0' HUP INT TERM
+MASKED_COPY="$(node "$HERE/mem-mask-copy.mjs" --root "$CHEAP_MEM_ROOT" "$TRANSCRIPT_PATH" 2>/dev/null || true)"
+MASKED_COPY="$(to_slashes "$MASKED_COPY")"
+if [ -z "$MASKED_COPY" ] || [ ! -f "$MASKED_COPY" ]; then
+  MASKED_COPY=""
+  echo "$LAST_SIZE" > "$MARKER"
+  exit 0
+fi
+TRANSCRIPT_PATH="$MASKED_COPY"
+
+DEFAULT_PROMPT="You are the reflector for cheap-mem. Read the transcript at \$TRANSCRIPT_PATH (env). It is a masked copy: secrets in it are already replaced by [REDACTED:...] markers, and you never need the original. Decide whether anything substantial happened since the last reflect (marker-based throttling handled the trigger; you decide relevance).
 
 If YES, write ONE inbox message to the librarian summarizing what you saw, and log at most three JSONL entries (event, decision, error — whichever fits). Use absolute paths since your cwd is NOT the memory root:
 
