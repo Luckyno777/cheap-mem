@@ -912,6 +912,23 @@ export const MUTANTS=[
    from:'        if (st.ctimeMs > newestChange) newestChange = st.ctimeMs;',
    to:'        // MUTANT: no ctime',
    tests:['test/dash-stamp-r4-cm.test.mjs'] },
+ { name:'live parts: question-confirm makes no part stale (back to rebuild-only)',
+   file:'src/dashboard-live.mjs',
+   from:"  'question-confirm': ['questions'],",
+   to:'  // MUTANT: no part for question-confirm',
+   tests:['test/dash-confirm-fresh-cm.test.mjs'] },
+
+ { name:'live parts: the questions part reads the whole store of a compact build',
+   file:'src/dashboard-live.mjs',
+   from:"      if (work.compact) throw new Error('this store is built compact: its question lists come from the one pass over the store, the rebuild brings the new state');",
+   to:'      // MUTANT: compact read whole',
+   tests:['test/dash-confirm-fresh-cm.test.mjs'] },
+
+ { name:'question lists: an unreadable list is not named',
+   file:'src/dashboard-data.mjs',
+   from:"  } catch (e) { reasons.push(`waiting questions not readable: ${e?.message || e}`); }\n  return { openQuestions",
+   to:"  } catch { /* MUTANT: silent */ }\n  return { openQuestions",
+   tests:['test/dash-confirm-fresh-cm.test.mjs'] },
 ];
 
 // The modules whose failure is a security or data-integrity failure. The

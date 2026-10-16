@@ -1681,7 +1681,7 @@ const pages = {
     const openRow = (e, c) => (c
       ? cardHtml(c, { foot: `<span class="small quiet">${esc(types[e.type])} · ${ce(e.project)}${e.type === 'duty' ? ' · owed by ' + ce(D._dutyWho.get(e.id) || 'not named') : ''}</span>${statusBadge(e.id)}${open(e.id, 'Open ↗', 'btn small ghost')}${D._waitingQuestion.has(e.id) ? confirmAnswerBtn(e.id) : ''}` })
       : row(e));
-    return panel('Open and finished work', (workGroupsHtml(openOnes, { render: openRow }) || empty(es.length ? 'Nothing open.' : 'No duty and no question recorded yet.')) + (closed.length ? `<details class="accordion"><summary>${num(closed.length)} finished</summary>${closed.slice(0, 60).map(row).join('')}${limitNote(Math.min(60, closed.length), closed.length, 'knowledge/entries')}</details>` : ''), `${num(openOnes.length)} open · decided by memory.openDuties and question.open`);
+    return panel('Open and finished work', (workGroupsHtml(openOnes, { render: openRow }) || empty(es.length ? 'Nothing open.' : 'No duty and no question recorded yet.')) + (closed.length ? `<details class="accordion"><summary>${num(closed.length)} finished</summary>${closed.slice(0, 60).map(row).join('')}${limitNote(Math.min(60, closed.length), closed.length, 'knowledge/entries')}</details>` : ''), `${num(openOnes.length)} open · decided by memory.openDuties and question.open`, '', ['questions']);
   },
   calendar: () => `<div id="calendarView">${calCache ? calendarHtml() : '<p class="small quiet">Reading the calendar …</p>'}</div>`,
   agents: () => {

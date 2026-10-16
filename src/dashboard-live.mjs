@@ -28,8 +28,10 @@
 // **The limit of a part: it refreshes its OWN sections only.** `settings` lays the settings list and the change log, not
 // the board tiles that depend on a setting (error-window, quiet-hours: the error-class and agents tiles, the
 // attention list); `raw` lays state and counters of the captures, not their reachability summary elsewhere on the
-// board, nor the topics of a capture (those stay the stored ones). The tiles, `agents[].channel` and everything else
-// derived from a setting or a message follow with the rebuild.
+// board, nor the topics of a capture (those stay the stored ones); `questions` lays the open and the waiting questions
+// (the state badge, the confirm button and the work lists follow from them), not the per-project question counts of the
+// project shelf. The tiles, `agents[].channel` and everything else derived from a setting or a message follow with the
+// rebuild.
 //
 // **What is NOT here.** Writes whose effect sits in the whole entry stock (done, restore, merge: the entry list,
 // open duties and questions, counters) cannot be recomputed in milliseconds - they stay with the rebuild;
@@ -87,6 +89,21 @@ export const PARTS = Object.freeze({
     sections: ['raw'],
     build: (root, work) => ({ raw: dashboardData.rawLive(root, work.raw) }),
   },
+  // Confirm an answer (dashboard-tempo-cm, the sibling's H7 "confirm shows the new state at once"): the open questions,
+  // the ones waiting for the person who asked, and what the card cap left out of the two - through the SAME function the
+  // build calls (dashboardData.questionLists). It reads the question drawers and the link graph of the questions, once
+  // per write (measured on 5000 entries: see docs/dashboard.md). A store built compact got its lists from the one pass
+  // over the store: reading the whole store here is what the compact build exists to avoid, so the part says so and
+  // stays the stored one until the rebuild.
+  questions: {
+    sections: ['openQuestions', 'waitingQuestions', 'cards_omitted'],
+    build: (root, work) => {
+      if (work.compact) throw new Error('this store is built compact: its question lists come from the one pass over the store, the rebuild brings the new state');
+      const q = dashboardData.questionLists(root);
+      if (q.reasons.length) throw new Error(q.reasons.join('; '));
+      return { openQuestions: q.openQuestions, waitingQuestions: q.waitingQuestions, cards_omitted: { ...(work.cards_omitted ?? {}), ...q.omitted } };
+    },
+  },
 });
 
 /** Which writing route of the server makes which parts stale (the probe pins every path of `WRITE_PATHS`). */
@@ -108,6 +125,7 @@ export const ROUTE_NO_PART = Object.freeze({
 export const TASK_PARTS = Object.freeze({
   'project-confirm': ['projects'],
   'raw-delete': ['raw'],
+  'question-confirm': ['questions'],
 });
 
 /**
@@ -121,7 +139,6 @@ export const REBUILD_ONLY = Object.freeze({
   restore: 'entry stock (see done)',
   merge: 'entry stock (see done)',
   'inbox-permit': 'one grant line; the dashboard shows no permission list',
-  'question-confirm': 'entry stock (open/waiting questions, counters) - only the rebuild computes that (see done)',
   'category-assign': 'has its own live path (categoriesLive, cat-confirm-cm)',
   'category-confirm': 'like category-assign',
   'category-acknowledge': 'like category-assign',
