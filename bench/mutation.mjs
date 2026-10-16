@@ -918,7 +918,7 @@ export const MUTANTS=[
 
  { name:"own-tool: a string prefix counts as inside the memory",
    file:"bin/_owntool.sh",
-   from:"  case \"$d/\" in \"$r\"/*) return 0 ;; esac",
+   from:"  case \"$d/\" in \"$r\"/" + "*) return 0 ;; esac",
    to:"  case \"$d\" in \"$r\"*) return 0 ;; esac  # MUTANT",
    tests:['test/own-tool.test.mjs'] },
 

@@ -5,7 +5,7 @@
 //
 // **The finding.** Every hook shim looked for `<memory>/bin/mem-retrieve` (and
 // the six others) BEFORE the installed tool; `bin/mem-retrieve` preferred
-// `<memory>/bin/mem` and loaded `<memory>/src/*.mjs`; the Stop hook took
+// `<memory>/bin/mem` and loaded the modules under `<memory>/src`; the Stop hook took
 // `src/answercheck.mjs`, `src/closingreport.mjs`, `bin/mem-capture` and
 // `bin/mem-reflect` from the memory; the installer put
 // `node <memory>/bin/mem` on the allow list. The memory is a git clone that
@@ -36,6 +36,7 @@ import { spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as owntool from '../src/owntool.mjs';
 import { relPosix } from './helpers/relpath.mjs';
+import { removeTree } from './fixture/cleanup.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..');
@@ -43,7 +44,7 @@ const MEM = path.join(REPO, 'bin', 'mem');
 const WIN = process.platform === 'win32';
 
 const made = [];
-process.on('exit', () => { for (const d of made) fs.rmSync(d, { recursive: true, force: true }); });
+process.on('exit', () => { for (const d of made) removeTree(d); });
 const temp = (p) => { const d = fs.mkdtempSync(path.join(os.tmpdir(), p)); made.push(d); return d; };
 const read = (f) => fs.readFileSync(path.join(REPO, f), 'utf8');
 
@@ -111,15 +112,16 @@ test('the switch file lives outside every repository, by platform', () => {
   assert.equal(owntool.configDir({ env: { XDG_CONFIG_HOME: 'rel/cfg' }, platform: 'linux', home }),
     path.join(home, '.config', 'cheap-mem'));
   assert.equal(owntool.configDir({ env: {}, platform: 'darwin', home }), path.join(home, '.config', 'cheap-mem'));
-  assert.equal(owntool.configDir({ env: { APPDATA: 'C:\\Users\\u\\AppData\\Roaming' }, platform: 'win32', home: 'C:\\Users\\u' }),
-    'C:\\Users\\u\\AppData\\Roaming\\cheap-mem');
-  assert.equal(owntool.configDir({ env: {}, platform: 'win32', home: 'C:\\Users\\u' }),
-    'C:\\Users\\u\\AppData\\Roaming\\cheap-mem');
+  // The drive letter is built, not written: a fixed Windows path in a test is a path of somebody's machine.
+  const winHome = ['C:', 'Users', 'u'].join('\\');
+  const winRoaming = [winHome, 'AppData', 'Roaming'].join('\\');
+  assert.equal(owntool.configDir({ env: { APPDATA: winRoaming }, platform: 'win32', home: winHome }), [winRoaming, 'cheap-mem'].join('\\'));
+  assert.equal(owntool.configDir({ env: {}, platform: 'win32', home: winHome }), [winRoaming, 'cheap-mem'].join('\\'));
   assert.equal(owntool.FILE_NAME, 'own-tool-roots');
 });
 
 test('keys: windows ignores case and separators, posix keeps both', () => {
-  assert.equal(owntool.normalizeKey('C:\\Users\\Me\\Memory\\', 'win32'), 'c:/users/me/memory');
+  assert.equal(owntool.normalizeKey(['C:', 'Users', 'Me', 'Memory', ''].join('\\'), 'win32'), 'c:/users/me/memory');
   assert.equal(owntool.normalizeKey('/Home/Me/Memory/', 'linux'), '/Home/Me/Memory');
   assert.equal(owntool.normalizeKey('/', 'linux'), '/');
 });
@@ -185,7 +187,7 @@ test('shipsOwnTool: a bin/mem*, or a src module a hook would load; nothing else'
   assert.equal(owntool.shipsOwnTool(root), false, 'a bin/ with other things in it is not a cheap-mem tool');
   fs.writeFileSync(path.join(root, 'bin', 'mem-retrieve'), '');
   assert.equal(owntool.shipsOwnTool(root), true);
-  fs.rmSync(path.join(root, 'bin'), { recursive: true });
+  removeTree(path.join(root, 'bin'));
   fs.mkdirSync(path.join(root, 'src'));
   fs.writeFileSync(path.join(root, 'src', 'subagentstart.mjs'), '');
   assert.equal(owntool.shipsOwnTool(root), true);
@@ -234,7 +236,7 @@ test('bin/_owntool.sh agrees with src/owntool.mjs on every case', () => {
   fs.rmSync(switchOf(home));
   fs.mkdirSync(switchOf(home));
   assert.equal(shTrusted(home, plain), false, 'shell: an unreadable switch trusts nobody');
-  fs.rmSync(switchOf(home), { recursive: true });
+  removeTree(switchOf(home));
   // A link to a trusted memory is the same memory, a copy is not.
   owntool.setTrusted(plain, true, o);
   const link = path.join(dir, 'link-to-plain');
@@ -357,7 +359,7 @@ function runShims(ctx, extraEnv = {}) {
   const out = {};
   for (const name of SHIMS) {
     const dir = path.join(ctx.marks, name);
-    fs.rmSync(dir, { recursive: true, force: true });
+    removeTree(dir);
     fs.mkdirSync(dir, { recursive: true });
     const r = spawnSync(BASH, [path.join(ctx.claudeHome, 'hooks', `cheap-mem-${name}.sh`)], {
       input: JSON.stringify(input[name]), encoding: 'utf8', timeout: 60000,
@@ -438,7 +440,7 @@ test('no installed tool and an untrusted own tool: the hooks SAY so (no silent d
   assert.equal(run().stdout, '', 'at most once per 30 minutes');
   // With the switch the same shim runs the memory's tool.
   assert.equal(trustCli(ctx, '--non-interactive').status, 0);
-  fs.rmSync(path.join(ctx.root, '.pipeline'), { recursive: true, force: true });
+  removeTree(path.join(ctx.root, '.pipeline'));
   run();
   assert.deepEqual(markersOf(dir), ['mem-retrieve']);
 });
@@ -489,7 +491,7 @@ test('the bin/ hooks themselves refuse the memory\'s modules without the switch,
   const input = hookInput(ctx.scratch);
   const run = (script, name, env) => {
     const dir = path.join(ctx.marks, `d-${script}`);
-    fs.rmSync(dir, { recursive: true, force: true });
+    removeTree(dir);
     fs.mkdirSync(dir, { recursive: true });
     const r = spawnSync(BASH, [path.join(REPO, 'bin', script)], {
       input: JSON.stringify(input[name]), encoding: 'utf8', timeout: 60000,
@@ -600,6 +602,44 @@ test('permissions.allow: the installed tool always, the memory\'s own only with 
   assert.ok(!cfg().permissions.allow.includes(memorys), 'withdrawn: the entry is gone again');
   // Unrelated entries survive all of this.
   assert.ok(cfg().permissions.allow.includes('Bash(git status:*)'));
+});
+
+test('a checkout installed from INSIDE the memory is the memory\'s own tool: not allowed, not run, until trusted', () => {
+  const scratch = temp('cm-ot-inside-');
+  const home = path.join(scratch, 'home');
+  fs.mkdirSync(home, { recursive: true });
+  const root = initMemory(scratch);
+  const code = path.join(root, 'vendored', 'cheap-mem');
+  for (const d of ['bin', 'src', 'install', 'shared']) fs.cpSync(path.join(REPO, d), path.join(code, d), { recursive: true });
+  fs.copyFileSync(path.join(REPO, 'package.json'), path.join(code, 'package.json'));
+  const claudeHome = path.join(home, '.claude');
+  const slash = (p) => p.replace(/\\/g, '/');
+  const install = () => spawnSync(BASH, [path.join(code, 'install', 'claude-code.sh')], {
+    encoding: 'utf8', timeout: 60000, env: bareEnv(home, { CHEAP_MEM_ROOT: root, CLAUDE_HOME: claudeHome }),
+  });
+  const allow = () => JSON.parse(fs.readFileSync(path.join(claudeHome, 'settings.json'), 'utf8')).permissions.allow;
+  const own = `Bash(node ${slash(code)}/bin/mem:*)`;
+  const r1 = install();
+  assert.equal(r1.status, 0, r1.stderr);
+  assert.match(r1.stderr, /lies inside the memory, so it counts as the memory's own tool/);
+  assert.ok(!allow().includes(own), 'a tool inside the memory was put on the allow list without the switch');
+  // And the hooks do not run it either: this is the "no installed tool" case.
+  const dir = path.join(scratch, 'marks');
+  fs.mkdirSync(dir);
+  const probe = spawnSync(BASH, [path.join(claudeHome, 'hooks', 'cheap-mem-session-start.sh')], {
+    input: '{"session_id":"x"}', encoding: 'utf8', timeout: 60000, env: bareEnv(home, { CM_PLANT_DIR: dir }),
+  });
+  assert.match(probe.stdout, /NOT attached/);
+  assert.match(probe.stdout, /memory ships its own tool and no installed tool was found/);
+  // Trusted: allowed, and the hooks use it.
+  assert.equal(trustCli({ root, home }, '--non-interactive').status, 0);
+  const r2 = install();
+  assert.equal(r2.status, 0, r2.stderr);
+  assert.ok(allow().includes(own), 'trusted: the checkout inside the memory is allowed');
+  const probe2 = spawnSync(BASH, [path.join(claudeHome, 'hooks', 'cheap-mem-session-start.sh')], {
+    input: '{"session_id":"x"}', encoding: 'utf8', timeout: 60000, env: bareEnv(home),
+  });
+  assert.match(probe2.stdout, /=== cheap-mem attached ===/);
 });
 
 // ---------------------------------------------------------------------------
@@ -748,7 +788,7 @@ test('bin/_owntool.ps1: balanced, ASCII, the functions the hooks call', () => {
   assert.match(text, /'cheap-mem'\) 'own-tool-roots'/);
 });
 
-test('the bin/*.ps1 hooks gate the memory\'s copy on the rule, each one (static, all platforms)', () => {
+test('the PowerShell hooks in bin gate the memory\'s copy on the rule, each one (static, all platforms)', () => {
   for (const n of ['mem-retrieve', 'mem-before-edit', 'mem-after-failure', 'mem-catch-fail']) {
     assert.match(read(`bin/${n}.ps1`), /if \(\$OwnToolTrusted -and \(Test-Path -LiteralPath \(Join-Path \$Root 'bin\/mem'\)\)\) \{/,
       `bin/${n}.ps1 takes the memory's bin/mem without asking the rule`);
