@@ -102,7 +102,7 @@ function seedHabit(root, n, startISO = '2026-09-20T08:00:00Z') {
 function runHook(root, extraEnv = {}) {
   return spawnSync('bash', [HOOK], {
     encoding: 'utf8', timeout: 20000,
-    env: { ...process.env, CHEAP_MEM_ROOT: root, ...extraEnv },
+    env: { ...process.env, CHEAP_MEM_ROOT: root, CHEAP_MEM_CODE: REPO, ...extraEnv },
   });
 }
 

@@ -135,7 +135,13 @@ done
 # silence — the same failure as the root lookup, one line further on.
 # Git Bash: `pwd -W` is the Windows form node.exe can open (MSYS2 leaves a path with an apostrophe untranslated; install/claude-code.sh).
 HOOK_DIR="$(cd "$(dirname "$(to_slashes "$0")")" && { pwd -W 2>/dev/null || pwd; })"
-if [ -f "$ROOT/bin/mem" ]; then
+# **The memory's own bin/ is NOT the default (tool-trust-cm, 2026-10-16).** The
+# memory is a git clone that gets pulled from origin; code taken from it is code
+# its remote can ship. It is used only when the user switched that on, locally
+# (`mem trust-own-tool`, bin/_owntool.sh); otherwise the tool this script sits in.
+# shellcheck source=bin/_owntool.sh
+if [ -f "$HOOK_DIR/_owntool.sh" ]; then . "$HOOK_DIR/_owntool.sh"; else mem_own_tool_trusted() { return 1; }; fi
+if [ -f "$ROOT/bin/mem" ] && mem_own_tool_trusted "$ROOT"; then
   TOOL_ROOT="$ROOT"
 elif [ -f "$HOOK_DIR/mem" ]; then
   TOOL_ROOT="$(dirname "$HOOK_DIR")"

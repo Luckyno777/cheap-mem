@@ -35,7 +35,7 @@ const SITES = {
   'bin/mem-after-failure': ['HOOK_DIR'],
   'bin/mem-catch-fail': ['HOOK_DIR'],
   'bin/mem-stop': ['HERE'],
-  'bin/mem-subagent-start': ['SELF_DIR', 'HERE'],
+  'bin/mem-subagent-start': ['SELF_DIR'],
   'bin/mem-capture': ['HERE'],
   'install/claude-code.sh': ['CHEAP_MEM_ROOT', 'HERE'],
 };

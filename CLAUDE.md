@@ -13,7 +13,7 @@ installation — it is the tool that creates memories.
                          split on 2026-09-18, the largest file here.
 - the CLI's own modules, under `src/cli/`:
   - `command-index.mjs` — which group holds which command (data, no imports)
-  - `commands/`        — the 87 handlers, in six groups cut by the
+  - `commands/`        — the 88 handlers, in six groups cut by the
                          QUESTION a command answers: write, search,
                          capture, agents, setup, admin
   - `shell.mjs`        — what holds across commands: arguments, output,
