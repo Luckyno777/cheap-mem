@@ -53,11 +53,8 @@ function projectNames(index) {
   return list;
 }
 
-function plainWords(text) {
-  return String(text ?? '').toLowerCase()
-    .replace(/\u00e4/g, 'ae').replace(/\u00f6/g, 'oe').replace(/\u00fc/g, 'ue').replace(/\u00df/g, 'ss')
-    .split(/[^a-z0-9]+/).filter(Boolean);
-}
+/** The words of a question in the spelling the index meets: `a_b` whole, umlauts as typed (K1, `search.typedWords`). */
+const plainWords = search.typedWords;
 
 /**
  * The question in its parts.
@@ -86,6 +83,9 @@ export function splitQuestion(question, index, { projects = null } = {}) {
   const marks = [...entity.identifiers(text)];
   const fromMarks = new Set();
   for (const m of marks) for (const t of m.split(/[^\p{L}\p{N}]+/u)) if (t) fromMarks.add(t);
+  // `plainWords` keeps `a_b` whole (K1), the mark above falls apart at `_`: take the whole words off too, or the
+  // same word stands twice in the query (as mark and as word).
+  for (const m of marks) for (const t of plainWords(m)) fromMarks.add(t);
 
   const known = projects ?? projectNames(index);
   const flat = ` ${plainWords(text).join(' ')} `;
@@ -98,7 +98,7 @@ export function splitQuestion(question, index, { projects = null } = {}) {
     else if (flat.includes(` ${seq} `)) for (const t of seq.split(' ')) named.add(t);
   }
 
-  const content = new Set(search.contentWords(text));
+  const content = new Set(search.contentWords(text, { typed: true }));
   const words = [...new Set(plainWords(text))].filter((w) => !fromMarks.has(w));
   const bar = Math.max(CORE_DF_MIN, Math.floor(CORE_DF_SHARE * n));
   const projectsHit = [];

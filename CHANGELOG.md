@@ -36,6 +36,72 @@ are the day the work landed on `main`.
 - `test/before-edit-twin.test.mjs` names the twin's exit on stderr when it answers with nothing (traced run) - the Windows PowerShell 5.1
   run of `bin/mem-before-edit.ps1` gave exit 0 and zero bytes in runs 1066 and 1074, cause not yet measured.
 
+### Fixed - recall: an identifier with an underscore is found, one bar for "what the hook shows", one index language per memory (abruf-stamm-cm; port of lucky-mem decision 2pbqt66q0wdj "merge the recall trunk", steps 2 and 3, and its K1 finding)
+
+**K1.** A question with a snake_case identifier (`session_id`; with a capital umlaut `ABSICH...CH_KEINNERN` in the sibling's finding) found nothing on three paths: `mem find --content-words` (also the after-failure hook), the H1 lever of the recall hook call and the SubagentStart task query.
+The index holds `a_b` as ONE term and holds a word with an umlaut in the spelling of the language the entry was read as; every question-side word cutter cut at `_` and wrote umlauts as `ae` (`session` + `id`: terms no entry carries; and an `ae` spelling that an English-read entry never holds, so the typed umlaut is part of the fix here; in the sibling it was innocent).
+`search.contentWords(text, { typed: true })` and `search.typedWords()` keep `_` and the typed umlaut (the filter still looks at the `ae` spelling); `retrievalQuery` and the H1 split use them, `search()` normalises per language pack as it does for a plain `mem find`.
+Text-against-text readers (error fixes, neighbours, the project check) keep the old cut; the hyphen still cuts (the index holds the whole and the parts). Plain `mem find` and the hook's default call already found it (control in the probe).
+Probe `test/k1-underscore.test.mjs` (pure cutters, three paths, the real hook script, red proof against the base), four mutants.
+**What K1 costs (named, kept for parity with the sibling, held by a probe).** A snake_case token in a question is now searched as a WHOLE word only; the loose part hits on prose are gone. Example: the entry "the peer closed the socket" is no longer found by the question `socket_closed_by_peer` over `find --content-words --weak` (the path of `bin/mem-after-failure`): it scored 8.02 on a seven-entry scratch memory before (16.88 in the reviewer's corpus) and gives no hit now; an entry that carries `socket_closed_by_peer` itself is found, and the same words typed with spaces still find the prose entry. The probe (`test/k1-underscore.test.mjs`, D) holds this on purpose, so a later "whole word AND its parts" is a decision, not a drift; that question is open.
+
+**One predicate.** "Score at or over the bar, or an exact hit" was written out in the renderer, in the H5 path of the hook, in the journal line of `mem find` and, with a bar of its own, in `bench/recall-levers.mjs` (twice) and `bench/coverage-floor-sweep.mjs` (the measurement of what the hook would show; it also mapped an exact hit to a boolean).
+`recallrender.clears()` and `RECALL_MIN` are now the one place; the renderer, the H5 filter, the journal line of `mem find --journal-session`, the SubagentStart bar and the two benches (`recall-levers`, `coverage-floor-sweep`) use them, and `test/recall-bar.test.mjs` holds `bin/mem-retrieve`, its `.ps1` twin and the environment register to the one number.
+The hook's block is byte for byte the old one (6 hit lists x 7 settings; renderHits over 5 bars). `bench/gold-compare.mjs` and the other benches already go through `bin/mem find` and were not touched.
+
+**One index language, one load.** The index cache is kept per language and a cache of another language is `stale`. `mem find` asked for the memory's configured language; the SubagentStart block, the short-prompt check of the hook, the content-word shortening and a dozen readers asked for nothing, i.e. 'en': on a memory configured for another language they and `mem find` took turns rebuilding the cache (`stale` on every alternate load, the cache directory replaced each time).
+`search.loadIndex()` now takes the config's language when the caller names none (English memories unchanged; a named language still wins). `mem find --content-words` on a long question loaded the index for the shortening and again for the search; it opens it once (2 loads before, 1 now).
+The SubagentStart query also reads the request-frame switch from the `env` it is given (it read the process's). Probes `test/recall-index-language.test.mjs`, `test/subagent-given-env.test.mjs`; thirteen mutants in all.
+What was NOT built, with the evidence for the follow-up, is in the branch report: a total byte budget over the pieces of the hook's answer (header, clone line, hit lines, skill offer, workflow block) and over the SubagentStart blocks, and one search plan for `mem find`, `mem_find` (a hand-written copy of the ranked branch without the exact lane, the echo filter or MMR), the hook and the task query.
+
+### Fixed / Performance - dashboard tempo: the stamp ignores every derived cache, "Confirm answer" is fresh at once, a waiting part retry is dropped (dashboard-tempo-cm, port of the sibling's D-C, H7 and R4)
+
+Inventory first, against the sibling's building blocks (deferred parts, page versions, cache with a generation stamp,
+full-build line, the headline, H7, R4). Already in cheap-mem and NOT built again: deferred parts with a bounded retry
+(0d74136), page files with a version mark (`?v=`, immutable, ETag, gzip), the cache with stamp, TTL from the end of the
+build and the minimum gap, the head on disk, the placeholder and the quick head, the full-build line (64 MB, then the
+compact build) and the doctor's full-build and full-read switches, live parts after a write of your own (d068d4d), full
+width (ef130c1), browser probes that wait for an end state (startView, e1c24d6). The sibling's incremental usage table
+has no counterpart here (cheap-mem has no usage bonus in the ranking). Built:
+
+- **The stamp (R4).** One search with `MEM_EXPAND=1` wrote `.mem/search-index-expand`, which the stamp counted: the
+  dashboard took the store as changed and rebuilt. The same for the component table the pre-edit hook rebuilds (with its
+  lock and log), the time track (with its build lock), the drawer locks and the scratch names of an atomic write.
+  `isDerived()` strips the expand suffix and the scratch forms; DERIVED names the rest. `recallserver.codeState()` adds
+  the newest ctime: a change of the same size with the mtime set back went unseen. Probe
+  `test/dash-stamp-r4-cm.test.mjs`, red 3 of 7 on dc6b69d.
+- **"Confirm answer" (H7).** The task `question-confirm` was rebuild-only: after the click the page read the stored
+  state, the question still "answered, waiting for you", the button still there, also after a reload. Now it names the
+  live part `questions` (the open and the waiting questions through `dashboardData.questionLists`, the one place the
+  build calls too). 107 ms median on 5000 entries with 60 questions against 5.7 s for the full build (load about 15,
+  4 cores). A compact store keeps its stored lists and says why. Probe `test/dash-confirm-fresh-cm.test.mjs` (module,
+  data route, browser with the rebuild held 120 s), red 4 of 4 on dc6b69d.
+- **An unreadable question drawer (review).** `question.all()` skipped a drawer it could not read (`catch { continue; }`):
+  with `global/questions.jsonl` a folder (EISDIR; on Windows also a file a scanner holds) the new live part reported no
+  error and open 0 / waiting 0, so after a confirm every question vanished silently as a fresh state. It now throws the
+  `memory.ReadError` that names the drawer (a missing drawer still reads as none). Every caller says it: the live part
+  names it in `live_errors` and keeps the stored lists, the dashboard and board tiles read "not measurable", the
+  per-project counts are `null` (the page says "questions unknown"), `mem questions` and `mem questions confirm` exit 1
+  with the message and write nothing, the MCP tool returns it as an error. Probe `test/question-unreadable-cm.test.mjs`
+  (a real folder in place of the drawer), red 4 of 5 on 764e829.
+- **A waiting part retry.** When a newer data load starts its own round of parts, the retry still waiting from the round
+  before is dropped (it fetched every part a second time; seen once on a cold start whose first answer was the quick
+  head, 0 of 7 further cold starts). Probe `test/dash-later-once-cm-browser.test.mjs`, red on dc6b69d.
+
+Measured with `bench/board-tempo.mjs --browser --warm 5` on a synthetic store of 5000 entries (`bench/scale.mjs`), the
+head on disk removed before each run, 5 runs each, median, load 11.7-17.6 on 4 cores:
+
+| | first display, cold | done, cold | first display, warm (25) | done, warm (25) |
+|---|---|---|---|---|
+| base dc6b69d (run 1, load median 12.7) | 1045 ms | 10.49 s | 1179 ms | 4.99 s |
+| base dc6b69d (run 2, load median 14.1) | 1035 ms | 10.50 s | 1138 ms | 5.21 s |
+| this branch (load median 12.0) | 758 ms | 9.85 s | 400 ms | 4.88 s |
+
+The differences lie within the scatter of the runs (cold done 9.6-11.1 s on the base, 9.1-11.5 s here; warm first
+display is bimodal, about 0.3 s or 1.2-2.5 s, in both): these changes do not make the measured page faster on this store,
+and none of them was meant to. They remove rebuilds and requests that a real store with document expansion, a busy
+pre-edit hook or a quick head at the start pays for.
+
 ### Security - round 3 of the own-tool rule: the Windows start hook's provenance block, the provisioning variable, two honest limits (tool-trust-cm, review)
 
 - **The Windows start hook imported `<memory>\src\provenance.mjs` without the switch.** The block "Which clone answers" in the generated hook took the memory's module first and ran it with `node -e`; the file

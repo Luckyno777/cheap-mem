@@ -589,6 +589,35 @@ export function projectShelf(root) {
   return { projects: out };
 }
 
+/**
+ * The two question lists of the dashboard: the open questions, and the answered ones that wait for the person who asked
+ * (a question of tier user with only agent answers). ONE place for the full build and the live part `questions` of
+ * src/dashboard-live.mjs (dashboard-tempo-cm: a confirm shows its new state at once). A row: its id, its addressee `who`,
+ * its owner and the card. The compact build hands the snapshot of the question along. A list that cannot be read is
+ * empty WITH its reason in `reasons` - never an empty list as an answer of its own.
+ */
+export function questionLists(root, {
+  questionsOpen = question.open, questionsWaiting = question.waiting, alloc = null, cardContext = null,
+} = {}) {
+  const a = alloc ?? cardfeed.allocation(root);
+  const context = cardContext ?? { cards: cardstore.readCards(root).cards, human: cardfeed.humanOf(root) };
+  const reasons = [];
+  const post = (q, list) => {
+    const e = q.snapshot ?? q;
+    const who = question.whoOf(e);
+    return { id: q.id, who, owner: a.ownerOf(addressee.ofQuestion({ who })), card: a.card(list, who, () => decisioncard.cardOf(e, { type: 'question', context })) };
+  };
+  const openQuestions = [];
+  try {
+    for (const q of questionsOpen(root)) if (q?.id) openQuestions.push(post(q, 'openQuestions'));
+  } catch (e) { reasons.push(`questions not readable: ${e?.message || e}`); }
+  const waitingQuestions = [];
+  try {
+    for (const q of questionsWaiting(root)) if (q?.id) waitingQuestions.push(post(q, 'waitingQuestions'));
+  } catch (e) { reasons.push(`waiting questions not readable: ${e?.message || e}`); }
+  return { openQuestions, waitingQuestions, omitted: { openQuestions: a.omitted.openQuestions ?? 0, waitingQuestions: a.omitted.waitingQuestions ?? 0 }, reasons };
+}
+
 /** The measured git state of the CODE (the package), at start and now. */
 // A background build runs in a worker that imports this module FRESH, so
 // evaluating the head here would give the worker's own start, never the
@@ -894,20 +923,11 @@ export function collectDashboard(root, {
       });
     }
   } catch (e) { reasons.push(`duties not readable: ${e?.message || e}`); }
-  // A question row: its id, its addressee `who` and the card. The compact build hands the snapshot of the question along.
-  const questionPost = (q, list) => {
-    const e = q.snapshot ?? q;
-    const who = question.whoOf(e);
-    return { id: q.id, who, owner: alloc.ownerOf(addressee.ofQuestion({ who })), card: alloc.card(list, who, () => decisioncard.cardOf(e, { type: 'question', context: cardContext })) };
-  };
-  try {
-    for (const q of questionsOpen(root)) if (q?.id) openQuestions.push(questionPost(q, 'openQuestions'));
-  } catch (e) { reasons.push(`questions not readable: ${e?.message || e}`); }
-  // Answered, waiting for the person who asked (a question of tier user with only agent answers).
-  const waitingQuestions = [];
-  try {
-    for (const q of questionsWaiting(root)) if (q?.id) waitingQuestions.push(questionPost(q, 'waitingQuestions'));
-  } catch (e) { reasons.push(`waiting questions not readable: ${e?.message || e}`); }
+  // The open questions and the answered ones waiting for the person who asked - one place with the live part (questionLists).
+  const questions = questionLists(root, { questionsOpen, questionsWaiting, alloc, cardContext });
+  openQuestions.push(...questions.openQuestions);
+  const { waitingQuestions } = questions;
+  reasons.push(...questions.reasons);
 
   // --- 4. the raw capture: the old desk's four-state review + topics ------
   // mask-ok: a list slice of topic names

@@ -633,7 +633,9 @@ export const COMMANDS = {
       // Confirming is the person's act: the explicit claim, not headless, not capped. Nothing is written otherwise.
       const tier = userClaim('questions confirm', args);
       if (tier !== 'user') die('questions confirm: only the user confirms: --authority user is missing. Nothing was written.');
-      const q = question.all(root).find((x) => x.id === qid);
+      let known;
+      try { known = question.all(root); } catch (e) { die(`questions confirm: the questions are not readable (${e?.message || e}). Nothing was written.`); }
+      const q = known.find((x) => x.id === qid);
       if (!q) die(`questions confirm: no question with id '${qid}'.`);
       if (!q.waiting) {
         die(q.open
@@ -663,8 +665,10 @@ export const COMMANDS = {
     checkFlags(args, ['all', 'project', 'root'], 'questions');
     const project = args.project ? (args.project === 'global' ? null : args.project) : undefined;
     // Without --all: what still needs something - the open ones AND the answered ones that wait for the person.
-    const list = args.all ? question.all(root, { project })
-      : question.all(root, { project }).filter((q) => q.open || q.waiting);
+    let every;
+    // Unreadable is not "no open questions": the message names the drawer (question.all throws).
+    try { every = question.all(root, { project }); } catch (e) { die(`questions: not readable - ${e?.message || e}. Open questions unknown, not none.`); }
+    const list = args.all ? every : every.filter((q) => q.open || q.waiting);
     if (!list.length) {
       out(args.all ? 'No questions noted yet.'
         : 'No open questions. (--all also shows the answered ones.)');

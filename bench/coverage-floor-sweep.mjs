@@ -48,6 +48,7 @@ import os from 'node:os';
 import path from 'node:path';
 import * as memory from '../src/memory.mjs';
 import { search, loadIndex, retrievalQuery } from '../src/search.mjs';
+import { clears } from '../src/recallrender.mjs';
 import { synthesizeCorpus, writeCorpus, HEAPS_DEFAULTS } from './heaps-corpus.mjs';
 
 // A fixed clock for every `search()` call in this file. Chosen well
@@ -242,7 +243,7 @@ function injectedHits(index, query, floor) {
     top: RETRIEVE_TOP * 3, mmr: true, mmrLambda: 0.7, coverageFloor: floor, now: FIXED_NOW,
   });
   return ranked.slice(0, RETRIEVE_TOP)
-    .filter((h) => Number(h.score) >= RETRIEVE_MIN || (h.exact && h.exact.length));
+    .filter((h) => clears(h, RETRIEVE_MIN));
 }
 
 function canonicalQueries(anchors, freq) {
