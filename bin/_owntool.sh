@@ -18,26 +18,42 @@
 # it exists at all: src/owntool.mjs.
 #
 # Fails closed: anything unreadable, unresolvable or missing means "not trusted".
+#
+# **No subshell on the hot path.** This runs before every prompt and every edit.
+# The functions hand their result over in a variable (mem_own_r, mem_own_k,
+# mem_own_f) instead of printing it, because every `$(...)` is a fork; measured
+# 2026-10-16, the version with command substitutions cost 16.7 ms per decision,
+# this one a fraction of that (see the CHANGELOG).
 
-# The directory part of a path, resolved to its physical form ('' when it does not exist).
-mem_own_real() { ( cd "$1" 2>/dev/null && pwd -P ); }
+# mem_own_real DIR - sets mem_own_r to the physical path of DIR (symlinks resolved); rc 1 when DIR is not a directory.
+mem_own_real() {
+  local old="$PWD"
+  mem_own_r=""
+  [ -n "$1" ] || return 1
+  CDPATH='' cd -P -- "$1" 2>/dev/null || return 1
+  mem_own_r="$PWD"
+  cd -- "$old" 2>/dev/null || cd / 2>/dev/null
+  return 0
+}
 
-# The form the switch file stores: physical path, '/' separators; on Windows
-# (Git Bash, cygpath present) the mixed form, lower-cased - paths ignore case there.
+# mem_own_key DIR - sets mem_own_k to the form the switch file stores: the physical path with '/'
+# separators; on Windows (Git Bash, cygpath present) the mixed form, lower-cased - paths ignore case there.
 mem_own_key() {
-  local p
-  p="$(mem_own_real "$1")" || return 1
-  [ -n "$p" ] || return 1
+  mem_own_k=""
+  mem_own_real "$1" || return 1
+  local p="$mem_own_r"
   if command -v cygpath >/dev/null 2>&1; then
     p="$(cygpath -m "$p" 2>/dev/null)" || return 1
     p="$(printf '%s' "$p" | tr 'A-Z' 'a-z')"
   fi
-  printf '%s' "$p"
+  mem_own_k="$p"
+  return 0
 }
 
-# Where the switch file is.
+# mem_own_file - sets mem_own_f to where the switch file is; rc 1 when that cannot be told.
 mem_own_file() {
   local base
+  mem_own_f=""
   if [ -n "${APPDATA:-}" ] && command -v cygpath >/dev/null 2>&1; then
     base="$(cygpath -u "$APPDATA" 2>/dev/null)" || return 1
   else
@@ -46,28 +62,32 @@ mem_own_file() {
       *) [ -n "${HOME:-}" ] || return 1; base="$HOME/.config" ;;
     esac
   fi
-  printf '%s/cheap-mem/own-tool-roots' "$base"
+  mem_own_f="$base/cheap-mem/own-tool-roots"
+  return 0
 }
 
 # mem_own_tool_trusted ROOT - 0 when the memory at ROOT is in the switch file.
 mem_own_tool_trusted() {
-  local key file line
-  key="$(mem_own_key "$1")" || return 1
+  local key line
+  mem_own_key "$1" || return 1
+  key="$mem_own_k"
   [ -n "$key" ] || return 1
-  file="$(mem_own_file)" || return 1
-  [ -f "$file" ] && [ -r "$file" ] || return 1
+  mem_own_file || return 1
+  [ -f "$mem_own_f" ] && [ -r "$mem_own_f" ] || return 1
   while IFS= read -r line || [ -n "$line" ]; do
     line="${line%$'\r'}"
     [ "$line" = "$key" ] && return 0
-  done < "$file"
+  done < "$mem_own_f"
   return 1
 }
 
 # mem_own_inside DIR ROOT - 0 when DIR is ROOT or lies below it (physical paths).
 mem_own_inside() {
   local d r
-  d="$(mem_own_key "$1")" || return 1
-  r="$(mem_own_key "$2")" || return 1
+  mem_own_key "$1" || return 1
+  d="$mem_own_k"
+  mem_own_key "$2" || return 1
+  r="$mem_own_k"
   case "$d/" in "$r"/*) return 0 ;; esac
   return 1
 }
@@ -95,7 +115,7 @@ mem_pick_tool() {
   [ ! -f "$root/$rel" ] || MEM_OWN_SKIPPED=1
   for c in "${CHEAP_MEM_CODE:+$CHEAP_MEM_CODE/$rel}" "${self:+$self/../$rel}" "${self:+$self/${rel#bin/}}"; do
     [ -n "$c" ] && [ -f "$c" ] || continue
-    if [ "$trusted" = 0 ] && mem_own_inside "$(dirname "$c")" "$root"; then MEM_OWN_SKIPPED=1; continue; fi
+    if [ "$trusted" = 0 ] && mem_own_inside "${c%/*}" "$root"; then MEM_OWN_SKIPPED=1; continue; fi
     mem_picked="$c"; return 0
   done
   return 1

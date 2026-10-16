@@ -900,8 +900,8 @@ export const MUTANTS=[
 
  { name:"own-tool: a checkout inside the memory counts as installed",
    file:"bin/_owntool.sh",
-   from:"if [ \"$trusted\" = 0 ] && mem_own_inside \"$(dirname \"$c\")\" \"$root\"; then MEM_OWN_SKIPPED=1; continue; fi",
-   to:"if false && mem_own_inside \"$(dirname \"$c\")\" \"$root\"; then MEM_OWN_SKIPPED=1; continue; fi  # MUTANT",
+   from:"if [ \"$trusted\" = 0 ] && mem_own_inside \"${c%/*}\" \"$root\"; then MEM_OWN_SKIPPED=1; continue; fi",
+   to:"if false && mem_own_inside \"${c%/*}\" \"$root\"; then MEM_OWN_SKIPPED=1; continue; fi  # MUTANT",
    tests:['test/own-tool.test.mjs'] },
 
  { name:"own-tool: any line of the switch file trusts the memory",
@@ -912,8 +912,8 @@ export const MUTANTS=[
 
  { name:"own-tool: the memory is compared by its spelling, not its real path",
    file:"bin/_owntool.sh",
-   from:"mem_own_real() { ( cd \"$1\" 2>/dev/null && pwd -P ); }",
-   to:"mem_own_real() { ( cd \"$1\" 2>/dev/null && pwd ); }  # MUTANT",
+   from:"  CDPATH='' cd -P -- \"$1\" 2>/dev/null || return 1",
+   to:"  CDPATH='' cd -- \"$1\" 2>/dev/null || return 1  # MUTANT",
    tests:['test/own-tool.test.mjs'] },
 
  { name:"own-tool: a string prefix counts as inside the memory",
@@ -924,8 +924,8 @@ export const MUTANTS=[
 
  { name:"own-tool: an unreadable switch file is read as trusted",
    file:"bin/_owntool.sh",
-   from:"  [ -f \"$file\" ] && [ -r \"$file\" ] || return 1",
-   to:"  [ -f \"$file\" ] && [ -r \"$file\" ] || return 0  # MUTANT",
+   from:"  [ -f \"$mem_own_f\" ] && [ -r \"$mem_own_f\" ] || return 1",
+   to:"  [ -f \"$mem_own_f\" ] && [ -r \"$mem_own_f\" ] || return 0  # MUTANT",
    tests:['test/own-tool.test.mjs'] },
 
  { name:"own-tool: every memory is trusted",
