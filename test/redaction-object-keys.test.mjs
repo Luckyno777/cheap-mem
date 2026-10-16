@@ -176,6 +176,45 @@ test('pin, pwd, passcode and credential(s) follow the counter rule: a count is a
     { pin_count: MARK, passcode_length: MARK, pin: MARK, credentials_count: [MARK, MARK], pin_code: MARK });
 });
 
+test('pincode is a pin word; a one-word compound that ENDS in pin or pincode is one too (userpin, pincode_hash); a word that starts with pin is not', () => {
+  const secret = ['pincode', 'PINCODE', 'PinCode', 'pin_code', 'userpin', 'USERPIN', 'adminpin', 'bankpin', 'userpincode', 'pincode_hash', 'pincodeHash', 'userpin_hash', 'pincode-value', 'pin_hash'];
+  for (const key of secret) {
+    for (const value of ['4711', 'a b']) {
+      for (const [name, f] of [['maskEntry', maskEntry], ['redactObject', (o) => redaction.redactObject(o)]]) {
+        assert.deepEqual(f({ [key]: value }), { [key]: MARK }, `${name}: ${key} as a string`);
+      }
+    }
+    for (const [name, f] of [['maskEntry', maskEntry], ['redactObject', (o) => redaction.redactObject(o)]]) {
+      assert.deepEqual(f({ [key]: 4711 }), { [key]: MARK }, `${name}: ${key} as a number`);
+      assert.deepEqual(f({ nested: { deep: [{ [key]: '4711' }] } }), { nested: { deep: [{ [key]: MARK }] } }, `${name}: ${key} nested`);
+    }
+  }
+  // a pin number with digits behind it, and the pin words spelled together (pin1, PIN2, myPIN2, pinhash, pinvalue, pinnumber)
+  for (const key of ['pin1', 'PIN2', 'myPIN2', 'userpin2', 'pincode2', 'pinhash', 'PINHASH', 'pinvalue', 'pinnumber', 'pinnum', 'pindigest', 'pinsalt', 'userpinhash', 'user_pin3']) {
+    for (const [name, f] of [['maskEntry', maskEntry], ['redactObject', (o) => redaction.redactObject(o)]]) {
+      assert.deepEqual(f({ [key]: '4711' }), { [key]: MARK }, `${name}: ${key} as a string`);
+      assert.deepEqual(f({ [key]: 4711 }), { [key]: MARK }, `${name}: ${key} as a number`);
+    }
+  }
+  // the plural of a compound is a plural of a keyword, like `tokens`: a string falls, a single number is a count; the bare word `pins` (also in `userPins`, `user_pins`, where it is a word of its own) is the English word
+  for (const [name, f] of [['maskEntry', maskEntry], ['redactObject', (o) => redaction.redactObject(o)]]) {
+    assert.deepEqual(f({ userpins: 'a b', bankpins: '1234,5678' }), { userpins: MARK, bankpins: MARK }, `${name}: compound plural, string`);
+    assert.deepEqual(f({ userpins: 3, bankpins: 2 }), { userpins: 3, bankpins: 2 }, `${name}: compound plural, one number`);
+    assert.deepEqual(f({ userpins: [1234, 5678] }), { userpins: [MARK, MARK] }, `${name}: compound plural, numbers in a list`);
+    assert.deepEqual(f({ pins: ['a b', 'c d'], userPins: 'x y', user_pins: 'x y', spins: 'x y', hairpins: 'x y' }), { pins: ['a b', 'c d'], userPins: 'x y', user_pins: 'x y', spins: 'x y', hairpins: 'x y' }, `${name}: pins and the English plurals stay`);
+  }
+  // the counter rule, as for `pin`: a count is a single number, never a string
+  const free = { pinhash_count: 3, pin1_count: 2, pincode_count: 3, pincodeLength: 4, userpin_count: 2, max_pincode: 5, pincode_limit: 3 };
+  assert.deepEqual(maskEntry(free), free);
+  assert.deepEqual(redaction.redactObject(free), free);
+  assert.deepEqual(maskEntry({ pincode_count: '1234', userpin_count: [1, 2], pincode_length: true }), { pincode_count: MARK, userpin_count: [MARK, MARK], pincode_length: MARK });
+  // words that merely contain or start with `pin`, and the English words that end in it, stay
+  const quiet = { spin: 'x y', topspin: 'x y', hairpin: 'x y', kingpin: 'x y', pinned: true, pinning: 'x y', pins: 'x y', ping: 'x y', pinball: 'x y', pinout: 'x y', opinion: 'x y',
+    mapping: 'x y', spine: 'x y', spin2: 'x y', spinvalue: 'x y', spinhash: 'x y', pinhole2: 'x y', SPINCode: 'x y', spinner: 'x y', pinecone: 'x y', pinyin: 'x y', pinhole: 'x y', pinterest: 'x y' };
+  assert.deepEqual(maskEntry(quiet), quiet);
+  assert.deepEqual(redaction.redactObject(quiet), quiet);
+});
+
 test('a key that goes on long behind its keyword spares prose, like the text rule, and masks the rest', () => {
   const prose = 'The study declares ten variables and uses many hex literals, variables cover roughly seven percent of the color decisions, and it is declared and never used by anyone.';
   assert.deepEqual(maskEntry({ token_system_is_a_facade: prose }), { token_system_is_a_facade: prose });
@@ -328,6 +367,16 @@ test('a very long key is judged in linear time', () => {
   for (const key of ['token'.repeat(200000), 'x'.repeat(1e6), 'tokens'.repeat(150000)]) {
     const t = performance.now();
     maskEntry({ [key]: 'v v' });
+    const ms = performance.now() - t;
+    assert.ok(ms < 2500, `${ms.toFixed(0)} ms on a key of ${key.length} characters`);
+  }
+});
+
+test('a key made of pin words is judged in linear time, under and over the key cap', () => {
+  for (const key of ['pin'.repeat(170), 'userpin'.repeat(70), 'pincode'.repeat(70), 'pin'.repeat(5e5), 'pincode_'.repeat(1e5), 'spin'.repeat(1e5), 'pinx'.repeat(1e5), 'pinhash'.repeat(70), 'pin1'.repeat(120), 'pins'.repeat(120)]) {
+    const t = performance.now();
+    maskEntry({ [key]: 'a b' });
+    redaction.redactObject({ [key]: 'a b' });
     const ms = performance.now() - t;
     assert.ok(ms < 2500, `${ms.toFixed(0)} ms on a key of ${key.length} characters`);
   }
