@@ -67,6 +67,13 @@ git config, so every clone needs this once:
 mem hooks install     # installs the pre-commit scan and proves it with a decoy token
 ```
 
+The hooks never run code that comes with a memory (`<memory>/bin`, `<memory>/src`):
+a memory is a git clone and its remote could ship anything, so they use the
+installed tool. If you control that remote and want the memory to run its own
+tool, say so once, yourself, in a terminal: `mem trust-own-tool` (`--off` takes
+it back, `--status` shows it), then run `mem setup claude` again. See
+[docs/security-model.md](security-model.md), section 4.1.
+
 If the memory already is a git repository, `mem init` and `mem setup claude` arm
 it for you (and leave a `core.hooksPath` that is set alone). The same pre-commit
 hook also refuses any commit that changes or deletes a line a log already holds -

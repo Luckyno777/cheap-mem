@@ -80,7 +80,14 @@ if (-not $Root) { exit 0 }
 $HookDir = Split-Path -Parent $PSCommandPath
 $MemArgv = $null
 $ToolRoot = $null
-if (Test-Path -LiteralPath (Join-Path $Root 'bin/mem')) {
+# The memory's own bin\ is NOT the default (tool-trust-cm, 2026-10-16): the
+# memory is a git clone pulled from origin, and code taken from it is code its
+# remote can ship. It is used only when the user switched that on, locally
+# (`mem trust-own-tool`, bin\_owntool.ps1); otherwise the tool this script sits in.
+$OwnToolTrusted = $false
+$OwnToolLib = Join-Path $HookDir '_owntool.ps1'
+if (Test-Path -LiteralPath $OwnToolLib) { . $OwnToolLib; $OwnToolTrusted = Test-OwnToolTrusted $Root }
+if ($OwnToolTrusted -and (Test-Path -LiteralPath (Join-Path $Root 'bin/mem'))) {
   $MemArgv = @((Join-Path $Root 'bin/mem'))
   $ToolRoot = $Root
 } elseif (Test-Path -LiteralPath (Join-Path $HookDir 'mem')) {

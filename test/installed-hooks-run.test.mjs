@@ -267,10 +267,12 @@ test('every installed .sh hook, started with a bare environment, delivers', () =
     'the installer registers a different set of hooks than this file probes: add the new one to EXPECT');
   // The message helper sits next to the shims and is not a hook itself.
   const onDisk = shimFiles(claudeHome).map((f) => /^cheap-mem-([a-z-]+)\.sh$/.exec(f)[1])
-    .filter((n) => n !== 'tool-missing').sort();
+    .filter((n) => n !== 'tool-missing' && n !== 'own-tool').sort();
   assert.deepEqual(onDisk, [...NAMES].sort(), 'a hook file is installed that is not registered, or the reverse');
   assert.ok(fs.existsSync(path.join(claudeHome, 'hooks', 'cheap-mem-tool-missing.sh')),
     'the tool-missing helper was not installed next to the shims');
+  assert.ok(fs.existsSync(path.join(claudeHome, 'hooks', 'cheap-mem-own-tool.sh')),
+    'the own-tool rule was not installed next to the shims');
   assert.equal(runAll({ scratch, home, root, cmds }), '');
 });
 
@@ -401,9 +403,10 @@ test('windows.ps1: every hook it writes has the CHEAP_MEM_CODE way (static, all 
     } else {
       assert.match(body, /The code path baked in by the installer has no tool/, `${name}: does not name a dead code path`);
     }
-    // The tool is looked for under the code location, not only the memory.
-    assert.match(body, /Join-Path `\$codeRoot (`\$rel|'bin\\mem')/,
-      `${name}: never looks for the tool under the code location`);
+    // The tool is looked for under the code location (the INSTALLED tool), and the memory's own
+    // copy only through the rule (tool-trust-cm; test/own-tool.test.mjs holds the rule itself).
+    assert.match(body, /\$env:CHEAP_MEM_CODE = `\$codeRoot/, `${name}: never hands the code location to the rule`);
+    assert.match(body, /Find-OwnTool -Root `\$env:CHEAP_MEM_ROOT -Rel/, `${name}: never looks for the tool through the rule`);
   }
   assert.equal(Object.keys(PS1_VAR).length, NAMES.length, 'ps1 and sh probe different hook sets');
 });

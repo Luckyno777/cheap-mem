@@ -74,8 +74,11 @@ function stage({ alarmOut = '', alarmRc = 0, busyMs = 0 } = {}) {
   spawnSync('git', ['-C', root, 'init', '-q'], { encoding: 'utf8' });
   fs.mkdirSync(path.join(root, '.mem'), { recursive: true });
   fs.writeFileSync(path.join(root, '.mem', 'config.json'), '{}\n');
-  fs.mkdirSync(path.join(root, 'bin'), { recursive: true });
-  fs.writeFileSync(path.join(root, 'bin', 'mem'), `
+  // The stub is the INSTALLED tool (CHEAP_MEM_CODE), next to the memory and not in it:
+  // a memory's own bin/ is not run unless the user trusted it (tool-trust-cm).
+  const code = fs.mkdtempSync(path.join(os.tmpdir(), 'alarm-code-'));
+  fs.mkdirSync(path.join(code, 'bin'), { recursive: true });
+  fs.writeFileSync(path.join(code, 'bin', 'mem'), `
 const argv = process.argv.slice(2).join(' ');
 if (argv.includes('doctor') && argv.includes('--alarm')) {
   const until = Date.now() + ${busyMs};
@@ -90,7 +93,7 @@ process.exit(0);
     root,
     run: (extra = {}) => spawnSync('bash', [HOOK], {
       encoding: 'utf8',
-      env: { ...process.env, CHEAP_MEM_ROOT: root, ...extra },
+      env: { ...process.env, CHEAP_MEM_ROOT: root, CHEAP_MEM_CODE: code, ...extra },
     }),
   };
 }
