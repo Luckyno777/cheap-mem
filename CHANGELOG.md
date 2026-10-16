@@ -14,6 +14,21 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Fixed - finish of the hook work: tracked runtime files, a warning without a reason, cut before mask (M1-1, N5-1, N2, #27)
+
+- **M1-1** The doctor finding `gitignore` asked `git check-ignore --no-index`, which answers for the path and not for the index: a memory that had committed `.pipeline/*`
+  before the rule existed got "git ignores all 6 required paths" after `mem init` while the tree stayed dirty and the recall hook's pull stayed blocked. It now also asks
+  `git ls-files -ci --exclude-standard` (`src/trackedruntime.mjs`) and says WARN with the exact command, `git rm --cached -r .pipeline`; `mem init` names the same command.
+  Red on `4229302`: init, write, commit, init - the doctor said ok (`test/pipeline-ignore.test.mjs`).
+- **N5-1** A memory without a remote, with the default `defaultRemote: "origin"` that `mem init` writes, printed `WARNING ... is not a remote of this clone - using origin` at every
+  session start - a warning with no reason, origin stays either way. Now only a value other than `origin` set against a clone that HAS a remote is warned about; a value that is
+  not a plain name is still refused loudly. `bin/_portable.sh`, the inline twin in `install/hooks/session-start.sh`, `install/windows.ps1` (the last one read, not run: no PowerShell here).
+- **N2** The clone gate cut the cached line at 300 characters BEFORE the mask: a token that began at character 280 came out as twenty characters in clear. `cutMasked(line, 300)` now;
+  a raw U+202E in `test/clone-gate.test.mjs` is the escape `\u202e`.
+- **#27** The same gap under `.mem/`: `before-edit/` and `workflow-marks/` (JSON marks per session), `command-guard-marks/` (empty `.warned` files, which git does track), `locks/`
+  (lock files with the pid, host and start time of one machine) and the three `*-turns/` folders (claims taken by `mkdir`: empty folders, which git does not see - the rule keeps it so)
+  are runtime state of one clone. `mem init` writes a rule for each, the doctor asks git about them, and a test holds `RUNTIME_DIRS` together with the register's per-session folders.
+
 ### Fixed - review follow-up of the hook work (M2, N1-N3, N5-N7)
 
 - **N3** The touched file's name (last two path segments) left the before-edit hook unmasked: a file `.../ghp_<token>.sh` put the token into the answer, the pointer line,
