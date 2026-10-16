@@ -19,5 +19,12 @@ set -u
 # separate checkout — the installer injects CHEAP_MEM_CODE for that case.
 STOP="$CHEAP_MEM_ROOT/bin/mem-stop"
 [ -f "$STOP" ] || STOP="${CHEAP_MEM_CODE:-}/bin/mem-stop"
-[ -f "$STOP" ] || exit 0
+if [ ! -f "$STOP" ]; then
+  # Nothing found: say so (tool-missing.sh), do not just exit.
+  HERE="$(cd "$(dirname "$0")" && pwd)"
+  for missing_helper in "$HERE/cheap-mem-tool-missing.sh" "$HERE/../support/tool-missing.sh"; do
+    [ -f "$missing_helper" ] && exec bash "$missing_helper" session-stop mem-stop
+  done
+  exit 0
+fi
 exec bash "$STOP"

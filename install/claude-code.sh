@@ -105,31 +105,48 @@ if command -v cygpath >/dev/null 2>&1; then
   HOOKS_DIR_CMD="$(cygpath -m "$HOOKS_DIR")"
 fi
 
+# A value written into single quotes in a generated shim: every ' becomes
+# '\'' (close, escaped quote, reopen). A path with an apostrophe in it
+# ("Lucky's tools") broke the shim at line 2 (bash -n rc 2, probed
+# 2026-10-16) - and a hook that does not parse is a hook that is mute.
+sq() { local v="$1" q="'"; printf '%s' "${v//$q/$q\\$q$q}"; }
+ROOT_Q="$(sq "$CHEAP_MEM_ROOT")"
+CODE_Q="$(sq "$CODE_ROOT")"
+
+# What a shim says when its tool cannot be found - installed next to the
+# shims, called by them as the last step (see install/support/tool-missing.sh).
+cp "$HERE/support/tool-missing.sh" "$HOOKS_DIR/cheap-mem-tool-missing.sh"
+chmod +x "$HOOKS_DIR/cheap-mem-tool-missing.sh"
+
 # Copy hooks, injecting CHEAP_MEM_ROOT so they work regardless of the
 # calling shell's env.
 {
   echo "#!/usr/bin/env bash"
-  echo "export CHEAP_MEM_ROOT='${CHEAP_MEM_ROOT}'"
+  echo "export CHEAP_MEM_ROOT='${ROOT_Q}'"
   # Where the code lives — the start hook books its journal line through
   # src/injection.mjs, which a memory without the tool does not carry.
-  echo "export CHEAP_MEM_CODE='${CODE_ROOT}'"
+  echo "export CHEAP_MEM_CODE='${CODE_Q}'"
   tail -n +2 "$HERE/hooks/session-start.sh"
 } > "$HOOKS_DIR/cheap-mem-session-start.sh"
 chmod +x "$HOOKS_DIR/cheap-mem-session-start.sh"
 
 {
   echo "#!/usr/bin/env bash"
-  echo "export CHEAP_MEM_ROOT='${CHEAP_MEM_ROOT}'"
+  echo "export CHEAP_MEM_ROOT='${ROOT_Q}'"
   # Where the code lives — so the stop hook finds bin/mem-stop even when
   # the memory does not carry the tool (separate checkout).
-  echo "export CHEAP_MEM_CODE='${CODE_ROOT}'"
+  echo "export CHEAP_MEM_CODE='${CODE_Q}'"
   tail -n +2 "$HERE/hooks/session-stop.sh"
 } > "$HOOKS_DIR/cheap-mem-session-stop.sh"
 chmod +x "$HOOKS_DIR/cheap-mem-session-stop.sh"
 
 {
   echo "#!/usr/bin/env bash"
-  echo "export CHEAP_MEM_ROOT='${CHEAP_MEM_ROOT}'"
+  echo "export CHEAP_MEM_ROOT='${ROOT_Q}'"
+  # Where the code lives - a memory made by `mem init` carries no
+  # bin/mem-retrieve, so without this the shim found nothing and stayed
+  # silent on every prompt (fixed 2026-10-16).
+  echo "export CHEAP_MEM_CODE='${CODE_Q}'"
   tail -n +2 "$HERE/hooks/user-prompt.sh"
 } > "$HOOKS_DIR/cheap-mem-user-prompt.sh"
 chmod +x "$HOOKS_DIR/cheap-mem-user-prompt.sh"
@@ -140,8 +157,8 @@ chmod +x "$HOOKS_DIR/cheap-mem-user-prompt.sh"
 # defects: three had an entry naming the very file being touched.
 {
   echo "#!/usr/bin/env bash"
-  echo "export CHEAP_MEM_ROOT='${CHEAP_MEM_ROOT}'"
-  echo "export CHEAP_MEM_CODE='${CODE_ROOT}'"
+  echo "export CHEAP_MEM_ROOT='${ROOT_Q}'"
+  echo "export CHEAP_MEM_CODE='${CODE_Q}'"
   tail -n +2 "$HERE/hooks/pre-edit.sh"
 } > "$HOOKS_DIR/cheap-mem-pre-edit.sh"
 chmod +x "$HOOKS_DIR/cheap-mem-pre-edit.sh"
@@ -158,8 +175,8 @@ chmod +x "$HOOKS_DIR/cheap-mem-pre-edit.sh"
 # root the same way mem-retrieve does.
 {
   echo "#!/usr/bin/env bash"
-  echo "export CHEAP_MEM_ROOT='${CHEAP_MEM_ROOT}'"
-  echo "export CHEAP_MEM_CODE='${CODE_ROOT}'"
+  echo "export CHEAP_MEM_ROOT='${ROOT_Q}'"
+  echo "export CHEAP_MEM_CODE='${CODE_Q}'"
   tail -n +2 "$HERE/hooks/catch-fail.sh"
 } > "$HOOKS_DIR/cheap-mem-catch-fail.sh"
 chmod +x "$HOOKS_DIR/cheap-mem-catch-fail.sh"
@@ -172,8 +189,8 @@ chmod +x "$HOOKS_DIR/cheap-mem-catch-fail.sh"
 # does not exist next to an installed copy.
 {
   echo "#!/usr/bin/env bash"
-  echo "export CHEAP_MEM_ROOT='${CHEAP_MEM_ROOT}'"
-  echo "export CHEAP_MEM_CODE='${CODE_ROOT}'"
+  echo "export CHEAP_MEM_ROOT='${ROOT_Q}'"
+  echo "export CHEAP_MEM_CODE='${CODE_Q}'"
   tail -n +2 "$HERE/hooks/after-failure.sh"
 } > "$HOOKS_DIR/cheap-mem-after-failure.sh"
 chmod +x "$HOOKS_DIR/cheap-mem-after-failure.sh"
@@ -182,8 +199,8 @@ chmod +x "$HOOKS_DIR/cheap-mem-after-failure.sh"
 # memory holds (see src/subagentstart.mjs).
 {
   echo "#!/usr/bin/env bash"
-  echo "export CHEAP_MEM_ROOT='${CHEAP_MEM_ROOT}'"
-  echo "export CHEAP_MEM_CODE='${CODE_ROOT}'"
+  echo "export CHEAP_MEM_ROOT='${ROOT_Q}'"
+  echo "export CHEAP_MEM_CODE='${CODE_Q}'"
   tail -n +2 "$HERE/hooks/subagent-start.sh"
 } > "$HOOKS_DIR/cheap-mem-subagent-start.sh"
 chmod +x "$HOOKS_DIR/cheap-mem-subagent-start.sh"
@@ -291,7 +308,8 @@ NODE_MERGE
 
 echo ""
 echo "=== done ==="
-echo "hooks:    $HOOKS_DIR/cheap-mem-{session-start,session-stop,user-prompt,pre-edit,catch-fail,after-failure,subagent-start}.sh"
+echo "hooks:    $HOOKS_DIR/cheap-mem-{session-start,session-stop,user-prompt,pre-edit,catch-fail,after-failure,subagent-start,tool-missing}.sh"
+echo "          (tool-missing is not a hook: what the others say when they cannot find their tool)"
 echo "settings: $SETTINGS"
 echo ""
 echo "Next Claude Code session on this machine:"
