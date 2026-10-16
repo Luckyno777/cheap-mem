@@ -55,6 +55,8 @@ export function prefix(p) {
   return parts.length >= 2 ? parts[parts.length - 2] : null;
 }
 
+const PATH_CHAR = /[A-Za-z0-9_.\-/]/;
+
 /**
  * Does the base name appear in this text in a COMPATIBLE form?
  *
@@ -64,10 +66,19 @@ export function prefix(p) {
  * because it gives a hint the appearance of evidence.
  */
 export function compatible(text, base, askedPrefix) {
-  const escaped = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const pattern = new RegExp(`([A-Za-z0-9_.\\-/]*?)${escaped}`, 'g');
-  for (const m of String(text ?? '').matchAll(pattern)) {
-    const before = m[1];
+  const hay = String(text ?? '');
+  if (base === '') return true;                    // the empty name is "named bare" at once, as the pattern read it
+  // Linear. This was `matchAll(/([A-Za-z0-9_.\-/]*?)BASE/g)`: the lazy run restarts at every character of a long run of path
+  // characters that holds no BASE and walks to its end each time, quadratic on an entry text of one unbroken blob. Here the
+  // matches are found by their BASE and the run in front is read backwards, never past the end of the previous match. The same
+  // matches come out: the leftmost start of a match is the start of its path run (or the end of the previous match).
+  for (let from = 0; ;) {
+    const at = hay.indexOf(base, from);
+    if (at === -1) break;
+    let start = at;
+    while (start > from && PATH_CHAR.test(hay[start - 1])) start -= 1;
+    const before = hay.slice(start, at);
+    from = at + base.length;
     if (!before) return true;                      // named bare
     if (!before.endsWith('/')) continue;           // part of a longer word
     const segs = before.slice(0, -1).split('/').filter(Boolean);

@@ -44,6 +44,7 @@ import * as skillusage from './skillusage.mjs';
 import * as archive from './archive.mjs';
 import * as search from './search.mjs';
 import * as redaction from './redaction.mjs';
+import { boundRuns } from './entity.mjs';
 import * as cfgmod from './config.mjs';
 import * as thesaurus from './thesaurus.mjs';
 import { pack } from './language.mjs';
@@ -2900,7 +2901,9 @@ export function checkEntryForm(root) {
         // hang on. It is on the record when a finding line of class
         // `idless-line` names its place `<file>:<line>`.
         if (e.class === IDLESS_LINE_CLASS) {
-          for (const m of `${e.title ?? ''} ${e.text ?? ''}`.matchAll(/[A-Za-z0-9_./\\-]+\.jsonl:\d+/g)) {
+          // `boundRuns`: the run in front of `.jsonl:` is quadratic in a long unbroken run of path characters (see src/entity.mjs);
+          // no `<file>:<line>` place is 512 characters long.
+          for (const m of boundRuns(`${e.title ?? ''} ${e.text ?? ''}`).matchAll(/[A-Za-z0-9_./\\-]+\.jsonl:\d+/g)) {
             idlessAcked.add(m[0].replace(/\\/g, '/'));
           }
         }

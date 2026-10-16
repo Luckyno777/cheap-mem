@@ -58,6 +58,7 @@
  */
 
 import { frozenSet } from './frozenset.mjs';
+import { boundRuns } from './entity.mjs';
 
 /** How a shell command is classified. Closed list. */
 export const COMMAND_KIND = Object.freeze({
@@ -105,14 +106,56 @@ const HEREDOC = /<<\s*['"]?[A-Za-z_]/;
 // placeholder, not deleted. It used to be `>>?\s*\S`, which hit `2>&1`,
 // `2>/dev/null` and `=>` and turned every read command with an error
 // redirect into a "write" (audit A.5).
-const REDIRECT_TO_FILE = /(?:^|[^=>-])(?:\d*|&)>>?(?!&)\s*(?!\/dev\/(?:null|stdout|stderr|tty)(?![\w/.-]))(?![(])\S/;
-const QUOTED_TEXT = /'[^']*'|"(?:[^"\\]|\\.)*"/g;
+// The first character is `[^=>-]` — but a digit that follows a digit is left out (`(?<!\d)\d`): the match its predecessor
+// starts has the same rest, and without the exclusion every digit of a long run restarts the `\d*` that follows: quadratic.
+const REDIRECT_TO_FILE = /(?:^|[^=>\d-]|(?<!\d)\d)(?:\d*|&)>>?(?!&)\s*(?!\/dev\/(?:null|stdout|stderr|tty)(?![\w/.-]))(?![(])\S/;
+/**
+ * The command with every quoted stretch replaced by `Q`: what `c.replace(/'[^']*'|"(?:[^"\\]|\\.)*"/g, 'Q')` gave, in one pass.
+ * That pattern is quadratic when a double quote has no closing quote: every escaped quote after it starts the same walk to the
+ * end again. Here a start that fails tells where its walk ended (the end, or a backslash in front of a line break, which `.`
+ * does not match), and no double quote before that point can do better; apostrophes in between still get their turn.
+ */
+export function quotedToPlaceholder(c) {
+  let out = '';
+  let i = 0;
+  let copied = 0;
+  let deadUntil = 0;   // a double quote before this position meets an obstacle at it and cannot close
+  while (i < c.length) {
+    const ch = c[i];
+    if (ch === "'") {
+      const close = c.indexOf("'", i + 1);
+      if (close === -1) { i += 1; continue; }   // no closing apostrophe anywhere after: no later one has one either
+      out += `${c.slice(copied, i)}Q`;
+      i = close + 1;
+      copied = i;
+    } else if (ch === '"') {
+      if (i < deadUntil) { i += 1; continue; }
+      let k = i + 1;
+      let closed = false;
+      for (; k < c.length; k += 1) {
+        const d = c[k];
+        if (d === '"') { closed = true; break; }
+        if (d === '\\') {
+          const e = c[k + 1];
+          if (e === undefined || e === '\n' || e === '\r' || e === '\u2028' || e === '\u2029') break;   // `\.` cannot take it
+          k += 1;
+        }
+      }
+      if (closed) {
+        out += `${c.slice(copied, i)}Q`;
+        i = k + 1;
+        copied = i;
+      } else { deadUntil = k; i += 1; }         // a failed start tells where every start in front of k fails: at k
+    } else i += 1;
+  }
+  return out + c.slice(copied);
+}
 
 /** Does this shell command write to a file via redirection? */
 export function writesViaRedirect(command) {
   const c = String(command ?? '');
   if (HEREDOC.test(c)) return true;
-  return REDIRECT_TO_FILE.test(c.replace(QUOTED_TEXT, 'Q'));
+  return REDIRECT_TO_FILE.test(quotedToPlaceholder(c));
 }
 const WRITE_CMDS = /(^|[|;&]\s*)(git\s+(commit|push|add)|npm|node\s|mkdir|rm|mv|cp|touch|tee|chmod)\b/;
 
@@ -151,7 +194,8 @@ export function pathsOf(name, input) {
   if (input?.path) out.push(String(input.path));
   if (input?.notebook_path) out.push(String(input.notebook_path));
   if (name === 'Bash' && input?.command) {
-    const m = String(input.command)
+    // `boundRuns`: the first alternative is quadratic on a long unbroken run of path characters (see src/entity.mjs).
+    const m = boundRuns(String(input.command))
       .match(/[\w./@-]*\/[\w./@-]+|\b[\w-]+\.(mjs|js|ts|md|json|jsonl|yaml|yml|sh|py)\b/g);
     if (m) out.push(...m);
   }

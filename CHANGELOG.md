@@ -14,6 +14,25 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Fixed / Performance - sixteen sites that took quadratic time on one long run of the same character (linear-regex-cm, task 26; cheap-mem only)
+
+The redaction-keys round measured it: a run of 100,000 blanks, hyphens or line breaks plus one letter took 3.7 to 4.3 s PER pattern that ends in `+$` or `*$`
+(each character of the run starts a match that walks to the end of the run and fails at the `$`). Inventory of `src/`, `bin/` and `install/` (1,301 regular expression
+literals, every one run on 30 pathological inputs, plus the dynamic patterns read by eye), then, per site, whether foreign or model-written text reaches it and how large it can be.
+Repaired (all measured at 1 MB, best of three, against the state before; the old state needs minutes for each): `src/inbox.mjs` (`build`, `parse`: `trimEnd`; `In-Reply-To`: cut at
+255 characters, no file name is longer), `src/agents.mjs` and `src/appointments.mjs` (`trimEnd`), `src/cli/githook.mjs` and `src/environment.mjs` (the `.gitattributes` rules read line by line
+instead of by `^\s*` in a multiline pattern; the trailing line breaks by a loop; the `.gitignore` repair looked a line up in an array per line, a set now), `src/repetitionhint.mjs` (the
+sentence with a marker word, one pass over the stretches between stops), `src/agentledger.mjs` (the package name), `src/component.mjs` (the lazy run in front of a file name: found by the
+name, the run read backwards), `src/doctor.mjs` and `src/gauges.mjs` (`boundRuns`, the bound `src/entity.mjs` already uses; the redirect pattern; the quoted stretches in one pass),
+`src/bashtargets.mjs` (`/\d*>$/` is `endsWith('>')`). New: `src/lineartext.mjs` (`trimEndNewlines`, `anyTrimmedLine`).
+Not reachable at a size that matters, and left alone: `src/skillregistry.mjs` and `src/categories.mjs` (the slug has no run of hyphens left),
+`src/commandguard.mjs` (`normalise` folds blanks first; a probe keeps it that way), `src/cardrules.mjs`, `src/viewer.mjs`, `src/recallrender.mjs` (cut to a budget of a few hundred characters first),
+`src/appointment-invite.mjs` (a mode-600 password file of the owner), `src/doctor.mjs` (`git rev-parse --show-prefix`, a path), `src/errorfixes.mjs`, `src/decisioncard.mjs`, `src/login.mjs`
+(a run that cannot repeat the character in front of it: linear), `bin/mem-serve` (a header line is at most 16 KB), `src/gap.mjs`, `src/inbox.mjs` `fromFileName` (file names, and a name part is at most 64 characters).
+Guards: `test/linear-trim.test.mjs` (the site on 1 MB of the bad input in a child process, under 500 ms; the state before is killed or over the ceiling on 16 of 17 probes, the 17th is the control that was never slow),
+`test/linear-trim-golden.test.mjs` (the old pattern written out as the reference, 4,000 to 12,000 random strings per site, nine mutants red). One deliberate difference: a `.gitattributes` rule split over two lines
+(`*.jsonl` and `merge=union` on separate lines) was read as one rule by the old pattern and is not one now.
+
 ### Performance - measured, not built: a word-normalisation memo for the cold index build (cli-speed-cm TB9; cheap-mem only)
 
 The order's lever: memoise the normalisation of a word. Measured first, on the 20,000-entry scratch memory, a cold `buildIndex`: the English pack normalised
