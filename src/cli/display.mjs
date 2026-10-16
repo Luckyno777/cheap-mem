@@ -23,7 +23,7 @@ import * as capability from '../capability.mjs';
 import * as procedure from '../procedure.mjs';
 import * as bidi from '../bidi.mjs';
 import { maskText, maskEntry, maskOutput } from '../outputguard.mjs';
-import * as bodyfields from '../bodyfields.mjs';
+import { compactLine } from '../compactline.mjs';
 import * as injection from '../injection.mjs';
 import { out, die, checkFlags, numberFlag, isHelp, findRoot, requireConfig, authorityArg, textFlag } from './shell.mjs';
 
