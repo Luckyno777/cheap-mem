@@ -29,6 +29,22 @@ Prompt-hook answers under the budget are byte for byte the base's (B1: 3 hit cou
 
 Measured: `test/answer-budget-cm.test.mjs`, 25 probes - A (the selection: fits, rank order, pointers, note counted in the budget, fixed parts, byte-counted elastic part, mask before measure, input order); B (prompt hook: equal to the base under the budget; RED on `f5ee47b`: 5 long hits + a 1.4 KB card + a skill offer = 3,441 bytes at the base, 2,324 now with pointers and the note); C (start: equal under the budget, RED on `f5ee47b`: long card + long rule + four assignment lines = 4,670 bytes at the base, 2,976 now); D (the "seen" mark); E (CLI and MCP give the same ids, order and scores on 8 questions - RED on `f5ee47b`: 4 of 4 probed questions differ there); F (source guards). 17 mutants in `bench/mutation.mjs`, all caught (one first survived: MMR off in the core - the probe E1 now compares with the pure-BM25 order); two existing `mem find` mutants moved their anchors into `findcore.mjs`. Gold set through the CLI: 34 of 44 before and after, 0 flips; through the MCP tool (new in this measurement): 30 -> 31 of 44 (3 as-of cases cannot be asked over MCP), flips para-06 and lang-05 to pass, para-04 to fail - the tool now fails what the CLI fails (para-04 failed in the CLI all along; the tool passed it only by its divergent copy). `bench/recall-levers.mjs`: identical on both sides (gold 34 hits / 29 pass, decoys 1 of 28 answered). There is no real journal in this repository: the size distribution is a synthetic scratch spread, not a user's.
 
+### Security - unattended model sessions no longer read a project's settings or `.mcp.json` (digest, mail handler, reflector)
+
+Without `--bare`, `claude -p` runs the hooks of the `.claude/settings.json` of its working directory and connects the servers of its `.mcp.json`, in a folder nobody trusted and with no dialog
+(Claude Code documentation, 2026-10). The digest and the mail handler started inside the memory, the reflector in the host session's repository: anyone who could push into a memory could plant a
+hook and have the next tick run it. One starter now decides every launch (`src/headless.mjs`, `bin/mem-headless.mjs`, `mem_headless_plan` in `bin/_portable.sh`, `bin/_headless.ps1`):
+- **Every configured command starts in a neutral empty directory outside the memory** (a wrapper, an alias, `gemini`: hooks come from the working directory only). The memory comes through
+  `CHEAP_MEM_ROOT` and absolute paths; `MEM_HEADLESS_CWD` names the parent folder. The directory is checked (no symlink, the user's own, 0700, no `.claude`/`.mcp.json`/`CLAUDE.md`/`.gemini`), else a
+  fresh per-run one is made and removed; the temp fallback is `mkdtemp`. Whether a place is inside the memory is decided before anything is made there; none outside means no start.
+- **A command recognised as claude also gets `--setting-sources user --strict-mcp-config`** (and `--add-dir <memory>` for the digest and the handler), after the prompt. Recognition looks through
+  `env`, `sudo`, `nice`, `timeout`, `nohup`, `npx`, `bunx`, `pnpm dlx` and the like; an alias is not recognised, runs neutral without the flags, and the log says `command not recognised as claude`.
+- A claude too old for the flag is named in the log (also across a line break) and never started open. `bin/mem-reflect` keeps no temp file for its output. `bin/mem-handle-post.ps1` now hands on the
+  model's exit code: the Windows watcher counts a failure (loop guard after three, 900 s) and the mail is tried again later.
+- `DIGEST.md` uses `git -C <root>`; the install docs say `gemini` runs neutral now. A custom `MEM_WATCH_HANDLER` still starts inside the memory (documented). Limits and residual risk, including that the
+  ratchet is a text scanner: `docs/security-model.md` section 11. `test/headless-start.test.mjs`: red on `9ee3441` and, for `env`/`npx`/`sudo`/`nice`/an alias, on the first version (`9efe57d`).
+- Merge note: `bin/_owntool.sh` no longer carries the `windows-parity-ok` marker (its twin `bin/_owntool.ps1` exists, so it never needed one); with `bin/_headless.ps1` and `bin/_portable.sh` the exemptions stay at the two `test/hook-parity.test.mjs` allows.
+
 ### Added - `--as-me`: the writer is this install, and a card names its author with name AND rank
 
 A write without `--agent` and without `CHEAP_MEM_AGENT` was stamped `human:<os user>`: true at a shell, but in a cloud session
@@ -396,7 +412,6 @@ Not reachable at a size that matters, and left alone: `src/skillregistry.mjs` an
 Guards: `test/linear-trim.test.mjs` (20 probes: the site on 1 MB of the bad input in a child process, once at 1 MB and once at a quarter of it, read as a ratio, linear about 4, quadratic about 16, next to a generous
 ceiling of 2 s; the state before is killed, over the ceiling or wrong on all 20),
 `test/linear-trim-golden.test.mjs` (the old pattern written out as the reference, 4,000 to 120,000 random strings per site; `git check-attr` as the truth for the attributes; 17 mutants red).
-
 
 ### Fixed - review of the hook-shim fix: the time-cap branch, a dead code path, an apostrophe in a path (hook-shims-code-cm, second round)
 

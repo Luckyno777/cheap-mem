@@ -183,6 +183,30 @@ export CHEAP_MEM_MAX_AUTHORITY="${CHEAP_MEM_MAX_AUTHORITY:-inferred}"
 # reflector would have died with 127 before the model started — silently,
 # because of the `|| true`. Same line as bin/mem-digest carried until
 # 2026-09-17.
-capped "$TIMEOUT" $CMD "$PROMPT" >/dev/null 2>&1 || true
+#
+# Every command starts in a neutral empty directory outside the memory, and a
+# recognised `claude` also gets the isolation flags (no `--add-dir`: the reflector
+# calls `git -C` and `mem` by absolute path). See bin/_portable.sh and
+# src/headless.mjs. No safe start, no start: the marker goes back, stderr says why.
+if ! mem_headless_plan "$CMD" "$CHEAP_MEM_ROOT" 0; then
+  echo "mem-reflect: REFUSED - no safe way to start the model session; nothing was started." >&2
+  echo "$LAST_SIZE" > "$MARKER"
+  exit 0
+fi
+[ -z "$MEM_HL_NOTE" ] || echo "mem-reflect: $MEM_HL_NOTE" >&2
+if ! cd "$MEM_HL_CWD"; then
+  echo "$LAST_SIZE" > "$MARKER"
+  mem_headless_cleanup
+  exit 0
+fi
+# The output is held in a variable, not a temp file (a TMPDIR inside the memory).
+# shellcheck disable=SC2086
+OUT_TEXT="$(capped "$TIMEOUT" $CMD "$PROMPT" ${MEM_HL_ARGS[@]+"${MEM_HL_ARGS[@]}"} 2>&1)"
+CODE=$?
+mem_headless_cleanup
+# An old claude stops on the unknown option; say so, and do not start it open.
+if [ "$CODE" -ne 0 ] && [ "$MEM_HL_ISOLATED" = "1" ]; then
+  printf '%s\n' "$OUT_TEXT" | node "$MEM_HL_HELPER" old-claude - >&2 || true
+fi
 
 exit 0

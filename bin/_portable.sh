@@ -408,3 +408,70 @@ mem_never_started() {
   printf '%s' "$fresh" | grep -qiE \
     'failed to run command|permission denied|cannot execute|not executable|bad interpreter'
 }
+
+# --- How a model session is started from an unattended job ------------
+#
+# The ONE place for the shells (the .ps1 twins call the same helper). EVERY
+# configured command starts in a neutral empty directory outside the memory,
+# and a command recognised as claude also gets `--setting-sources user
+# --strict-mcp-config`; why: src/headless.mjs and docs/security-model.md, s. 11.
+#
+# mem_headless_plan <command-line> <memory-root> [0]
+#   Sets MEM_HL_CWD (where the session must start; never empty on
+#   success), MEM_HL_ISOLATED (1 = recognised as claude), MEM_HL_ARGS
+#   (array; goes AFTER the prompt, `--add-dir` is variadic and last),
+#   MEM_HL_NOTE (a sentence for the log when the command was not
+#   recognised) and MEM_HL_CLEAN (a per-run directory to remove after the
+#   job, see mem_headless_cleanup). A third argument of 0 leaves
+#   `--add-dir` off (a job that never reads the memory). Returns 1 when no
+#   safe start exists: the caller must NOT start the model then, and must
+#   not fall back to starting in the memory or without the flags.
+MEM_HL_HELPER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/mem-headless.mjs"
+MEM_HL_ISOLATED=0
+MEM_HL_CWD=""
+MEM_HL_NOTE=""
+MEM_HL_CLEAN=""
+MEM_HL_ARGS=()
+mem_headless_plan() {
+  local cmd="$1" root="$2" adddir="${3:-1}" out line v
+  MEM_HL_ISOLATED=0; MEM_HL_CWD=""; MEM_HL_NOTE=""; MEM_HL_CLEAN=""; MEM_HL_ARGS=()
+  local a=(plan --cmd "$cmd" --root "$root")
+  [ "$adddir" = "1" ] || a+=(--no-add-dir)
+  out="$(node "$MEM_HL_HELPER" "${a[@]}")" || return 1
+  while IFS= read -r line; do
+    v="${line#*=}"
+    case "$line" in
+      isolated=1) MEM_HL_ISOLATED=1 ;;
+      isolated=0) ;;
+      cwd=*) MEM_HL_CWD="${v//\\//}" ;;
+      arg=*) MEM_HL_ARGS+=("${v//\\//}") ;;
+      note=*) MEM_HL_NOTE="$v" ;;
+      cleanup=*) MEM_HL_CLEAN="$v" ;;
+      *) return 1 ;;
+    esac
+  done <<< "$out"
+  # No plan without a working directory; a claude plan without its flags is none either.
+  [ -n "$MEM_HL_CWD" ] || return 1
+  if [ "$MEM_HL_ISOLATED" = "1" ] && [ "${#MEM_HL_ARGS[@]}" -lt 3 ]; then return 1; fi
+  return 0
+}
+
+# mem_headless_cleanup
+#   Removes the per-run neutral directory, if the plan made one (the helper
+#   checks the name and the type; nothing else is ever removed).
+mem_headless_cleanup() {
+  if [ -n "${MEM_HL_CLEAN:-}" ]; then
+    node "$MEM_HL_HELPER" cleanup "$MEM_HL_CLEAN" > /dev/null 2>&1 || true
+    MEM_HL_CLEAN=""
+  fi
+}
+
+# mem_headless_old_claude <file> [<bytes-before>]
+#   True (and prints the message) when what was written to <file> after
+#   <bytes-before> shows a claude that does not know the isolation flags.
+#   Nothing is written to a temp file: the text goes through a pipe, and a
+#   TMPDIR that points into the memory cannot put a file there.
+mem_headless_old_claude() {
+  local file="$1" before="${2:-0}"
+  tail -c "+$((before + 1))" "$file" 2> /dev/null | node "$MEM_HL_HELPER" old-claude -
+}
