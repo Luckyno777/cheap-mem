@@ -78,9 +78,19 @@ export const BUSY_RC = 76;
  * first such commit, forever, without a line of code having changed. The
  * server only loaded `src/`; a pull that changes something there changes
  * mtime and usually size.
+ *
+ * **Why the change time too (dashboard-tempo-cm, the sibling's R4, lever 7).**
+ * A change of the same size with the mtime set back (`touch -d`, `cp -p`,
+ * `rsync -t`, unpacking a tar) left count, newest mtime and total size
+ * equal: the server went on with the old code. No user process sets the
+ * ctime back; every write, rename or replace sets it to "now", so the
+ * newest ctime only grows. The same `stat` answer, not one byte of code
+ * read - a content hash would read the whole code on every question. The
+ * price: a permission or link change also reads as `stale`, which costs a
+ * restart of the server, never a wrong answer.
  */
 export function codeState(codeRoot = CODE_ROOT) {
-  let n = 0; let newest = 0; let total = 0;
+  let n = 0; let newest = 0; let newestChange = 0; let total = 0;
   const walk = (dir, depth) => {
     let names;
     try { names = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
@@ -91,11 +101,12 @@ export function codeState(codeRoot = CODE_ROOT) {
       try {
         const st = fs.statSync(p);
         n += 1; total += st.size; if (st.mtimeMs > newest) newest = st.mtimeMs;
+        if (st.ctimeMs > newestChange) newestChange = st.ctimeMs;
       } catch { /* vanished: shows up in n */ }
     }
   };
   walk(path.join(codeRoot, 'src'), 0);
-  return `${n}|${newest}|${total}`;
+  return `${n}|${newest}|${total}|${newestChange}`;
 }
 
 /** The per-user parent of a short fallback dir: ours, a real directory, 0700. */

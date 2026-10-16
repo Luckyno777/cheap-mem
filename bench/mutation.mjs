@@ -889,6 +889,29 @@ export const MUTANTS=[
    from:"  if (path.basename(target) !== FILE_NAME || !path.basename(dir).startsWith(DIR_PREFIX)) return false;",
    to:"  // MUTANT: any directory",
    tests:['test/reflect-masked-copy.test.mjs'] },
+ { name:'dashboard stamp: the expand suffix stays on (the expanded index turns the stamp)',
+   file:'src/dashboard-cache.mjs',
+   from:'  if (EXPAND_SUFFIX && base.endsWith(EXPAND_SUFFIX)) base = base.slice(0, -EXPAND_SUFFIX.length);',
+   to:'  // MUTANT: suffix kept',
+   tests:['test/dash-stamp-r4-cm.test.mjs'] },
+
+ { name:'dashboard stamp: scratch names of a derived cache count as a change',
+   file:'src/dashboard-cache.mjs',
+   from:"  let base = String(name).replace(SCRATCH_NAME, '');",
+   to:'  let base = String(name);  // MUTANT',
+   tests:['test/dash-stamp-r4-cm.test.mjs'] },
+
+ { name:'dashboard stamp: the component table and the time track are not derived',
+   file:'src/dashboard-cache.mjs',
+   from:"  'component-table.json', 'component-table-rebuild.lock', 'component-table-rebuild.log',",
+   to:'  // MUTANT: component table not derived',
+   tests:['test/dash-stamp-r4-cm.test.mjs'] },
+
+ { name:'recall server codeState: the change time is left out',
+   file:'src/recallserver.mjs',
+   from:'        if (st.ctimeMs > newestChange) newestChange = st.ctimeMs;',
+   to:'        // MUTANT: no ctime',
+   tests:['test/dash-stamp-r4-cm.test.mjs'] },
 ];
 
 // The modules whose failure is a security or data-integrity failure. The
