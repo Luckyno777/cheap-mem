@@ -14,6 +14,14 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Fixed - `pincode`, `userpin` and `pincode_hash` fell open in an object (small-parity-cm, point 1; Parity lm=yes)
+
+The object key rule knew `pin`, `pwd` and `passcode` as whole words only, so `{pincode: "4711"}`, `PINCODE`, `userpin` and `pincode_hash` stayed open in `redactObject` and `maskEntry`, as a string and as a number.
+Now `pincode` is a pin word, and so is a one-word compound that ENDS in `pin` or `pincode` (`userpin`, `bankpin`, `userpincode`). A word that STARTS with `pin` is not (`pinned: true` is a flag; 194 uses of `pinned`,
+44 of `pins`, 24 of `ping`, 22 of `pinning` in this tree). The one word of the corpus that ends in `pin` is `spin` (8 uses, none as a key); it and a short list of English words that end in `pin` (`hairpin`, `kingpin`, ...) stay.
+The counter rule is that of `pin`: `pincode_count: 3` and `userpin_length: 4` are free numbers, `pincode_count: "1234"` falls. Measured against 870788f: 40,105 text cases and 60,000 random objects (two walkers), 0 regressions;
+every newly masked field sits under a path that holds `pin`. Five mutants added to `bench/mutation.mjs`, 9/9 of `src/redaction.mjs` caught.
+
 ### Performance - measured, not built: a word-normalisation memo for the cold index build (cli-speed-cm TB9; cheap-mem only)
 
 The order's lever: memoise the normalisation of a word. Measured first, on the 20,000-entry scratch memory, a cold `buildIndex`: the English pack normalised

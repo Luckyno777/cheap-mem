@@ -176,6 +176,31 @@ test('pin, pwd, passcode and credential(s) follow the counter rule: a count is a
     { pin_count: MARK, passcode_length: MARK, pin: MARK, credentials_count: [MARK, MARK], pin_code: MARK });
 });
 
+test('pincode is a pin word; a one-word compound that ENDS in pin or pincode is one too (userpin, pincode_hash); a word that starts with pin is not', () => {
+  const secret = ['pincode', 'PINCODE', 'PinCode', 'pin_code', 'userpin', 'USERPIN', 'adminpin', 'bankpin', 'userpincode', 'pincode_hash', 'pincodeHash', 'userpin_hash', 'pincode-value', 'pin_hash'];
+  for (const key of secret) {
+    for (const value of ['4711', 'a b']) {
+      for (const [name, f] of [['maskEntry', maskEntry], ['redactObject', (o) => redaction.redactObject(o)]]) {
+        assert.deepEqual(f({ [key]: value }), { [key]: MARK }, `${name}: ${key} as a string`);
+      }
+    }
+    for (const [name, f] of [['maskEntry', maskEntry], ['redactObject', (o) => redaction.redactObject(o)]]) {
+      assert.deepEqual(f({ [key]: 4711 }), { [key]: MARK }, `${name}: ${key} as a number`);
+      assert.deepEqual(f({ nested: { deep: [{ [key]: '4711' }] } }), { nested: { deep: [{ [key]: MARK }] } }, `${name}: ${key} nested`);
+    }
+  }
+  // the counter rule, as for `pin`: a count is a single number, never a string
+  const free = { pincode_count: 3, pincodeLength: 4, userpin_count: 2, max_pincode: 5, pincode_limit: 3 };
+  assert.deepEqual(maskEntry(free), free);
+  assert.deepEqual(redaction.redactObject(free), free);
+  assert.deepEqual(maskEntry({ pincode_count: '1234', userpin_count: [1, 2], pincode_length: true }), { pincode_count: MARK, userpin_count: [MARK, MARK], pincode_length: MARK });
+  // words that merely contain or start with `pin`, and the English words that end in it, stay
+  const quiet = { spin: 'x y', topspin: 'x y', hairpin: 'x y', kingpin: 'x y', pinned: true, pinning: 'x y', pins: 'x y', ping: 'x y', pinball: 'x y', pinout: 'x y', opinion: 'x y',
+    mapping: 'x y', spine: 'x y', SPINCode: 'x y', spinner: 'x y', pinecone: 'x y', pinyin: 'x y', pinhole: 'x y', pinterest: 'x y' };
+  assert.deepEqual(maskEntry(quiet), quiet);
+  assert.deepEqual(redaction.redactObject(quiet), quiet);
+});
+
 test('a key that goes on long behind its keyword spares prose, like the text rule, and masks the rest', () => {
   const prose = 'The study declares ten variables and uses many hex literals, variables cover roughly seven percent of the color decisions, and it is declared and never used by anyone.';
   assert.deepEqual(maskEntry({ token_system_is_a_facade: prose }), { token_system_is_a_facade: prose });
@@ -328,6 +353,16 @@ test('a very long key is judged in linear time', () => {
   for (const key of ['token'.repeat(200000), 'x'.repeat(1e6), 'tokens'.repeat(150000)]) {
     const t = performance.now();
     maskEntry({ [key]: 'v v' });
+    const ms = performance.now() - t;
+    assert.ok(ms < 2500, `${ms.toFixed(0)} ms on a key of ${key.length} characters`);
+  }
+});
+
+test('a key made of pin words is judged in linear time, under and over the key cap', () => {
+  for (const key of ['pin'.repeat(170), 'userpin'.repeat(70), 'pincode'.repeat(70), 'pin'.repeat(5e5), 'pincode_'.repeat(1e5), 'spin'.repeat(1e5)]) {
+    const t = performance.now();
+    maskEntry({ [key]: 'a b' });
+    redaction.redactObject({ [key]: 'a b' });
     const ms = performance.now() - t;
     assert.ok(ms < 2500, `${ms.toFixed(0)} ms on a key of ${key.length} characters`);
   }

@@ -763,6 +763,36 @@ export const MUTANTS=[
    from:"  if (!there) return { state: 'broken', why: `${rel} does not exist",
    to:"  if (!there) return { state: 'green', why: `${rel} does not exist",
    tests:['test/guards.test.mjs','test/provenance-guard-heartbeat.test.mjs'] },
+
+ { name:'redaction: a key that ends in pin or pincode is no pin word (userpin, pincode)',
+   file:'src/redaction.mjs',
+   from:'const PIN_END = /pin(?:code)?$/;',
+   to:'const PIN_END = /^$/;  // MUTANT',
+   tests:['test/redaction-object-keys.test.mjs'] },
+
+ { name:'redaction: pincode_hash is no pin key when pincode is not read as a word',
+   file:'src/redaction.mjs',
+   from:'const PIN_END = /pin(?:code)?$/;',
+   to:'const PIN_END = /pin$/;  // MUTANT',
+   tests:['test/redaction-object-keys.test.mjs'] },
+
+ { name:'redaction: a key that STARTS with pin (pinned, ping, pins) is read as a pin word',
+   file:'src/redaction.mjs',
+   from:'const PIN_END = /pin(?:code)?$/;',
+   to:'const PIN_END = /^pin/;  // MUTANT',
+   tests:['test/redaction-object-keys.test.mjs'] },
+
+ { name:'redaction: spin and the other English words that end in pin are pin keys',
+   file:'src/redaction.mjs',
+   from:'(PIN_END.test(w) && !NOT_PIN_WORDS.has(w))',
+   to:'(PIN_END.test(w))  /* MUTANT */',
+   tests:['test/redaction-object-keys.test.mjs'] },
+
+ { name:'redaction: a pincode count is no counter (pincode_count: 3 is masked)',
+   file:'src/redaction.mjs',
+   from:'const rest = words.filter((w) => !isExtraWord(w) && !CREDENTIAL_WORDS.has(w));',
+   to:'const rest = words;  // MUTANT',
+   tests:['test/redaction-object-keys.test.mjs'] },
 ];
 
 // The modules whose failure is a security or data-integrity failure. The
