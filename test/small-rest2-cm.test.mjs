@@ -38,14 +38,19 @@ const keyBody = (lines, seed = 7) => Array.from({ length: lines }, (_, i) => b64
 // the middle 30 characters of a line: a rest of the key that is found by eye, however the line was cut
 const piece = (l) => l.slice(10, 40);
 const survivors = (text, body) => body.filter((l) => text.includes(piece(l)));
-const scratch = (name = 'cm-small-rest2-') => fs.mkdtempSync(path.join(os.tmpdir(), name));
+// Every call of the helper gets this file's OWN temp directory (TMPDIR, TEMP, TMP): its `mem-reflect-*` copies must not show
+// up in the count of test/reflect-masked-copy.test.mjs, which may run at the same time (a parallel `node --test`).
+const OWN_TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-small-rest2-tmp-'));
+const OWN_ENV = { ...process.env, TMPDIR: OWN_TMP, TEMP: OWN_TMP, TMP: OWN_TMP };
+test.after(() => { fs.rmSync(OWN_TMP, { recursive: true, force: true }); });
+const scratch = (name = 'cm-small-rest2-') => fs.mkdtempSync(path.join(OWN_TMP, name));
 
 function maskedCopy(source, args = []) {
-  const made = spawnSync(process.execPath, [MASK, ...args, source], { encoding: 'utf8', timeout: 100000 });
+  const made = spawnSync(process.execPath, [MASK, ...args, source], { encoding: 'utf8', timeout: 100000, env: OWN_ENV });
   assert.equal(made.status, 0, made.stderr);
   const copy = made.stdout.trim();
   const text = fs.readFileSync(copy, 'utf8');
-  spawnSync(process.execPath, [MASK, '--clean', copy], { encoding: 'utf8' });
+  spawnSync(process.execPath, [MASK, '--clean', copy], { encoding: 'utf8', env: OWN_ENV });
   return text;
 }
 
@@ -159,15 +164,15 @@ test('bin/mem-mask-copy: a root and a transcript whose paths hold a space and an
     fs.mkdirSync(sub);
     const t = path.join(sub, "ses sion's.jsonl");
     fs.writeFileSync(t, `${JSON.stringify({ type: 'user', message: { content: 'hello' } })}\n`);
-    const made = spawnSync(process.execPath, [MASK, '--root', root, t], { encoding: 'utf8' });
+    const made = spawnSync(process.execPath, [MASK, '--root', root, t], { encoding: 'utf8', env: OWN_ENV });
     assert.equal(made.status, 0, made.stderr);
     const copy = made.stdout.trim();
     assert.match(fs.readFileSync(copy, 'utf8'), /hello/);
-    spawnSync(process.execPath, [MASK, '--clean', copy], { encoding: 'utf8' });
+    spawnSync(process.execPath, [MASK, '--clean', copy], { encoding: 'utf8', env: OWN_ENV });
     // a root with a trailing separator is the same root: a temp dir inside it is still refused
     const inside = path.join(root, 'tmp');
     fs.mkdirSync(inside);
-    const refused = spawnSync(process.execPath, [MASK, '--root', `${root}${path.sep}`, t], { encoding: 'utf8', env: { ...process.env, TMPDIR: inside, TEMP: inside, TMP: inside } });
+    const refused = spawnSync(process.execPath, [MASK, '--root', `${root}${path.sep}`, t], { encoding: 'utf8', env: { ...OWN_ENV, TMPDIR: inside, TEMP: inside, TMP: inside } });
     assert.equal(refused.status, 2);
     assert.equal(refused.stdout, '');
   } finally { fs.rmSync(base, { recursive: true, force: true }); }

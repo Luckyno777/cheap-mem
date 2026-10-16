@@ -33,6 +33,13 @@ const KEYED = ['hunter2', 'is-not-a-', 'secret-shape'].join('');
 const PIN = String(4000 + 711);
 const SECRETS = [TOKEN, KEYED, PIN];
 
+// The test's OWN temp directory: every `mem-reflect-*` copy this file makes (in this process or in a child, which inherits
+// the variables) lands here, and `leftovers()` counts only here. Counting in the shared temp directory let another test
+// file that runs at the same time (a parallel `node --test`, the mutation baseline) change the count.
+const OWN_TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-reflmask-tmp-'));
+for (const k of ['TMPDIR', 'TEMP', 'TMP']) process.env[k] = OWN_TMP;
+test.after(() => { fs.rmSync(OWN_TMP, { recursive: true, force: true }); });
+
 function scratch() { return fs.mkdtempSync(path.join(spaceFreeBase(), 'cm-reflmask-')); }
 
 function memory() {

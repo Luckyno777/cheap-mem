@@ -30,6 +30,10 @@ Five items checked, three were real:
 - **`bin/mem-reflect.ps1`**: the helper already got root and transcript as separate arguments (a space or an apostrophe
   in a path was no problem); the root now loses a trailing separator, which Windows PowerShell 5.1 would turn into an
   escaped closing quote.
+- **Parallel runs of the two mask test files** (the mutation baseline runs every suite in one `node --test`):
+  `test/reflect-masked-copy.test.mjs` counted `mem-reflect-*` directories in the shared temp directory and saw the copies
+  of a file running beside it (red in 3 of 4 double runs). Both files now work in their own temp directory
+  (TMPDIR, TEMP, TMP), and the count is taken there (double run: 6 of 6 red before, 10 of 10 green after).
 - **`test/no-jump.test.mjs`**: the 20 s limit timer of the held-request wait was never cleared and kept the test process
   alive after the test (the single test: 26.7 s wall, 11.0 s with `clearTimeout` in a `finally`).
 
