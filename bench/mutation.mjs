@@ -1217,6 +1217,16 @@ export const MUTANTS=[
    from:"    $dir = Join-Path $base 'cheap-mem'",
    to:"    $dir = Join-Path $Root '.pipeline'",
    tests:['test/own-tool.test.mjs'] },
+ { name:"own-tool: the windows start hook imports the memory's provenance module without the rule",
+   file:"install/windows.ps1",
+   from:"  if (Test-Path -LiteralPath `$ownLib) { `$provSrc = (Find-OwnTool -Root `$env:CHEAP_MEM_ROOT -Rel 'src\\provenance.mjs' -Self `$PSScriptRoot).Path }",
+   to:"  `$provSrc = Join-Path `$env:CHEAP_MEM_ROOT 'src\\provenance.mjs'  # MUTANT: the memory's module, without the rule",
+   tests:['test/own-tool.test.mjs'] },
+ { name:"own-tool: the provisioning variable is not denied wherever it stands",
+   file:"install/claude-code.sh",
+   from:"  'Bash(*CHEAP_MEM_PROVISION*)',\n",
+   to:"  // MUTANT\n",
+   tests:['test/own-tool.test.mjs'] },
 ];
 
 // The modules whose failure is a security or data-integrity failure. The

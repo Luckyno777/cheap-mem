@@ -178,16 +178,30 @@ saying "run mem trust-own-tool"), and none of them is a lock:
    environment. A variable written in front of `node` takes the call out of the
    allow list `node <tool>/bin/mem:*`, so a session that may call the tool
    still has to ask the person. `--off` and `--status` need no terminal.
-2. The installer denies `Bash(*trust-own-tool*)` (and, on Windows,
-   `PowerShell(*trust-own-tool*)`): every spelling that has the word in the
-   line is refused - `--root` in front, `--root=`, `env A=1 node ...`,
+2. The installer denies `Bash(*trust-own-tool*)` and `Bash(*CHEAP_MEM_PROVISION*)`
+   (and, on Windows, the same two for `PowerShell(...)`): every spelling that has
+   the word, or the provisioning variable, in the line is refused - `--root` in front, `--root=`, `env A=1 node ...`,
    `cd x && node ...`, doubled blanks, a relative path to `bin/mem`. The two
    prefix forms stay for a Claude Code that does not read a `*` in the middle
    of a rule. A spelling that hides the word from the rule (a quote splitting
-   it) passes the rule and meets point 1.
+   it) still has to set the variable, and a line that sets it is denied; the
+   claim that a variable written in front of `node` leaves the allow list is the
+   documented reading of the rules, not something proved here, which is why the
+   variable is denied on its own. The `PowerShell(...)` rule name is UNVERIFIED:
+   nothing else in this repository uses it, and it is written from the rule
+   syntax of Claude Code's documentation; if that tool or name does not exist the
+   rule does nothing, and the Bash rules are what holds.
 3. `Write` and `Edit` of the switch directory are denied (`Write`/`Edit` are
    allowed across the board otherwise).
 4. The command is not in the MCP server.
+
+**Not blocked on purpose: `~/.claude/settings.json` and `~/.claude/hooks/`.** A
+session that may `Write`/`Edit` there can change the deny lines above, and the
+installed rule file `cheap-mem-own-tool.sh`, which every hook sources. They are
+not denied because that would break ordinary Claude Code work (setting up a
+status line, a user who has Claude change their own settings). The fence is a
+fence, not a lock: whoever wants to rule that out sets deny rules or managed
+settings for those paths themselves.
 
 **These work through the permission rules.** A session that may run ANY shell
 command (bypass or auto mode, or a person who answers "yes" to everything) can
@@ -378,7 +392,7 @@ every fresh memory started without the guarantee its own design depends on.
 | **T3** | secret in a body | redacted before disk | canary, hook | 7 separator + 7 space look-alikes; a string value under a secret key falls whole (blanks, escaped quotes and markers inside it; `test/redaction-json-string.test.mjs`); an object field under a secret key falls whole at any depth, numbers and booleans directly under it too, a single number under a counter key (`max_tokens`, `secrets: 120`) and cursors stay, object-only key words `pin`/`pwd`/`passcode`/`credential(s)`/`privateKey`; a key is read in linear time and a key past 512 characters is a secret in doubt (`walkSecrets`, used by `redactObject`/`redactEntry` and `maskEntry`: raw capture `tool_use.input`, every output; `test/redaction-object-keys.test.mjs`); `Bearer`/`Basic`/`Authorization: Token` behind a marker | an unknown shape; an unquoted `key=value` with blanks ends at the blank; a passphrase of twelve plain words behind a bare key; Unicode quotation marks, `&quot;`, YAML block values, a raw line break inside a value; key words `pwd`, `pin`, `passcode`, `credentials`, `authorization`, `kennwort`, `passwort`; a secret under a key that is not on the list (an object field named `otp`, a header other than `authorization`); a secret in an object KEY; a number under a counter-like key (`tokens`, `password_length`, left on purpose) |
 | **T3** | a secret that reached a drawer PAST the write path (typed by hand, an older version, a merge) | masked at the OUTPUT as `[REDACTED:type]`; the line on disk is untouched | `src/outputguard.mjs` — the very `PATTERNS` of `redaction.mjs`, no second list; `test/output-guard.test.mjs` | `maskText`/`maskEntry` at every render path: `display.compactLine` and `sanitizeForDisplay` (find, show, when, retrieve, the bridge), `shortline`, `memory.context()`, `browse`, the viewer payload, `recallrender` and the three hook outputs; plus `out()` for EVERY command (on by default; the short exception list `UNGUARDED` in `src/cli/shell.mjs`), the one exit of `mem serve` (`src/servemask.mjs`, all JSON answers) and the direct stdout writers (`context`, `core`, `raw show`, `inbox show`). **Mask before cut:** every site that shortens entry text masks first (`cutMasked`, `windowMasked`, or `maskText` in front of its own cutter), otherwise a key crossing the cut leaves a stump below its pattern's minimum length; `test/mask-before-cut.test.mjs`, ratchet `test/mask-before-cut-ratchet.test.mjs` | an unknown shape stays; a command that prints through `process.stdout.write` instead of `out()` and forgets the mask; the env-value layer is write-time only |
 | **T5 malicious merge** | conflict destroys lines | prevented | `env/merge-driver` | `merge=union` | driver must be present |
-| **T10 hostile remote** | a push to the memory's remote ships `bin/mem-retrieve`, `bin/mem` or `src/*.mjs`; the ten-minute pull brings it in; a hook runs it | not run | session start says "memory ships its own tool; using the installed one"; `mem trust-own-tool --status` | installed tool first, memory's own only with a local unversioned switch, never on the allow list without it (§4.1; `test/own-tool.test.mjs` runs the hooks against a planted marker writer); the switch command is refused by the rules, by the command without a terminal and by the missing provisioning variable | a memory the user trusted (its path stays trusted if it is re-cloned there); a session allowed to run any shell command, which can write the switch file; hooks installed before the rule until the installer runs again |
+| **T10 hostile remote** | a push to the memory's remote ships `bin/mem-retrieve`, `bin/mem` or `src/*.mjs`; the ten-minute pull brings it in; a hook runs it | not run | session start says "memory ships its own tool; using the installed one"; `mem trust-own-tool --status` | installed tool first, memory's own only with a local unversioned switch, never on the allow list without it (§4.1; `test/own-tool.test.mjs` runs the hooks against a planted marker writer); the switch command is refused by the rules, by the command without a terminal and by the missing provisioning variable | a memory the user trusted (its path stays trusted if it is re-cloned there); a session allowed to run any shell command, which can write the switch file; a session that may Write/Edit `~/.claude/settings.json` or `~/.claude/hooks/` (the deny lines, the rule file: a fence, not a lock; deny those paths or use managed settings yourself); the `PowerShell(...)` rule name is unverified; hooks installed before the rule until the installer runs again |
 | **T7 corruption** | truncated line | skipped **and counted** | `doctor` integrity | — | the entry is gone |
 | **T7** | a historical line edited in the working tree, not merely appended to | flagged, first differing line named | `doctor` append-only-git (`checkAppendOnlyGit`) | working tree checked against `git show HEAD:<path>` — old must be a prefix of new | **whoever edits AND commits, or force-pushes rewritten history this clone then pulls, is invisible** — checked against git, deliberately not a second, weaker hash chain (see the long comment on `checkAppendOnlyGit` in `src/doctor.mjs`) |
 | **T3** | Trojan-Source bidi-override characters ([CVE-2021-42574](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2021-42574)) reorder how a body reads in a terminal or an agent's context | neutralised at DISPLAY time | `src/bidi.mjs` — a closed nine-codepoint list (U+202A-U+202E, U+2066-U+2069) | `bidi.visible()` in every render path: `display.compactLine` (`mem find`, `mem component`/pre-edit hook, `mem when`, board), `memory.context()` (SessionStart hook), `browse.fit()` (`mem browse`), and directly in `bin/mem-retrieve`'s per-turn hook (which reads the raw entry, not `compactLine`'s output) | the character is still ON DISK, unmarked, in any consumer that reads the JSONL directly instead of through one of these render paths — e.g. `git show`, a raw `cat`, or a future display path that forgets to call `bidi.visible()` |
@@ -694,7 +708,7 @@ Answered by breaking each mechanism on purpose and checking that a test
 notices (`node bench/mutation.mjs`). A mutant that SURVIVES marks a
 guarantee that lives in documentation and nowhere else.
 
-**187 mutants, 187 caught.** Including: supersession always allowed,
+**189 mutants, 189 caught.** Including: supersession always allowed,
 `admits()` always true, the disputed filter removed, deduplication removed,
 resource limits ignored, the redaction class narrowed back to ASCII, broken
 lines silently skipped again, cycles never reported, the merge driver

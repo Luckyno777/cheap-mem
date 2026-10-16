@@ -14,6 +14,16 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Security - round 3 of the own-tool rule: the Windows start hook's provenance block, the provisioning variable, two honest limits (tool-trust-cm, review)
+
+- **The Windows start hook imported `<memory>\src\provenance.mjs` without the switch.** The block "Which clone answers" in the generated hook took the memory's module first and ran it with `node -e`; the file
+  asked the rule elsewhere, which hid it from the file-level ratchet. It goes through `Find-OwnTool` now, like every other lookup. The POSIX side was already right (the picking function of `bin/_owntool.sh`). The ratchet is per LINE now: a line
+  that names `<memory>/bin|src` (or the tool file looked up under the memory root) must ask the rule itself or sit right behind the gate that does; the old block is its positive control; the mutant puts it back.
+- **Deny `Bash(*CHEAP_MEM_PROVISION*)`** (and `PowerShell(...)` on Windows): that a variable in front of `node` leaves the allow list is the documented reading, not proved, and together with a quote-split command name it
+  would be a way. The forms test has the three combinations. A shell line that mentions the variable (even a `grep`) is refused by this rule; a provisioning script sets it outside Claude Code.
+- **Not blocked: `~/.claude/settings.json` and `~/.claude/hooks/`** (Write/Edit there is legitimate Claude Code work). A session that may write there can change the deny lines and `cheap-mem-own-tool.sh`; said in
+  `docs/security-model.md` 4.1 and T10: a fence, not a lock. The `PowerShell(...)` rule name is marked UNVERIFIED: no other place in the repository uses it.
+
 ### Security - follow-up on the own-tool rule: the switch command could be reached around the deny rule, hooks installed earlier, a marker written through a symlink (tool-trust-cm, review)
 
 - **The deny rule was narrow.** `Bash(node <tool>/bin/mem trust-own-tool:*)` is a prefix; `node <tool>/bin/mem --root <memory> trust-own-tool --non-interactive` matched the ALLOW rule `node <tool>/bin/mem:*`

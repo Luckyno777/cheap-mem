@@ -450,11 +450,10 @@ Write-Host ''
 # the same line only when the clone is STALE (src/clonegate.mjs). Same as
 # install/hooks/session-start.sh. Best-effort and silent.
 try {
-  `$provSrc = Join-Path `$env:CHEAP_MEM_ROOT 'src\provenance.mjs'
-  if (-not (Test-Path `$provSrc) -and `$env:CHEAP_MEM_CODE) {
-    `$provSrc = Join-Path `$env:CHEAP_MEM_CODE 'src\provenance.mjs'
-  }
-  if (Test-Path `$provSrc) {
+  # Through the rule (tool-trust-cm): the memory's own src\provenance.mjs is imported by node only with the switch.
+  `$provSrc = `$null
+  if (Test-Path -LiteralPath `$ownLib) { `$provSrc = (Find-OwnTool -Root `$env:CHEAP_MEM_ROOT -Rel 'src\provenance.mjs' -Self `$PSScriptRoot).Path }
+  if (`$provSrc) {
     `$env:MEM_SS_PROV = ([System.Uri]::new([System.IO.Path]::GetFullPath(`$provSrc))).AbsoluteUri
     `$provScript = @'
       import(process.env.MEM_SS_PROV).then((m) => {
@@ -982,6 +981,7 @@ if (-not `$subagent) {
       # A session that may run any shell command (bypass/auto) can still write the
       # switch file: these rules are a fence, not a lock (docs/security-model.md).
       'Bash(*trust-own-tool*)', 'PowerShell(*trust-own-tool*)',
+      'Bash(*CHEAP_MEM_PROVISION*)', 'PowerShell(*CHEAP_MEM_PROVISION*)',
       "Bash(node $($RepoRoot -replace '\\','/')/bin/mem trust-own-tool:*)",
       "Bash(node $($env:CHEAP_MEM_ROOT -replace '\\','/')/bin/mem trust-own-tool:*)"
     )

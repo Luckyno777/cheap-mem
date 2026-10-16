@@ -343,7 +343,12 @@ const deny = [
   //  - `Write`/`Edit` of the switch file are denied below. A model that may run any shell command
   //    (bypass/auto mode) can still write that file with a redirection: these rules are a fence, not a lock.
   'Bash(*trust-own-tool*)',
-  ...(process.platform === 'win32' ? ['PowerShell(*trust-own-tool*)'] : []),
+  // The variable that lets the command run without a terminal. That a variable in front of `node` leaves the
+  // allow list is the documented reading of Claude Code's rules, not something proved here; so the variable is
+  // denied wherever it stands in a line (a line that sets it is a line about this switch). With the quote-split
+  // spelling of the command name this was the one way left.
+  'Bash(*CHEAP_MEM_PROVISION*)',
+  ...(process.platform === 'win32' ? ['PowerShell(*trust-own-tool*)', 'PowerShell(*CHEAP_MEM_PROVISION*)'] : []),
   `Bash(node ${codeRoot.replace(/\\/g, '/')}/bin/mem trust-own-tool:*)`,
   `Bash(node ${memRoot.replace(/\\/g, '/')}/bin/mem trust-own-tool:*)`,
 ];

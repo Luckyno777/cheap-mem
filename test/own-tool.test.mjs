@@ -325,7 +325,7 @@ function plant(root) {
   fs.writeFileSync(path.join(root, 'bin', 'mem'), `#!/usr/bin/env node\n${js('mem')}`, { mode: 0o755 });
   fs.writeFileSync(path.join(root, 'bin', 'mem-before-edit-core.mjs'),
     `import fs from 'node:fs'; import path from 'node:path';\nfs.writeFileSync(path.join(process.env.CM_PLANT_DIR, 'core'), 'x');\n`);
-  for (const n of ['answercheck', 'closingreport', 'subagentstart', 'injection', 'afterfailure', 'errorsignature']) {
+  for (const n of ['answercheck', 'closingreport', 'subagentstart', 'injection', 'afterfailure', 'errorsignature', 'provenance']) {
     fs.writeFileSync(path.join(root, 'src', `${n}.mjs`),
       `import fs from 'node:fs'; import path from 'node:path';\nfs.writeFileSync(path.join(process.env.CM_PLANT_DIR, 'src-${n}'), 'x');\nexport const checkStop = () => null; export const stopReport = () => null;\nexport const hookResultFor = async () => null; export const book = () => {}; export const OCCASION = { SESSION_START: 'session-start' };\n`);
   }
@@ -426,6 +426,7 @@ test('RED/GREEN: planted code in the memory is not run by any installed shim; wi
   assert.deepEqual(on.got['after-failure'], ['mem-after-failure']);
   assert.deepEqual(on.got['catch-fail'], ['mem-catch-fail']);
   assert.ok(on.got['session-start'].includes('mem'), 'the start hook ran the memory\'s own bin/mem');
+  assert.ok(on.got['session-start'].includes('src-provenance'), 'positive control: with the switch the start hook loads the memory\'s own src/provenance.mjs');
   assert.doesNotMatch(on.out['session-start'].stdout, /memory ships its own tool/, 'trusted: nothing to announce');
 
   // OFF again.
@@ -713,6 +714,10 @@ test('the written rules: every real way to call the switch command is refused or
     'relative path to bin/mem': `node ../../${path.basename(code)}/bin/mem trust-own-tool --non-interactive`,
     'the memory\'s own bin/mem': `node ${mem}/bin/mem trust-own-tool --non-interactive`,
     'a pipe behind': `node ${code}/bin/mem trust-own-tool --non-interactive | cat`,
+    // The one that is NOT covered by the word "trust-own-tool": the variable in front, the command name split by a quote.
+    'variable in front, name split by a quote': `CHEAP_MEM_PROVISION=1 node ${code}/bin/mem trust-own-"tool" --non-interactive`,
+    'export first, name split by a quote': `export CHEAP_MEM_PROVISION=1 && node ${code}/bin/mem trust-own-"tool" --non-interactive`,
+    'env in front, name split by a quote': `env CHEAP_MEM_PROVISION=1 node ${code}/bin/mem trust-own-'tool' --non-interactive`,
   };
   for (const [name, cmd] of Object.entries(forms)) {
     const v = bashVerdict(cmd, rules);
@@ -888,11 +893,30 @@ test('mem trust-own-tool: refuses without a terminal, --non-interactive sets, --
 
 const GUARD = /mem_own_tool_trusted|OWN_TOOL\b|mem_pick_tool|Find-OwnTool|OwnToolTrusted/;
 
-test('ratchet: no script starts or loads code from the memory root without consulting the rule', () => {
-  // Every executable line of bin/ and install/ that names `<memory>/bin/...` or `<memory>/src/...`
-  // as something to RUN or LOAD lives in a file that asks the rule. Comments and strings that
-  // only talk about it do not count; a new such line in a file that never asks does.
-  const NAMES_MEMORY_CODE = /(\$\{?(CHEAP_MEM_ROOT|ROOT)\}?|\$Root\)?|\$env:CHEAP_MEM_ROOT|\$\{?memRoot\}?)[\s/\\']+(bin|src)[/\\]/;
+// A line that names `<memory>/bin/...` or `<memory>/src/...` (or the tool file a shim looked up under the memory
+// root, `Join-Path <memory> $rel`) must ask the rule ITSELF or sit right behind a line that does (the gate of an
+// `if`, a few lines up). A whole file that asks somewhere else is not enough: that is how the Windows start hook's
+// provenance block imported <memory>\src\provenance.mjs without the switch while the file asked the rule five lines
+// further up (tool-trust-cm, review round 3).
+const NAMES_MEMORY_CODE = /(\$\{?(CHEAP_MEM_ROOT|ROOT)\}?|\$Root\)?|\$env:CHEAP_MEM_ROOT|\$\{?memRoot\}?)[\s/\\']+((bin|src)[/\\]|`?\$rel\b)/;
+const ALLOWED_UNGUARDED = [
+  // [file, line text fragment, reason] - empty on purpose: a line that names the memory's code and does not ask the rule
+  // needs a reason that is better than "the file asks somewhere".
+];
+function unguardedLines(text, file = '') {
+  const lines = text.split('\n');
+  const out = [];
+  lines.forEach((l, i) => {
+    if (/^\s*(#|\/\/|\*)/.test(l) || !NAMES_MEMORY_CODE.test(l)) return;
+    const near = lines.slice(Math.max(0, i - 2), i + 1).join('\n');
+    if (GUARD.test(near)) return;
+    if (ALLOWED_UNGUARDED.some(([f, frag]) => f === file && l.includes(frag))) return;
+    out.push(`${i + 1}: ${l.trim().slice(0, 90)}`);
+  });
+  return out;
+}
+
+test('ratchet: every line that runs or loads code from the memory root asks the rule, itself or in the gate right above it', () => {
   const files = [];
   const walk = (d) => {
     for (const e of fs.readdirSync(path.join(REPO, d), { withFileTypes: true })) {
@@ -904,19 +928,22 @@ test('ratchet: no script starts or loads code from the memory root without consu
   walk('bin');
   walk('install');
   const bad = [];
-  const seen = [];
+  let named = 0;
   for (const f of files) {
+    if (/^install\/(codex|linux|macos)/.test(f)) continue;
     const text = read(f);
-    const hits = text.split('\n').map((l, i) => [l, i + 1])
-      .filter(([l]) => !/^\s*(#|\/\/|\*)/.test(l) && NAMES_MEMORY_CODE.test(l));
-    if (!hits.length) continue;
-    seen.push(f);
-    if (!GUARD.test(text) && !/^install\/(codex|linux|macos)/.test(f)) {
-      bad.push(`${f}: ${hits.map(([l, n]) => `${n}: ${l.trim().slice(0, 80)}`).join(' | ')}`);
-    }
+    named += text.split('\n').filter((l) => !/^\s*(#|\/\/|\*)/.test(l) && NAMES_MEMORY_CODE.test(l)).length;
+    for (const hit of unguardedLines(text, f)) bad.push(`${f}:${hit}`);
   }
-  assert.ok(seen.length >= 8, `the ratchet found only ${seen.length} files that name the memory's code - its pattern is broken`);
-  assert.deepEqual(bad, [], 'these files run or load code from the memory root and never ask whether the user allowed it');
+  assert.ok(named >= 14, `the ratchet found only ${named} lines that name the memory's code - its pattern is broken`);
+  assert.deepEqual(bad, [], 'these lines run or load code from the memory root and do not ask whether the user allowed it');
+  // Positive control: the form that slipped through is caught, its repaired form is not.
+  const oldProvenance = ["try {", "  `$provSrc = Join-Path `$env:CHEAP_MEM_ROOT 'src\\provenance.mjs'", "  if (Test-Path `$provSrc) { }", "} catch { }"].join('\n');
+  assert.equal(unguardedLines(oldProvenance).length, 1, 'the ratchet does not see the old provenance block');
+  const repaired = "  `$provSrc = (Find-OwnTool -Root `$env:CHEAP_MEM_ROOT -Rel 'src\\provenance.mjs' -Self `$PSScriptRoot).Path";
+  assert.equal(unguardedLines(repaired).length, 0);
+  assert.equal(unguardedLines('RUN_MEM=(node "$ROOT/bin/mem")').length, 1, 'a bare shell line is caught');
+  assert.equal(unguardedLines('if [ -f "$ROOT/bin/mem" ] && mem_own_tool_trusted "$ROOT"; then\n  RUN_MEM=(node "$ROOT/bin/mem")').length, 0);
 });
 
 test('every hook script and every shim consults the rule (sh and ps1)', () => {
@@ -956,6 +983,7 @@ test('windows.ps1: all seven generated hooks use the rule; the memory\'s bin is 
   assert.match(text, /trust-own-tool:\*\)/, 'the switch command is on the deny list');
   // The deny list: the glob form (every spelling), the PowerShell tool, and Write/Edit of the switch file.
   assert.match(text, /'Bash\(\*trust-own-tool\*\)', 'PowerShell\(\*trust-own-tool\*\)'/);
+  assert.match(text, /'Bash\(\*CHEAP_MEM_PROVISION\*\)', 'PowerShell\(\*CHEAP_MEM_PROVISION\*\)'/);
   assert.match(text, /foreach \(\$tool in @\('Write', 'Edit'\)\) \{ \$denyNeeded \+= "\$tool\(\/\$swPosix\/\*\*\)" \}/);
   assert.match(text, /\(\[string\]\$_\)\.Replace\('\\', '\/'\) -ne \$stale/, 'the stale entry goes in its backslash spelling too');
   // The tool-missing marker is in the user's state directory, never written through the memory.
