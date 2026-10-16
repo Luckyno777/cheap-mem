@@ -77,7 +77,7 @@ function memoryRoot() {
 }
 async function start(root) {
   const mod = await import(`${pathToFileURL(SERVE).href}?cases=${Math.random()}`);
-  const { server } = await mod.serve(root, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '' });
+  const { server } = await mod.serve(root, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1', CHEAP_MEM_SERVE_TOKEN: '' });
   return { mod, port: server.address().port, stop: () => new Promise((res) => { server.closeAllConnections?.(); server.close(res); }) };
 }
 function rawGet(port, p, host, headers = {}) {

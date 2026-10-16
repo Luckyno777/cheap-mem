@@ -94,7 +94,7 @@ async function withBridge(fn) {
   let stderr = '';
   const child = spawn(process.execPath, [MCP, '--http'], {
     cwd: ROOT,
-    env: { ...process.env, CHEAP_MEM_ROOT: memory, CHEAP_MEM_MCP_PORT: String(port) },
+    env: { ...process.env, CHEAP_MEM_ROOT: memory, CHEAP_MEM_MCP_PORT: String(port), CHEAP_MEM_MCP_LOCAL_NO_TOKEN: '1' },
     stdio: ['ignore', 'ignore', 'pipe'],
   });
   child.stderr.setEncoding('utf8');

@@ -14,6 +14,14 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Changed / Security - the HTTP services refuse to start without a token, unless "local, no token" is set on purpose (serve-token-refuse-cm; owner decision 2026-10-14)
+
+`mem serve` (`bin/mem-serve`) and `mem-mcp --http` are the two HTTP services in cheap-mem (the warm recall server is a Unix socket or named pipe with a key file, not a TCP port; `test/serve-token-refuse-cm.test.mjs` pins the list, so a third service cannot skip the door).
+Until now a door with no token and nothing else behind it started anyway and printed a `NOTICE`; the rule is now one shared decision, `webauth.startDecision`: no token, no password login (the dashboard's own credential) and no switch means the process exits with a code other than 0, a message that names the token variable, a command that makes a token and the switch, and **no port is bound**.
+The switch is `--local-no-token` (on `mem serve`, `bin/mem-serve` and `mem-mcp --http`) or `CHEAP_MEM_SERVE_LOCAL_NO_TOKEN=1` / `CHEAP_MEM_MCP_LOCAL_NO_TOKEN=1` for a service unit. It lifts only that one refusal: it is honoured on loopback only (an allow list of three names; `0.0.0.0`, `::`, `127.0.0.2` and every other spelling refuse), a request that carries a proxy header is still turned away, and the start prints a `NOTICE` that the service runs without a token.
+**What breaks:** a dashboard started with `CHEAP_MEM_SERVE_LOGIN=off` and no token, and an HTTP bridge started with no token; both now need a token or the switch. **What does not:** a dashboard with its password login on (the default, and what `install/serve-service.sh` installs) keeps starting, because the password is a credential; a start with a token is unchanged. The probes that started token-less servers (about 50 test files, three bench scripts) set the switch.
+New environment variables `CHEAP_MEM_SERVE_LOCAL_NO_TOKEN` and `CHEAP_MEM_MCP_LOCAL_NO_TOKEN` are in `src/envregister.mjs` and `docs/environment-variables.md`; the way to a token is in `docs/dashboard.md`, `docs/mcp-setup.md` and in every refusal message.
+
 ### Performance - measured, not built: a word-normalisation memo for the cold index build (cli-speed-cm TB9; cheap-mem only)
 
 The order's lever: memoise the normalisation of a word. Measured first, on the 20,000-entry scratch memory, a cold `buildIndex`: the English pack normalised

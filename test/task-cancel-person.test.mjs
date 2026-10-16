@@ -116,7 +116,7 @@ test('POST /task/cancel: the bearer token alone is refused (403) and the task of
 
 test('POST /task/cancel with the login switched off cannot show a person either (403)', async () => {
   const r = world();
-  const s = await start(r, { CHEAP_MEM_SERVE_LOGIN: 'off' });
+  const s = await start(r, { CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1' });
   try {
     const began = await post(s, '/task', 'kind=integrity', BEARER);
     assert.equal(began.status, 201);

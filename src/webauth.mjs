@@ -40,6 +40,63 @@ export function bindAllowed({ host, token, variable = 'TOKEN' }) {
 }
 
 /**
+ * The command that makes a token, for the refusal message. Double quotes only, so it runs unchanged in bash, PowerShell
+ * and cmd; it prints a value once and stores nothing.
+ */
+export const MAKE_TOKEN_COMMAND = 'node -e "console.log(require(\'node:crypto\').randomBytes(24).toString(\'hex\'))"';
+
+/**
+ * May this HTTP service START at all? (Owner decision 2026-10-14: a service without a token refuses to start, unless the
+ * local-no-token switch is set on purpose.)
+ *
+ * The door is open when NOTHING stands behind it: no token and no login (the dashboard's password). A password is a
+ * credential, so a dashboard with its login on and no token keeps starting as before; the MCP bridge has no login and
+ * always needs the token. Three outcomes:
+ *
+ * - a credential stands behind the door: `{ ok: true, withoutToken: false }`;
+ * - no credential, the switch set, the bind is loopback: `{ ok: true, withoutToken: true, notice }` - the caller prints
+ *   `notice` on its start line;
+ * - anything else: `{ ok: false, reason }`. A public bind without a token is refused FIRST ({@link bindAllowed}) and the
+ *   switch never changes that: it is an allow list of three loopback names, not a block list of public ones.
+ *
+ * What the switch does NOT lift, per request: a loopback socket that carries a proxy header is not local
+ * ({@link remoteIsLoopback} strict), so a tunnel in front of a token-less service is turned away even with the switch.
+ *
+ * `variable` is the token variable, `switchVariable` the environment form of the switch, `flag` its command-line form.
+ */
+export function startDecision({
+  host, token = '', login = false, localNoToken = false,
+  variable = 'TOKEN', switchVariable = 'LOCAL_NO_TOKEN', flag = '--local-no-token',
+} = {}) {
+  const bind = bindAllowed({ host, token, variable });
+  if (!bind.ok) {
+    return {
+      ok: false,
+      reason: localNoToken
+        ? `${bind.reason} The local-no-token switch (${flag}) works on loopback only and does not apply to ${host}.`
+        : bind.reason,
+    };
+  }
+  if (token || login) return { ok: true, withoutToken: false };
+  if (!localNoToken) {
+    return {
+      ok: false,
+      reason:
+        `Refusing to start without a token: ${variable} is not set and no password login stands behind this door. `
+        + `Set a token: ${variable}=<secret> (make one with: ${MAKE_TOKEN_COMMAND}). `
+        + `For a purely local run, say so on purpose: ${flag} or ${switchVariable}=1 `
+        + '(loopback only; a request that carries a proxy header is still turned away).',
+    };
+  }
+  return {
+    ok: true,
+    withoutToken: true,
+    notice: `running WITHOUT a token on ${host} (${flag}): loopback only, no password login; `
+      + 'a tunnelled request (one with forwarding headers) is turned away',
+  };
+}
+
+/**
  * Compare two strings without leaking, through time, where they differ.
  *
  * `timingSafeEqual` requires equal length. Both sides are first reduced

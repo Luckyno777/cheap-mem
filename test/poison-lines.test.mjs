@@ -185,7 +185,7 @@ test('the dashboard server stays up, answers 200, and says honestly that a poiso
   const mod = await import(`${pathToFileURL(SERVE).href}?t=${Math.random()}`);
   const TOKEN = ['probe', 'poison', String(process.pid)].join('-');
   const { server } = await mod.serve(root, {
-    CHEAP_MEM_SERVE_TOKEN: TOKEN, CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off',
+    CHEAP_MEM_SERVE_TOKEN: TOKEN, CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1',
   }, {});
   t.after(() => new Promise((ok) => { server.closeAllConnections?.(); server.close(ok); }));
   assert.ok(fs.existsSync(cfgFile));

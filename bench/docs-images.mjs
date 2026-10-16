@@ -332,7 +332,7 @@ async function launchBrowser(pw) {
 async function startServer(root, { loginOff = true } = {}) {
   const mod = await import(`${pathToFileURL(SERVE).href}?docs=${Math.random()}`);
   const env = { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_TOKEN: '' };
-  if (loginOff) env.CHEAP_MEM_SERVE_LOGIN = 'off';
+  if (loginOff) { env.CHEAP_MEM_SERVE_LOGIN = 'off'; env.CHEAP_MEM_SERVE_LOCAL_NO_TOKEN = '1'; }
   const { server } = await mod.serve(root, env, { allowWrites: true });
   return { base: `http://127.0.0.1:${server.address().port}`, stop: () => new Promise((res) => server.close(res)) };
 }

@@ -7,7 +7,7 @@ in English, it carries cheap-mem's own mark (the C), and a fresh install
 starts with an empty store.
 
 ```bash
-mem serve                 # http://127.0.0.1:8847/  (localhost only without a token)
+mem serve                 # http://127.0.0.1:8847/  (the password login is the door)
 mem serve --allow-writes  # allow the page to write, for this run only
 ```
 
@@ -197,8 +197,22 @@ the page.
 
 ## Security
 
-- Without `CHEAP_MEM_SERVE_TOKEN` it binds to localhost only. A request
-  that is neither loopback nor carries the token gets a bare 404.
+- **A door with nothing behind it does not start.** The door is the token
+  (`CHEAP_MEM_SERVE_TOKEN`) or the password login (on by default). With
+  neither - the login turned off by `CHEAP_MEM_SERVE_LOGIN=off` and no
+  token - `mem serve` exits with a message and binds no port. To run like
+  that on purpose, on this machine only, say so: `mem serve --local-no-token`
+  (or `CHEAP_MEM_SERVE_LOCAL_NO_TOKEN=1`, for a service unit). Even then it
+  binds loopback only (a public `--host` without a token is refused, switch
+  or not), a request that carries a proxy header (a tunnel, a reverse proxy)
+  is turned away, and the start prints a `NOTICE` line that it runs without
+  a token.
+- To make a token: `node -e "console.log(require('node:crypto').randomBytes(24).toString('hex'))"`
+  prints one (it works the same in bash, PowerShell and cmd). Put it in the
+  environment of the process as `CHEAP_MEM_SERVE_TOKEN`, not in a file that is
+  committed, and open `http://127.0.0.1:8847/?k=<the token>` once (the server
+  moves it into a cookie), or send it as `Authorization: Bearer <the token>`.
+  A request that is neither loopback nor carries the token gets a bare 404.
 - Every data route checks the `Host` header against loopback,
   `CHEAP_MEM_SERVE_HOSTS` and the hosts of `CHEAP_MEM_SERVE_ORIGINS`.
   This guards against DNS rebinding.

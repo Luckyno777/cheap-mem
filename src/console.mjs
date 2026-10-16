@@ -255,7 +255,7 @@ export function connections(env = process.env, cfg = {}) {
       address: `http://${host}:${port}/`,
       door: (cfg.token ?? env.CHEAP_MEM_SERVE_TOKEN) ? 'token set' : 'no token — localhost only',
       open: !(cfg.token ?? env.CHEAP_MEM_SERVE_TOKEN),
-      note: 'Without a token the server refuses to bind anywhere but localhost.',
+      note: 'Without a token (and without the password login) the server does not start unless --local-no-token is set, and then only on loopback.',
     },
     {
       id: 'mcp',

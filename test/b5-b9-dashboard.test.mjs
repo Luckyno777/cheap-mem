@@ -138,7 +138,7 @@ test('B6: with the login switched off nothing writes as the owner either (no sam
   const r = memory();
   const parts = { lucky: { human: true }, session: {} };
   const name = inbox.write(r, parts, { from: 'session', to: 'lucky', subject: 'ping', text: 'x' }).name;
-  const s = await start(r, { CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '' });
+  const s = await start(r, { CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1', CHEAP_MEM_SERVE_TOKEN: '' });
   try {
     const res = await fetch(`${s.base}/inbox/state`, { method: 'POST', redirect: 'manual', headers: { origin: s.base }, body: new URLSearchParams({ name, state: 'closed' }) });
     assert.equal(res.status, 403);

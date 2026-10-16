@@ -239,7 +239,7 @@ directory. The section number in brackets is where it is explained.
 | `variants.mjs` | variant fusion: up to 4 rewordings the CALLING agent writes are each searched with the same options and merged by Reciprocal Rank Fusion; the score stays a real search score; no model in the recall path (`mem find --variants "a\|b"`, `mem_find` field `variants`) |
 | `verifylog.mjs` | a human's verdict on an uncertain fact, appended OUTSIDE the memory root — never a correction, never inside the repo (7.5) |
 | `viewer.mjs` | one self-contained HTML page to rummage through it all |
-| `webauth.mjs` | the door in front of any HTTP service (7.4) |
+| `webauth.mjs` | the door in front of any HTTP service (7.4), and the one start decision: no token, no login, no `--local-no-token` means the service does not start |
 | `workflow.mjs` | a named SEQUENCE for all — same authority question as `procedure`, same answer: only a human issues one, the bridge never writes it (10.26) |
 | `workflowdetect.mjs` | finds the visible workflow (human, in force, no draft) for a prompt, a subagent assignment (`triggers`), a Bash command (`tool_patterns`) or a file (`path_patterns`, table role `works-on`); a tie shows titles only (10.26) |
 | `writegate.mjs` | the dashboard write switch: off by default, one check in front of every writing route (7.4) |
@@ -826,10 +826,14 @@ properties the file had — it renders only the redacted drawers, and it
 writes no rendered content to disk — plus a third, because a link is
 reachable from outside:
 
-**Fail-closed.** With no `CHEAP_MEM_SERVE_TOKEN` it serves localhost
-only, and binding to a public address without one is REFUSED: the
-process does not start. Not warned about — refused. A warning in a log
-has never once prevented an open link. A request without a valid token
+**Fail-closed.** With no `CHEAP_MEM_SERVE_TOKEN` and no password login
+(on by default) it does not start unless `--local-no-token` (or
+`CHEAP_MEM_SERVE_LOCAL_NO_TOKEN=1`) says on purpose that this is a
+local run; the same rule, from `webauth.startDecision`, holds for
+`mem-mcp --http` (`CHEAP_MEM_MCP_LOCAL_NO_TOKEN`). Even with the switch
+it serves loopback only, and binding to a public address without a
+token is REFUSED: the process does not start. Not warned about —
+refused. A warning in a log has never once prevented an open link. A request without a valid token
 gets exactly what an unknown path gets, a bare 404, so a scanner sees
 "nothing here" rather than "something guarded here". The rules live in
 `src/webauth.mjs`, once, because two copies of one door means one of

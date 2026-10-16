@@ -51,7 +51,7 @@ function world() {
   ids = buildWorld(r);
   return r;
 }
-const ENV = { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', MEM_RECALL_SERVER: '0' };
+const ENV = { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1', MEM_RECALL_SERVER: '0' };
 
 const READY = () => typeof sections === 'object' && !document.querySelector('#screen .loading');
 async function scenario(t, { width = 1400, light = false, hash = '', script = null }, fn) {

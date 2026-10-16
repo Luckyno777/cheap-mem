@@ -172,10 +172,12 @@ A variable that is not in the table is not a switch: there is none.
 | `CHEAP_MEM_CALENDAR_ID` | not set | Google calendar the appointments go into. |
 | `CHEAP_MEM_MCP_HOST` | 127.0.0.1 | Address the HTTP MCP bridge binds to. |
 | `CHEAP_MEM_MCP_HOSTS` | not set | Extra host names the MCP bridge answers to. |
+| `CHEAP_MEM_MCP_LOCAL_NO_TOKEN` | not set | `1` lets the HTTP MCP bridge start with no token, on loopback only; a public bind or a request with a proxy header is still refused. Same as `--local-no-token`. |
 | `CHEAP_MEM_MCP_ORIGINS` | not set | Extra origins the MCP bridge accepts. |
 | `CHEAP_MEM_MCP_PORT` | 8849 | Port of the HTTP MCP bridge. |
 | `CHEAP_MEM_SERVE_HOST` | 127.0.0.1 | Address the viewer binds to; anything but localhost needs a token. |
 | `CHEAP_MEM_SERVE_HOSTS` | not set | Extra host names the viewer answers to. |
+| `CHEAP_MEM_SERVE_LOCAL_NO_TOKEN` | not set | `1` lets the viewer start with no token and no password login, on loopback only; a public bind or a request with a proxy header is still refused. Same as `--local-no-token`. |
 | `CHEAP_MEM_SERVE_ORIGINS` | not set | Extra origins allowed to POST to the viewer. |
 | `CHEAP_MEM_SERVE_PORT` | 8847 | Port of the viewer. |
 | `CHEAP_MEM_SMTP_HOST` | not set | SMTP server for appointment invitations. |
@@ -211,8 +213,8 @@ A variable that is not in the table is not a switch: there is none.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `CHEAP_MEM_CALENDAR_KEY_FILE` | not set | Path of the Google service-account key file; its content never sits in a variable. |
-| `CHEAP_MEM_MCP_TOKEN` | not set | Bearer token of the HTTP MCP bridge; never printed. |
-| `CHEAP_MEM_SERVE_TOKEN` | not set (localhost only) | Bearer token of the viewer; never printed. |
+| `CHEAP_MEM_MCP_TOKEN` | not set (the bridge then needs the local-no-token switch to start) | Bearer token of the HTTP MCP bridge; never printed. |
+| `CHEAP_MEM_SERVE_TOKEN` | not set (the server then needs the password login or the local-no-token switch to start) | Bearer token of the viewer; never printed. |
 | `CHEAP_MEM_SMTP_PASSWORD_FILE` | not set | Path of a file holding the SMTP password (permissions checked); the password never sits in a variable. |
 | `OPENAI_API_KEY` | ignored (REMOVED 2026-10-13) | REMOVED: the OpenAI embedding backend no longer exists (no entry text goes to an embedding vendor). The key is never used or printed; `mem embed status` only notes that the variable is set. |
 | `VOYAGE_API_KEY` | ignored (REMOVED 2026-10-13) | REMOVED: the Voyage embedding backend no longer exists (no entry text goes to an embedding vendor). The key is never used or printed; `mem embed status` only notes that the variable is set. |

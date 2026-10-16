@@ -35,6 +35,8 @@
 // client reports only that the server would not start.
 let Server; let StdioServerTransport; let StreamableHTTPServerTransport;
 const HTTP_MODE = process.argv.slice(2).includes('--http');
+/** `--local-no-token`: start the HTTP bridge with no token, on purpose, on loopback only (src/webauth.mjs `startDecision`). */
+const LOCAL_NO_TOKEN = process.argv.slice(2).includes('--local-no-token');
 /** Read at start-up, not per call: a boundary that can change
  *  mid-session is not one. */
 const PROFILE = HTTP_MODE && process.env.CHEAP_MEM_MCP_READONLY === undefined
@@ -2207,6 +2209,7 @@ function httpConfig(env = process.env) {
     host: env.CHEAP_MEM_MCP_HOST || '127.0.0.1',
     port,
     token: env.CHEAP_MEM_MCP_TOKEN || '',
+    localNoToken: LOCAL_NO_TOKEN || env.CHEAP_MEM_MCP_LOCAL_NO_TOKEN === '1',
     hosts: String(env.CHEAP_MEM_MCP_HOSTS ?? '')
       .split(',').map((x) => x.trim()).filter(Boolean),
     origins: String(env.CHEAP_MEM_MCP_ORIGINS ?? '')
@@ -2248,8 +2251,10 @@ async function readJson(req) {
 
 async function startHttp(pkg) {
   const cfg = httpConfig();
-  const bind = webauth.bindAllowed({
-    host: cfg.host, token: cfg.token, variable: 'CHEAP_MEM_MCP_TOKEN',
+  // No login stands behind this door: the token is the only credential, so without it the bridge starts only on purpose.
+  const bind = webauth.startDecision({
+    host: cfg.host, token: cfg.token, login: false, localNoToken: cfg.localNoToken,
+    variable: 'CHEAP_MEM_MCP_TOKEN', switchVariable: 'CHEAP_MEM_MCP_LOCAL_NO_TOKEN',
   });
   if (!bind.ok) throw new Error(bind.reason);
 
@@ -2327,6 +2332,7 @@ async function startHttp(pkg) {
   });
   process.stderr.write(`cheap-mem MCP (http): http://${cfg.host}:${cfg.port}/mcp\n`);
   process.stderr.write(`  agent=${resolveAgent()} profile=${PROFILE} token=${cfg.token ? 'set' : 'none (plain loopback only; a request with a proxy header is refused)'}\n`);
+  if (bind.withoutToken) process.stderr.write(`  NOTICE: ${bind.notice}\n`);
   { const notice = webauth.openDoorNotice({ token: cfg.token, hosts: cfg.hosts, origins: cfg.origins });
     if (notice) process.stderr.write(`  NOTICE: ${notice}\n`); }
   markRunningIfPossible();

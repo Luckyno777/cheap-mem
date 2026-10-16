@@ -93,7 +93,7 @@ test('A3/F03 mem-mcp --http: no request target and no header ends the bridge (an
   let err = '';
   const child = spawn(process.execPath, [MCP, '--http'], {
     cwd: ROOT, stdio: ['ignore', 'ignore', 'pipe'],
-    env: { ...process.env, CHEAP_MEM_ROOT: root, CHEAP_MEM_MCP_PORT: String(port) },
+    env: { ...process.env, CHEAP_MEM_ROOT: root, CHEAP_MEM_MCP_PORT: String(port), CHEAP_MEM_MCP_LOCAL_NO_TOKEN: '1' },
   });
   child.stderr.setEncoding('utf8');
   child.stderr.on('data', (c) => { err += c; });
@@ -116,7 +116,7 @@ test('A3/F03 mem-mcp --http: no request target and no header ends the bridge (an
 async function startViewer(root, env = {}) {
   const mod = await import(`${pathToFileURL(SERVE).href}?door=${Math.random()}`);
   const { server } = await mod.serve(root, {
-    CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '', ...env,
+    CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1', CHEAP_MEM_SERVE_TOKEN: '', ...env,
   });
   return { mod, port: server.address().port, stop: () => new Promise((res) => { server.closeAllConnections?.(); server.close(res); }) };
 }
@@ -320,7 +320,7 @@ async function startService(t, script, args, env, readyRe, waitMs = 20000) {
 
 test('A14: the bridge says so on stderr without a token, and not with one', async (t) => {
   const root = memoryRoot(t);
-  const without = await startService(t, MCP, ['--http'], { CHEAP_MEM_ROOT: root, CHEAP_MEM_MCP_PORT: String(await freePort()), CHEAP_MEM_MCP_HOSTS: 'memory.example.org' }, /cheap-mem MCP \(http\)/);
+  const without = await startService(t, MCP, ['--http'], { CHEAP_MEM_ROOT: root, CHEAP_MEM_MCP_PORT: String(await freePort()), CHEAP_MEM_MCP_LOCAL_NO_TOKEN: '1', CHEAP_MEM_MCP_HOSTS: 'memory.example.org' }, /cheap-mem MCP \(http\)/);
   assert.match(without(), /NOTICE: no token: anything that reaches this port through a local reverse proxy counts as local/);
   assert.match(without(), /host name is configured/);
   const token = ['bridge', 'probe', 'credential', 'x'.repeat(24)].join('-');
@@ -332,7 +332,7 @@ test('A14: the bridge says so on stderr without a token, and not with one', asyn
 test('A14: `mem serve` (the documented way) says so too: login off, no token', async (t) => {
   const root = memoryRoot(t);
   const MEM = path.join(ROOT, 'bin', 'mem');
-  const env = { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_LOGIN: 'off' };
+  const env = { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1' };
   const up = async (port) => {
     const until = Date.now() + 20000;
     while (Date.now() < until) {
@@ -355,10 +355,10 @@ test('A14: `mem serve` (the documented way) says so too: login off, no token', a
 test('A14: the viewer says so on stderr with the login off and no token, and not with a token or with the login on', async (t) => {
   const root = memoryRoot(t);
   const base = { CHEAP_MEM_ROOT: root, CHEAP_MEM_SERVE_HOST: '127.0.0.1' };
-  const off = await startService(t, SERVE, [], { ...base, CHEAP_MEM_SERVE_PORT: String(await freePort()), CHEAP_MEM_SERVE_LOGIN: 'off' }, /cheap-mem console on/);
+  const off = await startService(t, SERVE, [], { ...base, CHEAP_MEM_SERVE_PORT: String(await freePort()), CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1' }, /cheap-mem console on/);
   assert.match(off(), /NOTICE: no token: anything that reaches this port through a local reverse proxy counts as local/);
   const token = ['viewer', 'probe', 'credential', 'x'.repeat(24)].join('-');
-  const tok = await startService(t, SERVE, [], { ...base, CHEAP_MEM_SERVE_PORT: String(await freePort()), CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: token }, /cheap-mem console on/);
+  const tok = await startService(t, SERVE, [], { ...base, CHEAP_MEM_SERVE_PORT: String(await freePort()), CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1', CHEAP_MEM_SERVE_TOKEN: token }, /cheap-mem console on/);
   assert.match(tok(), /token set/, 'positive control: the viewer did start with its token');
   assert.doesNotMatch(tok(), /NOTICE/);
   const on = await startService(t, SERVE, [], { ...base, CHEAP_MEM_SERVE_PORT: String(await freePort()), CHEAP_MEM_SERVE_LOGIN: 'on' }, /cheap-mem console on/);
@@ -383,7 +383,7 @@ test('A8/F14: the bridge answers 413 above 1 MiB and passes exactly 1 MiB on to 
   let err = '';
   const child = spawn(process.execPath, [MCP, '--http'], {
     cwd: ROOT, stdio: ['ignore', 'ignore', 'pipe'],
-    env: { ...process.env, CHEAP_MEM_ROOT: root, CHEAP_MEM_MCP_PORT: String(port) },
+    env: { ...process.env, CHEAP_MEM_ROOT: root, CHEAP_MEM_MCP_PORT: String(port), CHEAP_MEM_MCP_LOCAL_NO_TOKEN: '1' },
   });
   child.stderr.setEncoding('utf8');
   child.stderr.on('data', (c) => { err += c; });
@@ -441,7 +441,7 @@ test('A5/F05: several clients of one stateless bridge get the same answers to th
   let err = '';
   const child = spawn(process.execPath, [MCP, '--http'], {
     cwd: ROOT, stdio: ['ignore', 'ignore', 'pipe'],
-    env: { ...process.env, CHEAP_MEM_ROOT: root, CHEAP_MEM_MCP_PORT: String(port) },
+    env: { ...process.env, CHEAP_MEM_ROOT: root, CHEAP_MEM_MCP_PORT: String(port), CHEAP_MEM_MCP_LOCAL_NO_TOKEN: '1' },
   });
   child.stderr.setEncoding('utf8');
   child.stderr.on('data', (c) => { err += c; });
