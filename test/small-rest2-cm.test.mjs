@@ -89,6 +89,12 @@ test('the short last line takes only a line of its own: prose after an open bloc
   const out = maskText([HEAD, ...keyBody(5), TAIL, 'Next steps are listed below.'].join('\n'));
   assert.ok(!out.includes(TAIL));
   assert.match(out, /Next steps are listed below\./);
+  // blanks at the end of the short last line do not save it
+  for (const pad of [' ', '\t', '  \t ']) {
+    const padded = maskText([HEAD, ...keyBody(5), `${TAIL}${pad}`, 'after'].join('\n'));
+    assert.ok(!padded.includes(TAIL), `tail with trailing ${JSON.stringify(pad)} is masked`);
+    assert.ok(!maskText([HEAD, ...keyBody(5), `${TAIL}${pad}`].join('\n')).includes(TAIL), 'also at the end of the text');
+  }
   assert.equal(maskText(`${HEAD} is the header line of a key file.`), `${HEAD} is the header line of a key file.`, 'a header alone in prose is not touched');
 });
 
@@ -131,7 +137,15 @@ test('reflector (ps1): the helper gets root and transcript as separate arguments
   assert.ok(call, 'the call is there');
   assert.match(call, /& node \$maskScript --root \$rootArg \$transcriptPath /, 'plain variables, one argument each');
   assert.ok(!/["'`]/.test(call.split('&')[1].split('2>')[0]), 'no quote and no string built around the arguments');
-  assert.match(ps, /\$rootArg = \$env:CHEAP_MEM_ROOT\n\s*if \(\$rootArg\.Length -gt 3\) \{ \$rootArg = \$rootArg\.TrimEnd\('\\', '\/'\) \}/);
+  const m = /\$rootArg = \$env:CHEAP_MEM_ROOT\n\$rootTrim = \$rootArg\.TrimEnd\('\\', '\/'\)\nif \(\$rootTrim -and \$rootTrim -notmatch '([^']+)'\) \{ \$rootArg = \$rootTrim \}/.exec(ps);
+  assert.ok(m, 'the root is trimmed in this shape');
+  // the drive pattern of the script, read as a JS regex (same syntax for this pattern): a drive root in any spelling stays
+  const drive = new RegExp(m[1]);
+  const prepared = (root) => { const t = root.replace(/[\\/]+$/, ''); return t && !drive.test(t) ? t : root; };
+  for (const r of ['C:\\', 'C:/', 'c:\\\\', 'D:', '\\\\?\\C:\\', '\\\\.\\D:\\']) assert.equal(prepared(r), r, `drive root ${r} stays`);
+  assert.equal(prepared('C:\\My Mem\\'), 'C:\\My Mem');
+  assert.equal(prepared('\\\\srv\\my share\\'), '\\\\srv\\my share');
+  assert.equal(prepared('/home/me/mem/'), '/home/me/mem');
   assert.ok(!/Invoke-Expression|Start-Process/.test(ps), 'no string-built command line anywhere');
   assert.ok(ps.indexOf('$rootArg = ') < ps.indexOf('& node $maskScript --root'), 'the root is prepared before the call');
 });

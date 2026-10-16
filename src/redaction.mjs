@@ -150,7 +150,7 @@ export const PATTERNS = Object.freeze([
   // so "Next steps" after an open block stays (small-rest2: a 13-character tail survived a block past the 8 KB bound).
   // Unambiguous by construction (no two ways to read the same characters, so no backtracking blow-up): blank space; then
   // header lines (`Proc-Type: 4,ENCRYPTED`: a letter-led name, a colon, a bounded value, a line end); then base64 runs.
-  ['pem-block',       /-----BEGIN[^-]{0,40}-----(?:\s|\\[nr])*(?:[A-Za-z][A-Za-z0-9-]{0,30}:[^\n\\]{0,61}(?:\r?\n|\\n)(?:\s|\\[nr])*)*(?:[A-Za-z0-9+/=]{20,}(?:\s|\\[nr])*)+(?:[A-Za-z0-9+/=]{1,19}(?=\r?\n|\\[nr]|$|["']|-----END))?/g],
+  ['pem-block',       /-----BEGIN[^-]{0,40}-----(?:\s|\\[nr])*(?:[A-Za-z][A-Za-z0-9-]{0,30}:[^\n\\]{0,61}(?:\r?\n|\\n)(?:\s|\\[nr])*)*(?:[A-Za-z0-9+/=]{20,}(?:\s|\\[nr])*)+(?:[A-Za-z0-9+/=]{1,19}(?=[ \t]*(?:\r?\n|\\[nr]|$|["']|-----END)))?/g],
   ['ssh-key',         /\bssh-(?:rsa|ed25519|dss)\s+[A-Za-z0-9+/=]{50,}/g],
 
   // --- Headers / URLs ------------------------------------------------

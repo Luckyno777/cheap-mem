@@ -93,9 +93,11 @@ $maskedCopy = ''
 # Every value is its OWN argument of the call (variables, never one string put together): a path with a space or an apostrophe
 # reaches node whole. Windows PowerShell 5.1 wraps an argument with a space in double quotes, and a backslash at the end of
 # it would escape the closing quote (`"C:\My Mem\"` reaches node as `C:\My Mem"` plus the next argument), so the root loses
-# a trailing separator (a drive root such as `C:\` has no space and stays as it is).
+# a trailing separator, except a drive root in any spelling (`C:\`, `C:/`, `\\?\C:\`: cut to `C:` it would mean the current directory on
+# that drive).
 $rootArg = $env:CHEAP_MEM_ROOT
-if ($rootArg.Length -gt 3) { $rootArg = $rootArg.TrimEnd('\', '/') }
+$rootTrim = $rootArg.TrimEnd('\', '/')
+if ($rootTrim -and $rootTrim -notmatch '^(\\\\[?.]\\)?[A-Za-z]:$') { $rootArg = $rootTrim }
 try { $maskedCopy = (& node $maskScript --root $rootArg $transcriptPath 2>$null | Select-Object -First 1) } catch {}
 if (-not $maskedCopy -or -not (Test-Path -LiteralPath $maskedCopy)) {
   $lastSize | Set-Content -LiteralPath $marker

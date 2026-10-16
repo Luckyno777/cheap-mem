@@ -870,7 +870,7 @@ export const MUTANTS=[
    file:'bin/mem-mask-copy.mjs',
    from:'const BLOCK_MAX_LINES = 20000;',
    to:'const BLOCK_MAX_LINES = 1;  // MUTANT',
-   tests:['test/reflect-masked-copy.test.mjs'] },
+   tests:['test/reflect-masked-copy.test.mjs','test/small-rest2-cm.test.mjs'] },
 
  { name:'mask-copy: a bare number or string line is read as a JSON structure',
    file:'bin/mem-mask-copy.mjs',
@@ -892,8 +892,14 @@ export const MUTANTS=[
 
  { name:'redaction: the short last line of a PEM key (an open block, or one past the 8 KB bound) stays in the clear',
    file:'src/redaction.mjs',
-   from:"(?:[A-Za-z0-9+/=]{1,19}(?=\\r?\\n|\\\\[nr]|$|[\"']|-----END))?/g],",
+   from:"(?:[A-Za-z0-9+/=]{1,19}(?=[ \\t]*(?:\\r?\\n|\\\\[nr]|$|[\"']|-----END)))?/g],",
    to:"/g],  // MUTANT",
+   tests:['test/small-rest2-cm.test.mjs'] },
+
+ { name:'redaction: blanks at the end of the short last line of a PEM key save it',
+   file:'src/redaction.mjs',
+   from:"{1,19}(?=[ \\t]*(?:\\r?\\n|",
+   to:"{1,19}(?=(?:\\r?\\n|",
    tests:['test/small-rest2-cm.test.mjs'] },
 
  { name:'redaction: pinhashes (the plural of pinhash, in one word) is no counter key',
