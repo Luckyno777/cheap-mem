@@ -36,7 +36,7 @@ import * as codexcloud from '../../codexcloud.mjs';
 import { PKG_ROOT, out, die, warn, checkFlags, numberFlag, isHelp, findRoot, requireConfig } from '../shell.mjs';
 import { compactLine, countLines } from '../display.mjs';
 import { maskText } from '../../outputguard.mjs';
-import { trackedRuntimeFiles, untrackCommand, describeTracked } from '../../trackedruntime.mjs';
+import { trackedRuntimeFiles, untrackCommand, describeTracked, trackedNotes, shellHint } from '../../trackedruntime.mjs';
 import { installHook, proveHook, writeMergeDriver, writeMemoryGitignore, armHookIfRepo } from '../githook.mjs';
 
 /** 15 commands. */
@@ -110,9 +110,15 @@ export const COMMANDS = {
       // A rule does not untrack. A memory that committed files under .pipeline/ before the rule existed keeps tracking it (dirty tree,
       // blocked pull, add/add conflicts), whatever the rule says now - so it is said here, with the one command.
       const stillTracked = trackedRuntimeFiles(root);
-      if (stillTracked && stillTracked.length) {
+      if (stillTracked === null) {
+        // Not a git repository: nothing is tracked, nothing to say. A repository git cannot list: say so, never a quiet "in order".
+        if (fs.existsSync(path.join(root, '.git'))) out('  ? tracked runtime files: unknown (git ls-files could not answer)');
+      } else if (stillTracked.length) {
+        const command = untrackCommand(stillTracked);
         out(`  ! ${stillTracked.length} runtime file(s) are still TRACKED (${describeTracked(stillTracked)}):`);
-        out(`    run: ${untrackCommand(stillTracked)}   (once, then commit - the rule only keeps NEW files out)`);
+        for (const note of trackedNotes(stillTracked)) out(`    ${note}`);
+        out(`    run: ${command}   (once, then commit - the rule only keeps NEW files out)`);
+        if (shellHint(command)) out(`    ${shellHint(command)}`);
       }
       // AU11: the hook is part of "in order" - arm it when it is not (a git repo, nothing set yet).
       for (const l of armHookIfRepo(root).lines) out(`  ${l}`);

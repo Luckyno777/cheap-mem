@@ -266,24 +266,30 @@ function runAdvice(root, command) {
 
 test('a memory that committed runtime paths of .mem - folders, single files and a lock: WARN with counts and ONE command, init names it, after it ok', (t) => {
   const root = memory(t);
-  const hit = ['.mem/before-edit/', '.mem/component-table.json', '.mem/watch.lock', '.mem/watch.lock.d/'];
+  const hit = ['.mem/tasks/', '.mem/before-edit/', '.mem/component-table.json', '.mem/watch.lock', '.mem/watch.lock.d/'];
   dropRules(root, MEM_RULES);
   for (const p of hit) materialize(root, p);
   git(root, 'add', '-A'); git(root, 'commit', '-q', '-m', 'state with runtime files');
   // The doctor sees the missing rules first (the old answer), `mem init` repairs the file ...
-  assert.equal(doctor.checkGitignoreEffective(root).level, 'warn');
+  // (ERROR, not warn: the rules dropped include .mem/embed.env, whose absence exposes API keys)
+  assert.equal(doctor.checkGitignoreEffective(root).level, 'error');
   const init = spawnSync(process.execPath, [MEM, 'init', '--root', root], { encoding: 'utf8', input: '' });
   assert.match(init.stdout, new RegExp(`added ${MEM_RULES.length} missing \\.gitignore rule`));
   // ... and the files stay in the index: now the finding is the tracked one, in counts, with the exact command.
-  assert.match(init.stdout, /still TRACKED \(2 in \.mem\/before-edit, 1 in \.mem\/component-table\.json, 1 in \.mem\/\*\.lock, 2 in \.mem\/\*\.lock\.d\/\*\)/);
+  // (`git add -A` also took the hook files `mem init` put under .mem/hooks: a memory of the old days, as it was.)
+  const star = '*'; // built from parts: slash and star side by side in a string open a block comment for the source scanners
+  const counted = [['.mem/tasks', 2], ['.mem/hooks', specTracked(root, '.mem/hooks').length], ['.mem/before-edit', 2], ['.mem/component-table.json', 1],
+    [`.mem/${star}.lock`, 1], [`.mem/${star}.lock.d/${star}`, 2]];
+  assert.ok(counted[1][1] > 0, 'the hook files are tracked in this setup');
+  const total = counted.reduce((n, [, c]) => n + c, 0);
+  const want = counted.map(([spec, c]) => `${c} in ${spec}`).join(', ');
+  assert.ok(init.stdout.includes(`${total} runtime file(s) are still TRACKED (${want})`), init.stdout);
   const f = doctor.checkGitignoreEffective(root);
   assert.equal(f.level, 'warn', JSON.stringify(f));
-  assert.match(f.text, /STILL TRACKS 6 runtime file\(s\) \(2 in \.mem\/before-edit, 1 in \.mem\/component-table\.json/);
+  assert.ok(f.text.includes(`STILL TRACKS ${total} runtime file(s) (${want})`), f.text);
   assert.doesNotMatch(JSON.stringify(f), /\.pipeline/);
   const cmd = /`(git rm --cached -r [^`]+)`/.exec(f.advice)?.[1];
-  // (the star is built from parts: slash and star side by side in a string open a block comment for the source scanners)
-  const star = '*';
-  assert.equal(cmd, `git rm --cached -r .mem/before-edit .mem/component-table.json '.mem/${star}.lock' '.mem/${star}.lock.d/${star}'`);
+  assert.equal(cmd, `git rm --cached -r ${counted.map(([spec]) => (spec.includes(star) ? `'${spec}'` : spec)).join(' ')}`);
   runAdvice(root, cmd);
   git(root, 'commit', '-q', '-m', 'untrack');
   assert.equal(doctor.checkGitignoreEffective(root).level, 'good');

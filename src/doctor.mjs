@@ -32,7 +32,7 @@ import * as authority from './authority.mjs';
 import * as integrity from './integrity.mjs';
 import * as mirror from './findingmirror.mjs';
 import * as provenanceMod from './provenance.mjs';
-import { trackedRuntimeFiles, untrackCommand, describeTracked, RUNTIME_RULES } from './trackedruntime.mjs';
+import { trackedRuntimeFiles, untrackCommand, describeTracked, trackedNotes, shellHint, RUNTIME_RULES } from './trackedruntime.mjs';
 import * as environment from './environment.mjs';
 import * as clock from './clock.mjs';
 import * as drawermemo from './drawermemo.mjs';
@@ -2792,15 +2792,11 @@ export function checkGitignoreEffective(root) {
   // single-file name stands here. Both stay — a leftover file from
   // before the change can still be lying around, and a memory created
   // back then carries only the old line.
-  const REQUIRED_IGNORES = [
-    '.mem/embed.env', '.mem/epoch.json',
-    '.mem/search-index.json', '.mem/search-index/',
-    // Runtime state of one clone (2026-10-14): written by the hooks on every call. Not ignored, `git add -A` tracks
-    // them, the tree turns dirty and the recall hook's pull stops. A memory written before the rule has no line for it.
-    '.pipeline/injections.jsonl', '.pipeline/clone-gate.json',
-    // Every other runtime path of ONE clone (src/trackedruntime.mjs says why each is runtime only).
-    ...RUNTIME_RULES.map((r) => r.probe).filter((x) => x !== '.pipeline/injections.jsonl'),
-  ];
+  // One row per runtime path of ONE clone (src/trackedruntime.mjs says why each is runtime only, and which ones are secrets), plus the
+  // second path the hooks write on every call under `.pipeline/`. Not ignored, `git add -A` tracks them, the tree turns dirty and
+  // the recall hook's pull stops; a memory written before a row has no line for it.
+  const REQUIRED_IGNORES = [...new Set([...RUNTIME_RULES.map((r) => r.probe), '.pipeline/clone-gate.json'])];
+
   if (!fs.existsSync(path.join(root, '.git'))) {
     return finding('gitignore', LEVEL.UNKNOWN, 'no git repository — nothing to ignore');
   }
@@ -2815,7 +2811,9 @@ export function checkGitignoreEffective(root) {
   }
   const cells = String(r.stdout).split('\0');
   const notIgnored = [];
-  for (let i = 0; i + 3 < cells.length; i += 4) if (cells[i] === '') notIgnored.push(cells[i + 3]);
+  // A match by a NEGATED pattern (`!.mem/embed.env` at the end of the file) comes back WITH a source and a pattern that begins with `!`:
+  // that path is not ignored - it was re-included. Counted as ignored, the one rule that keeps the API keys out would read green.
+  for (let i = 0; i + 3 < cells.length; i += 4) if (cells[i] === '' || cells[i + 2].startsWith('!')) notIgnored.push(cells[i + 3]);
   if (cells.length < REQUIRED_IGNORES.length * 4) {
     return finding('gitignore', LEVEL.UNKNOWN, 'git check-ignore answered for fewer paths than were asked');
   }
@@ -2828,18 +2826,21 @@ export function checkGitignoreEffective(root) {
     }
     if (tracked.length) {
       // Folders and counts only: the file names come out of the index and are printed (src/trackedruntime.mjs).
-      return finding('gitignore', LEVEL.WARN,
+      const notes = trackedNotes(tracked);
+      const command = untrackCommand(tracked);
+      return finding('gitignore', notes.length ? LEVEL.ERROR : LEVEL.WARN,
         `git ignores the runtime paths, but the memory STILL TRACKS ${tracked.length} runtime file(s) (${describeTracked(tracked)}) - `
-        + 'the tree turns dirty at every hook write and the recall hook does not pull',
-        `run \`${untrackCommand(tracked)}\` once and commit (removes them from the index, not from the disk)`);
+        + 'the tree turns dirty at every hook write and the recall hook does not pull'
+        + (notes.length ? `. ${notes.join(' ')}` : ''),
+        [`run \`${command}\` once and commit (removes them from the index, not from the disk)`, shellHint(command)].filter(Boolean).join('. '));
     }
     return finding('gitignore', LEVEL.GOOD,
       `git ignores all ${REQUIRED_IGNORES.length} required paths`);
   }
-  const secretExposed = notIgnored.includes('.mem/embed.env');
-  return finding('gitignore', secretExposed ? LEVEL.ERROR : LEVEL.WARN,
+  const exposed = RUNTIME_RULES.filter((r) => r.secret && notIgnored.includes(r.probe)).map((r) => r.secret);
+  return finding('gitignore', exposed.length ? LEVEL.ERROR : LEVEL.WARN,
     `git does NOT ignore: ${notIgnored.join(', ')}`
-    + (secretExposed ? ' — embed.env holds API keys' : ''),
+    + (exposed.length ? ` — ${exposed.join('; ')}` : ''),
     'run `mem init` again in this memory: it rewrites the block and repairs broken lines');
 }
 
