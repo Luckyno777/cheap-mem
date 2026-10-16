@@ -49,6 +49,11 @@ mem whoami user
 
 The choices come from `.mem/config.json` → `participants`.
 
+Without `CHEAP_MEM_AGENT`, a write is stamped with your OS account (`human:<user>`).
+An agent that shares an account with a person adds `--as-me` (`mem log ... --as-me`,
+also `mem correction`, `mem sources add`, `mem card add`): the line is then stamped
+with this identity, and refused when none is set. It sets the name, never a rank.
+
 ## 4. Put it under git
 
 ```bash

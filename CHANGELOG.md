@@ -14,6 +14,24 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Added - `--as-me`: the writer is this install, and a card names its author with name AND rank
+
+A write without `--agent` and without `CHEAP_MEM_AGENT` was stamped `human:<os user>`: true at a shell, but in a cloud session
+every agent line read `human:root`, and that name reads as a person (`authority.isHumanName`). `mem log`, `mem correction`,
+`mem sources add|bridge` and `mem card add` now take `--as-me`: the writer is `CHEAP_MEM_AGENT`, else the stored `mem whoami`
+(which must still be a configured participant - no name is written into `src/`). With neither, or a blank or stale `whoami`, the
+write is refused and nothing is written; the OS account is never the fallback. The switch carries no rank: the tier stays what
+the write path gives, it does not combine with `--authority` or `--agent`, and a name that reads as a person (`owner`,
+`human:<name>`) is refused. Without the switch nothing changes; the MCP bridge needed no change (it stamps the connected identity,
+takes no writer parameter, clamps the tier). Port of lucky-mem F1b / `quelle add --ich`, with the source of the name the other
+way round (lucky-mem takes the typed name, cheap-mem the install's).
+
+A decision card now carries `byline` `{name, rank, rank_state, text, by_human}` (`name (rank)`), and `origin.by_human` is the
+same flag: true only for the RANK `user` - the name alone no longer makes a card a person's (it did for `human:<name>`, `owner`
+and the configured human participant, whatever the tier). A rank the line does not carry is `missing`, `empty` or `broken`
+(`authority.tierState`), never an invented tier; `mem today` says `tier unknown (missing)`. Old lines stay readable and are not
+changed. Measured: `test/writer-identity.test.mjs` 25 probes, 22 red on the base `04ca129`, 3 green controls; 20 mutants, all caught.
+
 ### Fixed - CI run 1060: a test helper red under `npm test`, and the mutation job without history
 
 `npm test` is `node --test` with no file list, so it also runs every helper under `test/`. `test/helpers/linear-probes.mjs`

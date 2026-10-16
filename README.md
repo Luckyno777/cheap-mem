@@ -528,6 +528,11 @@ mem init                       one-time setup
 mem log <type> --<field> ...   append an entry (16 types)
                                --asked "word, word" = words to FIND it by,
                                which the entry itself does not contain
+                               --as-me = the writer is this install's own
+                               identity (CHEAP_MEM_AGENT, else `mem whoami`),
+                               not the OS account `human:<user>`; the name
+                               only, never a rank (also on `mem correction`,
+                               `mem sources add|bridge`, `mem card add`)
                                `error`: shows up to 3 earlier errors for the
                                same file, and on a real repetition (same
                                file+class in 30 days, or the same class 3x
