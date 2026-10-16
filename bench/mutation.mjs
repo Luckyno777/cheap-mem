@@ -793,6 +793,12 @@ export const MUTANTS=[
    from:'const rest = words.filter((w) => !isExtraWord(w) && !CREDENTIAL_WORDS.has(w));',
    to:'const rest = words;  // MUTANT',
    tests:['test/redaction-object-keys.test.mjs'] },
+
+ { name:'answercheck: the continuation reason asks for a fix, not for the whole answer again',
+   file:'src/answercheck.mjs',
+   from:"'Check this now, in the same turn. If it applies, output the WHOLE answer again, corrected, '",
+   to:"'Check this now, in the same turn, and fix the answer if it applies. '  // MUTANT",
+   tests:['test/answer-check.test.mjs'] },
 ];
 
 // The modules whose failure is a security or data-integrity failure. The

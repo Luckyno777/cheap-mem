@@ -14,6 +14,12 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Fixed - the answer check asks for the WHOLE corrected answer, not an addendum (small-parity-cm, point 2; Parity lm=yes)
+
+After a block by the Stop hook the reason said "fix the answer if it applies". Under `claude -p` and over a bridge only the last message reaches the reader, and what came was an addendum that pointed at a first answer
+the reader never saw. The reason now says: output the WHOLE answer again, corrected, not just an addendum, because whoever reads only the last message never sees the first one; a false alarm is still one sentence.
+Held by `test/answer-check.test.mjs` (both `checkStop` and `bin/mem-stop`), red against the old wording; one mutant added to `bench/mutation.mjs`, caught.
+
 ### Fixed - `pincode`, `userpin` and `pincode_hash` fell open in an object (small-parity-cm, point 1; Parity lm=yes)
 
 The object key rule knew `pin`, `pwd` and `passcode` as whole words only, so `{pincode: "4711"}`, `PINCODE`, `userpin` and `pincode_hash` stayed open in `redactObject` and `maskEntry`, as a string and as a number.

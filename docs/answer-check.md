@@ -49,3 +49,10 @@ match anything, at read time, every time the hook runs.
 Each pattern reports **at most once per session**, and never on a turn
 where `stop_hook_active` is already true (the turn already continued
 once — reporting again would loop).
+
+**The reason asks for the whole answer, not an addendum.** Under
+`claude -p` and over a bridge only the LAST message reaches the reader,
+so a correction that points back at "the first answer" points at
+something they never saw. The continuation reason therefore tells the
+model to output the whole answer again, corrected, when the pattern
+applies (`test/answer-check.test.mjs` holds the wording).
