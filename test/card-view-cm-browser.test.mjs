@@ -144,9 +144,9 @@ test('the duties list: one card per item, For you apart from Agent work, origin 
       assert.equal(await fb.locator('[data-card-agent]').count(), 0);
     }
 
-    // A card written by the configured human: no "written by an agent" note, whatever its tier.
+    // A card written by the configured human with the rank `user` (name AND rank): no "written by an agent" note.
     const human = cardOf(page, ids.human);
-    assert.match(await human.innerText(), /Written by user · tier /);
+    assert.match(await human.innerText(), /Written by user · tier user · /);
     assert.equal(await human.locator('[data-card-agent]').count(), 0, 'the configured human is a person: no agent note');
     assert.equal(await written.locator('[data-card-agent]').count(), 1, 'positive control: another author still carries the note');
 

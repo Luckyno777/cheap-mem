@@ -29,7 +29,7 @@ the verification commands at the end.
 | **Automation** | 7 Claude Code hooks (session start, recall per message, recall per file edit, recall after a failed or failure-printing tool call, subagent start, answer check and capture at stop), one model call per few hours, watcher, git as sync | [6](#6-automation) |
 | **Surfaces** | 88 CLI commands, 45 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 5085 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 5113 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -1051,6 +1051,29 @@ worse than none, because it looks like evidence. `human:` as a prefix
 keeps human and machine names disjoint. Old entries are not
 backfilled — that would be inventing origin at scale; the corpus heals
 forward.
+
+**`--as-me`: the writer is this install, not the OS account.** Without
+`CHEAP_MEM_AGENT` the stamp above is `human:<os user>` - true at a
+shell, a lie for an agent that works under a shared account (a cloud
+session runs as `root`: every agent line reads `human:root`, and that
+name reads as a person to `authority.isHumanName`). `mem log`, `mem
+correction`, `mem sources add|bridge` and `mem card add` take the
+switch `--as-me` (`src/cli/shell.mjs`, `asMeWriter`): the writer is
+`CHEAP_MEM_AGENT`, else the stored `mem whoami`, which must still be a
+configured participant. Neither set (or the stored name blank or no
+longer a participant): **refused**, nothing written - the OS account is
+never the fallback. The switch carries **no rank**: the tier stays what
+the write path gives (`agent`, lowered to a process ceiling), it does not
+combine with `--authority` or `--agent`, and a name that reads as a
+person (`owner`, `human:<name>`) is refused - a shell stamps that by
+itself, without the switch - as is the configured human participant
+(`human: true` in the config, from `CHEAP_MEM_AGENT` or `mem whoami` alike):
+the switch never puts a person's name on an agent's line (`--agent <name>`
+stays the explicit way). It is a switch without a value, so put it
+last (`mem sources add <address> --as-me`): the parser reads the next word
+as its value, which is refused. The MCP bridge needs nothing: it already
+stamps the connected identity, takes no writer parameter, and clamps the
+tier to `agent`. Without the switch nothing changes.
 
 ### 10.2 Error latches — `src/guard.mjs`, `mem guard run`
 
@@ -2179,6 +2202,16 @@ line on the old stock fails the authority rule for 11 of 28 open cases and flood
 deterministically from the type, the title and the first sentence, no model. A fallback card always has a No
 option, never an advice, and its origin is empty: nobody wrote it, and the display says so. A locked
 (encrypted) entry stays `[locked]`; an entry that cannot be read is the card "unknown", never an empty one.
+
+**Name AND rank (`byline`).** A card carries who wrote it with name and rank,
+`{name, rank, rank_state, text, by_human}`, e.g. `builder-x (agent)`
+(`decisioncard.bylineOf`; Lucky decision 2026-10-14, port of lucky-mem's `verfasserVon`).
+`by_human` (also `origin.by_human`, the same flag) is true only when the RANK is `user`:
+the name alone never makes a card a person's, because the CLI stamps `human:<os user>` on
+every line written at that account, an agent's included. A rank the line does not carry
+is not made up: `rank_state` is `missing` (no field, an old line), `empty` or `broken`
+(not a tier), `rank` is null and the text reads `name (rank unknown)`; `mem today`, `mem card list` and
+`mem_card_list` say `tier unknown (missing)` (`authority.rankWord`). A replacement card has no author: everything null.
 
 **The higher tier counts, then the youngest.** Per target one card counts: the one of the higher tier
 (`user` before `agent`), at equal tier the younger. The card it beat stays visible as `replaced`. Tier `user`

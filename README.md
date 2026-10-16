@@ -429,8 +429,8 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-numbers.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **88 CLI commands, 45 MCP tools, 219 modules, 5085
-tests**; as of 2026-09-20, about 90354 lines in `bin/` and `src/`, at
+As of 2026-09-26: **88 CLI commands, 45 MCP tools, 219 modules, 5113
+tests**; as of 2026-09-20, about 90512 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 
 ### Reading it with a model, or evaluating it properly
@@ -467,7 +467,7 @@ enforced fails the build rather than waiting for someone to audit it.
 
 | check | what a red run means |
 |---|---|
-| `bench/mutation.mjs` | one of 212 guarantees was broken on purpose and no test noticed |
+| `bench/mutation.mjs` | one of 236 guarantees was broken on purpose and no test noticed |
 | `bench/fuzz.mjs` | a crash, hang, unbounded growth, or a bypass |
 | `bench/composed.mjs` | seven attacks that are only dangerous in combination |
 | `bench/byzantine.mjs` | a flood of rule-abiding liars buried the genuine claim, or the conflict went unreported |
@@ -528,6 +528,11 @@ mem init                       one-time setup
 mem log <type> --<field> ...   append an entry (16 types)
                                --asked "word, word" = words to FIND it by,
                                which the entry itself does not contain
+                               --as-me = the writer is this install's own
+                               identity (CHEAP_MEM_AGENT, else `mem whoami`),
+                               not the OS account `human:<user>`; the name
+                               only, never a rank (also on `mem correction`,
+                               `mem sources add|bridge`, `mem card add`)
                                `error`: shows up to 3 earlier errors for the
                                same file, and on a real repetition (same
                                file+class in 30 days, or the same class 3x

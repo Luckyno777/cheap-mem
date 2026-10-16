@@ -14,6 +14,24 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Added - `--as-me`: the writer is this install, and a card names its author with name AND rank
+
+A write without `--agent` and without `CHEAP_MEM_AGENT` was stamped `human:<os user>`: true at a shell, but in a cloud session
+every agent line read `human:root`, and that name reads as a person (`authority.isHumanName`). `mem log`, `mem correction`,
+`mem sources add|bridge` and `mem card add` now take `--as-me`: the writer is `CHEAP_MEM_AGENT`, else the stored `mem whoami`
+(which must still be a configured participant - no name is written into `src/`). With neither, or a blank or stale `whoami`, the
+write is refused and nothing is written; the OS account is never the fallback. The switch carries no rank: the tier stays what
+the write path gives, it does not combine with `--authority` or `--agent`, and a name that reads as a person (`owner`,
+`human:<name>`) or the configured human participant is refused. Without the switch nothing changes; the MCP bridge needed no change (it stamps the connected identity,
+takes no writer parameter, clamps the tier). Port of lucky-mem F1b / `quelle add --ich`, with the source of the name the other
+way round (lucky-mem takes the typed name, cheap-mem the install's).
+
+A decision card now carries `byline` `{name, rank, rank_state, text, by_human}` (`name (rank)`), and `origin.by_human` is the
+same flag: true only for the RANK `user` - the name alone no longer makes a card a person's (it did for `human:<name>`, `owner`
+and the configured human participant, whatever the tier). A rank the line does not carry is `missing`, `empty` or `broken`
+(`authority.tierState`), never an invented tier; `mem today`, `mem card list` and `mem_card_list` say `tier unknown (missing)` (`authority.rankWord`). Old lines stay readable and are not
+changed. Measured: `test/writer-identity.test.mjs` 28 probes (22 of the first 25 red on the base `04ca129`, 3 green controls); 24 mutants in `bench/mutation.mjs`, all caught.
+
 ### Fixed - CI run 1074: macOS and Windows red - the cache probe's base, Git Bash paths, a held temp directory, the cleanup order
 
 - **Tool and memory paths under Git Bash.** MSYS2 translates a POSIX path for a native program, but leaves alone any value that holds an
