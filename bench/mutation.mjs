@@ -836,6 +836,12 @@ export const MUTANTS=[
    to:'  MASKED_COPY="$TRANSCRIPT_PATH"  # MUTANT: fail open\nfi\nTRANSCRIPT_PATH="$MASKED_COPY"',
    tests:['test/reflect-masked-copy.test.mjs'] },
 
+ { name:'reflect: the hand-in variable with the raw path stays in the model environment',
+   file:'bin/mem-reflect',
+   from:'\nunset TRANSCRIPT_PATH_ENV\n',
+   to:'\n: # MUTANT\n',
+   tests:['test/reflect-masked-copy.test.mjs'] },
+
  { name:'reflect: the masked copy is never deleted',
    file:'bin/mem-reflect',
    from:'    node "$HERE/mem-mask-copy.mjs" --clean "$MASKED_COPY" >/dev/null 2>&1 || true\n',

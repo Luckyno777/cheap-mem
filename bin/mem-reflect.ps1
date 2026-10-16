@@ -48,6 +48,8 @@ if ($stdinJson) {
 if (-not $transcriptPath -and $env:TRANSCRIPT_PATH_ENV) {
   $transcriptPath = $env:TRANSCRIPT_PATH_ENV
 }
+# The variable held the raw path; the model must not inherit it (it would still point at the file as it lies on disk).
+Remove-Item Env:TRANSCRIPT_PATH_ENV -ErrorAction SilentlyContinue
 
 if (-not $transcriptPath -or -not (Test-Path $transcriptPath)) {
   exit 0

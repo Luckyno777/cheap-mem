@@ -62,11 +62,11 @@ const seen = { tp, exists: fs.existsSync(tp), text: fs.existsSync(tp) ? fs.readF
 fs.writeFileSync(process.env.FAKE_MODEL_OUT, JSON.stringify(seen));
 `;
 
-function reflect(root, transcript, extraEnv = {}) {
+function reflect(root, transcript, extraEnv = {}, { viaStdin = true } = {}) {
   const dir = path.dirname(transcript);
   fs.writeFileSync(path.join(dir, 'fake-model.mjs'), MODEL);
   const out = path.join(dir, 'model-saw.json');
-  const stdin = JSON.stringify({ transcript_path: transcript });
+  const stdin = viaStdin ? JSON.stringify({ transcript_path: transcript }) : '';
   const res = spawnSync('bash', [REFLECT], {
     input: stdin, encoding: 'utf8', cwd: dir, timeout: 120000,
     env: { ...process.env, CHEAP_MEM_ROOT: root, MEM_HEADLESS: '', MEM_HOOK_OFF: '', MEM_REFLECT_THRESHOLD_BYTES: '1',
@@ -114,6 +114,24 @@ test('the model stand-in gets a masked copy: no secret arrives, the shape and th
     assert.equal(fs.existsSync(saw.tp), false, 'the copy is deleted after the model ended');
     assert.equal(saw.env.MEM_HEADLESS, 'reflector');
     assert.equal(leftovers().length, before, 'no mem-reflect-* directory left in the temp directory');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); fs.rmSync(d, { recursive: true, force: true }); }
+});
+
+test('the hand-in route TRANSCRIPT_PATH_ENV is masked too, and the variable does not reach the model', () => {
+  const root = memory();
+  const d = scratch();
+  const before = leftovers().length;
+  try {
+    const t = writeTranscript(d);
+    const { res, saw } = reflect(root, t, { TRANSCRIPT_PATH_ENV: t }, { viaStdin: false });
+    assert.equal(res.status, 0, res.stderr);
+    assert.ok(saw, 'the stand-in model ran on the env route');
+    for (const s of SECRETS) assert.ok(!saw.text.includes(s), `a secret reached the model: ${s.slice(0, 6)}...`);
+    assert.equal('TRANSCRIPT_PATH_ENV' in saw.env, false, 'the variable that held the raw path is gone from the model environment');
+    const reach = JSON.stringify({ argv: saw.argv, env: saw.env });
+    for (const p of [t, t.replace(/\\/g, '/')]) assert.ok(!reach.includes(JSON.stringify(p).slice(1, -1)) && !reach.includes(p), 'the raw path is nowhere in argv or env');
+    assert.notEqual(path.resolve(saw.tp), path.resolve(t));
+    assert.equal(leftovers().length, before);
   } finally { fs.rmSync(root, { recursive: true, force: true }); fs.rmSync(d, { recursive: true, force: true }); }
 });
 
@@ -188,4 +206,9 @@ test('both reflectors (sh and ps1) hand the model the copy, clean up, and keep t
   assert.ok(ps.indexOf('mem-mask-copy.mjs') < ps.indexOf('$env:TRANSCRIPT_PATH = $transcriptPath'));
   assert.ok(sh.indexOf('TRANSCRIPT_PATH="$MASKED_COPY"') < sh.indexOf('export TRANSCRIPT_PATH'));
   assert.ok(ps.indexOf('$transcriptPath = $maskedCopy') < ps.indexOf('Start-Job'));
+  // the hand-in variable is dropped before the model can inherit it
+  assert.match(sh, /\nunset TRANSCRIPT_PATH_ENV\n/);
+  assert.match(ps, /Remove-Item Env:TRANSCRIPT_PATH_ENV/);
+  assert.ok(sh.indexOf('unset TRANSCRIPT_PATH_ENV') < sh.indexOf('export TRANSCRIPT_PATH'));
+  assert.ok(ps.indexOf('Remove-Item Env:TRANSCRIPT_PATH_ENV') < ps.indexOf('Start-Job'));
 });

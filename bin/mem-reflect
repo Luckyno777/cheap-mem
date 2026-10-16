@@ -76,6 +76,8 @@ fi
 if [ -z "$TRANSCRIPT_PATH" ] && [ -n "${TRANSCRIPT_PATH_ENV:-}" ]; then
   TRANSCRIPT_PATH="$TRANSCRIPT_PATH_ENV"
 fi
+# The variable held the raw path; the model must not inherit it (it would still point at the file as it lies on disk).
+unset TRANSCRIPT_PATH_ENV
 
 if [ -z "$TRANSCRIPT_PATH" ] || [ ! -f "$TRANSCRIPT_PATH" ]; then
   # No transcript to reflect on — silent success.
