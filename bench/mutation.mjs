@@ -814,8 +814,8 @@ export const MUTANTS=[
 
  { name:'redaction: the bare word pins is a counter key',
    file:'src/redaction.mjs',
-   from:"w.length > 4 && w.endsWith('s') && isExtraWord",
-   to:"w.length > 3 && w.endsWith('s') && isExtraWord",
+   from:"const isPinPlural = (w) => w.length > 4 && w.endsWith('s')",
+   to:"const isPinPlural = (w) => w.length > 3 && w.endsWith('s')",
    tests:['test/redaction-object-keys.test.mjs'] },
 
  { name:'answercheck: the continuation reason asks for a fix, not for the whole answer again',
