@@ -510,6 +510,15 @@ each was reproduced against a throwaway root here first.
   loopback names, so a public bind without a token is refused with the switch set), a request that carries a proxy header is
   still turned away, and the start prints that it runs without a token. A dashboard with its password login on counts as
   credentialed and starts as before. The rule for an operator: a proxy, a tunnel or a public name needs a token.
+  The bridge has never had a password login, so its refusal and its start notice say only that the token is its one
+  credential; the dashboard's refusal still names the password login it could have had. A failed bind (the port is taken,
+  no right to bind it, an address this machine does not have) is also a message with host and port and exit 1, not a stack,
+  from `bin/mem-serve`, `mem serve` and `mem-mcp --http` alike; the dashboard writes its setup code only after the bind, so a
+  refused start leaves nothing behind (`test/serve-listen-error-cm.test.mjs`). The inventory that keeps a new listener from
+  slipping past the start decision (`test/serve-token-refuse-cm.test.mjs`) reads what `package.json` ships (so `docs/`,
+  `assets/` and the root files too), and knows server frameworks (express, fastify, koa, ws, hono, restify, polka, hapi,
+  socket.io), `process.getBuiltinModule`, `.mts`/`.cts`, `node -e` / `--eval`, `php -S`, `ruby -run -e httpd`, `npx http-server`
+  and the JS calls that spawn such a command. It stays a ratchet against the common shapes, not a proof.
   `test/serve-token-refuse-cm.test.mjs`, `test/service-door-cm.test.mjs`, `test/loopback-proxy-headers.test.mjs`.
 - **Decision cards: who is a person, and what a target is.** The write
   core refuses tier `user` on a card unless the author name is a person
