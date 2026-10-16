@@ -651,7 +651,7 @@ function getJson(url, timeoutMs) {
 /** The dashboard head: bin/mem-serve as its own process, first GET /dashboard.json, then until the counters are in. */
 async function dashboardPhase(ctx, deadlineMs) {
   const port = await freePort();
-  const env = { CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_PORT: String(port), CHEAP_MEM_SERVE_HOST: '127.0.0.1', MEM_RECALL_SERVER: '0' };
+  const env = { CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1', CHEAP_MEM_SERVE_PORT: String(port), CHEAP_MEM_SERVE_HOST: '127.0.0.1', MEM_RECALL_SERVER: '0' };
   const cenv = childEnv(ctx.root, ctx.home, env);
   delete cenv.CHEAP_MEM_SERVE_TOKEN;
   const kid = spawn(process.execPath, ['-e', `import(${JSON.stringify(SERVE_MODULE)}).then((m) => m.serve(${JSON.stringify(ctx.root)}, process.env))`], { cwd: ctx.root, env: cenv, stdio: ['ignore', 'ignore', 'pipe'] });

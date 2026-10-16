@@ -72,7 +72,7 @@ function worldMixed() {
 
 async function startServer(r) {
   // warm: the cold start of the server is not part of the browser deadlines (chain 2026-10-09: waitReady, 30 s)
-  return startView(r, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '' }, { serveOpts: { allowWrites: true } });
+  return startView(r, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1', CHEAP_MEM_SERVE_TOKEN: '' }, { serveOpts: { allowWrites: true } });
 }
 
 /** What a person sees in the "Always present: core knowledge" panel — computed values only. */

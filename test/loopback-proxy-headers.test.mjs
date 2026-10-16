@@ -59,7 +59,7 @@ async function viewer(env) {
 }
 
 test('viewer without token and with the login off: a proxy header closes the door (404), plain loopback is served', async () => {
-  const s = await viewer({ CHEAP_MEM_SERVE_LOGIN: 'off' });
+  const s = await viewer({ CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1' });
   try {
     assert.equal((await raw(s.port, '/dashboard.json')).status, 200, 'positive control: plain loopback');
     for (const h of PROXY_HEADERS) {
@@ -110,7 +110,7 @@ test('MCP bridge over HTTP without a token: a proxy header is refused (403), pla
   let errors = '';
   const child = spawn(process.execPath, [MCP, '--http'], {
     cwd: ROOT, stdio: ['ignore', 'ignore', 'pipe'],
-    env: { ...process.env, CHEAP_MEM_ROOT: memory, CHEAP_MEM_MCP_PORT: String(port), CHEAP_MEM_MCP_TOKEN: '' },
+    env: { ...process.env, CHEAP_MEM_ROOT: memory, CHEAP_MEM_MCP_PORT: String(port), CHEAP_MEM_MCP_TOKEN: '', CHEAP_MEM_MCP_LOCAL_NO_TOKEN: '1' },
   });
   child.stderr.setEncoding('utf8');
   child.stderr.on('data', (c) => { errors += c; });
@@ -142,7 +142,7 @@ test('the viewer says ONCE on stderr why it turned a proxy-header request away (
   const lines = [];
   const orig = process.stderr.write;
   process.stderr.write = function capture(chunk, ...rest) { lines.push(String(chunk)); return orig.call(this, chunk, ...rest); };
-  const s = await viewer({ CHEAP_MEM_SERVE_LOGIN: 'off' });
+  const s = await viewer({ CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1' });
   try {
     const headerValue = 'zz-header-value-8.8.8.8';
     await raw(s.port, '/dashboard.json', { 'cf-connecting-ip': headerValue });

@@ -207,7 +207,7 @@ test('dashboard: /dashboard/appointments.json is read only, host guarded, empty 
   assert.ok(mod.HOST_GUARDED.includes('/dashboard/appointments.json'));
   assert.ok(mod.PATHS.includes('/dashboard/appointments.json'));
   assert.ok(!mod.WRITE_PATHS.includes('/dashboard/appointments.json'));
-  const { server } = await mod.serve(r, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '' });
+  const { server } = await mod.serve(r, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1', CHEAP_MEM_SERVE_TOKEN: '' });
   const base = `http://127.0.0.1:${server.address().port}`;
   try {
     const fresh = await (await fetch(`${base}/dashboard/appointments.json`)).json();

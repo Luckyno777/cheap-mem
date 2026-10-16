@@ -96,7 +96,7 @@ function bigWorld({ lines = 4000, crypt = 0 } = {}) {
 async function start(root, env = {}, script = SERVE) {
   const mod = await import(`${pathToFileURL(script).href}?t=${Math.random()}`);
   const { server } = await mod.serve(root, {
-    CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', ...env,
+    CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1', ...env,
   });
   const base = `http://127.0.0.1:${server.address().port}`;
   return {

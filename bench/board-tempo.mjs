@@ -80,7 +80,7 @@ if (process.argv.includes('--cold-disk')) {
 
 const port = await freePort();
 const env = {
-  ...process.env, CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_PORT: String(port), CHEAP_MEM_SERVE_HOST: '127.0.0.1',
+  ...process.env, CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1', CHEAP_MEM_SERVE_PORT: String(port), CHEAP_MEM_SERVE_HOST: '127.0.0.1',
   MEM_RECALL_SERVER: '0',
 };
 delete env.CHEAP_MEM_SERVE_TOKEN;

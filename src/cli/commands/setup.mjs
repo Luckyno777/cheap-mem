@@ -626,7 +626,7 @@ export const COMMANDS = {
     }
     if (isHelp(args)) {
       out([
-        'mem serve [--port N] [--host H] [--readonly] [--allow-writes]',
+        'mem serve [--port N] [--host H] [--readonly] [--allow-writes] [--local-no-token]',
         'mem serve setup-code | reset-password   (dashboard password, local only)',
         '',
         '  The dashboard at one fixed link, instead of a one-off HTML',
@@ -634,11 +634,15 @@ export const COMMANDS = {
         '  without a shell.',
         '',
         '  It renders in RAM and writes nothing to disk. With no',
-        '  CHEAP_MEM_SERVE_TOKEN it serves localhost ONLY — binding to a',
-        '  public address without one is refused, and the process does',
-        '  not start. An open link would put real memory content on the',
-        '  network unprotected, and a warning in a log has never once',
-        '  prevented that.',
+        '  CHEAP_MEM_SERVE_TOKEN and the password login off it REFUSES TO',
+        '  START (nothing is bound) unless you say on purpose that this is',
+        '  a local run: --local-no-token (or CHEAP_MEM_SERVE_LOCAL_NO_TOKEN=1).',
+        '  Even then it serves loopback only: a public bind without a token',
+        '  is refused, and a request with a proxy header is turned away.',
+        '  With the password login on (the default) the password is the door.',
+        '  Make a token:',
+        '    node -e "console.log(require(\'node:crypto\').randomBytes(24).toString(\'hex\'))"',
+        '  and set it as CHEAP_MEM_SERVE_TOKEN in the environment of the process.',
         '',
         '  /               the dashboard: knowledge, work, sources, ops, settings',
         '  /dashboard.json the same data, for tools',
@@ -647,10 +651,13 @@ export const COMMANDS = {
         '',
         '  Writing from the page (settings, long jobs) is OFF by default.',
         '  --allow-writes   turn it on for this run only',
+        '  --local-no-token start with no token and no password login (loopback only)',
         '  .mem/config.json "dashboard": { "allowWrites": true }  turn it on',
         '                   for this memory. The page itself cannot turn it on.',
         '',
-        '  CHEAP_MEM_SERVE_TOKEN     the door. Without it: localhost only.',
+        '  CHEAP_MEM_SERVE_TOKEN     the door. Without it (and without the login)',
+        '                            the server does not start, see above.',
+        '  CHEAP_MEM_SERVE_LOCAL_NO_TOKEN  1 = start with no token, loopback only',
         '  CHEAP_MEM_SERVE_HOST      bind address (default 127.0.0.1)',
         '  CHEAP_MEM_SERVE_PORT      port (default 8847)',
         '  CHEAP_MEM_SERVE_READONLY  1 = show everything, set nothing',
@@ -663,7 +670,7 @@ export const COMMANDS = {
       ].join('\n'));
       return;
     }
-    checkFlags(args, ['port', 'host', 'readonly', 'allow-writes', 'root'], 'serve');
+    checkFlags(args, ['port', 'host', 'readonly', 'allow-writes', 'local-no-token', 'root'], 'serve');
     const root = findRoot(args);
     // **Anchored to PKG_ROOT, not to this file's own directory.**
     // Until 2026-09-18 the handlers lived in `bin/mem`, right next to
@@ -691,10 +698,15 @@ export const COMMANDS = {
       return;
     }
     const allowWrites = aw !== undefined;
+    const lnt = args['local-no-token'];
+    if (lnt !== undefined && lnt !== true && lnt !== 'true') {
+      die(`serve: --local-no-token takes no value (got '${lnt}').`);
+      return;
+    }
     let started;
     try {
       // M10: `mem serve` also starts the warm recall server (see bin/mem-serve).
-      started = await mod.serve(root, env, { allowWrites, measure: true, recall: true });
+      started = await mod.serve(root, env, { allowWrites, measure: true, recall: true, localNoToken: lnt !== undefined });
     } catch (e) {
       // The bind refusal is a decision, not a crash: say what to do.
       die(e?.message || String(e));
@@ -703,7 +715,7 @@ export const COMMANDS = {
     const bound = started.server.address();
     out(`Console: http://${started.cfg.host}:${bound.port}/`);
     out(`  root ${root}`);
-    out(`  ${started.cfg.token ? 'token set' : 'no token — localhost only'}`
+    out(`  ${started.cfg.token ? 'token set' : (started.cfg.login ? 'no token — password login, localhost only' : 'NO TOKEN, no password login — loopback only (--local-no-token)')}`
       + `${started.cfg.readonly ? ', read-only' : ''}`);
     const gate = (await import(pathToFileURL(path.join(PKG_ROOT, 'src', 'writegate.mjs')).href))
       .read(root, mod.gateOpts(started.cfg));

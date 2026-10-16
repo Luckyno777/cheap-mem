@@ -429,8 +429,8 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-numbers.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **87 CLI commands, 45 MCP tools, 218 modules, 4988
-tests**; as of 2026-09-20, about 89387 lines in `bin/` and `src/`, at
+As of 2026-09-26: **87 CLI commands, 45 MCP tools, 213 modules, 4916
+tests**; as of 2026-09-20, about 88941 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 
 ### Reading it with a model, or evaluating it properly
@@ -602,9 +602,11 @@ mem serve [--port N]           the dashboard at ONE fixed link.
                                default. --allow-writes turns it on for one
                                run, "dashboard": { "allowWrites": true } in
                                .mem/config.json for the memory
-                               (docs/dashboard-writes.md). No token set
-                               means localhost only. Binding public without
-                               one is refused, not warned.
+                               (docs/dashboard-writes.md). With no token and
+                               the password login off it does not start,
+                               unless --local-no-token is set (loopback
+                               only). Binding public without a token is
+                               refused, not warned.
 mem board [--html --json]      the operating state on one screen: archive,
                                digest, error classes, agents, questions,
                                installation, bridge. A tile that could NOT

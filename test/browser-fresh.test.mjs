@@ -36,7 +36,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..');
 // FIXED (never `git merge-base HEAD origin/main`): the state before this change.
 const OLD_STATE = 'b5959ed38a2d859a762df7da893f6ce17b0ee0cb';
-const ENV = { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '' };
+const ENV = { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1', CHEAP_MEM_SERVE_TOKEN: '' };
 
 /** Files that steer the cache with the probe switch THEMSELVES (the fixture keeps nothing fresh there). */
 const STEERS_ITSELF = {

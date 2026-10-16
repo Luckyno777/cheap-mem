@@ -81,6 +81,7 @@ async function withServer(fn, extraEnv = {}) {
       CHEAP_MEM_ROOT: memory,
       CHEAP_MEM_MCP_PORT: String(port),
       CHEAP_MEM_MCP_HOSTS: 'memory.example.org',
+      CHEAP_MEM_MCP_LOCAL_NO_TOKEN: '1',
       ...extraEnv,
     },
     stdio: ['ignore', 'ignore', 'pipe'],

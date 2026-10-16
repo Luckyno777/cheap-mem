@@ -175,7 +175,8 @@ token the process therefore treats a request that carries a proxy header
 **not local and answers `403`** (changed 2026-10-11; before, whoever
 reached the tunnel was in). A setup that put an unauthenticated proxy in
 front of the loopback listener must set `CHEAP_MEM_MCP_TOKEN`. A plain local
-client (no proxy header) still needs no token.
+client (no proxy header) still needs no token once the process is allowed to
+start without one (`--local-no-token`, below).
 
 The public name is an exact allowlist entry. `memory.example.org` passes;
 `memory.example.org.attacker.invalid` does not. If the proxy preserves a
@@ -196,10 +197,20 @@ Other HTTP settings:
 | `CHEAP_MEM_MCP_PORT` | `8849` | listen port |
 | `CHEAP_MEM_MCP_HOSTS` | empty | comma-separated, exact additional Host values |
 | `CHEAP_MEM_MCP_ORIGINS` | empty | comma-separated additional browser Origins |
-| `CHEAP_MEM_MCP_TOKEN` | empty | static bearer token |
+| `CHEAP_MEM_MCP_TOKEN` | empty | static bearer token; without it the bridge starts only with the switch below |
+| `CHEAP_MEM_MCP_LOCAL_NO_TOKEN` | empty | `1` (or `--local-no-token`): start with no token, loopback only |
 | `CHEAP_MEM_MCP_READONLY` | read-only in HTTP mode | `0` explicitly exposes the full profile |
 
-A non-loopback bind without `CHEAP_MEM_MCP_TOKEN` is refused at startup.
+Without `CHEAP_MEM_MCP_TOKEN`, `mem-mcp --http` **does not start** (decision
+2026-10-14): it exits with a message and binds no port. No password login
+stands behind this door, so the token is its only credential. Make one with
+`node -e "console.log(require('node:crypto').randomBytes(24).toString('hex'))"`
+and set it in the environment of the process (bash `export CHEAP_MEM_MCP_TOKEN=<token>`, PowerShell
+`$env:CHEAP_MEM_MCP_TOKEN='<token>'`). For a purely local client, say
+so on purpose: `mem-mcp --http --local-no-token` (or
+`CHEAP_MEM_MCP_LOCAL_NO_TOKEN=1`). The switch works on loopback only: a
+non-loopback bind without a token is refused, switch or not, and the start
+prints a `NOTICE` line that the bridge runs without a token.
 On loopback without a token only a request with no proxy header is served;
 anything that comes through a tunnel or reverse proxy needs the token (the
 proxy's own login in front of it is not enough: the process cannot see it).
