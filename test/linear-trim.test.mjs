@@ -72,12 +72,16 @@ for (const name of Object.keys(PROBES)) {
       // (12.9 on a machine at load 17, 2026-10-16: 498 ms against 39 ms). A quadratic site is about 16 on every run; a fresh
       // child, up to `RATIO_TRIES` in all, keeps the lowest ratio. That re-measures the clock, it does not re-ask the answer.
       const ratioOf = (m) => m.ms / Math.max(m.smallMs, SMALL_FLOOR_MS);
+      // A repeat that finishes 1 MB below `RATIO_FROM_MS` is the good result itself: a quadratic site is far above it.
       let best = r;
-      for (let tries = 1; tries < RATIO_TRIES && ratioOf(best) >= RATIO_MAX; tries += 1) {
+      let fastRepeat = false;
+      for (let tries = 1; tries < RATIO_TRIES && !fastRepeat && ratioOf(best) >= RATIO_MAX; tries += 1) {
         const again = await runProbe(name, tempDir('cm-linear-again-', t));
-        if (!again.gaveUp && again.ok && again.ms >= RATIO_FROM_MS && ratioOf(again) < ratioOf(best)) best = again;
+        if (again.gaveUp || !again.ok) continue;
+        if (again.ms < RATIO_FROM_MS) fastRepeat = true;
+        else if (ratioOf(again) < ratioOf(best)) best = again;
       }
-      const ratio = ratioOf(best);
+      const ratio = fastRepeat ? 0 : ratioOf(best);
       assert.ok(ratio < RATIO_MAX, `1 MB took ${Math.round(best.ms)} ms, a quarter of it ${Math.round(best.smallMs)} ms: ${ratio.toFixed(1)} times, lowest of up to ${RATIO_TRIES} children (linear is about 4, quadratic about 16)`);
     }
   });
