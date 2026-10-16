@@ -101,6 +101,59 @@ empty list.
 The measurements (`bench/board-tempo.mjs`, synthetic stores of
 `bench/scale.mjs`) are in the changelog entry of 2026-10-02.
 
+### When the cached state counts as changed
+
+Every request recomputes the **generation stamp** of the store with `stat`
+calls only: the drawers, the reflog of HEAD, and the machine-local places
+`.mem`, `inbox` and `agents` (two levels, files only). A different stamp means
+"store changed since the build" and a rebuild in the background. Derived caches
+are NOT part of it, because the build or a read writes them itself and the
+dashboard would rebuild forever: the search index (also the one of document
+expansion, `MEM_EXPAND=1`, in `search-index-expand`), backlinks, the language
+bridge, the console state, the answer patterns, the head on disk, the component
+table with its rebuild lock and log, the time track with its build lock, the
+drawer locks, heartbeats, and the scratch names of an atomic write
+(`<name>.<pid>.<random>.tmp`, `<name>.stale.<pid>.<random>`) of any of them.
+What the stamp does not see, the age catches: older than 60 s is rebuilt.
+
+### After a write of your own
+
+A write through the page shows its new state at the next read, not after the
+rebuild (`src/dashboard-live.mjs`): the write names the **parts** of the answer
+it changed, the server computes exactly those with the read functions the full
+build calls and lays them over the stored answer, until a build that started
+after the write is through. The answer says it: `cache.fresh` stays `false`,
+`cache.live_parts` names the parts. A read without a write computes nothing.
+
+| Write | Part | What it lays on |
+|---|---|---|
+| save a setting | `settings` | the settings and the change log |
+| acknowledge or answer a message | `inbox` | the message list, the tray |
+| rate a gold question | `gold` | the gold questions of the day |
+| confirm a project (task) | `projects` | the project shelf, the waiting projects |
+| delete a raw capture (task) | `raw` | the capture states and counters |
+| confirm an answer (task `question-confirm`) | `questions` | the open and the waiting questions (badge, button, work lists) |
+
+A part only refreshes its own sections; tiles derived from them (the
+per-project question counts, the error-window tiles) follow with the rebuild.
+The `questions` part reads the question drawers and the links of the questions
+(measured 107 ms median on 5000 entries with 60 questions, against 5.7 s for
+the full build, load about 15 on 4 cores). A store built compact keeps its
+stored question lists until the rebuild: reading the whole store is what the
+compact build avoids. A part that cannot be computed is named in
+`cache.live_errors` and said at its card ("Could not be computed fresh ...
+showing the state of HH:MM"), never shown silently old.
+
+### Deferred parts while the build runs
+
+A part that answers `building` is asked again after 3 s, bounded by a deadline
+(120 s) and a budget (40 requests) per waiting spell, then it ends visibly with
+"Load again". When a newer data load starts its own round of parts while such a
+retry still waits, the retry is dropped (the spell keeps its deadline and
+budget): the new round asks every part anyway, and the old timer used to fetch
+them all a second time (seen on a cold start whose first answer was the quick
+head; the changelog entry of 2026-10-16 has the counts).
+
 ## What it shows
 
 - **Overview**: state, attention, the board's tiles (the same as
@@ -342,7 +395,12 @@ with no server it runs `mem find` itself, exactly as before.
   `mem serve` under `src/recallserver-keeper.mjs`, which starts it again
   with a fresh import — at most once per 60 s
   (`MEM_RECALL_SERVER_RESTART_MS`), with a log line
-  `recall server: restart (code under src/ changed)`. Until it listens
+  `recall server: restart (code under src/ changed)`. "Changed" is read
+  from `stat` only: the count of files, the newest mtime, the total size and
+  the newest ctime. The ctime catches a change of the same size whose mtime
+  was set back (`touch -d`, `cp -p`, `rsync -t`, unpacking a tar); a
+  permission change also counts, which costs one restart, never a wrong
+  answer. Until it listens
   again there is no socket, and the hook runs direct.
 - **One budget.** `MEM_RETRIEVE_TIME` (5 s) covers the server attempt
   AND the direct fallback.
