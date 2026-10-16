@@ -739,6 +739,24 @@ const KEY_WORDS_FLEX = JSON_KEY_WORDS.replace(/private_key|access_key|client_sec
 const SECRET_KEY = new RegExp(KEY_WORDS_FLEX, 'i');
 const AUTH_HEADER_KEY = /^(?:proxy-)?authorization$/i;
 const EXTRA_KEY_WORDS = new Set(['pin', 'pwd', 'passcode']);
+// A compound spelled in one lower-case word cannot be split at a camel hump: `userpin`, `bankpin`, `pincode` (also `PINCODE`),
+// `userpincode`, `pinhash`, `pinvalue`, `pinnumber`. A word that ENDS in `pin`, optionally followed by one of the words below
+// (`code`, `hash`, `value`, `number`, `num`, `digest`, `salt`) and by digits (`pin1`, `PIN2`, `myPIN2`), is a pin word, except the
+// English words that end in `pin` (`spin`, `spin2`, `spinvalue`). Only the ending: a word that STARTS with `pin` is `pinned`
+// (194 uses in this tree, `pinned: true` is a flag), `pins`, `ping`, `pinning`, `pinball`; the end is quiet (measured: the one word
+// of the corpus that ends in `pin` is `spin`; none ends in `pin<digits>` or `pins`, and none is `pinhash`, `pinvalue`, `pinnumber`).
+// A compound PLURAL (`userpins`, `bankpins`) is a plural of a keyword like `tokens`: a counter, so a string falls and one number
+// stays. The bare `pins` is the English word (51 uses here: the pins of a board, the pins of a diagram) and stays free.
+const PIN_END = /^(.*pin)(?:code|hash|value|number|num|digest|salt)?\d*$/;
+const NOT_PIN_WORDS = new Set(['spin', 'topspin', 'backspin', 'tailspin', 'flatspin', 'hairpin', 'hatpin', 'kingpin', 'linchpin', 'pushpin', 'tenpin',
+  'ninepin', 'terrapin', 'clothespin', 'safetypin', 'cotterpin', 'bobbypin', 'lapin', 'chapin']);
+const isExtraWord = (w) => {
+  if (EXTRA_KEY_WORDS.has(w)) return true;
+  const m = PIN_END.exec(w);
+  return m !== null && !NOT_PIN_WORDS.has(m[1]);
+};
+// `pins` itself is 4 characters: only a compound (a stem longer than `pin`) is a plural of a pin word
+const isPinPlural = (w) => w.length > 4 && w.endsWith('s') && isExtraWord(w.slice(0, -1));
 const CREDENTIAL_WORDS = new Set(['credential', 'credentials']);
 const FETCH_CREDENTIALS = /^(?:same-origin|include|omit)$/;
 const COUNTER_WORDS = new RegExp(`(?:${KEY_WORDS_FLEX})(?:s|[_-]?(?:count|counts|limit|limits|budget|usage|used|len|length|total|num|number))|(?:max|min|num|total)[_-]?token`, 'gi');
@@ -774,11 +792,11 @@ function secretKeyKind(key) {
     // The whole words `pin`, `pwd`, `passcode`, `credential(s)`: split at `_`, `-` and camelCase. The same counter rule as
     // for the list: `pin_count`, `passcode_length`, `max_pin` are counts (every other word is a counter word).
     const words = k.replace(CAMEL_CUT, '$1_$2').replace(UPPER_RUN_CUT, '$1_$2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
-    const hit = words.some((w) => EXTRA_KEY_WORDS.has(w) || CREDENTIAL_WORDS.has(w));
-    if (!hit) return null;
-    const rest = words.filter((w) => !EXTRA_KEY_WORDS.has(w) && !CREDENTIAL_WORDS.has(w));
+    const hit = words.some((w) => isExtraWord(w) || CREDENTIAL_WORDS.has(w));
+    if (!hit) return words.some(isPinPlural) ? 'counter' : null;
+    const rest = words.filter((w) => !isExtraWord(w) && !CREDENTIAL_WORDS.has(w));
     if (rest.length > 0 && rest.every((w) => COUNTER_SUFFIX_WORDS.has(w))) return 'counter';
-    return words.some((w) => EXTRA_KEY_WORDS.has(w)) ? 'secret' : 'cred';
+    return words.some(isExtraWord) ? 'secret' : 'cred';
   }
   // A counter only if NEITHER reading still finds a keyword once the counter words are out: the key as written (`tokenSystem` is
   // the plural `tokenS` plus `ystem` there) and the camel-cut key (`token_System`: not a plural). The cut can destroy a keyword

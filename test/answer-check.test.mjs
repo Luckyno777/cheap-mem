@@ -129,6 +129,11 @@ test('checkStop: a hit blocks with the pattern id and error id, once per session
     assert.equal(res?.decision, 'block');
     assert.match(res.reason, /p1/);
     assert.match(res.reason, new RegExp(errId));
+    // Measured 2026-10-15 (sibling house): under `claude -p` and over a bridge only the LAST message reaches the reader, and after a
+    // block it was an addendum that pointed at a "first answer" the reader never saw. The reason must ask for the whole answer again.
+    assert.match(res.reason, /WHOLE answer again, corrected, not just an addendum/);
+    assert.match(res.reason, /last message/);
+    assert.doesNotMatch(res.reason, /fix the answer if it applies/, 'the old wording asked for a fix, which a model may deliver as an addendum');
     assert.equal(ac.checkStop(r, input), null, 'same session, same pattern: only once');
     assert.equal(ac.checkStop(r, { ...input, session_id: 's2' })?.decision, 'block', 'a different session reports again');
     assert.equal(ac.checkStop(r, { session_id: 's3', last_assistant_message: 'all clean here' }), null);
@@ -174,6 +179,7 @@ test('bin/mem-stop: a hit prints exactly one block-JSON on stdout, a clean answe
     const j = JSON.parse(hit.stdout);
     assert.equal(j.decision, 'block');
     assert.match(j.reason, /p1/);
+    assert.match(j.reason, /WHOLE answer again, corrected, not just an addendum/, 'the Stop hook carries the same demand to the reader');
 
     const second = runOnce('going to do-the-forbidden-thing right now', 'k2');
     assert.equal(second.stdout, '', `second Stop, same session: must stay silent — ${why(second)}`);
