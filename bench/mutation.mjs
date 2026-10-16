@@ -799,6 +799,42 @@ export const MUTANTS=[
    from:"'Check this now, in the same turn. If it applies, output the WHOLE answer again, corrected, '",
    to:"'Check this now, in the same turn, and fix the answer if it applies. '  // MUTANT",
    tests:['test/answer-check.test.mjs'] },
+
+ { name:'reflect: the model is handed the raw transcript path again',
+   file:'bin/mem-reflect',
+   from:'TRANSCRIPT_PATH="$MASKED_COPY"\n',
+   to:'# MUTANT: the raw path stays\n',
+   tests:['test/reflect-masked-copy.test.mjs'] },
+
+ { name:'reflect: when the masked copy cannot be made the model starts anyway',
+   file:'bin/mem-reflect',
+   from:'  echo "$LAST_SIZE" > "$MARKER"\n  exit 0\nfi\nTRANSCRIPT_PATH="$MASKED_COPY"',
+   to:'  MASKED_COPY="$TRANSCRIPT_PATH"  # MUTANT: fail open\nfi\nTRANSCRIPT_PATH="$MASKED_COPY"',
+   tests:['test/reflect-masked-copy.test.mjs'] },
+
+ { name:'reflect: the masked copy is never deleted',
+   file:'bin/mem-reflect',
+   from:'    node "$HERE/mem-mask-copy.mjs" --clean "$MASKED_COPY" >/dev/null 2>&1 || true\n',
+   to:'    : # MUTANT\n',
+   tests:['test/reflect-masked-copy.test.mjs'] },
+
+ { name:'mask-copy: a transcript line is copied unmasked',
+   file:'bin/mem-mask-copy.mjs',
+   from:'  return JSON.stringify(maskEntry(parsed));',
+   to:'  return line;  // MUTANT',
+   tests:['test/reflect-masked-copy.test.mjs'] },
+
+ { name:'mask-copy: a line that is no JSON is copied unmasked',
+   file:'bin/mem-mask-copy.mjs',
+   from:'catch { return maskText(line); }',
+   to:'catch { return line; }  // MUTANT',
+   tests:['test/reflect-masked-copy.test.mjs'] },
+
+ { name:'mask-copy: --clean removes a directory it did not make',
+   file:'bin/mem-mask-copy.mjs',
+   from:"  if (path.basename(target) !== FILE_NAME || !path.basename(dir).startsWith(DIR_PREFIX)) return false;",
+   to:"  // MUTANT: any directory",
+   tests:['test/reflect-masked-copy.test.mjs'] },
 ];
 
 // The modules whose failure is a security or data-integrity failure. The

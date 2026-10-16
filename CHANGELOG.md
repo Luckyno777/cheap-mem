@@ -14,6 +14,14 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Fixed - the reflector reads a MASKED copy of the transcript (small-parity-cm, point 3; Parity lm=open; decision "outgoing paths stay, with a mask")
+
+`bin/mem-reflect` (and its `.ps1` twin) handed `claude -p` the path of the transcript as it lies on disk, so the model saw every secret in it, while the digest (`mem raw show`) and the mail handler (`mem inbox show`) read masked.
+New `bin/mem-mask-copy.mjs` writes a copy through the same masking (`maskEntry` per JSON line, `maskText` for any other line) into a private directory under the OS temp directory (never under the memory root: the reflector
+commits with `git add -A`); `$TRANSCRIPT_PATH` is the copy and it is removed when the reflector ends, also on a kill signal (sh) or a timeout (ps1). Fail closed: if the copy cannot be made no model starts and the marker goes back
+to where it was. `MEM_HEADLESS` is untouched. Probe `test/reflect-masked-copy.test.mjs` with a stand-in model (token, keyed value and PIN do not arrive; the raw path is in neither argument nor environment), red against the base; six mutants added.
+The original path is not given to the model; a model with file tools that guesses where its host keeps transcripts can still open one, which only a sandbox would prevent.
+
 ### Fixed - the answer check asks for the WHOLE corrected answer, not an addendum (small-parity-cm, point 2; Parity lm=yes)
 
 After a block by the Stop hook the reason said "fix the answer if it applies". Under `claude -p` and over a bridge only the last message reaches the reader, and what came was an addendum that pointed at a first answer

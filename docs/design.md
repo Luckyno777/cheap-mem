@@ -69,6 +69,12 @@ Marker file per transcript. The threshold is the one setting we tuned;
 smaller and the model gets called on trivial edits, larger and it
 misses a long context.
 
+The model does not read the transcript as it lies on disk. `bin/mem-mask-copy.mjs`
+makes a masked copy first (the masking of `mem raw show`: `maskEntry` per JSON
+line, `maskText` for any other line) in a private directory under the OS temp
+directory, `$TRANSCRIPT_PATH` points at the copy, and the copy is deleted when
+the reflector ends. If the copy cannot be made, no model starts (fail closed).
+
 ## Why the inbox lives IN the memory repo
 
 You might think a separate "messages" repo would be cleaner. In practice:

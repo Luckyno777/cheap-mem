@@ -25,6 +25,9 @@ const DIRECT = /\b(writeFileSync|writeFile|createWriteStream)\(/;
 
 // Old stock of direct writers, per file (state 2026-10-01, number of sites).
 const DIRECT_CAP = {
+  // not state: one stream into a private scratch file that only its own writer ever sees (mkdtemp, 0600), deleted after the reflector;
+  // a transcript can run to many MB, so it is streamed line by line, not held whole for writeAtomic (2026-10-16)
+  'bin/mem-mask-copy.mjs': 1,
   'src/agents.mjs': 2,
   'src/answercheck.mjs': 1,
   'src/archive.mjs': 3,
