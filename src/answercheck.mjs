@@ -267,9 +267,10 @@ export function checkStop(root, input, { env = process.env, patternsPath: overri
   const reason = [
     'cheap-mem answer check: your last answer matches a pattern tied to a logged error.',
     ...lines,
-    'Check this now, in the same turn, and fix the answer if it applies. If it is a false '
-      + 'alarm, say so in one sentence and finish. This report comes at most once per '
-      + 'session per pattern.',
+    'Check this now, in the same turn. If it applies, output the WHOLE answer again, corrected, '
+      + 'not just an addendum: whoever reads only the last message (a bridge, claude -p, an '
+      + 'automation) never sees the first one. If it is a false alarm, say so in one sentence '
+      + 'and finish. This report comes at most once per session per pattern.',
   ].join('\n');
   return { decision: 'block', reason };
 }
