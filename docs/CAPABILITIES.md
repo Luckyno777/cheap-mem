@@ -238,6 +238,7 @@ directory. The section number in brackets is where it is explained.
 | `timeexpr.mjs` | natural language to a time window |
 | `timesearch.mjs` | retrieval by time window, no model |
 | `timetrack.mjs` | the time track: a derived block table per big drawer (`.mem/timetrack/`) so a time-window question reads only the blocks that can hold a line in the window; stale, missing or broken is read in full and said; built in the background, never in the asking process |
+| `trackedruntime.mjs` | runtime files a memory has ALREADY committed (`.pipeline/`, the marks, claims and lock folders under `.mem/`): `git ls-files -ci` finds them, the doctor finding `gitignore` and `mem init` name the one `git rm --cached -r ...` that repairs it |
 | `userhabits.mjs` | generic, code-only habit meter over the user's own captures, configurable patterns (`mem user`) |
 | `goldlog.mjs` | the owner's rating of a real retrieval question (hit / near miss / no hit, from the journal's recorded reason — no invented scores), appended OUTSIDE the memory root; `mem gold today`/`mem gold rate` and the dashboard's Rate-today card share it (7.5) |
 | `variants.mjs` | variant fusion: up to 4 rewordings the CALLING agent writes are each searched with the same options and merged by Reciprocal Rank Fusion; the score stays a real search score; no model in the recall path (`mem find --variants "a\|b"`, `mem_find` field `variants`) |

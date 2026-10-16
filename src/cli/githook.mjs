@@ -325,6 +325,15 @@ export function writeMemoryGitignore(root) {
     // so `git add -A` (mem-reflect, mem-handle-post) tracked the others, every hook write made the tree dirty and
     // blocked the recall hook's pull, and two clones met in add/add conflicts on files that describe one machine each.
     ['.pipeline/', 'runtime state of ONE clone (journals, verdict caches, server key, baselines): never travels'],
+    // The runtime folders under `.mem/` (2026-10-16): per-session marks, hook claims and lock files, state of ONE clone and
+    // machine (src/trackedruntime.mjs lists what each holds). Not ignored, `git add -A` tracks the files in them.
+    ['.mem/before-edit/', 'per-session marks of the before-edit hook'],
+    ['.mem/workflow-marks/', 'per-session marks of the workflow hint'],
+    ['.mem/command-guard-marks/', 'per-session marks of the command guard'],
+    ['.mem/locks/', 'drawer lock files: owner pid, host and start time of this machine'],
+    ['.mem/retrieve-turns/', 'once-per-turn claims of the recall hook'],
+    ['.mem/catch-fail-turns/', 'once-per-turn claims of the swallowed-failure hook'],
+    ['.mem/after-failure-turns/', 'once-per-turn claims of the after-failure hook'],
     [observations.LEDGER_FILE.split(path.sep).join('/'),
       'per-machine observation ledger — retrieval/ranking never reads it'],
   ];

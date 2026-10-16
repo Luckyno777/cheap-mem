@@ -22,6 +22,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { tempDir } from './temp-dir.mjs';
 import * as doctor from '../src/doctor.mjs';
+import { RUNTIME_DIRS } from '../src/trackedruntime.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MEM = path.join(REPO, 'bin', 'mem');
@@ -133,7 +134,7 @@ test('the doctor says WARN with the exact command, `mem init` names it, and afte
   assert.match(init.stdout, /git rm --cached -r \.pipeline/);
   const f = doctor.checkGitignoreEffective(root);
   assert.equal(f.level, 'warn', JSON.stringify(f));
-  assert.match(JSON.stringify(f), /STILL TRACKS 10 file/);
+  assert.match(JSON.stringify(f), new RegExp(`STILL TRACKS ${tracked(root).length} runtime file`));
   assert.match(JSON.stringify(f), /git rm --cached -r \.pipeline/);
   // The repair, once.
   git(root, 'rm', '--cached', '-r', '-q', '.pipeline');
@@ -150,4 +151,81 @@ test('a clean memory: no hint, the finding is ok', (t) => {
   const init = spawnSync(process.execPath, [MEM, 'init', '--root', root], { encoding: 'utf8', input: '' });
   assert.doesNotMatch(init.stdout, /TRACKED/);
   assert.equal(doctor.checkGitignoreEffective(root).level, 'good');
+});
+
+// ---- the runtime folders under .mem/ (Task #27): the same gap, found by reading what the hooks write there ------------------
+//
+// before-edit/ and workflow-marks/ hold JSON marks, command-guard-marks/ holds EMPTY files (git tracks an empty file), locks/
+// holds lock files with this machine's pid and start time. The three *-turns/ folders hold claims taken by `mkdir`
+// (empty folders: git does not see them, so no dirty tree today - the rule is there so it stays so).
+
+const MEM_RUNTIME = RUNTIME_DIRS.filter((d) => d.startsWith('.mem/'));
+const trackedIn = (root, dir) => git(root, 'ls-files', dir).split('\n').filter(Boolean);
+function writeUnder(root, dir) {
+  fs.mkdirSync(path.join(root, dir), { recursive: true });
+  fs.writeFileSync(path.join(root, dir, 'sess__x.json'), '{}\n');
+  fs.writeFileSync(path.join(root, dir, 'sess__y.warned'), '');
+}
+
+test('RUNTIME_DIRS: every runtime folder has a rule in the .gitignore `mem init` writes, and every hook folder of the env register is in the list', (t) => {
+  const rules = new Set(ignoreLines(memory(t)).map((l) => l.trim()));
+  for (const d of RUNTIME_DIRS) assert.ok(rules.has(`${d}/`), `${d}/ is in RUNTIME_DIRS but has no .gitignore rule`);
+  // A new "Directory of the per-session marks / once-per-turn claims" default under .mem/ must join the list (and the rule).
+  const reg = fs.readFileSync(path.join(REPO, 'src', 'envregister.mjs'), 'utf8');
+  const dirs = [...reg.matchAll(/'`<root>\/(\.mem\/[a-z-]+)`', 'Directory of the (?:per-session marks|once-per-turn claims)/g)].map((m) => m[1]);
+  assert.ok(dirs.length >= 6, `the register scan found only ${dirs.length} folders - the probe has moved`);
+  for (const d of dirs) assert.ok(RUNTIME_DIRS.includes(d), `${d} is a per-session folder of the env register, but not a runtime folder`);
+  assert.ok(RUNTIME_DIRS.includes('.mem/locks'), 'the drawer lock folder');
+});
+
+test('a fresh memory: files in every .mem runtime folder, git add -A - none is tracked (positive control: the other files are)', (t) => {
+  const root = memory(t);
+  for (const d of MEM_RUNTIME) writeUnder(root, d);
+  git(root, 'add', '-A');
+  for (const d of MEM_RUNTIME) assert.deepEqual(trackedIn(root, d), [], `${d} is tracked`);
+  assert.ok(git(root, 'ls-files').includes('.gitignore'), 'POSITIVE CONTROL: add -A does track ordinary files');
+});
+
+test('RED: without the rules git add -A tracks the marks, the claims inside and the locks (so the probe above can fail)', (t) => {
+  const root = memory(t);
+  const kept = ignoreLines(root).filter((l) => !MEM_RUNTIME.some((d) => l.trim() === `${d}/`));
+  fs.writeFileSync(path.join(root, '.gitignore'), kept.join('\n'));
+  for (const d of MEM_RUNTIME) writeUnder(root, d);
+  git(root, 'add', '-A');
+  for (const d of MEM_RUNTIME) assert.ok(trackedIn(root, d).length > 0, `${d}: the red proof has moved - nothing tracked without the rule`);
+});
+
+test('a memory that committed a .mem runtime folder: the doctor says WARN with the command for exactly the folders, init names it, after it ok', (t) => {
+  const root = memory(t);
+  const kept = ignoreLines(root).filter((l) => !MEM_RUNTIME.some((d) => l.trim() === `${d}/`));
+  fs.writeFileSync(path.join(root, '.gitignore'), kept.join('\n'));
+  writeUnder(root, '.mem/before-edit'); writeUnder(root, '.mem/locks');
+  git(root, 'add', '-A'); git(root, 'commit', '-q', '-m', 'state with marks');
+  // The doctor sees the missing rules first (the old answer), `mem init` repairs the file ...
+  assert.equal(doctor.checkGitignoreEffective(root).level, 'warn');
+  const init = spawnSync(process.execPath, [MEM, 'init', '--root', root], { encoding: 'utf8', input: '' });
+  assert.match(init.stdout, new RegExp(`added ${MEM_RUNTIME.length} missing \\.gitignore rule`));
+  // ... and the files stay in the index: now the finding is the tracked one, with the exact command.
+  assert.match(init.stdout, /still TRACKED/);
+  assert.match(init.stdout, /git rm --cached -r \.mem\/before-edit \.mem\/locks\b/);
+  const f = doctor.checkGitignoreEffective(root);
+  assert.equal(f.level, 'warn', JSON.stringify(f));
+  assert.match(JSON.stringify(f), /STILL TRACKS 4 runtime file/);
+  assert.match(JSON.stringify(f), /git rm --cached -r \.mem\/before-edit \.mem\/locks`/);
+  assert.doesNotMatch(JSON.stringify(f), /\.pipeline/);
+  git(root, 'rm', '--cached', '-r', '-q', '.mem/before-edit', '.mem/locks');
+  git(root, 'commit', '-q', '-m', 'untrack');
+  assert.equal(doctor.checkGitignoreEffective(root).level, 'good');
+  assert.ok(fs.existsSync(path.join(root, '.mem', 'locks', 'sess__x.json')), 'the files stay on the disk');
+});
+
+test('MUTATION: a doctor that forgets the tracked check is caught by the probe above (the finding turns ok)', (t) => {
+  const root = memory(t);
+  fs.writeFileSync(path.join(root, '.gitignore'), ignoreLines(root).filter((l) => l.trim() !== '.mem/locks/').join('\n'));
+  writeUnder(root, '.mem/locks');
+  git(root, 'add', '-A'); git(root, 'commit', '-q', '-m', 'lock');
+  spawnSync(process.execPath, [MEM, 'init', '--root', root], { encoding: 'utf8', input: '' });
+  const asked = spawnSync('git', ['-C', root, 'check-ignore', '-q', '--no-index', '.mem/locks/'], { encoding: 'utf8' });
+  assert.equal(asked.status, 0, 'what the old doctor asked says "ignored"');
+  assert.equal(doctor.checkGitignoreEffective(root).level, 'warn', 'only the tracked check turns it into a warning');
 });
