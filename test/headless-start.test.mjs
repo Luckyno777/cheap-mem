@@ -109,7 +109,7 @@ function hostileMemory(s, name = 'memory') {
 }
 
 const real = (p) => fs.realpathSync(p);
-const inside = (child, parent) => { const r = path.relative(real(parent), real(child)); return r === '' || (!r.startsWith('..') && !path.isAbsolute(r)); };
+const inside = (child, parent) => { const r = path.relative(real(parent), real(child)); /* rel-ok: containment only, compared with '..' */ return r === '' || (!r.startsWith('..') && !path.isAbsolute(r)); };
 
 function runDigest(script, s, root, extra = {}) {
   return spawnSync('bash', [script], {

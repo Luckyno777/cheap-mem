@@ -39,7 +39,7 @@ import { pathToFileURL } from 'node:url';
 /** The flags every claude start carries. `--add-dir` is added per job and goes LAST. */
 export const ISOLATION_FLAGS = Object.freeze(['--setting-sources', 'user', '--strict-mcp-config']);
 
-export const OLD_CLAUDE_MESSAGE = [
+const OLD_CLAUDE_MESSAGE = [
   'headless: this claude does not know --setting-sources (too old).',
   '  cheap-mem will not start a model session that could read the memory\'s',
   '  .claude/settings.json and .mcp.json; it started nothing without the flag.',
@@ -49,7 +49,7 @@ export const OLD_CLAUDE_MESSAGE = [
 const stem = (w) => String(w ?? '').replace(/\\/g, '/').split('/').pop().toLowerCase().replace(/\.(exe|cmd|bat|ps1|js|mjs|cjs)$/, '');
 
 /** Split a configured command line on whitespace (the same split the shells do). */
-export function splitCommand(line) {
+function splitCommand(line) {
   return String(line ?? '').split(/\s+/).filter(Boolean);
 }
 
