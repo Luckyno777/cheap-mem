@@ -69,19 +69,33 @@ function isInside(inner, outer) {
   return rel === '' || (rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel));
 }
 
-async function makeCopy(source, root) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), DIR_PREFIX));
+export async function makeCopy(source, root) {
+  // The source is opened BEFORE anything is made: a missing or unreadable transcript then leaves nothing behind on any
+  // platform. (CI run 1074, windows node 20: the read error came after the copy's file was open, and Windows does not
+  // remove a directory that still holds an open file - one empty mem-reflect-* directory stayed in the temp dir.)
+  const sourceFd = fs.openSync(source, 'r');
+  let dir;
+  try {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), DIR_PREFIX));
+  } catch (e) {
+    fs.closeSync(sourceFd);
+    throw e;
+  }
   try {
     if (root && isInside(fs.realpathSync.native(dir), fs.realpathSync.native(root))) throw Object.assign(new Error('temp directory inside the memory root'), { code: 'TMPDIR_IN_ROOT' });
   } catch (e) {
+    fs.closeSync(sourceFd);
     fs.rmSync(dir, { recursive: true, force: true });
     throw e;
   }
   const target = path.join(dir, FILE_NAME);
+  let out = null;
+  let input = null;
   try {
     const fd = fs.openSync(target, 'w', 0o600);
-    const out = fs.createWriteStream(null, { fd });
-    const rl = readline.createInterface({ input: fs.createReadStream(source), crlfDelay: Infinity });
+    out = fs.createWriteStream(null, { fd });
+    input = fs.createReadStream(null, { fd: sourceFd });
+    const rl = readline.createInterface({ input, crlfDelay: Infinity });
     let block = [];
     let blockChars = 0;
     let carry = ''; // the header of a block a cut left open
@@ -114,9 +128,21 @@ async function makeCopy(source, root) {
     await once(out, 'close');
     return target;
   } catch (e) {
-    fs.rmSync(dir, { recursive: true, force: true });
+    // Both files closed first: on Windows a directory with an open file in it is not removed.
+    await closeStream(out);
+    await closeStream(input);
+    if (!input) { try { fs.closeSync(sourceFd); } catch { /* already closed */ } }
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
     throw e;
   }
+}
+
+/** Destroys a stream and waits until its file descriptor is closed (a stream that never opened: nothing to wait for). */
+async function closeStream(stream) {
+  if (!stream || stream.closed) return;
+  const closed = once(stream, 'close').catch(() => {});
+  stream.destroy();
+  await closed;
 }
 
 /** Removes the directory of a copy this script made, and nothing else. */

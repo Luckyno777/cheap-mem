@@ -290,14 +290,15 @@ test('targetFormProblem: ids and the three prefixes pass; shell characters, blan
   }
 });
 
-test('origin.by_human: the author is the configured human participant (from the context) or a person by the one rule; never a name in the code', () => {
+test('origin.by_human: name AND rank - only the rank user makes a card a person\'s; a name never does (writer-identity-cm)', () => {
   const entry = { id: 'e1', title: 'T', card_question: 'Which one?', card_options: ['A — a', 'Not now — b'] };
-  const by = (agent, human) => card.cardOf({ ...entry, agent }, { type: 'duty', context: human === undefined ? {} : { human } }).origin.by_human;
-  assert.equal(by('anna', 'anna'), true, 'the configured human');
-  assert.equal(by('anna', 'bob'), false, 'another participant');
-  assert.equal(by('anna'), false, 'no human configured: nobody is guessed');
-  assert.equal(by('human:anna'), true, 'a person by the one rule (authority.isHumanName)');
-  assert.equal(by('owner'), true);
-  assert.equal(by('anna', null), false);
+  const by = (agent, authority, human) => card.cardOf({ ...entry, agent, authority }, { type: 'duty', context: human === undefined ? {} : { human } }).origin.by_human;
+  assert.equal(by('anna', 'user', 'anna'), true, 'the configured human at the rank user');
+  assert.equal(by('anna', 'agent', 'anna'), false, 'the configured human\'s NAME at the rank agent: no');
+  assert.equal(by('anna', 'user'), true, 'the rank user counts without a configured human');
+  assert.equal(by('human:anna', 'agent'), false, 'a person by the name rule (authority.isHumanName) at the rank agent: no');
+  assert.equal(by('owner', undefined), false, 'no rank at all: no');
+  assert.equal(by('human:anna', 'user'), true);
+  assert.equal(by(undefined, 'user'), false, 'a rank without a name');
   assert.equal(card.cardOf({ id: 'e2', title: 'T' }, { type: 'duty', context: { human: 'anna' } }).origin.by_human, undefined, 'a replacement card has no author, so no flag');
 });

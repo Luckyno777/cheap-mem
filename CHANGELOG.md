@@ -33,6 +33,46 @@ Five items checked, three were real:
 - **`test/no-jump.test.mjs`**: the 20 s limit timer of the held-request wait was never cleared and kept the test process
   alive after the test (the single test: 26.7 s wall, 11.0 s with `clearTimeout` in a `finally`).
 
+### Added - `--as-me`: the writer is this install, and a card names its author with name AND rank
+
+A write without `--agent` and without `CHEAP_MEM_AGENT` was stamped `human:<os user>`: true at a shell, but in a cloud session
+every agent line read `human:root`, and that name reads as a person (`authority.isHumanName`). `mem log`, `mem correction`,
+`mem sources add|bridge` and `mem card add` now take `--as-me`: the writer is `CHEAP_MEM_AGENT`, else the stored `mem whoami`
+(which must still be a configured participant - no name is written into `src/`). With neither, or a blank or stale `whoami`, the
+write is refused and nothing is written; the OS account is never the fallback. The switch carries no rank: the tier stays what
+the write path gives, it does not combine with `--authority` or `--agent`, and a name that reads as a person (`owner`,
+`human:<name>`) or the configured human participant is refused. Without the switch nothing changes; the MCP bridge needed no change (it stamps the connected identity,
+takes no writer parameter, clamps the tier). Port of lucky-mem F1b / `quelle add --ich`, with the source of the name the other
+way round (lucky-mem takes the typed name, cheap-mem the install's).
+
+A decision card now carries `byline` `{name, rank, rank_state, text, by_human}` (`name (rank)`), and `origin.by_human` is the
+same flag: true only for the RANK `user` - the name alone no longer makes a card a person's (it did for `human:<name>`, `owner`
+and the configured human participant, whatever the tier). A rank the line does not carry is `missing`, `empty` or `broken`
+(`authority.tierState`), never an invented tier; `mem today`, `mem card list` and `mem_card_list` say `tier unknown (missing)` (`authority.rankWord`). Old lines stay readable and are not
+changed. Measured: `test/writer-identity.test.mjs` 28 probes (22 of the first 25 red on the base `04ca129`, 3 green controls); 24 mutants in `bench/mutation.mjs`, all caught.
+
+### Fixed - CI run 1074: macOS and Windows red - the cache probe's base, Git Bash paths, a held temp directory, the cleanup order
+
+- **Tool and memory paths under Git Bash.** MSYS2 translates a POSIX path for a native program, but leaves alone any value that holds an
+  apostrophe, a backtick, `*`, `?`, `[` or `]` (msys2-runtime `msys2_path_conv.cc`). The installer baked `pwd` into every shim and the hooks
+  built their tool directory with `pwd`; with the tool under a folder with an apostrophe, node.exe read `/tmp/x/mem's root` as `C:\tmp\...` and
+  every installed shim answered with nothing. `install/claude-code.sh` and the hooks (`mem-retrieve`, `mem-before-edit`, `mem-after-failure`,
+  `mem-catch-fail`, `mem-stop`, `mem-subagent-start`, `mem-capture`) ask `pwd -W` first (Git Bash: the Windows form; any other bash refuses
+  the flag and `pwd` stands). `test/msys-native-paths.test.mjs`, red on `04ca129`.
+- **`bin/mem-mask-copy.mjs`** opens the transcript before it makes anything, and closes both files before it removes its directory on an
+  error: on Windows a directory with an open file in it stays, and a failed read left an empty `mem-reflect-*` directory in the temp dir.
+  `test/reflect-masked-copy.test.mjs`, red on `04ca129`.
+- **Probes that asked the wrong place.** `test/hook-compile-cache.test.mjs` looked for the macOS cache under `.cache` (the hook writes
+  `Library/Caches`), and compared Git Bash's view of HOME with the Windows spelling it was handed; `test/hook-spaces.test.mjs` ran the root
+  lookups under Git Bash with nothing but PATH and HOME and compared spellings instead of directories; `test/installed-hooks-run.test.mjs`
+  ran the `.ps1` shims with a PATH without `System32\WindowsPowerShell\v1.0`, so their `& powershell -File ...` hand-over failed.
+- **Cleanup order.** node:test runs `after` hooks in the order they were added and stops at the first that throws. The memory of
+  `test/serve-token-refuse-cm.test.mjs` was removed before its services were stopped: ENOTEMPTY on Windows, the stopping hooks skipped,
+  one service kept the file alive until the 15-minute timeout. Each test now stops its services first and says so if one still runs.
+  `test/temp-dir.mjs` cleans up through `test/fixture/cleanup.mjs` (waits for both background builds, retries, never a red test over a cleanup).
+- `test/before-edit-twin.test.mjs` names the twin's exit on stderr when it answers with nothing (traced run) - the Windows PowerShell 5.1
+  run of `bin/mem-before-edit.ps1` gave exit 0 and zero bytes in runs 1066 and 1074, cause not yet measured.
+
 ### Fixed - recall: an identifier with an underscore is found, one bar for "what the hook shows", one index language per memory (abruf-stamm-cm; port of lucky-mem decision 2pbqt66q0wdj "merge the recall trunk", steps 2 and 3, and its K1 finding)
 
 **K1.** A question with a snake_case identifier (`session_id`; with a capital umlaut `ABSICH...CH_KEINNERN` in the sibling's finding) found nothing on three paths: `mem find --content-words` (also the after-failure hook), the H1 lever of the recall hook call and the SubagentStart task query.
