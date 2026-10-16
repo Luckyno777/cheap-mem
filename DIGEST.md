@@ -257,7 +257,7 @@ When you are done, mark the captures:
 
 ```
 mem raw digested <path> <path> ...
-git add -A && git commit -m "digest: ..." && git push
+git -C <root> add -A && git -C <root> commit -m "digest: ..." && git -C <root> push
 ```
 
 `mem raw digested` accepts only captures that exist, and prints the yield

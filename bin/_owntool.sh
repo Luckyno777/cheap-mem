@@ -6,7 +6,7 @@
 # The installer also copies this file next to the hook shims, as
 # ~/.claude/hooks/cheap-mem-own-tool.sh, so the shims and bin/ share ONE rule.
 #
-# windows-parity-ok: bin/_owntool.ps1 is the PowerShell twin; the decision is
+# The PowerShell twin is bin/_owntool.ps1 (so it needs no parity exemption); the decision is
 # the same and test/own-tool.test.mjs holds both to it.
 #
 # **The rule (tool-trust-cm, 2026-10-16).** A hook runs the INSTALLED tool

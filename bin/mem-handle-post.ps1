@@ -29,6 +29,18 @@ if (-not $env:MEM_WATCH_WHO) {
 
 $CmdLine = if ($env:MEM_HANDLER_CMD) { $env:MEM_HANDLER_CMD } else { 'claude -p' }
 
+# Every command starts in a neutral empty directory outside the memory (bin/mem-watch.ps1
+# starts this script IN it); a recognised `claude` also gets the isolation flags and
+# `--add-dir` (bin/_headless.ps1, src/headless.mjs). No safe start, no start.
+. (Join-Path $PSScriptRoot '_headless.ps1')
+$plan = Get-HeadlessPlan -CmdLine $CmdLine -Root $env:CHEAP_MEM_ROOT
+if (-not $plan) {
+  [Console]::Error.WriteLine('mem-handle-post: REFUSED - no safe way to start the model session; nothing was started.')
+  exit 1
+}
+if ($plan.Note) { [Console]::Error.WriteLine("mem-handle-post: $($plan.Note)") }
+Set-Location -LiteralPath $plan.Cwd
+
 # The model is told to run THIS tool (the one this script sits in), never the
 # memory's own bin\mem: a memory is a git clone pulled from origin, and the
 # permission list names only the installed tool (tool-trust-cm, 2026-10-16).
@@ -50,6 +62,11 @@ You are the '$($env:MEM_WATCH_WHO)' role in this cheap-mem installation. Read `$
 
 Exit after the last message.
 "@
+if ($plan.Isolated) {
+  $defaultPrompt += "`nYour working directory is NOT the memory: it is an empty folder, and `$CHEAP_MEM_ROOT is added to what you may read. Use absolute paths and git -C `$CHEAP_MEM_ROOT.`n"
+} else {
+  $defaultPrompt += "`nYour working directory is NOT the memory: it is an empty folder, and the memory is `$CHEAP_MEM_ROOT. Use absolute paths and git -C `$CHEAP_MEM_ROOT.`n"
+}
 
 $prompt = if ($env:MEM_HANDLER_PROMPT) { $env:MEM_HANDLER_PROMPT } else { $defaultPrompt }
 
@@ -58,5 +75,19 @@ $exe = $parts[0]
 $argList = @()
 if ($parts.Length -gt 1) { $argList = $parts[1..($parts.Length - 1)] }
 $argList += $prompt
+# The flags go AFTER the prompt and `--add-dir` last: it takes a list and would swallow a prompt that followed it.
+$argList += $plan.Args
 
-& $exe @argList
+# Output is collected so an old claude can be recognised; the job log still gets all of it.
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+$seen = & $exe @argList 2>&1
+$code = $LASTEXITCODE
+$ErrorActionPreference = $prevEap
+$seen | Out-Host
+Remove-HeadlessDir -Plan $plan
+if ($code -ne 0 -and $plan.Isolated) {
+  $old = Get-OldClaudeMessage -Text (($seen | Out-String))
+  if ($old) { $old | ForEach-Object { [Console]::Error.WriteLine($_) } }
+}
+exit $code
