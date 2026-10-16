@@ -21,4 +21,8 @@ set -u
   && exec bash "$CHEAP_MEM_CODE/bin/mem-after-failure"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 [ -f "$HERE/mem-after-failure" ] && exec bash "$HERE/mem-after-failure"
+# Nothing found anywhere: say so (tool-missing.sh), do not just exit.
+for missing_helper in "$HERE/cheap-mem-tool-missing.sh" "$HERE/tool-missing.sh"; do
+  [ -f "$missing_helper" ] && exec bash "$missing_helper" after-failure mem-after-failure
+done
 exit 0

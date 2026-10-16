@@ -24,4 +24,8 @@ set -u
   && exec bash "$CHEAP_MEM_CODE/bin/mem-before-edit"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 [ -f "$HERE/mem-before-edit" ] && exec bash "$HERE/mem-before-edit"
+# Nothing found anywhere: say so (tool-missing.sh), do not just exit.
+for missing_helper in "$HERE/cheap-mem-tool-missing.sh" "$HERE/tool-missing.sh"; do
+  [ -f "$missing_helper" ] && exec bash "$missing_helper" pre-edit mem-before-edit
+done
 exit 0

@@ -50,7 +50,6 @@ import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..');
 const MEM = path.join(REPO, 'bin', 'mem');
-const INSTALL_SH = path.join(REPO, 'install', 'claude-code.sh');
 const INSTALL_PS1 = path.join(REPO, 'install', 'windows.ps1');
 const WIN = process.platform === 'win32';
 
@@ -102,8 +101,9 @@ function log(root, kind, args) {
 
 // A memory WITHOUT the tool in it (what `mem init` makes), holding entries
 // that the probes below ask for by name.
-function buildMemory() {
-  const root = temp('cm-ihr-mem-');
+function buildMemory(parent = null, name = 'memory') {
+  const root = parent ? path.join(parent, name) : temp('cm-ihr-mem-');
+  fs.mkdirSync(root, { recursive: true });
   execFileSync(process.execPath, [MEM, '--root', root, 'init'], { stdio: 'ignore' });
   assert.ok(!fs.existsSync(path.join(root, 'bin', 'mem')),
     'the fixture memory carries the tool - the probe would prove nothing');
@@ -197,20 +197,30 @@ const EXPECT = {
 };
 const NAMES = Object.keys(EXPECT);
 
-function installSh() {
+// `codeCopy`: install from a COPY of the tool placed at <scratch>/<codeDir>
+// (default: install from this checkout). `memName`: the memory's folder name.
+function installSh({ codeDir = null, memName = 'memory' } = {}) {
   assert.ok(BASH, 'no bash on the PATH: the installer cannot run (Windows: Git Bash is required)');
   const scratch = temp('cm-ihr-');
   const home = path.join(scratch, 'home');
   const claudeHome = path.join(home, '.claude');
   fs.mkdirSync(home, { recursive: true });
-  const root = buildMemory();
-  const r = spawnSync(BASH, [INSTALL_SH], {
+  const root = buildMemory(codeDir ? scratch : null, memName);
+  let code = REPO;
+  if (codeDir) {
+    code = path.join(scratch, ...codeDir);
+    for (const d of ['bin', 'src', 'install', 'shared']) {
+      fs.cpSync(path.join(REPO, d), path.join(code, d), { recursive: true });
+    }
+    fs.copyFileSync(path.join(REPO, 'package.json'), path.join(code, 'package.json'));
+  }
+  const r = spawnSync(BASH, [path.join(code, 'install', 'claude-code.sh')], {
     encoding: 'utf8', timeout: 60000,
     env: bareEnv(home, { CHEAP_MEM_ROOT: root, CLAUDE_HOME: claudeHome }),
   });
   assert.equal(r.status, 0, `installer failed: ${r.stderr}`);
   const cfg = JSON.parse(fs.readFileSync(path.join(claudeHome, 'settings.json'), 'utf8'));
-  return { scratch, home, claudeHome, root, cfg };
+  return { scratch, home, claudeHome, root, cfg, code };
 }
 
 // event -> the command settings.json registers for a cheap-mem shim.
@@ -227,21 +237,16 @@ function registered(cfg, ext) {
   return out;
 }
 
-test('every installed .sh hook, started with a bare environment, delivers', () => {
-  const { scratch, home, root, claudeHome, cfg } = installSh();
-  const cmds = registered(cfg, 'sh');
-  assert.deepEqual([...cmds.keys()].sort(), [...NAMES].sort(),
-    'the installer registers a different set of hooks than this file probes: add the new one to EXPECT');
-  const onDisk = fs.readdirSync(path.join(claudeHome, 'hooks'))
-    .map((f) => /^cheap-mem-([a-z-]+)\.sh$/.exec(f)?.[1]).filter(Boolean).sort();
-  assert.deepEqual(onDisk, [...NAMES].sort(), 'a hook file is installed that is not registered, or the reverse');
+const hookEnv = (home) => bareEnv(home, WIN ? {} : { MEM_ALARM_SECONDS: '60', MEM_TODAY_SECONDS: '60', MEM_STOP_NO_PUSH: '1' });
+
+// Start every registered hook bare; return what failed and rc/bytes seen.
+function runAll({ scratch, home, root, cmds }) {
   const input = inputs(scratch);
   const failures = [];
   const seen = {};
   for (const name of NAMES) {
     const r = spawnSync(cmds.get(name), {
-      shell: true, input: JSON.stringify(input[name]), encoding: 'utf8', timeout: 90000,
-      env: bareEnv(home, WIN ? {} : { MEM_ALARM_SECONDS: '60', MEM_TODAY_SECONDS: '60', MEM_STOP_NO_PUSH: '1' }),
+      shell: true, input: JSON.stringify(input[name]), encoding: 'utf8', timeout: 90000, env: hookEnv(home),
     });
     seen[name] = { rc: r.status, bytes: Buffer.byteLength(r.stdout || '') };
     try {
@@ -249,7 +254,94 @@ test('every installed .sh hook, started with a bare environment, delivers', () =
       EXPECT[name](r, root);
     } catch (e) { failures.push(`[${name}] ${e.message}`); }
   }
-  assert.equal(failures.length, 0, `${failures.join('\n---\n')}\n\nrc/bytes: ${JSON.stringify(seen)}`);
+  return `${failures.join('\n---\n')}${failures.length ? `\n\nrc/bytes: ${JSON.stringify(seen)}` : ''}`;
+}
+
+const shimFiles = (claudeHome) => fs.readdirSync(path.join(claudeHome, 'hooks'))
+  .filter((f) => /^cheap-mem-[a-z-]+\.sh$/.test(f));
+
+test('every installed .sh hook, started with a bare environment, delivers', () => {
+  const { scratch, home, root, claudeHome, cfg } = installSh();
+  const cmds = registered(cfg, 'sh');
+  assert.deepEqual([...cmds.keys()].sort(), [...NAMES].sort(),
+    'the installer registers a different set of hooks than this file probes: add the new one to EXPECT');
+  // The message helper sits next to the shims and is not a hook itself.
+  const onDisk = shimFiles(claudeHome).map((f) => /^cheap-mem-([a-z-]+)\.sh$/.exec(f)[1])
+    .filter((n) => n !== 'tool-missing').sort();
+  assert.deepEqual(onDisk, [...NAMES].sort(), 'a hook file is installed that is not registered, or the reverse');
+  assert.ok(fs.existsSync(path.join(claudeHome, 'hooks', 'cheap-mem-tool-missing.sh')),
+    'the tool-missing helper was not installed next to the shims');
+  assert.equal(runAll({ scratch, home, root, cmds }), '');
+});
+
+test('a path with an apostrophe and a space in the tool AND the memory: every shim parses and delivers', () => {
+  // `export CHEAP_MEM_CODE='<path>'` ended at the apostrophe: bash -n rc 2,
+  // the shim never ran. Both baked values are escaped now.
+  const { scratch, home, root, claudeHome, cfg, code } = installSh({
+    codeDir: ["Lucky's tools", 'cheap mem'], memName: "mem's root" });
+  assert.ok(code.includes("'") && code.includes(' '), 'the fixture path lost its awkward characters');
+  assert.ok(root.includes("'"), 'the memory path lost its apostrophe');
+  for (const f of shimFiles(claudeHome)) {
+    const r = spawnSync(BASH, ['-n', path.join(claudeHome, 'hooks', f)], { encoding: 'utf8' });
+    assert.equal(r.status, 0, `${f} does not parse: ${r.stderr}`);
+  }
+  assert.equal(runAll({ scratch, home, root, cmds: registered(cfg, 'sh') }), '');
+});
+
+test('the code path is GONE: every silent shim says so, once; the start hook names the path; the doctor sees it', async () => {
+  // The baked-in checkout was moved or deleted. Before the message existed
+  // the four delegating shims plus stop exited 0 with no byte - the
+  // original defect one level down.
+  const { scratch, home, root, claudeHome, cfg, code } = installSh({ codeDir: ['gone', 'cheap-mem'] });
+  const cmds = registered(cfg, 'sh');
+  fs.rmSync(code, { recursive: true, force: true });
+  const input = inputs(scratch);
+  const failures = [];
+  for (const name of NAMES.filter((n) => n !== 'session-start')) {
+    const run = () => spawnSync(cmds.get(name), {
+      shell: true, input: JSON.stringify(input[name]), encoding: 'utf8', timeout: 90000, env: hookEnv(home),
+    });
+    const r = run();
+    try {
+      assert.equal(r.status, 0, `rc ${r.status}`);
+      const msg = JSON.parse(r.stdout).systemMessage;
+      assert.match(msg, new RegExp(`the ${name} hook is SILENT`));
+      assert.ok(msg.includes('CHEAP_MEM_CODE='), 'the message does not name the baked path');
+      assert.match(msg, /install\/claude-code\.sh/, 'the message does not name the repair');
+      assert.equal(run().stdout, '', 'the second call inside 30 minutes repeats itself');
+    } catch (e) { failures.push(`[${name}] ${e.message} (stdout: ${r.stdout})`); }
+  }
+  assert.equal(failures.length, 0, failures.join('\n---\n'));
+  const start = spawnSync(cmds.get('session-start'), {
+    shell: true, input: JSON.stringify(input['session-start']), encoding: 'utf8', timeout: 90000, env: hookEnv(home),
+  });
+  assert.equal(start.status, 0);
+  assert.match(start.stdout, /NOT attached/);
+  assert.ok(start.stdout.includes(`CHEAP_MEM_CODE=`), `the start hook does not name the baked path:\n${start.stdout}`);
+  assert.match(start.stdout, /install\/claude-code\.sh/);
+  // The doctor reads the same installed files: registered, but silent.
+  const doctor = await import('../src/doctor.mjs');
+  const f = doctor.checkIntegrationContract(root, { settingsPaths: [path.join(claudeHome, 'settings.json')] });
+  assert.equal(f.level, doctor.LEVEL.ERROR, `${f.text}`);
+  assert.match(f.text, /SILENT/);
+  assert.match(f.text, /cheap-mem-user-prompt\.sh/);
+});
+
+test('time cap in the start hook: rc 0, the cap is REPORTED, the rest of the output still comes (set -u)', () => {
+  // `$MEM_SHOW` was first set at the bottom; the cap branch used it above
+  // that line, under `set -u`: rc 1, no today line, no hints, no journal.
+  const { scratch, home, cfg } = installSh();
+  const cmds = registered(cfg, 'sh');
+  const env = { ...hookEnv(home), MEM_ALARM_SECONDS: '0.01' };
+  const r = spawnSync(cmds.get('session-start'), {
+    shell: true, input: JSON.stringify(inputs(scratch)['session-start']), encoding: 'utf8', timeout: 90000, env,
+  });
+  assert.equal(r.status, 0, `rc ${r.status}: ${r.stderr}`);
+  assert.doesNotMatch(r.stderr, /unbound variable/);
+  assert.match(r.stdout, /=== how to use this memory this session ===/, 'the output stopped after the alarm');
+  const hasTimeout = spawnSync('timeout', ['--version'], { env, encoding: 'utf8' }).status === 0;
+  if (hasTimeout) assert.match(r.stdout, /hit its time cap/, 'a cap that expired looked like all fine');
+  else assert.doesNotMatch(r.stdout, /hit its time cap/, 'no timeout(1): the alarm runs uncapped');
 });
 
 test('control: the same bare run WITHOUT a code path is mute (the probe can fail)', () => {
@@ -292,12 +384,23 @@ const PS1_VAR = {
 
 test('windows.ps1: every hook it writes has the CHEAP_MEM_CODE way (static, all platforms)', () => {
   const { src, hooks } = ps1Hooks();
-  assert.match(src, /\$CodeHint = \$RepoRoot/, 'no code hint is derived from the install location');
+  // The baked paths sit in single-quoted strings: an apostrophe in a path
+  // has to be doubled, or the generated hook does not parse.
+  assert.match(src, /\$CodeHint = \$RepoRoot -replace "'", "''"/, 'the code hint is baked in without escaping an apostrophe');
+  assert.match(src, /\$RootHint = \$env:CHEAP_MEM_ROOT -replace "'", "''"/, 'the memory hint is baked in without escaping an apostrophe');
   for (const [name, v] of Object.entries(PS1_VAR)) {
     const body = hooks[v];
     assert.ok(body, `${name}: the here-string for ${v}Dst was not found - the extraction needs updating`);
     assert.match(body, /\$env:CHEAP_MEM_CODE/, `${name}: does not read CHEAP_MEM_CODE`);
     assert.match(body, /'\$CodeHint'/, `${name}: has no baked-in fallback for the code location`);
+    assert.match(body, /\$hint = '\$RootHint'/, `${name}: bakes the memory path without the apostrophe escape`);
+    assert.doesNotMatch(body, /Test-Path `\$(mem|retrieve|before|catchFail|afterFailure|subagent|stop)\b/,
+      `${name}: tests the tool path with wildcards (Test-Path without -LiteralPath)`);
+    if (name !== 'session-start') {
+      assert.match(body, /cheap-mem-tool-missing\.ps1/, `${name}: exits silent when the tool is missing`);
+    } else {
+      assert.match(body, /The code path baked in by the installer has no tool/, `${name}: does not name a dead code path`);
+    }
     // The tool is looked for under the code location, not only the memory.
     assert.match(body, /Join-Path `\$codeRoot (`\$rel|'bin\\mem')/,
       `${name}: never looks for the tool under the code location`);

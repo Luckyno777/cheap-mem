@@ -21,5 +21,12 @@ set -u
 # separate checkout — the installer injects CHEAP_MEM_CODE for that case.
 HOOK="$CHEAP_MEM_ROOT/bin/mem-subagent-start"
 [ -f "$HOOK" ] || HOOK="${CHEAP_MEM_CODE:-}/bin/mem-subagent-start"
-[ -f "$HOOK" ] || exit 0
+if [ ! -f "$HOOK" ]; then
+  # Nothing found: say so (tool-missing.sh), do not just exit.
+  HERE="$(cd "$(dirname "$0")" && pwd)"
+  for missing_helper in "$HERE/cheap-mem-tool-missing.sh" "$HERE/tool-missing.sh"; do
+    [ -f "$missing_helper" ] && exec bash "$missing_helper" subagent-start mem-subagent-start
+  done
+  exit 0
+fi
 exec bash "$HOOK"
