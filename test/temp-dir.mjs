@@ -21,12 +21,15 @@ export function tempDir(prefix, t) {
     t.after(async () => {
       // `mem component --hook` (mem-before-edit) and triggerBackgroundRebuild() leave a detached
       // child whose cwd is this directory. On Windows rmdir then fails with EBUSY/ENOTEMPTY (CI run
-      // 37720774312: cm-be-file-*, cm-component-table-*). Wait for its lock to go, bounded.
-      try {
-        const ct = await import(new URL('../src/component-table.mjs', import.meta.url).href);
-        ct.waitForRebuildIdle(dir);
-      } catch { /* no table module, no lock: nothing to wait for */ }
-      // Windows: a just-exited child can still hold the directory for a moment (EBUSY/EPERM on rmdir).
+      // 37720774312: cm-be-file-*, cm-component-table-*). removeTree waits for that rebuild AND for the
+      // detached time-track build, then retries, and if the tree is still held it tries again when the
+      // process exits instead of throwing (test/fixture/cleanup.mjs). A throw here was a red test over a
+      // cleanup (CI run 1074, windows node 22: EBUSY after every assertion of before-edit-golden was green)
+      // - and node:test runs no later `after` hook once one throws, so whatever the test registered after
+      // its tempDir (stopping a service it started) was skipped as well.
+      let removeTree = null;
+      try { ({ removeTree } = await import(new URL('./fixture/cleanup.mjs', import.meta.url).href)); } catch { /* below */ }
+      if (removeTree) { removeTree(dir); return; }
       fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     });
   }

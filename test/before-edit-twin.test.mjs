@@ -100,10 +100,14 @@ test('PLATFORM: on Windows the twin itself answers like the core in ASCII mode; 
   const root = world(t);
   const marks = tempDir('cm-betwin-m4-', t);
   const want = core(root, tempDir('cm-betwin-m5-', t), { MEM_BE_ASCII: '1' });
+  // MEM_BEFORE_EDIT_TRACE: every early exit of the twin (and the core's reason for saying nothing) is named on
+  // stderr; stdout stays the contract. CI runs 1066 and 1074 answered with ZERO bytes and exit 0 here, and the
+  // probe could only say "Unexpected end of JSON input" - now an empty answer names where it stopped.
   const r = spawnSync(shell, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', PS1_PATH], {
     input: input(), encoding: 'utf8',
-    env: { ...process.env, CHEAP_MEM_ROOT: root, MEM_BEFORE_EDIT_MARKS: marks, MEM_HOOK_OFF: '', MEM_BEFORE_EDIT_OFF: '' },
+    env: { ...process.env, CHEAP_MEM_ROOT: root, MEM_BEFORE_EDIT_MARKS: marks, MEM_HOOK_OFF: '', MEM_BEFORE_EDIT_OFF: '', MEM_BEFORE_EDIT_TRACE: '1' },
   });
   assert.equal(r.status, 0, r.stderr);
+  assert.ok(r.stdout.trim(), `${shell}: the twin answered with nothing (exit 0). stderr:\n${r.stderr}`);
   assert.deepEqual(JSON.parse(r.stdout), JSON.parse(want));
 });
