@@ -367,7 +367,7 @@ export function coreLines(hits, { attach = null } = {}) {
       }
       if (units.length >= H5_MIN && bytes + b > H5_BUDGET_BYTES) break;
     }
-    units.push({ line, source: r.source, id: r.id, bytes: b, attached: a ? a.id : null });
+    units.push({ line, source: r.source, id: r.id, bytes: b, attached: a ? a.id : null, hit: h });
     bytes += b;
   }
   return {
@@ -375,6 +375,8 @@ export function coreLines(hits, { attach = null } = {}) {
     sources: units.map((u) => u.source),
     ids: units.filter((u) => u.id).map((u) => u.id),
     attached: units.filter((u) => u.attached).map((u) => u.attached),
+    // The same shown hits one by one (src/answerbudget.mjs steps a unit down to its pointer, whole).
+    units: units.map((u) => ({ line: u.line, hit: u.hit, source: u.source, id: u.id, attached: u.attached })),
   };
 }
 

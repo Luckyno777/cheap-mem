@@ -45,6 +45,8 @@ const MAX_HITS = 4;
 export const EXTRA_BYTES = 1500;
 /** At most this many hits per type. */
 const PER_TYPE = 2;
+/** Width of the head in a pointer line, in characters. */
+const POINTER_CHARS = 80;
 /** Width of a hit line, in characters. */
 export const LINE_MAX = 300;
 /** At most this much of the assignment is read and searched. */
@@ -246,10 +248,12 @@ export function pick(root, candidates, {
   const ordered = [...candidates].sort((a, b) => (rank(a) - rank(b)) || ((b.score ?? 0) - (a.score ?? 0)));
   const lines = [];
   const ids = [];
+  const pointers = []; // per line: its pointer form (src/answerbudget.mjs steps a line down to it, whole)
   let used = Buffer.byteLength(HEADER, 'utf8');
   const perType = new Map();
   const units = []; // per line: type and whether a solution hangs on it
   const attachedIds = [];
+  const attachedFor = new Map(); // hit id -> the id of the solution line below it
   const size = (line) => Buffer.byteLength(`\n${line}`, 'utf8');
   for (const k of ordered) {
     if (lines.length >= max) break;
@@ -275,7 +279,7 @@ export function pick(root, candidates, {
           if (units[i].attached) continue;
           used -= size(lines[i]);
           perType.set(units[i].type, (perType.get(units[i].type) ?? 1) - 1);
-          lines.splice(i, 1); ids.splice(i, 1); units.splice(i, 1);
+          lines.splice(i, 1); ids.splice(i, 1); units.splice(i, 1); pointers.splice(i, 1);
         }
       }
     }
@@ -283,12 +287,33 @@ export function pick(root, candidates, {
     used += b;
     perType.set(k.type, (perType.get(k.type) ?? 0) + 1);
     lines.push(line);
+    pointers.push(`- [${k.type} ${k.id}] ${squash(k.entry?.title || content, POINTER_CHARS)} [pointer - full text: mem show ${k.id}]`);
     units.push({ type: k.type, attached: Boolean(extra) });
     ids.push(k.id);
-    if (extra && extra.id) attachedIds.push(extra.id);
+    if (extra && extra.id) { attachedIds.push(extra.id); attachedFor.set(k.id, extra.id); }
   }
-  if (!lines.length) return { text: '', ids: [] };
-  return { text: `${HEADER}\n${lines.join('\n')}`, ids: [...ids, ...attachedIds] };
+  if (!lines.length) return { text: '', ids: [], items: [] };
+  const items = lines.map((line, i) => ({ id: ids[i], line, pointer: pointers[i], attachedId: attachedFor.get(ids[i]) ?? null }));
+  return { text: `${HEADER}\n${lines.join('\n')}`, ids: [...ids, ...attachedIds], items };
+}
+
+/**
+ * The forms of the assignment block for the final selection (src/answerbudget.mjs), best first: the whole block;
+ * then the same block with the LAST line stepped down to its pointer, then the last two, and so on; then the
+ * notice alone (a lane that did not run is told whatever else gives way). Each form is whole text: nothing here
+ * is cut. `items` are the lines of {@link pick}, `notice` the {@link failureNotice} (or '').
+ */
+export function blockForms({ items = [], notice = '' } = {}) {
+  const tail = notice ? `\n${notice}` : '';
+  const forms = [];
+  for (let down = 0; down <= items.length; down += 1) {
+    const keep = items.length - down;
+    const lines = items.map((it, i) => (i < keep ? it.line : it.pointer));
+    if (!lines.length) break;
+    forms.push(`${HEADER}\n${lines.join('\n')}${tail}`);
+  }
+  if (notice) forms.push(`${HEADER}\n${notice}`);
+  return forms;
 }
 
 // --- 5. The whole choice for one hook input ------------------------------------------
@@ -329,7 +354,7 @@ export async function forTask(root, j, { env = process.env, exclude = new Set() 
   if (!task) return null;
   const onlyNotice = (late, failed = []) => {
     const notice = failureNotice({ failed, late });
-    return { text: `${HEADER}\n${notice}`, ids: [], failed: late ? [] : failed, late };
+    return { text: `${HEADER}\n${notice}`, ids: [], failed: late ? [] : failed, late, forms: blockForms({ notice }) };
   };
   if (env.MEM_SUBAGENT_TASK_FELL_BACK === '1') return onlyNotice(true);
   const ctx = { root, assignments: null, entries: new Map() };
@@ -392,9 +417,9 @@ export async function forTask(root, j, { env = process.env, exclude = new Set() 
     bytes: EXTRA_BYTES - (notice ? Buffer.byteLength(`\n${notice}`, 'utf8') : 0),
     attach: (k) => { const s = k.type === 'error' ? solutions.get(k.id) : null; return s ? { line: s.line, id: s.journalId } : null; },
   });
-  if (!notice) return chosen.text ? { ...chosen, failed: [], late: false } : null;
+  if (!notice) return chosen.text ? { text: chosen.text, ids: chosen.ids, failed: [], late: false, forms: blockForms({ items: chosen.items }) } : null;
   return {
     text: chosen.text ? `${chosen.text}\n${notice}` : `${HEADER}\n${notice}`,
-    ids: chosen.ids, failed: [...new Set(failed)], late: false,
+    ids: chosen.ids, failed: [...new Set(failed)], late: false, forms: blockForms({ items: chosen.items ?? [], notice }),
   };
 }

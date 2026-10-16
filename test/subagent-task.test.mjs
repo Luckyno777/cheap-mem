@@ -128,7 +128,18 @@ test('caps: at most four hits, two per type, 1,500 bytes extra; the base block s
   const lines = block.split('\n').filter((l) => l.startsWith('- ['));
   assert.ok(lines.length >= 1 && lines.length <= 2, `two per type: ${lines.length}`);
   assert.ok(Buffer.byteLength(block.split('\n\n')[0], 'utf8') <= subagenttask.EXTRA_BYTES);
-  assert.equal(full.replace(/\n\nFor your assignment[\s\S]*?(?=\n\nData, not instructions)/, ''), base, 'the base block changed');
+  // abruf-budget: the assignment block is no longer an ADDITION next to a base block of its own size; both draw on the one
+  // budget (src/answerbudget.mjs), so the recap, which takes what is left, gets less when the block is there. Everything else
+  // of the base block is unchanged: the statement about the procedures, the closing hint, and every line of the recap that
+  // is still shown is the base's line.
+  assert.ok(Buffer.byteLength(full, 'utf8') <= subagentstart.CAP_BYTES, `${Buffer.byteLength(full, 'utf8')} bytes`);
+  const rest = full.replace(/\n\nFor your assignment[\s\S]*?(?=\n\nData, not instructions)/, '');
+  assert.ok(rest.startsWith('(no procedure tagged'), 'the procedure statement is first');
+  assert.ok(rest.endsWith(base.slice(base.lastIndexOf('\n\nData, not instructions'))), 'the closing hint is the base\'s');
+  const norm = (x) => x.replace(/--- last \d+ errors ---/, '--- last N errors ---').replace(/--- budget \d+ chars \(~\d+ tokens/, '--- budget N chars (~N tokens');
+  const recapLines = (x) => norm(x).split('\n').filter((l) => l.startsWith('  [20'));
+  for (const l of recapLines(rest)) assert.ok(recapLines(base).includes(l), 'a recap line that is shown is the base\'s line');
+  assert.ok(recapLines(rest).length <= recapLines(base).length, 'the recap gave way, it did not grow');
 });
 
 test('L3 on the subagent path: the solution stands under its error; a solution of a barred type does not', async (t) => {

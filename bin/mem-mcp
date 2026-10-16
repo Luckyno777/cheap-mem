@@ -99,10 +99,9 @@ import * as appointmentTime from '../src/appointment-time.mjs';
 import * as board from '../src/board.mjs';
 import * as webauth from '../src/webauth.mjs';
 import * as agentledger from '../src/agentledger.mjs';
-import * as variantsMod from '../src/variants.mjs';
+import * as findcore from '../src/findcore.mjs';
 import * as mcpvisibility from '../src/mcpvisibility.mjs';
 import * as injection from '../src/injection.mjs';
-import * as levers from '../src/searchlevers.mjs';
 import * as errorfixes from '../src/errorfixes.mjs';
 import * as bridgefields from '../src/bridgefields.mjs';
 import * as cardrule from '../src/cardrule.mjs';
@@ -1695,24 +1694,17 @@ async function handleCall(name, args) {
         mq = resolved.query;
         extraTerms = resolved.extraTerms;
       }
-      const findOpt = {
-        top: top ?? 10, type: type ?? null, project: project ?? null,
-        capability: findCapability,
-        since: s, language: cfg.language, extraTerms,
-        withCoverage: levers.active('h3'),
-      };
-      // `variants`: rewordings the calling agent supplies (src/variants.mjs)
-      // - no model here; without them this is the plain search as before.
-      const listed = Array.isArray(variants) && variants.length
-        ? variantsMod.searchWithVariants(index, mq, variants, findOpt)
-        : search.search(index, mq, findOpt);
-      // H3 (Block H): the same answer gate as `mem find` — a flat field of
-      // weak hits, none clearly ahead, is withheld and said so. One rule,
-      // in src/searchlevers.mjs, for both doors.
-      const withheld = !weak && levers.active('h3')
-        && !levers.answerHolds(listed, { occasion: 'find', bar: levers.findBar(index.statsN ?? index.N) }) ? listed.length : 0;
-      for (const h of listed) delete h.covered;   // the gate's input, not part of the answer
-      const ranked = withheld ? [] : listed;
+      // The ranked search is `src/findcore.mjs` — the SAME function `mem find` calls (abruf-budget): the exact lane,
+      // the echo filter, MMR, the retired gate and the H3 answer gate. This door used to carry its own copy without
+      // the first four and with the query pinned to the memory's configured language.
+      // `variants`: rewordings the calling agent supplies (src/variants.mjs) - no model here; without them this is
+      // the plain search.
+      const wanted = Number.isInteger(top) && top >= 1 ? top : 10;
+      const { hits: ranked, withheld } = findcore.rankedFind({
+        index, query: mq, askedAs: String(q), wanted, type: type ?? null, project: project ?? null,
+        capability: findCapability, since: s, extraTerms,
+        variants: Array.isArray(variants) ? variants : [], weak: Boolean(weak), env: process.env,
+      });
       // Book into the injection journal like the hook does: occasion
       // `mcp-question`, length/hits/sources/duration, NEVER the question
       // text. A measurement must not hold the answer up: book() never throws.

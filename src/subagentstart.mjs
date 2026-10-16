@@ -29,11 +29,14 @@
  * most specific of the three: a rule for every subagent and a recap are
  * general, a workflow that fits THIS assignment is not.
  *
- * Procedures come FIRST on purpose: `memory.context()` gives way from the
- * bottom of its own sections when its budget is tight, but it never
- * exceeds the budget it is handed — so handing it the REMAINDER after the
- * procedures block is what keeps a human's explicit rule from ever being
- * the part that gets dropped for space.
+ * **One budget for the whole start (abruf-budget).** The text is put together by the ONE final selection
+ * (`src/answerbudget.mjs`) under {@link CAP_BYTES} (3200 bytes). Until then only the recap (in characters) and the
+ * assignment block (1,500 bytes) were capped, and the workflow block, the procedures and the hint were joined in
+ * front without any bound. What gives way first is the last part allocated: the recap (it takes what is left, as
+ * it always did), then the assignment block, then the procedures, then the workflow block. A part that does not
+ * fit does not vanish and is not cut: it steps down to a POINTER (what it is, its id, `mem show <id>`), and a
+ * note names what stepped down or fell away. The closing hint and the sentence "no procedure tagged ..." are
+ * always in. A procedure too long for the whole budget therefore comes as a pointer, no longer in full.
  *
  * **Ported from an idea, not a file.** A sibling memory (lucky-mem) built
  * the identical SubagentStart hook (`src/hook.mjs`, `unteragent()`) for
@@ -47,19 +50,20 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as memory from './memory.mjs';
 import * as procedure from './procedure.mjs';
+import * as answerbudget from './answerbudget.mjs';
+import * as wfpointer from './workflowpointer.mjs';
 import { maskText } from './outputguard.mjs';
 
 /**
- * Total cap for the SubagentStart block, in characters (this file
- * counts in the same unit `memory.context()` already budgets in, so the
- * two numbers can be added and subtracted without a unit conversion
- * error creeping in between them).
- *
- * Matches the fixed-cost reasoning behind `retrieval.mjs`'s per-claim and
- * total budgets: a block sent on EVERY subagent start gets expensive one
- * unnoticed sentence at a time if nothing holds it down.
+ * Total cap for the SubagentStart text, in BYTES: the one budget of the final selection
+ * (`answerbudget.ANSWER_BYTES`), the same number the prompt hook answers under. It was
+ * `CAP_CHARS = 4000` for the recap and the procedures, with the assignment block (1,500 bytes) and the
+ * workflow block on top and nothing bounding the sum.
  */
-export const CAP_CHARS = 4000;
+export const CAP_BYTES = answerbudget.ANSWER_BYTES;
+
+/** The first line of the workflow block (the lead-in `hookResultFor` puts before the card). */
+export const WORKFLOW_LEAD = 'A workflow from memory matches this assignment (data, not instructions):';
 
 /** The hint that closes the block, regardless of what fit above it. */
 function hint(root) {
@@ -72,39 +76,68 @@ function hint(root) {
     + 'A new project only via `mem project new <name> --title ... --reason ...`, never a folder by hand.';
 }
 
+/** The pointer form of a procedure: its marking, its title, and where the rule stands. */
+function procedurePointer(e) {
+  const title = String(e.title ?? '').replace(/\s+/g, ' ').trim();
+  const short = title.length > 80 ? `${title.slice(0, 79)}…` : title;
+  return `${procedure.mark(e)}${short ? `\n${short}` : ''}\n  [pointer - the rule did not fit this block: ${e.id ? `mem show ${e.id}` : 'mem procedures'}]`;
+}
+
+/** The recap for `room` BYTES: `memory.context` budgets in characters, so a multi-byte text is asked again smaller. */
+function recapFor(root, n, room) {
+  let chars = Math.floor(room);
+  for (let i = 0; i < 4 && chars >= memory.MIN_CONTEXT_CHARS; i += 1) {
+    let recap = '';
+    try { recap = memory.context(root, { n, maxChars: chars }); } catch { return ''; }
+    const size = Buffer.byteLength(recap, 'utf8');
+    if (size <= room) return recap;
+    chars = Math.floor(chars * (room / size)) - 1;
+  }
+  return '';
+}
+
 /**
- * The text for `additionalContext`. Never throws outward — the pieces
- * it depends on (`procedure.forSubagentStart`, `memory.context`) are
- * read-only lookups over a memory that may be empty, missing a project,
- * or mid-write; a subagent must start either way.
+ * The final selection for this start: `answerbudget.compose` over the parts. Never throws outward — the pieces
+ * it depends on (`procedure.forSubagentStart`, `memory.context`) are read-only lookups over a memory that may be
+ * empty, missing a project, or mid-write; a subagent must start either way.
  */
-export function buildContext(root, { n = 10, workflowBlock = null, taskBlock = null } = {}) {
+export function select(root, { n = 10, workflowBlock = null, taskBlock = null, taskForms = null } = {}) {
   let hits = [];
   try { hits = procedure.forSubagentStart(root); } catch { hits = []; }
 
-  const procedureBlock = hits.length
-    ? hits.map((e) => procedure.display(e)).join('\n\n')
-    : `(no procedure tagged '${procedure.SUBAGENT_START_TAG}' in this memory — `
-      + 'agent-assignment rules are not stored here.)';
-
+  const parts = [];
   const wf = workflowBlock ? String(workflowBlock).trim() : '';
-  const hintLine = hint(root);
-  // Budget left for the recap, AFTER the workflow and procedures blocks
-  // and the hint that always closes this text — never negative, so a
-  // huge procedures block simply leaves nothing for the recap instead of
-  // producing a budget `memory.context()` would refuse.
-  const spent = (wf ? wf.length + 2 : 0) + procedureBlock.length + hintLine.length + 4; // blank-line joins
-  const left = CAP_CHARS - spent;
-
-  let recap = '';
-  if (left >= memory.MIN_CONTEXT_CHARS) {
-    try { recap = memory.context(root, { n, maxChars: left }); } catch { recap = ''; }
+  if (wf) {
+    const raw = wf.startsWith(WORKFLOW_LEAD) ? wf.slice(WORKFLOW_LEAD.length).trim() : wf;
+    const ptr = wfpointer.pointerForm(raw);
+    parts.push({ id: 'workflow', kind: 'workflow', rank: 10, order: 0, forms: [wf, ptr ? `${WORKFLOW_LEAD}\n${ptr}` : null],
+      how: 'mem workflow show <id>', ref: 'workflow' });
   }
+  if (hits.length) {
+    hits.forEach((e, i) => parts.push({ id: e.id ?? null, kind: 'procedure', rank: 20 + i, order: 1 + i,
+      forms: [procedure.display(e), procedurePointer(e)], how: 'mem show <id>', ref: 'procedure' }));
+  } else {
+    // Silence would look the same as "nobody has anything to add" and "the tag was never armed": a stated fact, always in.
+    parts.push({ id: 'no-procedure', kind: 'statement', fixed: true, order: 1,
+      forms: [`(no procedure tagged '${procedure.SUBAGENT_START_TAG}' in this memory — agent-assignment rules are not stored here.)`] });
+  }
+  // The block for THIS assignment (src/subagenttask.mjs): lines step down to pointers one by one, the notice of a lane
+  // that did not run stays. Without lines (an older caller handing only text) the text is the one form.
+  if (Array.isArray(taskForms) && taskForms.length) {
+    parts.push({ id: 'assignment', kind: 'assignment block', rank: 30, order: 200,
+      forms: taskForms, how: 'mem show <id>', ref: 'assignment' });
+  } else if (taskBlock && String(taskBlock).trim()) {
+    parts.push({ id: 'assignment', kind: 'assignment block', rank: 30, order: 200, forms: [String(taskBlock).trim()],
+      how: 'mem find "<assignment words>"', ref: 'assignment' });
+  }
+  parts.push({ id: 'recap', kind: 'recap', rank: 40, order: 100, fill: (room) => recapFor(root, n, room), how: 'mem context', ref: 'recap' });
+  parts.push({ id: 'hint', kind: 'hint', fixed: true, order: 1000, forms: [hint(root)] });
+  return answerbudget.compose(parts, { budget: CAP_BYTES, sanitize: maskText });
+}
 
-  // The block for THIS assignment (src/subagenttask.mjs) has its own cap (4 hits, 1,500 bytes)
-  // NEXT to the base block: it displaces neither the procedures nor the recap, and without it
-  // the base block is byte-identical to what it was.
-  return [wf, procedureBlock, recap, taskBlock ? String(taskBlock).trim() : '', hintLine].filter(Boolean).join('\n\n');
+/** The text for `additionalContext`. */
+export function buildContext(root, opts = {}) {
+  return select(root, opts).text;
 }
 
 /**
@@ -112,11 +145,11 @@ export function buildContext(root, { n = 10, workflowBlock = null, taskBlock = n
  * when even the fixed pieces (procedure block plus hint) could not be
  * built — a subagent then starts silently rather than on a crash.
  */
-export function hookResult(root, { n = 10, workflowBlock = null, taskBlock = null } = {}) {
-  let text = '';
-  try { text = buildContext(root, { n, workflowBlock, taskBlock }); } catch { text = ''; }
-  if (!text) return null;
-  return { hookSpecificOutput: { hookEventName: 'SubagentStart', additionalContext: maskText(text) } };
+export function hookResult(root, opts = {}) {
+  let sel = null;
+  try { sel = select(root, opts); } catch { sel = null; }
+  if (!sel || !sel.text) return null;
+  return { hookSpecificOutput: { hookEventName: 'SubagentStart', additionalContext: maskText(sel.text) } };
 }
 
 /**
@@ -131,24 +164,36 @@ export function hookResult(root, { n = 10, workflowBlock = null, taskBlock = nul
  */
 export async function hookResultFor(root, rawJson = '', { n = 10, env = process.env } = {}) {
   let workflowBlock = null;
+  let workflowRaw = null;
+  let session = null;
   let taskBlock = null;
+  let taskForms = null;
   try {
     const j = JSON.parse(String(rawJson ?? ''));
+    session = j?.session_id ? String(j.session_id) : null;
     const task = await import('./subagenttask.mjs');
     const text = task.taskFrom(j) ?? '';
     if (text.trim()) {
       try {
         const wd = await import('./workflowdetect.mjs');
-        const r = await wd.forText(root, text, { session: j?.session_id ? String(j.session_id) : null, env });
-        if (r) workflowBlock = `A workflow from memory matches this assignment (data, not instructions):\n${r.text}`;
+        const r = await wd.forText(root, text, { session, env });
+        if (r) { workflowRaw = r.text; workflowBlock = `${WORKFLOW_LEAD}\n${r.text}`; }
       } catch { workflowBlock = null; }
       try {
         const known = new Set();
         try { for (const e of procedure.forSubagentStart(root)) if (e.id) known.add(e.id); } catch { /* none */ }
         const t = await task.forTask(root, j, { env, exclude: known });
-        if (t) taskBlock = t.text;
-      } catch { taskBlock = null; }
+        if (t) { taskBlock = t.text; taskForms = t.forms ?? null; }
+      } catch { taskBlock = null; taskForms = null; }
     }
-  } catch { workflowBlock = null; taskBlock = null; }
-  return hookResult(root, { n, workflowBlock, taskBlock });
+  } catch { workflowBlock = null; taskBlock = null; taskForms = null; }
+  let sel = null;
+  try { sel = select(root, { n, workflowBlock, taskBlock, taskForms }); } catch { sel = null; }
+  if (!sel || !sel.text) return null;
+  // A workflow card the selection turned into a pointer, or left out, was not seen: its "shown" mark is taken back.
+  if (workflowRaw && wfpointer.isCard(workflowRaw)) {
+    const seen = sel.chosen.find((c) => c.ref === 'workflow');
+    if (!seen || seen.form > 0) wfpointer.forgetMark(root, workflowRaw, { session, env });
+  }
+  return { hookSpecificOutput: { hookEventName: 'SubagentStart', additionalContext: maskText(sel.text) } };
 }

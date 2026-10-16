@@ -168,6 +168,37 @@ export function renderHit(hit, { budget = LINE_BUDGET } = {}) {
 }
 
 /**
+ * The POINTER form of one hit (src/answerbudget.mjs): day, `[id lane]`, the head (class, title, topic) cut
+ * short, and how to load the rest. It is what a hit steps down to when the full line does not fit the
+ * answer's byte budget. `null` when the hit has no id: a pointer without an address points nowhere.
+ */
+export function renderPointer(hit) {
+  const e = maskEntry((hit && hit.entry) ? hit.entry : (hit || {}));
+  const id = typeof e.id === 'string' && e.id ? e.id : null;
+  if (!id) return null;
+  const headParts = [];
+  for (const v of [e.class, e.title, e.topic]) {
+    const t = text(v);
+    if (t && !headParts.includes(t)) headParts.push(t);
+  }
+  let head = headParts.join(' — ');
+  if (!head) {
+    for (const f of BODY_FIELDS) {
+      const t = text(bodyAsText(e[f]));
+      if (t) { head = t; break; }
+    }
+  }
+  const day = String(e.ts || '').slice(0, 10);
+  const lane = laneOf(hit && hit.entry ? hit.source : '');
+  const tag = `[${id}${lane ? ` ${lane}` : ''}]`;
+  const shown = head ? cutAtBoundary(head, POINTER_HEAD).text : '(no title)';
+  return `  ${day}  ${tag} ${shown} [pointer - full text: mem show ${id}]`.replace(/\s+$/, '');
+}
+
+/** Characters of head in a pointer line. */
+export const POINTER_HEAD = 80;
+
+/**
  * The attacher for these hits (`src/recallattach.mjs`, L3: the solution of an error
  * stands directly below it), or `null`. LOADED ON DEMAND: only when a hit comes from the
  * error drawer is the module (and what it pulls in: the link reading, the search module)
@@ -188,11 +219,12 @@ export async function lazyAttach(root, hits, { env = process.env } = {}) {
  * the search returned inside those lanes, so `too-weak` can be told
  * from `empty` by the caller.
  */
-export function renderHits(hits, { min, top = Infinity, lanes = null, budget = LINE_BUDGET, attach = null } = {}) {
+export function renderHits(hits, { min, top = Infinity, lanes = null, budget = LINE_BUDGET, attach = null, withUnits = false } = {}) {
   const lines = [];
   const sources = [];
   const ids = [];
   const attached = [];
+  const units = []; // per shown hit: line, hit, source, id, the id a solution line below it brought
   let seen = 0;
   for (const h of Array.isArray(hits) ? hits : []) {
     if (lanes && !lanes.test(String(h?.source ?? ''))) continue;
@@ -206,6 +238,8 @@ export function renderHits(hits, { min, top = Infinity, lanes = null, budget = L
     sources.push(r.source);
     if (r.id) ids.push(r.id);
     if (a) attached.push(a.id);
+    units.push({ line: lines[lines.length - 1], hit: h, source: r.source, id: r.id, attached: a ? a.id : null });
   }
-  return { lines, sources, ids, seen, attached };
+  // `withUnits`: the same shown hits one by one (src/answerbudget.mjs steps a unit down to its pointer, whole).
+  return withUnits ? { lines, sources, ids, seen, attached, units } : { lines, sources, ids, seen, attached };
 }
