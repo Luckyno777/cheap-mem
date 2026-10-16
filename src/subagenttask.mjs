@@ -364,9 +364,9 @@ export async function forTask(root, j, { env = process.env, exclude = new Set() 
     const search = await import('./search.mjs');
     const { requestFrameOn } = await import('./requestframe.mjs');
     if (!tooLong()) {
-      const index = search.loadIndex(root, { env });
+      const index = search.loadIndex(root);
       if (index && !tooLong()) {
-        // The switches come from the `env` this call was GIVEN (src/recallconfig.mjs), not from the process.
+        // The request-frame switch comes from the `env` this call was GIVEN (as in `find`), not from the process.
         const query = search.retrievalQuery(task, { root, index, requestFrame: requestFrameOn(env) }) || task;
         for (const type of TYPES) {
           if (tooLong()) return onlyNotice(true);

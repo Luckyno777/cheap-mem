@@ -327,14 +327,27 @@ export async function start(root, {
     if (Number.isFinite(deadline) && Date.now() > deadline) return { ok: false, reason: 'timeout' };
     const query = String(req.query ?? '');
     const top = Number(req.top);
+    // The caller's switches (place.FORWARDED_ENV), not the ones this server was started with. A request without
+    // `env` (an older client) is answered under this process's environment, as before.
+    let callEnv = process.env;
+    if (req.env && typeof req.env === 'object') {
+      callEnv = { ...process.env };
+      for (const k of place.FORWARDED_ENV) {
+        const v = req.env[k];
+        if (v === null || v === undefined) delete callEnv[k]; else callEnv[k] = String(v);
+      }
+      // A switch that shapes the index in memory cannot be overridden for one call: refuse, the hook goes direct.
+      for (const k of place.INDEX_ENV) {
+        const v = req.env[k];
+        if (v === undefined) continue;
+        if ((v === null ? '' : String(v)) !== (process.env[k] ?? '')) return { ok: false, reason: 'refused' };
+      }
+    }
     // `recall`: the same flag the hook's direct path passes (`mem find --top N --recall --json`).
     const args = { json: true, recall: true, root };
     if (Number.isFinite(top) && top > 0) args.top = String(top);
     try {
-      // The asking session's switches (src/recallconfig.mjs), not this process's environment. A request without
-      // `env` (a client from before this field) keeps the old behaviour: the handler reads the process environment.
-      const env = req.env && typeof req.env === 'object' ? place.forwardedEnv(req.env) : undefined;
-      const stdout = await shell.captureOutput(() => COMMANDS.find({ rest: [query], args, env }));
+      const stdout = await shell.captureOutput(() => COMMANDS.find({ rest: [query], args, env: callEnv }));
       return { ok: true, stdout };
     } catch {
       // `die()` inside `find` (bad input): the direct path would exit 1

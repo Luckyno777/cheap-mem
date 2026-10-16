@@ -2891,15 +2891,14 @@ export function loadIndex(root, opts = {}) {
   // The learned rewrite table rides on the index the same way: read
   // fresh (stat-cached) on every load, never written to the cache, so a
   // `mem rewrites care --write` or a lock needs no rebuild.
-  const env = opts.env ?? process.env;   // a warm server is given the asking session's switches (src/recallconfig.mjs)
-  index.rewrites = rewrites.active(root, { env });
+  index.rewrites = rewrites.active(root);
   // Same reasoning as `bridge` just above: read fresh from config on
   // every load, never cached, so a deployment can point at its own
   // signal-word file without a rebuild. A broken CUSTOM file fails
   // loudly (`stateWordsError`) rather than silently serving the English
   // defaults and looking like it worked.
   try {
-    index.stateWords = statequestion.loadWords(statequestion.resolveWordsPath(root, { env }));
+    index.stateWords = statequestion.loadWords(statequestion.resolveWordsPath(root));
     index.stateWordsError = null;
   } catch (e) {
     index.stateWords = null;

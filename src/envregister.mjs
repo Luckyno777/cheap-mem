@@ -52,7 +52,7 @@ export const KINDS = Object.freeze({
  * They are read, but nobody configures cheap-mem through them.
  */
 export const STANDARD = Object.freeze([
-  'HOME', 'USER', 'USERNAME', 'LOGNAME', 'USERPROFILE', 'APPDATA', 'PATH', 'TMPDIR', 'SSH_CONNECTION',
+  'HOME', 'USER', 'USERNAME', 'LOGNAME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'XDG_CACHE_HOME', 'PATH', 'TMPDIR', 'SSH_CONNECTION',
 ]);
 
 const sw = (name, kind, def, meaning) => ({ name, kind, default: def, meaning });
@@ -94,6 +94,7 @@ export const REGISTER = Object.freeze([
   sw('CLAUDE_TRANSCRIPT_PATH', PATH, 'not set (the hook input names the transcript)', 'The session transcript the capture hook reads, when the hook input does not name one.'),
 
   // --- switches that change what happens ---------------------------------------
+  sw('MEM_CLONE_GATE', SWITCH, 'on', 'With `0` the recall hook never adds the "which clone answered" line when the clone is stale (src/clonegate.mjs).'),
   sw('MEM_HOOK_OFF', SWITCH, 'off (all hook stages active)', `Emergency stop for the whole hook chain in one session: ${OFF('every hook stage')}. A session without hooks has no memory.`),
   sw('MEM_RETRIEVE_OFF', SWITCH, 'off', OFF('The recall hook (the relevant entries shown on a question)')),
   sw('MEM_RETRIEVE_NO_PULL', SWITCH, 'off (the hook pulls when the clone is older than `MEM_RETRIEVE_FRESH_MIN`)', 'With `1` the recall hook never runs `git pull` first.'),
@@ -146,8 +147,8 @@ export const REGISTER = Object.freeze([
   sw('MEM_SUBAGENT_TASK_SECONDS', TUNING, '2 seconds', 'Time budget of the sub-agent start block for the assignment; past it the base block comes with one sentence saying the lookup did not finish (the POSIX hook runs a first, tighter pass and falls back).'),
   sw('MEM_RETRIEVE_TIME', TUNING, '5 seconds', 'Time budget of one recall search, server and direct fallback alike.'),
   sw('MEM_RETRIEVE_FRESH_MIN', TUNING, '10', 'Minutes the clone counts as fresh before the recall hook pulls.'),
-  sw('MEM_RETRIEVE_REMOTE', TUNING, 'origin', 'Remote the recall hook pulls from.'),
-  sw('MEM_RETRIEVE_BRANCH', TUNING, 'main', 'Branch the recall hook pulls.'),
+  sw('MEM_RETRIEVE_REMOTE', TUNING, 'the memory\'s `defaultRemote` (config), else origin', 'Remote the recall hook pulls from.'),
+  sw('MEM_RETRIEVE_BRANCH', TUNING, 'the memory\'s `defaultBranch` (config), else main', 'Branch the recall hook pulls.'),
   sw('MEM_RETRIEVE_TURNS', PATH, '`<root>/.mem/retrieve-turns`', 'Directory of the once-per-turn claims of the recall hook.'),
   sw('MEM_RECALL_SERVER_RESTART_MS', TUNING, '60000', 'Shortest gap between two automatic restarts of the recall server after a code change.'),
   sw('MEM_RECALL_SERVER_WAIT_MS', TUNING, '2500', 'How long the recall client waits for the server before searching directly.'),
@@ -163,6 +164,7 @@ export const REGISTER = Object.freeze([
   sw('MEM_DOCTOR_FULLREAD_FACTOR', TUNING, '5', 'Factor of source bytes to heap limit above which whole-corpus doctor findings say "not measurable" instead of dying.'),
   sw('MEM_SKILLUSAGE_DAYS', TUNING, '30', 'Days of capture coverage `mem skills usage` needs before it gives a verdict.'),
   sw('MEM_SKILLUSAGE_TIME_MS', TUNING, '8000', 'Time cap, in milliseconds, for reading the captures.'),
+  sw('NODE_COMPILE_CACHE', PATH, 'the hooks set `<user cache>/cheap-mem/node-cc` (Node 22.1 and later)', 'Node\'s own compile-cache directory. A value you set wins; the hooks only fill it in when it is empty, under your user cache (never in the memory), so each hook start finds the translated code of `src/` again.'),
   sw('MEM_ANSWER_CHECK_PATTERNS', PATH, 'not set (`.mem/answer-check-patterns.json` or the built-ins)', 'A JSON file of the answer-check patterns.'),
   sw('MEM_TZ', IDENTITY, '`config.timezone`, else the system zone', 'Time zone for dates `mem` prints.'),
   sw('CHEAP_MEM_TZ', IDENTITY, '`config.timezone`, else the system zone', 'Time zone for appointments (input and output; UTC is stored).'),
@@ -247,11 +249,9 @@ export const REGISTER = Object.freeze([
   sw('MEM_AF_START_MS', INTERNAL, 'set by the hook script', 'After-failure hook: start time for the latency figure.'),
   sw('MEM_BE_START_MS', INTERNAL, 'set by the hook script', 'Before-edit hook: start time for the latency figure.'),
   sw('MEM_HOOK_START_MS', INTERNAL, 'set by the hook script', 'Recall hook: start time for the latency figure.'),
+  sw('MEM_BE_ASCII', INTERNAL, 'set by the PowerShell twin', 'Before-edit hook: with `1` the answer is pure ASCII (hyphen in the final text, other characters as \\uXXXX escapes).'),
   sw('MEM_J_BYTES', INTERNAL, 'set by the hook script', 'Before-edit journal line: bytes shown.'),
   sw('MEM_J_HITS', INTERNAL, 'set by the hook script', 'Before-edit journal line: number of hits.'),
-  sw('MEM_J_FILE', INTERNAL, 'set by the hook script', 'Before-edit journal line: the path the tool touched (two segments, relative).'),
-  sw('MEM_J_TOOL', INTERNAL, 'set by the hook script', 'Before-edit journal line: the name of the tool that set the hook off.'),
-  sw('MEM_J_IDS', INTERNAL, 'set by the hook script', 'Before-edit journal line: ids of the solutions shown below errors, comma separated.'),
   sw('MEM_J_PATH', INTERNAL, 'set by the hook script', 'Recall journal line: which path answered.'),
   sw('MEM_J_PATH_REASON', INTERNAL, 'set by the hook script', 'Recall journal line: why that path.'),
   sw('MEM_J_QB', INTERNAL, 'set by the hook script', 'Recall journal line: size of the question in bytes.'),
@@ -273,17 +273,10 @@ export const REGISTER = Object.freeze([
   sw('MEM_RH_TURNS', INTERNAL, 'set by the recall hook script', 'Recall hook: directory of the once-per-turn claims.'),
   sw('MEM_RH_WORKFLOW', INTERNAL, 'set by the recall hook script', 'Recall hook: the workflow hint found for the question.'),
   sw('MEM_SS_START_MS', INTERNAL, 'set by the installer hook', 'Session-start hook (Windows): start time.'),
+  sw('MEM_SS_PROV', INTERNAL, 'set by the session-start hook', 'Session-start hook: the provenance module ("which clone answers") to import.'),
   sw('MEM_SS_SRC', INTERNAL, 'set by the installer hook', 'Session-start hook (Windows): injection module to import.'),
   sw('MEM_SS_INPUT', INTERNAL, 'set by the installer hook', 'Session-start hook (Windows): the hook input JSON.'),
-  sw('MEM_BT_CMD', INTERNAL, 'set by the hook script', 'Before-edit hook (Windows): the Bash command whose write targets are extracted.'),
-  sw('MEM_PICK', INTERNAL, 'set by the hook script', 'Before-edit hook (Windows): the hits chosen to be shown.'),
   sw('MEM_ERRSIG', INTERNAL, 'set by the hook script', 'Swallowed-failure hook (Windows): path of the error-signature module.'),
-  sw('MEM_MARK', INTERNAL, 'set by the hook script', 'Before-edit hook: the mark file of the current file.'),
-  sw('MEM_LEVEL', INTERNAL, 'set by the hook script', 'Before-edit hook: the store\'s current level.'),
-  sw('MEM_FP', INTERNAL, 'set by the hook script', 'Before-edit hook: fingerprint of what was shown.'),
-  sw('MEM_COUNT', INTERNAL, 'set by the hook script', 'Before-edit hook: how many hits were shown.'),
-  sw('MEM_Q', INTERNAL, 'set by the hook script', 'Before-edit hook: the path being asked about.'),
-  sw('MEM_ROOT_ARG', INTERNAL, 'set by the hook script', 'Before-edit hook: the root handed to an inline `node -e`.'),
   sw('MEM_DETOUR_REASON', INTERNAL, 'set by the letter handler', 'Letter handler: why it retried once.'),
   sw('MEM_START', INTERNAL, 'shell array', 'Shell array holding the model command; not an environment variable.'),
   sw('MEM_CAP', INTERNAL, 'shell array', 'Shell array `timeout`/`gtimeout` in `_portable.sh`; not an environment variable.'),

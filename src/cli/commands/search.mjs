@@ -30,7 +30,6 @@ import * as timeexpr from '../../timeexpr.mjs';
 import * as browse from '../../browse.mjs';
 import * as observations from '../../observations.mjs';
 import * as levers from '../../searchlevers.mjs';
-import * as recallconfig from '../../recallconfig.mjs';
 import * as questionsplit from '../../questionsplit.mjs';
 import * as requestframe from '../../requestframe.mjs';
 import * as tiecut from '../../tiecut.mjs';
@@ -137,7 +136,9 @@ async function printHybrid({ root, memCfg, query, args, plan }) {
 
 /** 15 commands. */
 export const COMMANDS = {
-  find: async ({ rest, args, env }) => {
+  // `env`: the switches of THIS call. The warm recall server answers under the caller's (src/recallserver.mjs);
+  // everyone else gets the process environment.
+  find: async ({ rest, args, env = process.env }) => {
     if (isHelp(args)) {
       out([
         'mem find "<query>" [--type <t>] [--project <name>|global]',
@@ -204,10 +205,6 @@ export const COMMANDS = {
       'content-words', 'with-echo', 'journal-session', 'journal-min', 'wildcard', 'weak', 'variants', 'category', 'recall'], 'find');
     const root = findRoot(args);
     const cfg = requireConfig(root);
-    // **One resolved configuration per question** (src/recallconfig.mjs). `env` is given by the warm server (the
-    // asking session's switches); on the direct path it is the process environment. Nothing below reads
-    // `process.env` for a recall switch: the service's environment must not decide a session's answer.
-    const conf = recallconfig.resolve(env ?? process.env);
     let query = rest[0];
     if (!query) die("find: no query. Example: mem find 'flaky ci'");
     // Cards are not in the search index (`memory.SEARCH_TYPES`): say where they stand instead of a silent "nothing found".
@@ -232,11 +229,11 @@ export const COMMANDS = {
     // search): `--content-words` used to load it for the shortening and `find` again for the search.
     let opened = null;
     const openIndex = () => {
-      opened ??= search.loadIndex(root, { fresh: Boolean(args.fresh), language: cfg.language, env: conf.env });
+      opened ??= search.loadIndex(root, { fresh: Boolean(args.fresh), language: cfg.language });
       return opened;
     };
     if (args['content-words']) {
-      const shortened = search.retrievalQuery(query, { root, requestFrame: conf.requestFrame, loadIndex: openIndex });
+      const shortened = search.retrievalQuery(query, { root, loadIndex: openIndex });
       if (shortened && shortened !== query) query = shortened;
     }
     // --category: only entries whose topic is assigned to the category (src/categories.mjs).
@@ -278,7 +275,7 @@ export const COMMANDS = {
     // not gated — a person who typed a bare date already meant it.
     if (!args.literal && !args.since && categoryTopics === null && !timeexpr.beginsWithHarnessMarker(rawQuery)
       && timeexpr.hasTimeIntent(query)) {
-      const zone = conf.zone || cfg.timezone || undefined;
+      const zone = process.env.MEM_TZ || cfg.timezone || undefined;
       const window = timeexpr.windowFor(query, { zone });
       if (window) { showWindow(root, query, window, args, { asOf }); return; }
     }
@@ -418,11 +415,11 @@ export const COMMANDS = {
     // loses it; the exact lane, the echo filter and the time router below keep
     // the question as typed. A question that would be left without a content
     // word keeps the frame (better a vague search than none).
-    if (args.recall && conf.requestFrame) {
+    if (args.recall && requestframe.requestFrameOn(env)) {
       const bare = requestframe.dropRequestFrame(rankedQuery);
       if (bare !== rankedQuery && search.contentWords(bare).length) rankedQuery = bare;
     }
-    if (conf.levers.has('h1')) {
+    if (levers.active('h1', env)) {
       const built = questionsplit.buildQuery(rankedQuery, index);
       if (built) {
         rankedQuery = built.query;
@@ -453,7 +450,7 @@ export const COMMANDS = {
       withRetired: withRetiredForFetch,
       extraTerms,
       // h3's answer gate reads how much of the question each hit carries.
-      withCoverage: conf.levers.has('h3'),
+      withCoverage: levers.active('h3', env),
       // Deliberately NOT `language: cfg.language`. `cfg.language` is the
       // memory's configured DEFAULT (src/config.mjs, 'en' unless set), not
       // a per-query "the user asked for one language" signal — `find` has
@@ -546,7 +543,7 @@ export const COMMANDS = {
     // scores within 1 % of the last one shown comes along, at most one. The
     // answer gate below decides on the hard cut `base` alone, so the extra hit
     // never turns a withheld answer into a shown one.
-    const listed = args.recall ? tiecut.cutWithTie(ordered, wanted, conf.tie) : base;
+    const listed = args.recall ? tiecut.cutWithTie(ordered, wanted, tiecut.tieSpread(env)) : base;
     // **H3 (Block H, ported from lucky-mem): threshold by score gap, for
     // the answer as a whole.** A list in which no hit is exact, strong, or
     // clearly ahead of the second is a flat field of near-equal scores —
@@ -555,7 +552,7 @@ export const COMMANDS = {
     // in which ONE hit passes is shown unchanged, weaker hits included.
     // The rule and its calibration: `src/searchlevers.mjs` (occasion
     // `find`). `--weak` shows the list anyway.
-    const gated = !args.weak && conf.levers.has('h3')
+    const gated = !args.weak && levers.active('h3', env)
       && !levers.answerHolds(base, { occasion: 'find', bar: levers.findBar(index.statsN ?? index.N) });
     const withheld = gated ? base.length : 0;
     for (const h of listed) delete h.covered;   // the gate's input, not part of the answer

@@ -53,6 +53,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { isMain } from './ismain.mjs';
 import * as injection from './injection.mjs';
+import * as clonegate from './clonegate.mjs';
 import { visible as bidiVisible } from './bidi.mjs';
 import { maskText } from './outputguard.mjs';
 import { renderHits, lazyAttach, clears, RECALL_MIN } from './recallrender.mjs';
@@ -203,7 +204,7 @@ async function workflowFor(root, prompt, env = process.env) {
  * object (or null) and a function that writes the journal line — the
  * caller calls it AFTER the answer went out.
  */
-export function recall(root, hitsJson, env = process.env, { offer = null, attach = null } = {}) {
+export function recall(root, hitsJson, env = process.env, { offer = null, attach = null, clone = undefined } = {}) {
   const hits = parseHits(hitsJson);
   // The hits of this turn go along: mostly encrypted ones keep the question out of the local file.
   const book = (extra) => booking(env, { questionHits: hits ?? undefined, ...extra });
@@ -253,7 +254,9 @@ export function recall(root, hitsJson, env = process.env, { offer = null, attach
       ? injection.REASON.TOO_WEAK : injection.REASON.EMPTY));
   }
   const wf = workflowBlock(env);
-  const text = visible(`${RECALL_HEADER}${short ? levers.H5_HEADER_NOTE : ''}\n${r.lines.join('\n')}`
+  // The gate "which clone answered" (src/clonegate.mjs): one line under the header, only when the clone is STALE.
+  const cloneLine = (clone === undefined ? clonegate.gate(root, { env }) : clone).line;
+  const text = visible(`${RECALL_HEADER}${short ? levers.H5_HEADER_NOTE : ''}\n${cloneLine ? `${cloneLine}\n` : ''}${r.lines.join('\n')}`
     + `${offer ? `\n\n${offer.line}` : ''}${wf ? `\n\n${wf}` : ''}`);
   const out = { suppressOutput: true, hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: text } };
 

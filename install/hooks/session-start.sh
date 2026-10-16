@@ -86,6 +86,30 @@ unset tool_dir
 # (set -u: a variable first set at the bottom broke the cap branch, 2026-10-16).
 mem_show="${mem_bin:-$CHEAP_MEM_ROOT/bin/mem}"
 
+# R6: a V8 compile cache for the node starts below (context, habits, alarm,
+# today, journal - five in a row). Inline twin of bin/_portable.sh
+# `mem_compile_cache` (this hook is installed alone): in the USER's cache,
+# never in the memory; a value the user set stays; a directory that cannot
+# be made means no cache, never a silent hook. test/hook-compile-cache.test.mjs
+# holds both to the same directory.
+if [ -z "${NODE_COMPILE_CACHE:-}" ]; then
+  mem_cc_base=""
+  case "$(uname -s 2>/dev/null)" in
+    Darwin) [ -n "${HOME:-}" ] && mem_cc_base="$HOME/Library/Caches" ;;
+    MINGW*|MSYS*|CYGWIN*) mem_cc_base="${LOCALAPPDATA:-}"; mem_cc_base="${mem_cc_base//\\//}" ;;
+    *)
+      case "${XDG_CACHE_HOME:-}" in
+        /*) mem_cc_base="$XDG_CACHE_HOME" ;;
+        *) [ -n "${HOME:-}" ] && mem_cc_base="$HOME/.cache" ;;
+      esac ;;
+  esac
+  if [ -n "$mem_cc_base" ]; then
+    mem_cc_dir="$mem_cc_base/cheap-mem/node-cc"
+    [ -d "$mem_cc_dir" ] || (umask 077; mkdir -p "$mem_cc_dir") 2>/dev/null
+    [ -d "$mem_cc_dir" ] && export NODE_COMPILE_CACHE="$mem_cc_dir"
+  fi
+fi
+
 # **"attached" only when the tool is reachable (Z1c, external brief
 # 2026-09-30).** The header used to be printed as soon as a memory
 # directory was found. With a memory that has no `bin/mem` (a checkout
@@ -112,47 +136,89 @@ else
 fi
 echo ""
 
-# Best-effort: bring the memory up to date, and force main so a
-# feature-branch checkout doesn't misroute later writes.
+# Which remote and branch does this memory TRACK? `.mem/config.json` says
+# (defaultRemote / defaultBranch, the keys mem-watch reads). This block used
+# to fetch `origin main`, check out `main` and pull, whatever the memory said:
+# a clone on `develop` came out of a session start on a NEW local `main`
+# tracking origin/main, and every later write went to the wrong branch
+# (reproduced 2026-10-14, test/tracked-ref.test.mjs). Inline twin of
+# bin/_portable.sh `mem_tracked_ref` (this hook is installed alone, with no
+# _portable.sh next to it); the test runs both over the same cases. The
+# config is DATA out of a cloned repository: only a plain name goes to git.
+mem_remote="origin"; mem_branch="main"; mem_track_note=""
+# The refused value is shown clipped (40 characters, printable ASCII only): it is data out of a file, and it is printed.
+mem_clip() {
+  c="$(printf '%s' "$1" | LC_ALL=C tr -cd '\040-\176' | cut -c1-40)"
+  [ "${#1}" -gt 40 ] && c="$c..."
+  printf '%s' "$c"
+}
+mem_cfg="$CHEAP_MEM_ROOT/.mem/config.json"
+if [ -f "$mem_cfg" ]; then
+  v="$(grep -o '"defaultRemote"[[:space:]]*:[[:space:]]*"[^"]*"' "$mem_cfg" 2>/dev/null | head -n 1 | sed 's/^[^:]*:[[:space:]]*"\(.*\)"$/\1/')"
+  if [ -n "$v" ]; then
+    case "$v" in
+      [!A-Za-z0-9]*|*[!A-Za-z0-9._-]*|*..*) mem_track_note="config defaultRemote '$(mem_clip "$v")' is not a plain remote name - using origin" ;;
+      *)
+        # N5: a name that is no remote of this clone would be read by git as a path or URL.
+        if git -C "$CHEAP_MEM_ROOT" rev-parse --git-dir >/dev/null 2>&1 && ! git -C "$CHEAP_MEM_ROOT" remote get-url -- "$v" >/dev/null 2>&1; then
+          # N5-1: origin stays either way, so a warning is only for a value somebody SET against a clone that has remotes.
+          if [ "$v" != origin ] && [ -n "$(git -C "$CHEAP_MEM_ROOT" remote 2>/dev/null)" ]; then
+            mem_track_note="config defaultRemote '$(mem_clip "$v")' is not a remote of this clone - using origin"
+          fi
+        else mem_remote="$v"; fi ;;
+    esac
+  fi
+  v="$(grep -o '"defaultBranch"[[:space:]]*:[[:space:]]*"[^"]*"' "$mem_cfg" 2>/dev/null | head -n 1 | sed 's/^[^:]*:[[:space:]]*"\(.*\)"$/\1/')"
+  if [ -n "$v" ]; then
+    case "$v" in
+      [!A-Za-z0-9]*|*/|*//*|*..*|*.lock|*[!A-Za-z0-9._/-]*) mem_track_note="${mem_track_note:+$mem_track_note; }config defaultBranch '$(mem_clip "$v")' is not a plain branch name - using main" ;;
+      *) mem_branch="$v" ;;
+    esac
+  fi
+fi
+[ -n "$mem_track_note" ] && echo "[hook] WARNING: $mem_track_note"
+
+# Best-effort: bring the memory up to date, and put it on the branch it
+# tracks so a feature-branch checkout doesn't misroute later writes.
 #
-# The explicit refspec keeps refs/remotes/origin/main current even in a
+# The explicit refspec keeps refs/remotes/<remote>/<branch> current even in a
 # clone that has no tracking ref (a single-URL or shallow clone), and the
 # count of commits behind below reads exactly that ref.
-fetch_out="$(git -C "$CHEAP_MEM_ROOT" fetch origin main +main:refs/remotes/origin/main 2>&1)"; fetch_rc=$?
+fetch_out="$(git -C "$CHEAP_MEM_ROOT" fetch "$mem_remote" "$mem_branch" "+$mem_branch:refs/remotes/$mem_remote/$mem_branch" 2>&1)"; fetch_rc=$?
 [ -n "$fetch_out" ] && printf '%s\n' "$fetch_out" | tail -n 1
-if git -C "$CHEAP_MEM_ROOT" rev-parse --verify main >/dev/null 2>&1; then
-  git -C "$CHEAP_MEM_ROOT" checkout main 2>&1 | tail -1 || true
+if git -C "$CHEAP_MEM_ROOT" rev-parse --verify "refs/heads/$mem_branch" >/dev/null 2>&1; then
+  git -C "$CHEAP_MEM_ROOT" checkout "$mem_branch" 2>&1 | tail -1 || true
 else
-  git -C "$CHEAP_MEM_ROOT" checkout -B main origin/main 2>&1 | tail -1 || true
+  git -C "$CHEAP_MEM_ROOT" checkout -B "$mem_branch" "$mem_remote/$mem_branch" 2>&1 | tail -1 || true
 fi
-git -C "$CHEAP_MEM_ROOT" pull --ff-only 2>&1 | tail -1 || true
+git -C "$CHEAP_MEM_ROOT" pull --ff-only "$mem_remote" "$mem_branch" 2>&1 | tail -1 || true
 
-# AU1 (lucky-mem parity): if the clone is STILL behind origin/main after the
+# AU1 (lucky-mem parity): if the clone is STILL behind its tracked branch after the
 # pull, the session is about to read an OLD memory - say so loudly, with the
 # rescue path from the doctor finding (hook-root-stranded), and reset
 # NOTHING. An automatic `reset --hard` would throw away exactly the captures
 # the rescue path exists to save. Only after a successful fetch: without a
 # fresh origin the "behind" count is unknown, and the line above says so.
 if [ "$fetch_rc" -eq 0 ]; then
-  behind_n="$(git -C "$CHEAP_MEM_ROOT" rev-list --count HEAD..origin/main 2>/dev/null)"
+  behind_n="$(git -C "$CHEAP_MEM_ROOT" rev-list --count "HEAD..$mem_remote/$mem_branch" 2>/dev/null)"
   if [ -n "$behind_n" ] && [ "$behind_n" -gt 0 ] 2>/dev/null; then
-    ahead_n="$(git -C "$CHEAP_MEM_ROOT" rev-list --count origin/main..HEAD 2>/dev/null)"
+    ahead_n="$(git -C "$CHEAP_MEM_ROOT" rev-list --count "$mem_remote/$mem_branch..HEAD" 2>/dev/null)"
     echo "[hook] ================================================================"
     if [ -n "$ahead_n" ] && [ "$ahead_n" -gt 0 ] 2>/dev/null; then
-      echo "[hook] MEMORY STATE OLD: $behind_n commits behind origin/main, $ahead_n only local (diverged)."
+      echo "[hook] MEMORY STATE OLD: $behind_n commits behind $mem_remote/$mem_branch, $ahead_n only local (diverged)."
     else
-      echo "[hook] MEMORY STATE OLD: $behind_n commits behind origin/main (fast-forward failed)."
+      echo "[hook] MEMORY STATE OLD: $behind_n commits behind $mem_remote/$mem_branch (fast-forward failed)."
     fi
     echo "[hook] This session reads the OLD state: newer entries, errors and decisions are missing."
     echo "[hook] The hook resets nothing (no reset --hard: that would throw local work away)."
     if [ -n "$ahead_n" ] && [ "$ahead_n" -gt 0 ] 2>/dev/null; then
       echo "[hook] Rescue path (mem doctor, finding hook-root-stranded): do not rebase/merge (diverged): create a"
-      echo "[hook]   separate worktree from origin/main (git -C $CHEAP_MEM_ROOT worktree add --detach <place> origin/main),"
+      echo "[hook]   separate worktree from $mem_remote/$mem_branch (git -C $CHEAP_MEM_ROOT worktree add --detach <place> $mem_remote/$mem_branch),"
       echo "[hook]   copy raw/ and raw-record.jsonl from $CHEAP_MEM_ROOT over there, commit and push there -"
-      echo "[hook]   only THEN bring $CHEAP_MEM_ROOT up to the new origin/main with fetch + reset --hard."
+      echo "[hook]   only THEN bring $CHEAP_MEM_ROOT up to the new $mem_remote/$mem_branch with fetch + reset --hard."
     else
       echo "[hook] Rescue path: secure local changes in $CHEAP_MEM_ROOT (git -C $CHEAP_MEM_ROOT status), then"
-      echo "[hook]   git -C $CHEAP_MEM_ROOT merge --ff-only origin/main; the finding is hook-root-stranded (mem doctor)."
+      echo "[hook]   git -C $CHEAP_MEM_ROOT merge --ff-only $mem_remote/$mem_branch; the finding is hook-root-stranded (mem doctor)."
     fi
     echo "[hook] ================================================================"
     echo ""
@@ -186,6 +252,29 @@ if [ -d "$CHEAP_MEM_ROOT/.git" ] \
     echo "[hook]   Commits go out as ${id_effective:-<no identity at all>} and may show as Unverified on GitHub."
     echo "[hook]   Fix: set both variables in the environment; the hook adopts them at the next start."
   fi
+fi
+
+# Where the code lives: the memory itself, or the separate checkout the installer told us about
+# (CHEAP_MEM_CODE) - the journal line at the end and the clone line below load src/ from there.
+for MEM_SS_CODE in "${CHEAP_MEM_CODE:-}" "$CHEAP_MEM_ROOT"; do
+  [ -n "$MEM_SS_CODE" ] && [ -f "$MEM_SS_CODE/src/injection.mjs" ] && break
+  MEM_SS_CODE=""
+done
+
+# --- Which clone answers (D-B: src/provenance.mjs as a gate) -----------
+#
+# This memory exists more than once - a clone on the server, one per container, one per cloud session -
+# and they all look alike and answer willingly. One line names the one that answers HERE: its directory, its
+# state and age, how far behind origin, whether the tree is dirty (then the recall hook does not pull). Always,
+# at the start: that is where the question is answered before anybody asks it. During the session the recall
+# hook adds the same line only when the clone is STALE (src/clonegate.mjs). Best-effort and silent when the
+# code is not there: a missing line is not "fresh", and the next lines say what is attached.
+if [ -n "$MEM_SS_CODE" ] && [ -f "$MEM_SS_CODE/src/provenance.mjs" ]; then
+  mem_clone_line="$(MEM_SS_PROV="$MEM_SS_CODE/src/provenance.mjs" node -e '
+    import(require("node:url").pathToFileURL(process.env.MEM_SS_PROV).href).then((m) => {
+      process.stdout.write(m.asLine(m.provenance(process.env.CHEAP_MEM_ROOT)));
+    }).catch(() => {});' 2>/dev/null || true)"
+  [ -n "$mem_clone_line" ] && echo "$mem_clone_line"
 fi
 
 echo ""
@@ -297,10 +386,6 @@ fi
 # null (delivered); bytes and hits are not counted here (the block is
 # printed in several pieces — not measured is not 0). Best-effort and
 # silent: a measurement must not stop what it measures.
-for MEM_SS_CODE in "${CHEAP_MEM_CODE:-}" "$CHEAP_MEM_ROOT"; do
-  [ -n "$MEM_SS_CODE" ] && [ -f "$MEM_SS_CODE/src/injection.mjs" ] && break
-  MEM_SS_CODE=""
-done
 if [ -n "$MEM_SS_CODE" ]; then
   MEM_SS_START_MS="$MEM_SS_START_MS" MEM_SS_INPUT="$MEM_SS_IN" MEM_SS_SRC="$MEM_SS_CODE/src/injection.mjs" \
     node -e '

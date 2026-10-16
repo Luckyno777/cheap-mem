@@ -16,7 +16,7 @@ function repo({ commits = 1, dirty = false } = {}) {
     fs.writeFileSync(path.join(d, `f${i}.txt`), String(i));
     g('add', '-A'); g('commit', '-qm', `c${i}`);
   }
-  if (dirty) fs.writeFileSync(path.join(d, 'dirt.txt'), 'x');
+  if (dirty) fs.writeFileSync(path.join(d, 'f0.txt'), 'changed');
   return d;
 }
 
@@ -55,7 +55,19 @@ test('past the limit it is STALE, with the limit named', () => {
   } finally { fs.rmSync(d, { recursive: true, force: true }); }
 });
 
-test('a dirty tree is reported — the hook does not pull there', () => {
+test('untracked files are not "dirty": the hook pulls past them (journal, marks)', () => {
+  const d = repo();
+  try {
+    fs.mkdirSync(path.join(d, '.pipeline'));
+    fs.writeFileSync(path.join(d, '.pipeline', 'injections.jsonl'), '{}\n');
+    fs.writeFileSync(path.join(d, 'untracked.txt'), 'x');
+    const p = provenance(d);
+    assert.equal(p.dirty, false);
+    assert.doesNotMatch(asLine(p), /dirty/);
+  } finally { fs.rmSync(d, { recursive: true, force: true }); }
+});
+
+test('a dirty tree (a TRACKED file changed) is reported — the hook does not pull there', () => {
   const d = repo({ dirty: true });
   try {
     const p = provenance(d);

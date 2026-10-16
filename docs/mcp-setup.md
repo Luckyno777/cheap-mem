@@ -202,8 +202,8 @@ Other HTTP settings:
 | `CHEAP_MEM_MCP_READONLY` | read-only in HTTP mode | `0` explicitly exposes the full profile |
 
 Without `CHEAP_MEM_MCP_TOKEN`, `mem-mcp --http` **does not start** (decision
-2026-10-14): it exits with a message and binds no port. No password login
-stands behind this door, so the token is its only credential. Make one with
+2026-10-14): it exits with a message and binds no port. The bridge has no
+password login at all, so the token is its only credential. Make one with
 `node -e "console.log(require('node:crypto').randomBytes(24).toString('hex'))"`
 and set it in the environment of the process (bash `export CHEAP_MEM_MCP_TOKEN=<token>`, PowerShell
 `$env:CHEAP_MEM_MCP_TOKEN='<token>'`). For a purely local client, say
@@ -211,6 +211,10 @@ so on purpose: `mem-mcp --http --local-no-token` (or
 `CHEAP_MEM_MCP_LOCAL_NO_TOKEN=1`). The switch works on loopback only: a
 non-loopback bind without a token is refused, switch or not, and the start
 prints a `NOTICE` line that the bridge runs without a token.
+
+A port that is already taken (another copy of the bridge, another program) is
+not a crash either: `mem-mcp --http` prints one line with the host and port
+and `CHEAP_MEM_MCP_PORT=<port>` as the way out, exits 1 and shows no stack.
 On loopback without a token only a request with no proxy header is served;
 anything that comes through a tunnel or reverse proxy needs the token (the
 proxy's own login in front of it is not enough: the process cannot see it).

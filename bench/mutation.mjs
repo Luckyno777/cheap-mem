@@ -889,6 +889,49 @@ export const MUTANTS=[
    from:"  if (path.basename(target) !== FILE_NAME || !path.basename(dir).startsWith(DIR_PREFIX)) return false;",
    to:"  // MUTANT: any directory",
    tests:['test/reflect-masked-copy.test.mjs'] },
+ // Round 3 (hooks-harden-cm): the tracked-runtime findings of the gitignore check and `mem init`.
+ { name:'trackedruntime: the finding prints file names out of the index',
+   file:'src/trackedruntime.mjs',
+   from:"  const lead = groups.slice(0, 6).map((g) => `${g.count} in ${g.spec}`).join(', ');",
+   to:"  const lead = files.slice(0, 3).join(', ');  // MUTANT",
+   tests:['test/tracked-names.test.mjs'] },
+
+ { name:'trackedruntime: the star of a glob spec skips line breaks again',
+   file:'src/trackedruntime.mjs',
+   from:"join('[\\\\s\\\\S]*')",
+   to:"join('.*')",
+   tests:['test/gitignore-guards.test.mjs'] },
+
+ { name:'trackedruntime: the component table is not a runtime path',
+   file:'src/trackedruntime.mjs',
+   from:"{ rule: '.mem/component-table.json', spec: '.mem/component-table.json', probe: '.mem/component-table.json',",
+   to:"{ rule: '.mem/component-tableX.json', spec: '.mem/component-tableX.json', probe: '.mem/component-tableX.json',  // MUTANT\n   ",
+   tests:['test/pipeline-ignore.test.mjs'] },
+
+ { name:'trackedruntime: the keyring is not a runtime path',
+   file:'src/trackedruntime.mjs',
+   from:"{ rule: '.mem/keyring.json', spec: '.mem/keyring.json', probe: '.mem/keyring.json',",
+   to:"{ rule: '.mem/keyringX.json', spec: '.mem/keyringX.json', probe: '.mem/keyringX.json',  // MUTANT\n   ",
+   tests:['test/pipeline-ignore.test.mjs'] },
+
+ { name:'doctor gitignore: a tracked runtime file is not looked for',
+   file:'src/doctor.mjs',
+   from:"    if (tracked.length) {\n      // Folders and counts only",
+   to:"    if (false) {  // MUTANT\n      // Folders and counts only",
+   tests:['test/pipeline-ignore.test.mjs','test/tracked-names.test.mjs'] },
+
+ { name:'doctor gitignore: a negated pattern counts as ignored',
+   file:'src/doctor.mjs',
+   from:"cells[i] === '' || cells[i + 2].startsWith('!')",
+   to:"cells[i] === ''",
+   tests:['test/gitignore-guards.test.mjs'] },
+
+ { name:'mem init: a git that cannot list the index stays quiet',
+   file:'src/cli/commands/setup.mjs',
+   from:"if (fs.existsSync(path.join(root, '.git'))) out('  ? tracked runtime files: unknown (git ls-files could not answer)');",
+   to:"if (false) out('  ? tracked runtime files: unknown (git ls-files could not answer)');  // MUTANT",
+   tests:['test/gitignore-guards.test.mjs'] },
+
  { name:'K1 the question query cuts an identifier at the underscore again',
    file:'src/search.mjs',
    from:"    .split(/[^a-z0-9_\\u00e4\\u00f6\\u00fc\\u00df]+/)",
@@ -912,42 +955,6 @@ export const MUTANTS=[
    from:"const plainWords = search.typedWords;",
    to:"const plainWords = (text) => String(text ?? '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);  // MUTANT",
    tests:['test/k1-underscore.test.mjs'] },
-
- { name:'RC `mem find` reads the request-frame switch from the process again',
-   file:'src/cli/commands/search.mjs',
-   from:"    if (args.recall && conf.requestFrame) {",
-   to:"    if (args.recall && requestframe.requestFrameOn()) {  // MUTANT: the service decides",
-   tests:['test/recall-config.test.mjs'] },
-
- { name:'RC `mem find` reads the tie spread from the process again',
-   file:'src/cli/commands/search.mjs',
-   from:"tiecut.cutWithTie(ordered, wanted, conf.tie)",
-   to:"tiecut.cutWithTie(ordered, wanted, tiecut.tieSpread())  /* MUTANT */",
-   tests:['test/recall-config.test.mjs'] },
-
- { name:'RC `mem find` reads the answer-gate lever from the process again',
-   file:'src/cli/commands/search.mjs',
-   from:"    const gated = !args.weak && conf.levers.has('h3')\n",
-   to:"    const gated = !args.weak && levers.active('h3')  // MUTANT\n",
-   tests:['test/recall-config.test.mjs'] },
-
- { name:'RC the warm server drops the asking session\'s switches',
-   file:'src/recallserver.mjs',
-   from:"COMMANDS.find({ rest: [query], args, env })",
-   to:"COMMANDS.find({ rest: [query], args })  /* MUTANT */",
-   tests:['test/recall-config.test.mjs'] },
-
- { name:'RC the recall client does not send its switches',
-   file:'bin/mem-retrieve-client.mjs',
-   from:"env: place.forwardedEnv(env) })",
-   to:"env: {} })  /* MUTANT */",
-   tests:['test/recall-config.test.mjs'] },
-
- { name:'RC the index load reads the state-signal words from the process again',
-   file:'src/search.mjs',
-   from:"statequestion.resolveWordsPath(root, { env })",
-   to:"statequestion.resolveWordsPath(root)  /* MUTANT */",
-   tests:['test/recall-config.test.mjs'] },
 
  { name:'RB the hook\'s renderer drops the exact leg of the bar',
    file:'src/recallrender.mjs',
@@ -990,6 +997,12 @@ export const MUTANTS=[
    from:"  if (!idx && open) {",
    to:"  if (false && open) {  // MUTANT",
    tests:['test/abruf-index.test.mjs'] },
+
+ { name:'SG the SubagentStart task query reads the request-frame switch from the process again',
+   file:'src/subagenttask.mjs',
+   from:"retrievalQuery(task, { root, index, requestFrame: requestFrameOn(env) })",
+   to:"retrievalQuery(task, { root, index })  /* MUTANT */",
+   tests:['test/subagent-given-env.test.mjs'] },
 
 ];
 

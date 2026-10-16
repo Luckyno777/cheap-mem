@@ -207,6 +207,11 @@ the page.
   or not), a request that carries a proxy header (a tunnel, a reverse proxy)
   is turned away, and the start prints a `NOTICE` line that it runs without
   a token.
+- **A taken port is a message, not a crash.** If the port is already in use (another
+  `mem serve`, another program), `mem serve` and `bin/mem-serve` print the host and
+  port and the way out (`mem serve --port <n>` or `CHEAP_MEM_SERVE_PORT=<n>`), exit 1
+  and show no stack. The setup code for a first password is written only after the
+  port is bound, so a start that never bound leaves no code file behind.
 - To make a token: `node -e "console.log(require('node:crypto').randomBytes(24).toString('hex'))"`
   prints one (it works the same in bash, PowerShell and cmd). Put it in the
   environment of the process as `CHEAP_MEM_SERVE_TOKEN` (bash: `export CHEAP_MEM_SERVE_TOKEN=<token>`; PowerShell:
@@ -324,11 +329,6 @@ with no server it runs `mem find` itself, exactly as before.
 - **One search path.** The server runs the same `find` handler as
   `mem find <prompt> --top N --json`; the hook renders and books as
   before. Nothing new can be read or written through it.
-- **The asking session's switches.** The question carries the switches that decide an answer
-  (`MEM_SEARCH_LEVERS`, `MEM_RETRIEVE_REQUEST_FRAME`, `MEM_RETRIEVE_TIE`, `MEM_TZ`, `MEM_REWRITES`,
-  `CHEAP_MEM_STATE_SIGNAL_WORDS`); the server answers with those, not with the environment of the service it
-  runs in (`src/recallconfig.mjs`, one resolved configuration per question). Only these names travel; the
-  server takes nothing else from a request. A client from before this field is answered as it always was.
 - **Local only.** No TCP, no port. Directory mode 0700, socket and key
   file 0600, all under `.pipeline/` (gitignored); the key never reaches
   a log. Another user reaches neither (probe

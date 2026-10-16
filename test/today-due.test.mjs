@@ -597,9 +597,11 @@ test('before-edit: an overdue duty comes first, the longest overdue first - only
   const hook = JSON.parse(cli(root, 'component', f, '--hook', '--json').stdout);
   assert.equal(hook.duties.length, 2);
   assert.equal(hook.duties[0].id, 'be000004');
+  // Since TB5 neither twin reads the list itself: both start bin/mem-before-edit-core.mjs, whose module shows the list in the order it receives.
   for (const twin of ['mem-before-edit', 'mem-before-edit.ps1']) {
-    assert.match(fs.readFileSync(path.join(REPO, 'bin', twin), 'utf8'), /j\.duties/, `${twin} shows the list in the order it receives`);
+    assert.match(fs.readFileSync(path.join(REPO, 'bin', twin), 'utf8'), /mem-before-edit-core\.mjs/, `${twin} hands the list to the one module`);
   }
+  assert.match(fs.readFileSync(path.join(REPO, 'src', 'beforeedit.mjs'), 'utf8'), /hooked\.duties/, 'the module shows the list in the order it receives');
 });
 
 // ---------------------------------------------------------------- 7. the dashboard

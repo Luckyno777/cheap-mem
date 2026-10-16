@@ -13,7 +13,6 @@
  "src/chain.mjs": 3,
  "src/claim.mjs": 1,
  "src/cli/commands/capture.mjs": 1,
- "src/cli/display.mjs": 1,
  "src/cli/githook.mjs": 2,
  "src/cli/shell.mjs": 1,
  "src/clihelp.mjs": 2,
