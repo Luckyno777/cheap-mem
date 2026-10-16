@@ -2256,7 +2256,7 @@ async function startHttp(pkg) {
     host: cfg.host, token: cfg.token, login: false, localNoToken: cfg.localNoToken,
     variable: 'CHEAP_MEM_MCP_TOKEN', switchVariable: 'CHEAP_MEM_MCP_LOCAL_NO_TOKEN',
   });
-  if (!bind.ok) throw new Error(bind.reason);
+  if (!bind.ok) throw Object.assign(new Error(bind.reason), { startRefused: true });
 
   const network = http.createServer(async (req, res) => {
     let url;
@@ -2333,8 +2333,6 @@ async function startHttp(pkg) {
   process.stderr.write(`cheap-mem MCP (http): http://${cfg.host}:${cfg.port}/mcp\n`);
   process.stderr.write(`  agent=${resolveAgent()} profile=${PROFILE} token=${cfg.token ? 'set' : 'none (plain loopback only; a request with a proxy header is refused)'}\n`);
   if (bind.withoutToken) process.stderr.write(`  NOTICE: ${bind.notice}\n`);
-  { const notice = webauth.openDoorNotice({ token: cfg.token, hosts: cfg.hosts, origins: cfg.origins });
-    if (notice) process.stderr.write(`  NOTICE: ${notice}\n`); }
   markRunningIfPossible();
 
   const stop = () => network.close(() => process.exit(0));
@@ -2364,6 +2362,7 @@ async function main() {
 }
 
 main().catch((e) => {
-  process.stderr.write(`mem-mcp fatal: ${e.stack || e.message}\n`);
+  // A refusal to start is a decision with a message that says what to do, not a crash with a stack.
+  process.stderr.write(e?.startRefused ? `mem-mcp: ${e.message}\n` : `mem-mcp fatal: ${e.stack || e.message}\n`);
   process.exit(1);
 });

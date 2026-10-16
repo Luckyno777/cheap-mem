@@ -85,7 +85,7 @@ test('the dashboard answers with such lines in the drawers: /desk.json and /dash
   append(root, 'timeline.jsonl', { id: '9strict901', key: 'db.engine', value: 'x', valid_from: 5 });
   append(root, 'thoughts.jsonl', { id: '9strict902', title: 'alpha', text: 5, why: true });
   const mod = await import(`${pathToFileURL(SERVE).href}?t=${Math.random()}`);
-  const { server } = await mod.serve(root, { CHEAP_MEM_SERVE_TOKEN: DOOR, CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1' }, {});
+  const { server } = await mod.serve(root, { CHEAP_MEM_SERVE_TOKEN: DOOR, CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off' }, {});
   t.after(() => new Promise((ok) => { server.closeAllConnections?.(); server.close(ok); }));
   const base = `http://127.0.0.1:${server.address().port}`;
   for (const route of ['/desk.json', '/dashboard.json', '/entries.json', '/console.json']) {

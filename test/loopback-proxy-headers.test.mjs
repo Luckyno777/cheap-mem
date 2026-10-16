@@ -85,7 +85,7 @@ test('viewer without token and with the login ON: the password stands behind the
 
 test('viewer with a token: proxy headers change nothing', async () => {
   const token = ['probe', 'loop', String(process.pid)].join('-');
-  const s = await viewer({ CHEAP_MEM_SERVE_TOKEN: token, CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1' });
+  const s = await viewer({ CHEAP_MEM_SERVE_TOKEN: token, CHEAP_MEM_SERVE_LOGIN: 'off' });
   try {
     const h = { authorization: `Bearer ${token}` };
     assert.equal((await raw(s.port, '/dashboard.json', h)).status, 200);

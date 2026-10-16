@@ -205,7 +205,8 @@ Without `CHEAP_MEM_MCP_TOKEN`, `mem-mcp --http` **does not start** (decision
 2026-10-14): it exits with a message and binds no port. No password login
 stands behind this door, so the token is its only credential. Make one with
 `node -e "console.log(require('node:crypto').randomBytes(24).toString('hex'))"`
-and set it in the environment of the process. For a purely local client, say
+and set it in the environment of the process (bash `export CHEAP_MEM_MCP_TOKEN=<token>`, PowerShell
+`$env:CHEAP_MEM_MCP_TOKEN='<token>'`). For a purely local client, say
 so on purpose: `mem-mcp --http --local-no-token` (or
 `CHEAP_MEM_MCP_LOCAL_NO_TOKEN=1`). The switch works on loopback only: a
 non-loopback bind without a token is refused, switch or not, and the start

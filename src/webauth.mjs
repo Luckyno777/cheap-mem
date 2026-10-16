@@ -83,7 +83,7 @@ export function startDecision({
       ok: false,
       reason:
         `Refusing to start without a token: ${variable} is not set and no password login stands behind this door. `
-        + `Set a token: ${variable}=<secret> (make one with: ${MAKE_TOKEN_COMMAND}). `
+        + `Set a token: ${variable}=<secret> (bash) or $env:${variable}='<secret>' (PowerShell); make one with: ${MAKE_TOKEN_COMMAND}. `
         + `For a purely local run, say so on purpose: ${flag} or ${switchVariable}=1 `
         + '(loopback only; a request that carries a proxy header is still turned away).',
     };
@@ -91,8 +91,10 @@ export function startDecision({
   return {
     ok: true,
     withoutToken: true,
-    notice: `running WITHOUT a token on ${host} (${flag}): loopback only, no password login; `
-      + 'a tunnelled request (one with forwarding headers) is turned away',
+    notice: `running WITHOUT a token on ${host} (${flag}): loopback only, no password login. `
+      + 'A request that carries forwarding headers (a tunnel, most proxies) is turned away; a reverse proxy on this machine that '
+      + 'adds none (nginx with its defaults) cannot be told from this machine and would be served as local, so set a token '
+      + 'before putting any proxy in front',
   };
 }
 
@@ -137,7 +139,7 @@ export function bearerFrom(req) {
  * one: whole families by prefix (`x-forwarded-*`, `x-real-*`, `cf-*`) and the single names common proxies, CDNs and
  * load balancers add (`via`, `true-client-ip`, `cdn-loop`, `fastly-client-ip`, `x-client-ip`, `x-cluster-client-ip`,
  * `x-original-forwarded-for`). It only ever takes trust AWAY: a header a client forges costs it the local standing.
- * What it cannot see is a proxy that adds none of them (nginx with its defaults): see {@link openDoorNotice}.
+ * What it cannot see is a proxy that adds none of them (nginx with its defaults): the start notice of {@link startDecision} says so.
  */
 const PROXY_HEADER_NAMES = Object.freeze([
   'forwarded', 'via', 'true-client-ip', 'cdn-loop', 'fastly-client-ip', 'x-client-ip', 'x-cluster-client-ip',
@@ -169,25 +171,6 @@ export function hasProxyHeader(req) {
     const h = String(raw).toLowerCase();
     return PROXY_HEADER_NAMES.includes(h) || PROXY_HEADER_PREFIXES.some((p) => h.startsWith(p));
   });
-}
-
-/**
- * The start-up notice for a door with no token and no login (the bridge over HTTP always, the viewer with its login off).
- * `null` when a token or a login stands behind the door.
- *
- * Without a credential the only thing that keeps a stranger out is "the connection is from this machine, and no proxy
- * header says otherwise". A reverse proxy on this machine in front of the port - nginx with its defaults sets `Host` to
- * the upstream `127.0.0.1:<port>` and adds no forwarding header - passes every one of those checks, so whoever reaches the
- * proxy is served as local (and on the bridge with `CHEAP_MEM_MCP_READONLY=0`, may write). That cannot be detected from
- * here; it can be said. Nothing is refused: a configured host name without a token is a tested, deliberate setup.
- */
-export function openDoorNotice({ token = '', login = false, hosts = [], origins = [] } = {}) {
-  if (token || login) return null;
-  const names = [...hosts, ...origins.map((o) => { try { return new URL(o).host; } catch { return String(o); } })];
-  const named = names.some((n) => !hostAllowed(n, []));
-  return 'no token: anything that reaches this port through a local reverse proxy counts as local - '
-    + 'set a token before putting a proxy in front'
-    + (named ? ' (a non-loopback host name is configured, so a proxy in front is the expected setup here)' : '');
 }
 
 /**

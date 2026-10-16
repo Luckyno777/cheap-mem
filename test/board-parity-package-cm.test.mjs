@@ -79,7 +79,7 @@ function world() {
 
 async function start(root, extra = {}) {
   const mod = await import(`${pathToFileURL(SERVE).href}?pkg=${Math.random()}`);
-  const { server } = await mod.serve(root, { CHEAP_MEM_SERVE_TOKEN: TOKEN, CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1', ...extra });
+  const { server } = await mod.serve(root, { CHEAP_MEM_SERVE_TOKEN: TOKEN, CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', ...extra });
   return { base: `http://127.0.0.1:${server.address().port}`, stop: () => new Promise((res) => { server.closeAllConnections?.(); server.close(res); }) };
 }
 

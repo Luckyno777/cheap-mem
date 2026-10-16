@@ -287,17 +287,17 @@ test('A14: every proxy/CDN header (names and families) takes the local standing 
   }
 });
 
-test('A14: the notice text - none behind a token or a login, always without; stronger with a configured public name', async () => {
-  const { openDoorNotice } = await import('../src/webauth.mjs');
-  assert.equal(openDoorNotice({ token: 'a-token-value' }), null);
-  assert.equal(openDoorNotice({ login: true }), null);
-  const plain = openDoorNotice({});
-  assert.match(plain, /no token: anything that reaches this port through a local reverse proxy counts as local - set a token before putting a proxy in front/);
-  assert.doesNotMatch(plain, /host name is configured/);
-  assert.equal(openDoorNotice({ hosts: ['localhost', '127.0.0.1:8849', '[::1]'] }), plain, 'loopback names are no public name');
-  assert.match(openDoorNotice({ hosts: ['memory.example.org'] }), /host name is configured/);
-  assert.match(openDoorNotice({ origins: ['https://memory.example.org'] }), /host name is configured/);
-  assert.equal(openDoorNotice({ token: 'a-token-value', hosts: ['memory.example.org'] }), null, 'a token silences it whatever is configured');
+test('A14: the start notice says what the door does and does not catch - none behind a token or a login', async () => {
+  const { startDecision } = await import('../src/webauth.mjs');
+  const d = (o) => startDecision({ host: '127.0.0.1', localNoToken: true, ...o });
+  assert.equal(d({ token: 'a-token-value' }).notice, undefined);
+  assert.equal(d({ login: true }).notice, undefined);
+  const { notice } = d({});
+  assert.match(notice, /WITHOUT a token/);
+  // The two halves of the real behaviour, in one line: forwarding headers are turned away, a header-less local proxy is not seen.
+  assert.match(notice, /forwarding headers.*is turned away/);
+  assert.match(notice, /adds none \(nginx with its defaults\).*would be served as local/);
+  assert.doesNotMatch(notice, /counts as local/, 'the old wording said every proxy hit counted as local');
 });
 
 /** Start a service from its own entry point, collect stderr, stop it by its handle. */
@@ -321,8 +321,9 @@ async function startService(t, script, args, env, readyRe, waitMs = 20000) {
 test('A14: the bridge says so on stderr without a token, and not with one', async (t) => {
   const root = memoryRoot(t);
   const without = await startService(t, MCP, ['--http'], { CHEAP_MEM_ROOT: root, CHEAP_MEM_MCP_PORT: String(await freePort()), CHEAP_MEM_MCP_LOCAL_NO_TOKEN: '1', CHEAP_MEM_MCP_HOSTS: 'memory.example.org' }, /cheap-mem MCP \(http\)/);
-  assert.match(without(), /NOTICE: no token: anything that reaches this port through a local reverse proxy counts as local/);
-  assert.match(without(), /host name is configured/);
+  assert.match(without(), /NOTICE: running WITHOUT a token/);
+  assert.match(without(), /would be served as local/);
+  assert.equal((without().match(/NOTICE/g) || []).length, 1, 'one notice, not two that disagree');
   const token = ['bridge', 'probe', 'credential', 'x'.repeat(24)].join('-');
   const withTok = await startService(t, MCP, ['--http'], { CHEAP_MEM_ROOT: root, CHEAP_MEM_MCP_PORT: String(await freePort()), CHEAP_MEM_MCP_TOKEN: token }, /cheap-mem MCP \(http\)/);
   assert.match(withTok(), /token=set/, 'positive control: the service did start with its token');
@@ -332,7 +333,7 @@ test('A14: the bridge says so on stderr without a token, and not with one', asyn
 test('A14: `mem serve` (the documented way) says so too: login off, no token', async (t) => {
   const root = memoryRoot(t);
   const MEM = path.join(ROOT, 'bin', 'mem');
-  const env = { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1' };
+  const env = { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_LOGIN: 'off' };
   const up = async (port) => {
     const until = Date.now() + 20000;
     while (Date.now() < until) {
@@ -342,12 +343,12 @@ test('A14: `mem serve` (the documented way) says so too: login off, no token', a
     return false;
   };
   const p1 = await freePort();
-  const off = await startService(t, MEM, ['--root', root, 'serve'], { ...env, CHEAP_MEM_SERVE_PORT: String(p1) }, /NOTICE/);
+  const off = await startService(t, MEM, ['--root', root, 'serve'], { ...env, CHEAP_MEM_SERVE_PORT: String(p1), CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1' }, /NOTICE/);
   assert.ok(await up(p1), 'positive control: `mem serve` is up');
-  assert.match(off(), /NOTICE: no token: anything that reaches this port through a local reverse proxy counts as local/);
+  assert.match(off(), /NOTICE: running WITHOUT a token/);
   const token = ['serve', 'probe', 'credential', 'x'.repeat(24)].join('-');
   const p2 = await freePort();
-  const tok = await startService(t, MEM, ['--root', root, 'serve'], { ...env, CHEAP_MEM_SERVE_PORT: String(p2), CHEAP_MEM_SERVE_TOKEN: token }, /NOTICE/, 3000);
+  const tok = await startService(t, MEM, ['--root', root, 'serve'], { ...env, CHEAP_MEM_SERVE_PORT: String(p2), CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '', CHEAP_MEM_SERVE_TOKEN: token }, /NOTICE/, 3000);
   assert.ok(await up(p2), 'positive control: `mem serve` with a token is up');
   assert.doesNotMatch(tok(), /NOTICE/, 'a token silences it');
 });
@@ -356,9 +357,10 @@ test('A14: the viewer says so on stderr with the login off and no token, and not
   const root = memoryRoot(t);
   const base = { CHEAP_MEM_ROOT: root, CHEAP_MEM_SERVE_HOST: '127.0.0.1' };
   const off = await startService(t, SERVE, [], { ...base, CHEAP_MEM_SERVE_PORT: String(await freePort()), CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1' }, /cheap-mem console on/);
-  assert.match(off(), /NOTICE: no token: anything that reaches this port through a local reverse proxy counts as local/);
+  assert.match(off(), /NOTICE: running WITHOUT a token/);
+  assert.equal((off().match(/NOTICE/g) || []).length, 1, 'one notice, not two that disagree');
   const token = ['viewer', 'probe', 'credential', 'x'.repeat(24)].join('-');
-  const tok = await startService(t, SERVE, [], { ...base, CHEAP_MEM_SERVE_PORT: String(await freePort()), CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1', CHEAP_MEM_SERVE_TOKEN: token }, /cheap-mem console on/);
+  const tok = await startService(t, SERVE, [], { ...base, CHEAP_MEM_SERVE_PORT: String(await freePort()), CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '', CHEAP_MEM_SERVE_TOKEN: token }, /cheap-mem console on/);
   assert.match(tok(), /token set/, 'positive control: the viewer did start with its token');
   assert.doesNotMatch(tok(), /NOTICE/);
   const on = await startService(t, SERVE, [], { ...base, CHEAP_MEM_SERVE_PORT: String(await freePort()), CHEAP_MEM_SERVE_LOGIN: 'on' }, /cheap-mem console on/);

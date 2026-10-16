@@ -209,7 +209,8 @@ the page.
   a token.
 - To make a token: `node -e "console.log(require('node:crypto').randomBytes(24).toString('hex'))"`
   prints one (it works the same in bash, PowerShell and cmd). Put it in the
-  environment of the process as `CHEAP_MEM_SERVE_TOKEN`, not in a file that is
+  environment of the process as `CHEAP_MEM_SERVE_TOKEN` (bash: `export CHEAP_MEM_SERVE_TOKEN=<token>`; PowerShell:
+  `$env:CHEAP_MEM_SERVE_TOKEN='<token>'`), not in a file that is
   committed, and open `http://127.0.0.1:8847/?k=<the token>` once (the server
   moves it into a cookie), or send it as `Authorization: Bearer <the token>`.
   A request that is neither loopback nor carries the token gets a bare 404.

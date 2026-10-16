@@ -499,8 +499,10 @@ each was reproduced against a throwaway root here first.
   forwarding header. Whoever reaches that proxy is served as local, without a token; on the bridge, with
   `CHEAP_MEM_MCP_READONLY=0`, the writing tools are open to them too. The gradient is the wrong way round: the more
   carelessly the proxy is set up, the more trust it is given. This cannot be detected from the socket. What is done: both
-  services print a `NOTICE` on stderr at start whenever no token (or login) stands behind the door ("set a token before putting
-  a proxy in front", with a second sentence when a non-loopback host name is configured). **Since 2026-10-14 (owner decision)
+  services print a `NOTICE` on stderr at start whenever they run without a token (or login) behind the door; since 2026-10-14 that is
+  ONE line, from `webauth.startDecision`, which says both halves of the real behaviour: a request with forwarding headers is turned
+  away, a local proxy that adds none is served as local, so set a token before putting any proxy in front. (The older second
+  notice, `openDoorNotice`, claimed that every proxy hit counts as local; it is gone.) **Since 2026-10-14 (owner decision)
   such a door does not start at all**: with no token and no password login, `mem serve` and `mem-mcp --http` exit with a
   message that names the token variable, a command that makes a token and the switch, and bind no port. The switch
   (`--local-no-token`, or `CHEAP_MEM_SERVE_LOCAL_NO_TOKEN=1` / `CHEAP_MEM_MCP_LOCAL_NO_TOKEN=1`) is a deliberate act and
