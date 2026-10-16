@@ -206,6 +206,8 @@ mem_compile_cache() {
 # A remote that is not one of THIS clone's is refused as well (N5): `git fetch <name>` with a name that is no remote is
 # read by git as a path or URL, and the name comes out of a file in a cloned repository. Checked with
 # `git remote get-url -- <name>`; where the directory is no git repository nothing is fetched anyway and nothing is asked.
+# N5-1: no warning where the answer is the same anyway: the default "origin" that is no remote (a memory without a remote) and any
+# value in a clone that has no remote at all. A warning needs a value set on purpose AND remotes it could have named.
 # The refused value is shown clipped (40 characters, printable ASCII only): it is data, and it is printed.
 #
 # mem_tracked_ref <memory root>
@@ -224,7 +226,11 @@ mem_tracked_ref() {
       [!A-Za-z0-9]* | *[!A-Za-z0-9._-]* | *..*) mem_track_note="config defaultRemote '$(mem_clip "$v")' is not a plain remote name - using origin" ;;
       *)
         if git -C "$1" rev-parse --git-dir > /dev/null 2>&1 && ! git -C "$1" remote get-url -- "$v" > /dev/null 2>&1; then
-          mem_track_note="config defaultRemote '$(mem_clip "$v")' is not a remote of this clone - using origin"
+          # N5-1: origin stays either way, so a warning is only for a value somebody SET against a clone that has remotes.
+          # The default name ("origin", which `mem init` writes) and a clone without any remote say nothing.
+          if [ "$v" != origin ] && [ -n "$(git -C "$1" remote 2> /dev/null)" ]; then
+            mem_track_note="config defaultRemote '$(mem_clip "$v")' is not a remote of this clone - using origin"
+          fi
         else mem_track_remote="$v"; fi ;;
     esac
   fi

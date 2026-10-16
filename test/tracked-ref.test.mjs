@@ -28,7 +28,6 @@ const MEM = path.join(REPO, 'bin', 'mem');
 const START = path.join(REPO, 'install', 'hooks', 'session-start.sh');
 const START_OLD = path.join(REPO, 'test', 'fixture', 'session-start-v1.sh.txt');
 const PORTABLE = path.join(REPO, 'bin', '_portable.sh');
-const RETRIEVE = path.join(REPO, 'bin', 'mem-retrieve');
 const sl = (p) => p.replaceAll('\\', '/');
 
 const GIT = ['-c', 'user.email=t@example.org', '-c', 'user.name=t', '-c', 'commit.gpgsign=false', '-c', 'init.defaultBranch=main'];
@@ -208,6 +207,55 @@ test('bin/_portable.sh mem_tracked_ref and the inline twin in session-start.sh a
   assert.equal(one.stdout, 'upstream/develop');
 });
 
+// ---- N5-1: a warning needs a value set on purpose AND remotes it could have named ---------------------------------------
+
+/** [remotes of the clone, config, expected [remote, branch, note]] */
+const QUIET_CASES = [
+  [[], { defaultRemote: 'origin' }, ['origin', 'main', '']], // what `mem init` writes, in a clone without a remote
+  [[], { defaultRemote: 'ghost' }, ['origin', 'main', '']], // nothing it could have named
+  [['upstream'], { defaultRemote: 'origin' }, ['origin', 'main', '']], // the default, whatever the clone has
+  [['upstream'], { defaultRemote: 'ghost' }, ['origin', 'main', "config defaultRemote 'ghost' is not a remote of this clone - using origin"]], // POSITIVE CONTROL
+  [[], { defaultRemote: '-o' }, ['origin', 'main', "config defaultRemote '-o' is not a plain remote name - using origin"]], // a hostile value is never quiet
+  [['origin'], { defaultRemote: 'origin' }, ['origin', 'main', '']],
+];
+
+test('N5-1: no WARNING for the default "origin" or in a clone without a remote - function and inline twin agree', (t) => {
+  for (const [remotes, cfg, want] of QUIET_CASES) {
+    const dir = tempDir('cm-trk-q-', t);
+    fs.mkdirSync(path.join(dir, '.mem'));
+    git(dir, 'init', '-q', '-b', 'main');
+    for (const r of remotes) git(dir, 'remote', 'add', r, `https://example.invalid/${r}.git`);
+    fs.writeFileSync(path.join(dir, '.mem', 'config.json'), JSON.stringify(cfg));
+    const fn = spawnSync('bash', ['-c', `. "${sl(PORTABLE)}"; mem_tracked_ref "${sl(dir)}"; printf '%s\\n%s\\n%s' "$mem_track_remote" "$mem_track_branch" "$mem_track_note"`], { encoding: 'utf8' });
+    assert.equal(fn.status, 0, fn.stderr);
+    assert.deepEqual(fn.stdout.split('\n'), want, `function, remotes ${JSON.stringify(remotes)}, config ${JSON.stringify(cfg)}`);
+    const twin = spawnSync('bash', ['-c', `CHEAP_MEM_ROOT="${sl(dir)}"\n${twinBlock()}\nprintf '%s\\n%s\\n%s' "$mem_remote" "$mem_branch" "$mem_track_note"`], { encoding: 'utf8' });
+    assert.equal(twin.status, 0, twin.stderr);
+    assert.deepEqual(twin.stdout.split('\n'), want, `twin, remotes ${JSON.stringify(remotes)}, config ${JSON.stringify(cfg)}`);
+  }
+});
+
+test('N5-1 end to end: the session start of a memory without a remote and with the default config says no WARNING', (t) => {
+  const dir = tempDir('cm-trk-q2-', t);
+  const mem = path.join(dir, 'mem');
+  fs.mkdirSync(mem);
+  git(mem, 'init', '-q', '-b', 'main');
+  assert.equal(spawnSync(process.execPath, [MEM, 'init', '--root', mem], { encoding: 'utf8', input: '' }).status, 0);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(mem, '.mem', 'config.json'), 'utf8')).defaultRemote, 'origin', 'the default config no longer names origin - the probe has moved');
+  git(mem, 'add', '-A'); git(mem, 'commit', '-q', '-m', 'A');
+  assert.equal(git(mem, 'remote'), '');
+  const r = start(START, mem, mkhome(home(t)));
+  assert.equal(r.status, 0, r.stderr);
+  assert.doesNotMatch(r.stdout, /WARNING: config defaultRemote/);
+  // RED: the version before this change (4229302) warned at every start.
+  const old = spawnSync('git', ['show', '4229302:install/hooks/session-start.sh'], { cwd: REPO, encoding: 'utf8' });
+  if (old.status !== 0) { t.diagnostic('4229302 is not in this clone: the red proof could not run (unknown, not green)'); return; }
+  const oldPath = path.join(tempDir('cm-trk-old2-', t), 'session-start.sh');
+  fs.writeFileSync(oldPath, old.stdout);
+  const o = start(oldPath, mem, mkhome(home(t)));
+  assert.match(o.stdout, /WARNING: config defaultRemote 'origin' is not a remote of this clone/, `the red proof no longer holds:\n${o.stdout}`);
+});
+
 test('MUTATION: a function that ignores the config is caught by the table', (t) => {
   const dir = tempDir('cm-trk-m-', t);
   fs.mkdirSync(path.join(dir, '.mem'));
@@ -273,6 +321,9 @@ test('the PowerShell session start and recall hook ask the config too, and never
   assert.match(code(win), /checkout `\$memBranch/);
   assert.match(code(win), /pull --ff-only `\$memRemote `\$memBranch/);
   assert.match(code(win), /defaultBranch/);
+  // N5-1 (read, not run - no pwsh here): the warning needs a value other than the default AND a clone that has a remote.
+  assert.match(code(win), /-cne 'origin' -and `\$anyRemote/);
+  assert.match(code(win), /git -C `\$env:CHEAP_MEM_ROOT remote 2>`\$null/);
   assert.doesNotMatch(code(win), /fetch origin main|checkout main\b|pull --ff-only 2>&1/, 'the Windows session start still names origin/main');
   assert.match(code(ret), /\$cfg\.defaultBranch/);
   assert.match(code(ret), /\$cfg\.defaultRemote/);

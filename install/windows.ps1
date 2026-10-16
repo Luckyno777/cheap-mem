@@ -309,7 +309,11 @@ try {
         # A name that is no remote of THIS clone would be read by git as a path or URL.
         & git -C `$env:CHEAP_MEM_ROOT remote get-url -- `$r 2>`$null | Out-Null
         if (`$LASTEXITCODE -eq 0) { `$memRemote = `$r }
-        else { Write-Host "[hook] WARNING: config defaultRemote '`$rShow' is not a remote of this clone - using origin" }
+        else {
+          # N5-1: origin stays either way, so a warning is only for a value somebody SET against a clone that has remotes.
+          `$anyRemote = (& git -C `$env:CHEAP_MEM_ROOT remote 2>`$null | Out-String).Trim()
+          if (`$r -cne 'origin' -and `$anyRemote) { Write-Host "[hook] WARNING: config defaultRemote '`$rShow' is not a remote of this clone - using origin" }
+        }
       }
       else { Write-Host "[hook] WARNING: config defaultRemote '`$rShow' is not a plain remote name - using origin" }
     }

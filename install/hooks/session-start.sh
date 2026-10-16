@@ -134,7 +134,10 @@ if [ -f "$mem_cfg" ]; then
       *)
         # N5: a name that is no remote of this clone would be read by git as a path or URL.
         if git -C "$CHEAP_MEM_ROOT" rev-parse --git-dir >/dev/null 2>&1 && ! git -C "$CHEAP_MEM_ROOT" remote get-url -- "$v" >/dev/null 2>&1; then
-          mem_track_note="config defaultRemote '$(mem_clip "$v")' is not a remote of this clone - using origin"
+          # N5-1: origin stays either way, so a warning is only for a value somebody SET against a clone that has remotes.
+          if [ "$v" != origin ] && [ -n "$(git -C "$CHEAP_MEM_ROOT" remote 2>/dev/null)" ]; then
+            mem_track_note="config defaultRemote '$(mem_clip "$v")' is not a remote of this clone - using origin"
+          fi
         else mem_remote="$v"; fi ;;
     esac
   fi
