@@ -163,7 +163,7 @@ browserStartProbe(B);
 
 async function withServer(r, env, run) {
   const view = await startView(r, {
-    ...process.env, CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0',
+    ...process.env, CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1', CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0',
     CHEAP_MEM_SERVE_TOKEN: '', ...env,
   });
   try {

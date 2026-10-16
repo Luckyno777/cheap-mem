@@ -31,9 +31,11 @@
 //  2. It never writes the rendered content to disk, commits nothing,
 //     publishes nothing. The HTML lives in RAM and goes to the browser
 //     that asked.
-//  3. Fail-closed on auth: with no CHEAP_MEM_SERVE_TOKEN it serves
-//     localhost ONLY. Binding to a public address without a token is
-//     REFUSED — the process does not start.
+//  3. Fail-closed on auth: with no CHEAP_MEM_SERVE_TOKEN and no password
+//     login the process does NOT START (decision 2026-10-14), unless the
+//     local-no-token switch is set on purpose (`--local-no-token` or
+//     CHEAP_MEM_SERVE_LOCAL_NO_TOKEN=1) - and then on loopback only. Binding
+//     to a public address without a token is REFUSED, switch or not.
 //
 // The intended shape: bind to 127.0.0.1, put a tunnel or reverse proxy
 // in front, and let that (or the token) be the door.
@@ -86,6 +88,8 @@ const PACKAGE_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..
 export function readConfig(env = process.env) {
   return {
     token: env.CHEAP_MEM_SERVE_TOKEN || '',
+    // The switch that lets a door with no token and no login start, on loopback only (src/webauth.mjs `startDecision`).
+    localNoToken: env.CHEAP_MEM_SERVE_LOCAL_NO_TOKEN === '1',
     host: env.CHEAP_MEM_SERVE_HOST || '127.0.0.1',
     port: Number(env.CHEAP_MEM_SERVE_PORT || 8847),
     title: env.CHEAP_MEM_SERVE_TITLE || 'cheap-mem',
@@ -111,6 +115,14 @@ export function readConfig(env = process.env) {
 
 export function bindAllowed({ host, token }) {
   return webauth.bindAllowed({ host, token, variable: 'CHEAP_MEM_SERVE_TOKEN' });
+}
+
+/** May the dashboard start with this config? The token, the password login or the switch must stand behind the door. */
+export function startAllowed({ host, token, login, localNoToken }) {
+  return webauth.startDecision({
+    host, token, login, localNoToken,
+    variable: 'CHEAP_MEM_SERVE_TOKEN', switchVariable: 'CHEAP_MEM_SERVE_LOCAL_NO_TOKEN',
+  });
 }
 
 /** Token from query, cookie or bearer — in that order. */
@@ -1699,9 +1711,11 @@ export function buildHandler(root, cfg, env = process.env) {
  * @param opts.measure true = keep the weekly measurement series
  *   (src/measurements.mjs) while running; `mem serve` sets it.
  */
-export function serve(root, env = process.env, { allowWrites = false, measure: measureWeekly = false, recall = false } = {}) {
-  const cfg = { ...readConfig(env), allowWrites: allowWrites === true };
-  const allowed = bindAllowed(cfg);
+export function serve(root, env = process.env, { allowWrites = false, measure: measureWeekly = false, recall = false, localNoToken = false } = {}) {
+  const base = readConfig(env);
+  const cfg = { ...base, allowWrites: allowWrites === true, localNoToken: base.localNoToken || localNoToken === true };
+  // Before anything is bound or written: no token, no password login and no switch -> the process does not start.
+  const allowed = startAllowed(cfg);
   if (!allowed.ok) throw new Error(allowed.reason);
   // No password yet: keep a setup code ONLY on this machine and say in
   // the log WHERE it is — never the code itself.
@@ -1736,6 +1750,7 @@ export function serve(root, env = process.env, { allowWrites = false, measure: m
       // UNKNOWN on the doctor side, not a server that refuses to start.
       try { runningmark.writeMarker(root, { service: 'serve', codePath: PACKAGE_ROOT }); }
       catch (e) { process.stderr.write(`serve: could not write the W1 start marker: ${e?.message || e}\n`); }
+      if (allowed.withoutToken) process.stderr.write(`serve: NOTICE: ${allowed.notice}\n`);
       if (measureWeekly) setImmediate(measure);
       setImmediate(() => handler.warm());
       // M10: the warm recall server (src/recallserver.mjs), a child process,
@@ -1752,13 +1767,6 @@ export function serve(root, env = process.env, { allowWrites = false, measure: m
           .then((k) => { const kept = k.keep(root, { env }); server.once('close', () => { kept.stop(); }); })
           .catch((e) => process.stderr.write(`serve: recall server not started: ${e?.message || e}\n`));
       }
-      // A door with no token and no login: say what a proxy in front of it means (src/webauth.mjs `openDoorNotice`). Here, in
-      // `serve()`, so that both ways a real server starts - `bin/mem-serve` and `mem serve` - show it; a probe that only
-      // starts a handler in-process (`recall` off) stays quiet, like the recall server above.
-      if (recall) {
-        const notice = webauth.openDoorNotice({ token: cfg.token, login: cfg.login === true, hosts: cfg.hosts, origins: cfg.origins });
-        if (notice) process.stderr.write(`NOTICE: ${notice}\n`);
-      }
       resolve({ server, cfg });
     });
   });
@@ -1768,11 +1776,14 @@ export function serve(root, env = process.env, { allowWrites = false, measure: m
 if (isMain(import.meta.url)) {
   const root = process.env.CHEAP_MEM_ROOT || process.cwd();
   const flags = process.argv.slice(2);
-  serve(root, process.env, { allowWrites: flags.includes('--allow-writes'), measure: true, recall: true }).then(({ server, cfg }) => {
+  // `serve()` throws synchronously when it refuses to start: run it inside the chain so the refusal is a message and exit 1, not a stack trace.
+  Promise.resolve().then(() => serve(root, process.env, {
+    allowWrites: flags.includes('--allow-writes'), measure: true, recall: true, localNoToken: flags.includes('--local-no-token'),
+  })).then(({ server, cfg }) => {
     const bound = server.address();
     process.stderr.write(
       `cheap-mem console on http://${cfg.host}:${bound.port}/ `
-      + `(root ${root}, ${cfg.token ? 'token set' : 'localhost only'}`
+      + `(root ${root}, ${cfg.token ? 'token set' : (cfg.login ? 'password login, localhost only' : 'NO TOKEN, no login: loopback only')}`
       + `, writing ${writegate.read(root, gateOpts(cfg)).state})\n`);
   }).catch((e) => {
     process.stderr.write(`${e.message}\n`);

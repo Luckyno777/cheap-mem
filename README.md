@@ -606,9 +606,11 @@ mem serve [--port N]           the dashboard at ONE fixed link.
                                default. --allow-writes turns it on for one
                                run, "dashboard": { "allowWrites": true } in
                                .mem/config.json for the memory
-                               (docs/dashboard-writes.md). No token set
-                               means localhost only. Binding public without
-                               one is refused, not warned.
+                               (docs/dashboard-writes.md). With no token and
+                               the password login off it does not start,
+                               unless --local-no-token is set (loopback
+                               only). Binding public without a token is
+                               refused, not warned.
 mem board [--html --json]      the operating state on one screen: archive,
                                digest, error classes, agents, questions,
                                installation, bridge. A tile that could NOT

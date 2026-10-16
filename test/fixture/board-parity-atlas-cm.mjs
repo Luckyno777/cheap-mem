@@ -48,7 +48,7 @@ export async function atlasWorld(REPO) {
 
 export async function withServer(REPO, root, run) {
   // warm: the cold start of the server is not part of the browser deadlines (job browser-warm-cm, test/fixture/browser.mjs)
-  const view = await startView(root, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '',
+  const view = await startView(root, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1', CHEAP_MEM_SERVE_TOKEN: '',
     // The red proofs run an OLD client that does not page: it must get every entry in the first answer.
     CHEAP_MEM_SERVE_HEAD_ENTRIES: '100000' }, { repo: REPO });
   try { return await run(view.base); }

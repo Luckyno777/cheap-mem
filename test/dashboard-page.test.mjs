@@ -59,7 +59,7 @@ function memoryRoot({ writes = false } = {}) {
 }
 async function start(root, env = {}) {
   const mod = await import(`${pathToFileURL(SERVE).href}?page=${Math.random()}`);
-  const { server } = await mod.serve(root, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '', ...env });
+  const { server } = await mod.serve(root, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1', CHEAP_MEM_SERVE_TOKEN: '', ...env });
   const port = server.address().port;
   return {
     mod, port, base: `http://127.0.0.1:${port}`,

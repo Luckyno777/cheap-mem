@@ -64,7 +64,7 @@ async function start(root, { withLogin = false, extraEnv = {} } = {}) {
     const dir = login.dirFor(root, env);
     login.setPassword(dir, 'a-proper-long-password');
     session = login.newSession(dir);
-  } else env.CHEAP_MEM_SERVE_LOGIN = 'off';
+  } else { env.CHEAP_MEM_SERVE_LOGIN = 'off'; env.CHEAP_MEM_SERVE_LOCAL_NO_TOKEN = '1'; }
   // warm (with the session cookie when login is on, else the warm-up would only see the sign-in page)
   const { base, stop } = await startView(root, env, { serveOpts: { allowWrites: true }, cookie: session ? `${login.COOKIE}=${session}` : '' });
   return { base, session, stop };

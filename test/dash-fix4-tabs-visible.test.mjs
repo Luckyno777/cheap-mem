@@ -81,7 +81,7 @@ async function startServer(r, { withLogin = false } = {}) {
     const dir = login.dirFor(r, env);
     login.setPassword(dir, 'a-proper-long-password');
     session = login.newSession(dir);
-  } else env.CHEAP_MEM_SERVE_LOGIN = 'off';
+  } else { env.CHEAP_MEM_SERVE_LOGIN = 'off'; env.CHEAP_MEM_SERVE_LOCAL_NO_TOKEN = '1'; }
   const v = await startView(r, env, { serveOpts: { allowWrites: true }, cookie: session ? `${login.COOKIE}=${session}` : '' });
   return { ...v, session };
 }

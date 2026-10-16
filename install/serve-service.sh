@@ -13,8 +13,9 @@
 # macOS: a launchd agent ~/Library/LaunchAgents/com.cheap-mem.serve.plist
 # Windows: install/windows.ps1 -ServeService (a scheduled task at logon).
 #
-# What the service opens: the dashboard on 127.0.0.1:8847 (no token ->
-# localhost only, see `mem serve --help`) and a Unix socket under
+# What the service opens: the dashboard on 127.0.0.1:8847 (the password
+# login is its door; with CHEAP_MEM_SERVE_LOGIN=off it needs a token or
+# --local-no-token to start at all, see `mem serve --help`) and a Unix socket under
 # <memory>/.pipeline/recall/ (mode 0700 directory, 0600 key). No other
 # port. The recall hook (bin/mem-retrieve) uses the socket when it is
 # there and runs `mem find` directly when it is not — stopping or

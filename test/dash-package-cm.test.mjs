@@ -99,7 +99,7 @@ test('(2b) the route serves the same package as one HTML download; the JSON stay
   memory.projectInit(root, 'demo');
   memory.logEntry(root, 'learning', { title: 'Reading view probe', text: 'hello' }, { project: 'demo' });
   const mod = await import(`${pathToFileURL(path.join(REPO, 'bin', 'mem-serve')).href}?dpc=${Math.random()}`);
-  const { server } = await mod.serve(root, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '' });
+  const { server } = await mod.serve(root, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '1', CHEAP_MEM_SERVE_TOKEN: '' });
   t.after(() => new Promise((r) => { server.closeAllConnections?.(); server.close(r); }));
   const base = `http://127.0.0.1:${server.address().port}`;
   let res;
