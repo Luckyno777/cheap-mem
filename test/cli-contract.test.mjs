@@ -73,7 +73,7 @@ function freshRoot() {
 
 test('POSITIVE: the command list itself is not empty (vacuity check)', async () => {
   const names = await allCommands();
-  assert.equal(names.length, 87, `expected 87 commands, found ${names.length}: ${names.join(',')}`);
+  assert.equal(names.length, 88, `expected 88 commands, found ${names.length}: ${names.join(',')}`);
 });
 
 // **`--help` and `-h` are one contract.** `-h` used to be known only to

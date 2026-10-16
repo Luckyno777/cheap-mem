@@ -13,7 +13,7 @@
 // Every probe has its positive control (the service DOES start with a token / with the switch on loopback), so a
 // refusal cannot be a service that never starts at all.
 //
-// Windows: processes are started with `process.execPath`, stopped by their handle, `os.tmpdir()` via tempDir, no
+// Windows: processes are started with `process.execPath`, stopped by their handle, `os.tmpdir()` via mkdtemp, no
 // POSIX tools, and no error code is asserted (a refused connect is "an error", whatever its code).
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -24,7 +24,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { tempDir } from './temp-dir.mjs';
+import { removeTree } from './fixture/cleanup.mjs';
 import * as webauth from '../src/webauth.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -34,8 +34,33 @@ const MEM = path.join(ROOT, 'bin', 'mem');
 // Built at run time, not typed as a literal: a token in a probe is a probe value, not a secret.
 const probeToken = () => ['probe', 'door', 'x'.repeat(20)].join('-');
 
+// The services each test started, so its cleanup can stop them first.
+const started = new WeakMap();
+const ended = (child) => child.exitCode !== null || child.signalCode !== null;
+
+/**
+ * The memory of one test, and ONE cleanup for it, registered before any service starts. node:test runs `after` hooks
+ * in the order they were added and stops at the first that throws. With the removal registered first (as tempDir did),
+ * the memory was removed while the services still ran in it: on Windows that is ENOTEMPTY (CI run 1074, windows
+ * node 22), the throw skipped the hooks that stop the services, one stayed up holding the test's stderr pipe, and the
+ * whole file hit the 15-minute file timeout. So: every service of the test is stopped and has exited, THEN the
+ * directory goes (test/fixture/cleanup.mjs: retried, and never a red test over a cleanup).
+ */
 function memoryRoot(t) {
-  const root = tempDir('cm-token-refuse-', t);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-token-refuse-'));
+  t.after(async () => {
+    const mine = started.get(t) || [];
+    for (const child of mine) {
+      if (ended(child)) continue;
+      const gone = new Promise((r) => child.once('exit', r));
+      child.kill();
+      await Promise.race([gone, new Promise((r) => { setTimeout(r, 5000).unref(); })]);
+    }
+    const running = mine.filter((c) => !ended(c)).map((c) => c.pid);
+    for (const child of mine) if (!ended(child)) child.kill('SIGKILL'); // never leave one behind, red or not
+    removeTree(root);
+    assert.deepEqual(running, [], 'a service of this test still ran when its memory was removed');
+  });
   fs.mkdirSync(path.join(root, '.mem'), { recursive: true });
   fs.writeFileSync(path.join(root, '.mem', 'config.json'), JSON.stringify({
     name: 'tokenrefuse', participants: { alex: { human: true }, bot: {} }, language: 'en',
@@ -75,6 +100,8 @@ async function start(t, script, args, env, port) {
     CHEAP_MEM_SERVE_LOCAL_NO_TOKEN: '', CHEAP_MEM_MCP_LOCAL_NO_TOKEN: '', CHEAP_MEM_SERVE_LOGIN: '',
     CHEAP_MEM_SERVE_HOST: '', CHEAP_MEM_MCP_HOST: '', CHEAP_MEM_SERVE_HOSTS: '', CHEAP_MEM_MCP_HOSTS: '' };
   const child = spawn(process.execPath, [script, ...args], { cwd: ROOT, stdio: ['ignore', 'ignore', 'pipe'], env: { ...base, ...env } });
+  if (!started.has(t)) started.set(t, []);
+  started.get(t).push(child);
   let err = '';
   child.stderr.setEncoding('utf8');
   child.stderr.on('data', (c) => { err += c; });

@@ -48,13 +48,37 @@ function lookup(text) {
   return rest.slice(0, b);
 }
 
-/** Run a lookup snippet; returns what ROOT came out as. */
+const WIN = process.platform === 'win32';
+// Every variable the lookups read: the probe sets them, nothing of the test run may decide them.
+const UNDER_TEST = ['HOME', 'CHEAP_MEM_ROOT', 'MEM_RETRIEVE_ROOTS', 'MEM_STOP_ROOTS'];
+
+/**
+ * Run a lookup snippet; returns what ROOT came out as.
+ *
+ * Windows (CI run 1074): Git Bash turns a Windows HOME into its POSIX form when it starts (the drive path of the
+ * user temp directory came back as /tmp/x in the compile-cache probe), and started with nothing but PATH and HOME it found no memory under
+ * that form - while the end-to-end run below, which keeps the test run's environment, found it from the same HOME.
+ * So on Windows the shell gets the environment a hook really gets (the test run's, minus the variables under test),
+ * and a ROOT that came out is handed back in the Windows form (`pwd -W`), so the caller can compare the DIRECTORY
+ * (`same` below) instead of two spellings of it. Everywhere else: PATH only, and the string is compared as it is.
+ */
 function find(snippet, env) {
-  const script = `set -u\nto_slashes() { printf '%s' "\${1//\\\\//}"; }\nROOT=""\n${snippet}\nprintf '%s' "$ROOT"`;
-  const full = { PATH: process.env.PATH, ...env };
-  const r = spawnSync('bash', ['-c', script], { encoding: 'utf8', env: full });
+  const back = WIN ? '\n[ -n "$ROOT" ] && ROOT="$(cd "$ROOT" && pwd -W)"' : '';
+  const script = `set -u\nto_slashes() { printf '%s' "\${1//\\\\//}"; }\nROOT=""\n${snippet}${back}\nprintf '%s' "$ROOT"`;
+  const base = { PATH: process.env.PATH };
+  if (WIN) {
+    Object.assign(base, process.env);
+    for (const k of Object.keys(base)) if (UNDER_TEST.includes(k.toUpperCase())) delete base[k];
+  }
+  const r = spawnSync('bash', ['-c', script], { encoding: 'utf8', env: { ...base, ...env } });
   assert.equal(r.status, 0, `${r.stderr}\n--- script ---\n${script}`);
   return r.stdout;
+}
+
+/** ROOT names the expected directory: the same string on POSIX, the same directory (real path) on Windows. */
+function same(actual, expected, msg) {
+  if (!WIN || !actual || !expected) { assert.equal(actual, expected, msg); return; }
+  assert.equal(fs.realpathSync.native(actual), fs.realpathSync.native(expected), msg);
 }
 
 function world(t) {
@@ -75,12 +99,13 @@ for (const [name, rootsVar] of Object.entries(HOOKS)) {
     fs.mkdirSync(path.join(other, '.mem'), { recursive: true });
     fs.writeFileSync(path.join(other, '.mem', 'config.json'), '{}');
 
-    assert.equal(find(snippet, { HOME: sl(home) }), sl(root), 'the default $HOME/cheap-mem was not found');
-    assert.equal(find(snippet, { HOME: sl(home), [rootsVar]: sl(root) }), sl(root), 'one path with a space in the roots variable');
-    assert.equal(find(snippet, { HOME: '/nonexistent', [rootsVar]: `/nonexistent/a ${sl(other)}` }), sl(other), 'a list of words');
-    assert.equal(find(snippet, { HOME: '/nonexistent', [rootsVar]: `/nonexistent/a   ${sl(other)}  ` }), sl(other), 'extra blanks');
+    same(find(snippet, { HOME: sl(home) }), sl(root), 'the default $HOME/cheap-mem was not found');
+    same(find(snippet, { HOME: sl(home), [rootsVar]: sl(root) }), sl(root), 'one path with a space in the roots variable');
+    same(find(snippet, { HOME: '/nonexistent', [rootsVar]: `/nonexistent/a ${sl(other)}` }), sl(other), 'a list of words');
+    same(find(snippet, { HOME: '/nonexistent', [rootsVar]: `/nonexistent/a   ${sl(other)}  ` }), sl(other), 'extra blanks');
     assert.equal(find(snippet, { HOME: '/nonexistent' }), '', 'no memory: ROOT stays empty');
-    assert.equal(find(snippet, {}), '', 'HOME unset (set -u): no crash, no memory');
+    // Unset inside the shell: Git Bash makes a HOME up when the environment has none.
+    assert.equal(find(`unset HOME\n${snippet}`, {}), '', 'HOME unset (set -u): no crash, no memory');
     // The roots variable must not be globbed: a `*` in it is a character, not a pattern.
     assert.equal(find(snippet, { HOME: '/nonexistent', [rootsVar]: `${sl(base)}/${'*'}` }), '', 'a glob in the roots variable was expanded');
   });

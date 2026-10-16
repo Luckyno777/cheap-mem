@@ -32,6 +32,145 @@ and the configured human participant, whatever the tier). A rank the line does n
 (`authority.tierState`), never an invented tier; `mem today`, `mem card list` and `mem_card_list` say `tier unknown (missing)` (`authority.rankWord`). Old lines stay readable and are not
 changed. Measured: `test/writer-identity.test.mjs` 28 probes (22 of the first 25 red on the base `04ca129`, 3 green controls); 24 mutants in `bench/mutation.mjs`, all caught.
 
+### Fixed - CI run 1074: macOS and Windows red - the cache probe's base, Git Bash paths, a held temp directory, the cleanup order
+
+- **Tool and memory paths under Git Bash.** MSYS2 translates a POSIX path for a native program, but leaves alone any value that holds an
+  apostrophe, a backtick, `*`, `?`, `[` or `]` (msys2-runtime `msys2_path_conv.cc`). The installer baked `pwd` into every shim and the hooks
+  built their tool directory with `pwd`; with the tool under a folder with an apostrophe, node.exe read `/tmp/x/mem's root` as `C:\tmp\...` and
+  every installed shim answered with nothing. `install/claude-code.sh` and the hooks (`mem-retrieve`, `mem-before-edit`, `mem-after-failure`,
+  `mem-catch-fail`, `mem-stop`, `mem-subagent-start`, `mem-capture`) ask `pwd -W` first (Git Bash: the Windows form; any other bash refuses
+  the flag and `pwd` stands). `test/msys-native-paths.test.mjs`, red on `04ca129`.
+- **`bin/mem-mask-copy.mjs`** opens the transcript before it makes anything, and closes both files before it removes its directory on an
+  error: on Windows a directory with an open file in it stays, and a failed read left an empty `mem-reflect-*` directory in the temp dir.
+  `test/reflect-masked-copy.test.mjs`, red on `04ca129`.
+- **Probes that asked the wrong place.** `test/hook-compile-cache.test.mjs` looked for the macOS cache under `.cache` (the hook writes
+  `Library/Caches`), and compared Git Bash's view of HOME with the Windows spelling it was handed; `test/hook-spaces.test.mjs` ran the root
+  lookups under Git Bash with nothing but PATH and HOME and compared spellings instead of directories; `test/installed-hooks-run.test.mjs`
+  ran the `.ps1` shims with a PATH without `System32\WindowsPowerShell\v1.0`, so their `& powershell -File ...` hand-over failed.
+- **Cleanup order.** node:test runs `after` hooks in the order they were added and stops at the first that throws. The memory of
+  `test/serve-token-refuse-cm.test.mjs` was removed before its services were stopped: ENOTEMPTY on Windows, the stopping hooks skipped,
+  one service kept the file alive until the 15-minute timeout. Each test now stops its services first and says so if one still runs.
+  `test/temp-dir.mjs` cleans up through `test/fixture/cleanup.mjs` (waits for both background builds, retries, never a red test over a cleanup).
+- `test/before-edit-twin.test.mjs` names the twin's exit on stderr when it answers with nothing (traced run) - the Windows PowerShell 5.1
+  run of `bin/mem-before-edit.ps1` gave exit 0 and zero bytes in runs 1066 and 1074, cause not yet measured.
+
+### Fixed - recall: an identifier with an underscore is found, one bar for "what the hook shows", one index language per memory (abruf-stamm-cm; port of lucky-mem decision 2pbqt66q0wdj "merge the recall trunk", steps 2 and 3, and its K1 finding)
+
+**K1.** A question with a snake_case identifier (`session_id`; with a capital umlaut `ABSICH...CH_KEINNERN` in the sibling's finding) found nothing on three paths: `mem find --content-words` (also the after-failure hook), the H1 lever of the recall hook call and the SubagentStart task query.
+The index holds `a_b` as ONE term and holds a word with an umlaut in the spelling of the language the entry was read as; every question-side word cutter cut at `_` and wrote umlauts as `ae` (`session` + `id`: terms no entry carries; and an `ae` spelling that an English-read entry never holds, so the typed umlaut is part of the fix here; in the sibling it was innocent).
+`search.contentWords(text, { typed: true })` and `search.typedWords()` keep `_` and the typed umlaut (the filter still looks at the `ae` spelling); `retrievalQuery` and the H1 split use them, `search()` normalises per language pack as it does for a plain `mem find`.
+Text-against-text readers (error fixes, neighbours, the project check) keep the old cut; the hyphen still cuts (the index holds the whole and the parts). Plain `mem find` and the hook's default call already found it (control in the probe).
+Probe `test/k1-underscore.test.mjs` (pure cutters, three paths, the real hook script, red proof against the base), four mutants.
+**What K1 costs (named, kept for parity with the sibling, held by a probe).** A snake_case token in a question is now searched as a WHOLE word only; the loose part hits on prose are gone. Example: the entry "the peer closed the socket" is no longer found by the question `socket_closed_by_peer` over `find --content-words --weak` (the path of `bin/mem-after-failure`): it scored 8.02 on a seven-entry scratch memory before (16.88 in the reviewer's corpus) and gives no hit now; an entry that carries `socket_closed_by_peer` itself is found, and the same words typed with spaces still find the prose entry. The probe (`test/k1-underscore.test.mjs`, D) holds this on purpose, so a later "whole word AND its parts" is a decision, not a drift; that question is open.
+
+**One predicate.** "Score at or over the bar, or an exact hit" was written out in the renderer, in the H5 path of the hook, in the journal line of `mem find` and, with a bar of its own, in `bench/recall-levers.mjs` (twice) and `bench/coverage-floor-sweep.mjs` (the measurement of what the hook would show; it also mapped an exact hit to a boolean).
+`recallrender.clears()` and `RECALL_MIN` are now the one place; the renderer, the H5 filter, the journal line of `mem find --journal-session`, the SubagentStart bar and the two benches (`recall-levers`, `coverage-floor-sweep`) use them, and `test/recall-bar.test.mjs` holds `bin/mem-retrieve`, its `.ps1` twin and the environment register to the one number.
+The hook's block is byte for byte the old one (6 hit lists x 7 settings; renderHits over 5 bars). `bench/gold-compare.mjs` and the other benches already go through `bin/mem find` and were not touched.
+
+**One index language, one load.** The index cache is kept per language and a cache of another language is `stale`. `mem find` asked for the memory's configured language; the SubagentStart block, the short-prompt check of the hook, the content-word shortening and a dozen readers asked for nothing, i.e. 'en': on a memory configured for another language they and `mem find` took turns rebuilding the cache (`stale` on every alternate load, the cache directory replaced each time).
+`search.loadIndex()` now takes the config's language when the caller names none (English memories unchanged; a named language still wins). `mem find --content-words` on a long question loaded the index for the shortening and again for the search; it opens it once (2 loads before, 1 now).
+The SubagentStart query also reads the request-frame switch from the `env` it is given (it read the process's). Probes `test/recall-index-language.test.mjs`, `test/subagent-given-env.test.mjs`; thirteen mutants in all.
+What was NOT built, with the evidence for the follow-up, is in the branch report: a total byte budget over the pieces of the hook's answer (header, clone line, hit lines, skill offer, workflow block) and over the SubagentStart blocks, and one search plan for `mem find`, `mem_find` (a hand-written copy of the ranked branch without the exact lane, the echo filter or MMR), the hook and the task query.
+
+### Fixed / Performance - dashboard tempo: the stamp ignores every derived cache, "Confirm answer" is fresh at once, a waiting part retry is dropped (dashboard-tempo-cm, port of the sibling's D-C, H7 and R4)
+
+Inventory first, against the sibling's building blocks (deferred parts, page versions, cache with a generation stamp,
+full-build line, the headline, H7, R4). Already in cheap-mem and NOT built again: deferred parts with a bounded retry
+(0d74136), page files with a version mark (`?v=`, immutable, ETag, gzip), the cache with stamp, TTL from the end of the
+build and the minimum gap, the head on disk, the placeholder and the quick head, the full-build line (64 MB, then the
+compact build) and the doctor's full-build and full-read switches, live parts after a write of your own (d068d4d), full
+width (ef130c1), browser probes that wait for an end state (startView, e1c24d6). The sibling's incremental usage table
+has no counterpart here (cheap-mem has no usage bonus in the ranking). Built:
+
+- **The stamp (R4).** One search with `MEM_EXPAND=1` wrote `.mem/search-index-expand`, which the stamp counted: the
+  dashboard took the store as changed and rebuilt. The same for the component table the pre-edit hook rebuilds (with its
+  lock and log), the time track (with its build lock), the drawer locks and the scratch names of an atomic write.
+  `isDerived()` strips the expand suffix and the scratch forms; DERIVED names the rest. `recallserver.codeState()` adds
+  the newest ctime: a change of the same size with the mtime set back went unseen. Probe
+  `test/dash-stamp-r4-cm.test.mjs`, red 3 of 7 on dc6b69d.
+- **"Confirm answer" (H7).** The task `question-confirm` was rebuild-only: after the click the page read the stored
+  state, the question still "answered, waiting for you", the button still there, also after a reload. Now it names the
+  live part `questions` (the open and the waiting questions through `dashboardData.questionLists`, the one place the
+  build calls too). 107 ms median on 5000 entries with 60 questions against 5.7 s for the full build (load about 15,
+  4 cores). A compact store keeps its stored lists and says why. Probe `test/dash-confirm-fresh-cm.test.mjs` (module,
+  data route, browser with the rebuild held 120 s), red 4 of 4 on dc6b69d.
+- **An unreadable question drawer (review).** `question.all()` skipped a drawer it could not read (`catch { continue; }`):
+  with `global/questions.jsonl` a folder (EISDIR; on Windows also a file a scanner holds) the new live part reported no
+  error and open 0 / waiting 0, so after a confirm every question vanished silently as a fresh state. It now throws the
+  `memory.ReadError` that names the drawer (a missing drawer still reads as none). Every caller says it: the live part
+  names it in `live_errors` and keeps the stored lists, the dashboard and board tiles read "not measurable", the
+  per-project counts are `null` (the page says "questions unknown"), `mem questions` and `mem questions confirm` exit 1
+  with the message and write nothing, the MCP tool returns it as an error. Probe `test/question-unreadable-cm.test.mjs`
+  (a real folder in place of the drawer), red 4 of 5 on 764e829.
+- **A waiting part retry.** When a newer data load starts its own round of parts, the retry still waiting from the round
+  before is dropped (it fetched every part a second time; seen once on a cold start whose first answer was the quick
+  head, 0 of 7 further cold starts). Probe `test/dash-later-once-cm-browser.test.mjs`, red on dc6b69d.
+
+Measured with `bench/board-tempo.mjs --browser --warm 5` on a synthetic store of 5000 entries (`bench/scale.mjs`), the
+head on disk removed before each run, 5 runs each, median, load 11.7-17.6 on 4 cores:
+
+| | first display, cold | done, cold | first display, warm (25) | done, warm (25) |
+|---|---|---|---|---|
+| base dc6b69d (run 1, load median 12.7) | 1045 ms | 10.49 s | 1179 ms | 4.99 s |
+| base dc6b69d (run 2, load median 14.1) | 1035 ms | 10.50 s | 1138 ms | 5.21 s |
+| this branch (load median 12.0) | 758 ms | 9.85 s | 400 ms | 4.88 s |
+
+The differences lie within the scatter of the runs (cold done 9.6-11.1 s on the base, 9.1-11.5 s here; warm first
+display is bimodal, about 0.3 s or 1.2-2.5 s, in both): these changes do not make the measured page faster on this store,
+and none of them was meant to. They remove rebuilds and requests that a real store with document expansion, a busy
+pre-edit hook or a quick head at the start pays for.
+
+### Security - round 3 of the own-tool rule: the Windows start hook's provenance block, the provisioning variable, two honest limits (tool-trust-cm, review)
+
+- **The Windows start hook imported `<memory>\src\provenance.mjs` without the switch.** The block "Which clone answers" in the generated hook took the memory's module first and ran it with `node -e`; the file
+  asked the rule elsewhere, which hid it from the file-level ratchet. It goes through `Find-OwnTool` now, like every other lookup. The POSIX side was already right (the picking function of `bin/_owntool.sh`). The ratchet is per LINE now: a line
+  that names `<memory>/bin|src` (or the tool file looked up under the memory root) must ask the rule itself or sit right behind the gate that does; the old block is its positive control; the mutant puts it back.
+- **Deny `Bash(*CHEAP_MEM_PROVISION*)`** (and `PowerShell(...)` on Windows): that a variable in front of `node` leaves the allow list is the documented reading, not proved, and together with a quote-split command name it
+  would be a way. The forms test has the three combinations. A shell line that mentions the variable (even a `grep`) is refused by this rule; a provisioning script sets it outside Claude Code.
+- **Not blocked: `~/.claude/settings.json` and `~/.claude/hooks/`** (Write/Edit there is legitimate Claude Code work). A session that may write there can change the deny lines and `cheap-mem-own-tool.sh`; said in
+  `docs/security-model.md` 4.1 and T10: a fence, not a lock. The `PowerShell(...)` rule name is marked UNVERIFIED: no other place in the repository uses it.
+
+### Security - follow-up on the own-tool rule: the switch command could be reached around the deny rule, hooks installed earlier, a marker written through a symlink (tool-trust-cm, review)
+
+- **The deny rule was narrow.** `Bash(node <tool>/bin/mem trust-own-tool:*)` is a prefix; `node <tool>/bin/mem --root <memory> trust-own-tool --non-interactive` matched the ALLOW rule `node <tool>/bin/mem:*`
+  and not the deny rule, and ran ("Trusted", reproduced in a scratch). Now: (a) `--non-interactive` works only with `CHEAP_MEM_PROVISION=1` in the environment (new variable, `src/envregister.mjs`,
+  `docs/environment-variables.md`); a variable in front of `node` takes the call out of the allow list; (b) the deny list holds `Bash(*trust-own-tool*)` (and `PowerShell(*trust-own-tool*)` on Windows);
+  (c) `test/own-tool.test.mjs` matches eleven real call spellings against the rules the installer WRITES, with the documented reading of Claude Code's rule syntax; (d) the documentation says what this is:
+  the rules work through the permission system, a session allowed to run any shell command (bypass/auto) can still write the switch file. Restrisiko, not closed.
+- **`Write`/`Edit` were allowed across the board**, the switch file included: both are denied for `~/.config/cheap-mem/**` (or `$XDG_CONFIG_HOME`, `%APPDATA%\cheap-mem` in the `//c/Users/...` form).
+- **Hooks installed before the rule are not protected.** `mem doctor` (`integration-contract`) now WARNs "installed hooks predate the own-tool rule - run the installer" for a shim that does not ask the rule or has no
+  `cheap-mem-own-tool.sh|.ps1` beside it. The protection works only after the installer has run again.
+- **A marker written through a symlink.** `install/support/tool-missing.sh` wrote `<memory>/.pipeline/tool-missing-<hook>` with `: >`; a committed symlink there cut a user's file to zero bytes (reproduced:
+  `'' !== 'precious'`). The marker now lives in the user's state directory (`$XDG_STATE_HOME/cheap-mem`, `%LOCALAPPDATA%\cheap-mem`), a link at the marker place is not written through; the `.ps1` twin likewise.
+- **Texts made true:** the start hook no longer advises checking the tool out "into that memory"; the installer's closing "tool:" line says NONE when the checkout lies inside the memory and is untrusted; the
+  tool-missing message tells a MISSING tool from one that is there but lies in the memory; the start message comes at every SessionStart event (not "once"); the trust hangs on the PATH, so a re-clone at the same
+  path inherits it (`--off` before deleting); a stale `allow` entry goes in its backslash spelling too, and an identical entry typed by hand cannot be told apart and goes with it.
+- **PowerShell twin:** a directory that is itself a link/junction is followed (`ResolveLinkTarget`, 5.1: `Target`), a relative path is read against `$PWD`; a link in the middle of the path and 8.3 names stay
+  unresolved and read "not trusted". **`setTrusted`** refuses a memory path with a line break.
+- Unchanged and out of this change: files the hooks write into the memory elsewhere (turn counters, journals), and `claude -p` with its working directory in the memory (`bin/mem-watch`, `bin/mem-digest`).
+
+### Security - a memory no longer runs its own code unless the user says so (tool-trust-cm; Lucky's decision 2026-10-16: only the installed tool, the exception by switch)
+
+- **The hole.** All seven Claude Code hook shims looked for `<memory>/bin/mem-retrieve` (and the six others) BEFORE the installed tool (`CHEAP_MEM_CODE`). `bin/mem-retrieve`, `bin/mem-before-edit`,
+  `bin/mem-after-failure` and `bin/mem-catch-fail` then preferred `<memory>/bin/mem` and loaded `<memory>/src/*.mjs`; `bin/mem-stop` took `src/answercheck.mjs`, `src/closingreport.mjs`, `bin/mem-capture` and
+  `bin/mem-reflect` from the memory, `bin/mem-subagent-start` took `src/subagentstart.mjs`, the session-start hook ran `<memory>/bin/mem`, and the installer allowed `Bash(node <memory>/bin/mem:*)`.
+  `mem-retrieve` pulls the memory from origin every ten minutes, so whoever could push there ran code at every prompt. Proof against base 151eb2f: a scratch memory with marker-writing
+  `bin/mem-retrieve`, `bin/mem` and five more hook scripts, hooks installed into a scratch HOME, every installed shim started: all seven markers appeared. Now none does; with the switch all seven do.
+- **The rule.** The installed tool first (`CHEAP_MEM_CODE`), else the tool next to the script. The memory's own `bin/` and `src/` only when the user switched that on, locally and outside every repository.
+  A checkout that lies inside the memory counts as the memory's own. One rule, three implementations that are held to the same answer: `src/owntool.mjs` (the command), `bin/_owntool.sh`
+  (installed next to the shims as `cheap-mem-own-tool.sh`) and `bin/_owntool.ps1` (`cheap-mem-own-tool.ps1`). Anything unreadable means "not trusted".
+- **The switch.** `mem trust-own-tool [--off] [--status]` writes one line (the memory's real path) to `${XDG_CONFIG_HOME:-~/.config}/cheap-mem/own-tool-roots` (Windows `%APPDATA%\cheap-mem\`).
+  Not `.mem/config.json` (versioned: the remote would set it), not `.git/config` (needs a `git` start on every prompt, a memory need not be a repository). A `git pull` cannot write it.
+  The command needs a terminal (`--non-interactive` for provisioning), is on the installer's DENY list and is not an MCP tool. New command, so `src/cli/command-index.mjs`, the help block, README and quickstart.
+- **Permissions.** `install/claude-code.sh` and `install/windows.ps1` allow `node <installed tool>/bin/mem:*` always and `node <memory>/bin/mem:*` only with the switch; an entry an earlier run wrote is removed
+  when the switch is off. `mem-handle-post`, `mem-reflect` and the sub-agent hint now tell the model to call the installed tool (they named `<memory>/bin/mem`).
+- **No silent deviation.** A memory that ships its own tool with the switch off: the session start says once `memory ships its own tool; using the installed one. To trust it: mem trust-own-tool`;
+  with no installed tool it says nothing is loaded, and the other hooks' tool-missing message (`MEM_OWN_SKIPPED`, now also spoken without `CHEAP_MEM_CODE`) says why.
+- **Cost, measured** (idle machine, Linux, bash 5.2, 200 calls): the decision in a shim (the picking function of `bin/_owntool.sh`, switch off, one candidate passed over) takes 0.53 ms, the trust check alone 0.19 ms. A first version
+  that returned its results through `$(...)` took 16.7 ms: every command substitution is a fork, so `bin/_owntool.sh` hands results over in variables and runs no subshell and no `dirname`.
+- **Changed behaviour.** An existing install whose memory carries its own tool (a lucky-mem style memory) runs the installed tool after this change until `mem trust-own-tool` is run for it and the installer
+  is run again. `docs/security-model.md` section 4.1 and threat row T10; guard `test/own-tool.test.mjs`. `CHEAP_MEM_CODE`'s register row changed from "memory first" to "installed first".
+
 ### Fixed - CI run 1060: a test helper red under `npm test`, and the mutation job without history
 
 `npm test` is `node --test` with no file list, so it also runs every helper under `test/`. `test/helpers/linear-probes.mjs`

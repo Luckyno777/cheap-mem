@@ -36,11 +36,13 @@ import { fileURLToPath } from 'node:url';
 import { loadCases, loadWorld, buildWorld } from './gold-compare.mjs';
 import { buildCorpus } from './scale.mjs';
 import * as memory from '../src/memory.mjs';
+import { clears, RECALL_MIN } from '../src/recallrender.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..');
 export const PINNED_OLD = 'b5959ed38a2d859a762df7da893f6ce17b0ee0cb';
-const BAR = 5.0;
+// What counts as shown is the hook's own predicate (`recallrender.clears`), not a copy of it here.
+const BAR = RECALL_MIN;
 
 const EN = ['explain ', 'please show me ', 'can you tell me '];
 const DE = ['erklaer mir ', 'zeig mir ', null];
@@ -84,9 +86,9 @@ function ask(root, tree, recall, env, q, c) {
   const r = spawnSync(process.execPath, argv, { encoding: 'utf8', cwd: root, timeout: 60000, env: { ...process.env, CHEAP_MEM_ROOT: '', ...env } });
   if (r.status !== 0) throw new Error(`mem find exited ${r.status}: ${String(r.stderr).slice(0, 200)}`);
   const raw = JSON.parse(r.stdout).hits.map((h) => ({
-    id: h.entry?.id ?? null, score: h.score, exact: (h.exact?.length ?? 0) > 0, size: JSON.stringify(h.entry).length,
+    id: h.entry?.id ?? null, score: h.score, exact: h.exact ?? [], size: JSON.stringify(h.entry).length,
   }));
-  return { raw, shown: raw.filter((h) => h.score >= BAR || h.exact) };
+  return { raw, shown: raw.filter((h) => clears(h, BAR)) };
 }
 
 const SIDES = (old) => ({
@@ -135,7 +137,7 @@ export async function measure({ size = 0, ref = PINNED_OLD } = {}) {
       out.extras.push({
         case: c.id, extra: extra.id, score: +extra.score.toFixed(2), lastOfHardCut: +last.score.toFixed(2),
         position: extra.score > last.score ? 'above' : 'below',
-        shownAtHookBar: extra.score >= BAR || extra.exact,
+        shownAtHookBar: clears(extra, BAR),
         forbidden: (c.forbidden ?? []).includes(extra.id), expected: c.expected.includes(extra.id),
       });
     }

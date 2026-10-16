@@ -16,28 +16,63 @@
 # JSON field `systemMessage` on stdout, which Claude Code shows to the
 # person and does NOT add to the model's context; the same text goes to
 # stderr, which on exit 0 is only visible in debug mode. At most once per
-# 30 minutes per hook (a marker under <memory>/.pipeline/, gitignored):
+# 30 minutes per hook (a marker in the user's state directory, see below):
 # a line before every edit would be skimmed past within a day.
 #
 # **When it stays silent.** Without CHEAP_MEM_CODE in the environment: the
 # installer always sets it, so its absence means the shim was started by
 # hand or by a test, and there nothing was promised.
+#
+# **The memory's own tool, not trusted (tool-trust-cm, 2026-10-16).** The shim
+# passes MEM_OWN_SKIPPED=1 when the memory ships the tool but the user never
+# switched that on (`mem trust-own-tool`), and no installed tool could take its
+# place. That case speaks even without CHEAP_MEM_CODE: the installer was never
+# run, and the hook would otherwise be silent on every prompt for a reason a
+# person can fix in one line.
 set -u
 name="${1:-hook}"
 tool="${2:-mem}"
 code="${CHEAP_MEM_CODE:-}"
-[ -n "$code" ] || exit 0
-if [ ! -d "$code" ]; then why="CHEAP_MEM_CODE=$code does not exist"
+skipped="${MEM_OWN_SKIPPED:-0}"
+[ -n "$code" ] || [ "$skipped" = "1" ] || exit 0
+if [ "$skipped" = "1" ]; then
+  # Two different facts, said apart: the tool is MISSING, or it is THERE but lies in the memory and was passed over.
+  why="the memory ships its own tool, which is not trusted"
+  if [ -z "$code" ]; then why="$why, and no installed tool is configured (CHEAP_MEM_CODE is not set)"
+  elif [ -f "$code/bin/$tool" ]; then why="$why; the installed tool (CHEAP_MEM_CODE=$code) lies inside the memory, so it counts as the memory's own and was passed over"
+  else why="$why, and the installed tool is missing (CHEAP_MEM_CODE=$code has no bin/$tool)"; fi
+elif [ ! -d "$code" ]; then why="CHEAP_MEM_CODE=$code does not exist"
 else why="CHEAP_MEM_CODE=$code has no bin/$tool"; fi
 
+# The "at most every 30 minutes" marker lives in the USER's state directory, never in the memory.
+# It used to be <memory>/.pipeline/tool-missing-<hook>, written with `: >`, and a memory is a git
+# clone: a committed symlink at that path (or at .pipeline itself) made the shell cut whatever file
+# it pointed at to zero bytes (found by the reviewer, 2026-10-16). Nothing from the memory is
+# followed any more; the memory only contributes its path, as a checksum in the marker's name.
 root="${CHEAP_MEM_ROOT:-}"
 if [ -n "$root" ]; then
-  mark="$root/.pipeline/tool-missing-$name"
-  if [ -n "$(find "$mark" -mmin -30 2>/dev/null)" ]; then exit 0; fi
-  mkdir -p "$root/.pipeline" 2>/dev/null && : > "$mark" 2>/dev/null
+  state=""
+  case "${XDG_STATE_HOME:-}" in
+    /*) state="$XDG_STATE_HOME" ;;
+    *) [ -n "${LOCALAPPDATA:-}" ] && command -v cygpath >/dev/null 2>&1 && state="$(cygpath -u "$LOCALAPPDATA" 2>/dev/null)"
+       [ -n "$state" ] || { [ -n "${HOME:-}" ] && state="$HOME/.local/state"; } ;;
+  esac
+  if [ -n "$state" ]; then
+    sum="$(printf '%s' "$root" | cksum 2>/dev/null | cut -d' ' -f1)"
+    dir="$state/cheap-mem"
+    mark="$dir/tool-missing-$name-${sum:-0}"
+    # A marker that is a symlink or not a plain file is not trusted: say it (the message is the point), write nothing.
+    if [ -L "$mark" ] || { [ -e "$mark" ] && [ ! -f "$mark" ]; }; then mark=""; fi
+    if [ -n "$mark" ]; then
+      if [ -n "$(find "$mark" -mmin -30 2>/dev/null)" ]; then exit 0; fi
+      if [ ! -L "$dir" ]; then (umask 077; mkdir -p "$dir" 2>/dev/null && : > "$mark" 2>/dev/null); fi
+    fi
+  fi
 fi
 
-msg="cheap-mem: the $name hook is SILENT - it cannot find its tool ($why), so it recalls nothing. Fix: run install/claude-code.sh from a current cheap-mem checkout (CHEAP_MEM_ROOT=<memory> bash <checkout>/install/claude-code.sh, or mem setup claude). Said at most every 30 minutes."
+msg="cheap-mem: the $name hook is SILENT - it cannot find its tool ($why), so it recalls nothing. Fix: run install/claude-code.sh from a current cheap-mem checkout (CHEAP_MEM_ROOT=<memory> bash <checkout>/install/claude-code.sh, or mem setup claude)."
+[ "$skipped" = "1" ] && msg="$msg To run the memory's own tool instead: mem trust-own-tool (yourself, in a terminal; see docs/security-model.md)."
+msg="$msg Said at most every 30 minutes."
 printf '%s\n' "$msg" >&2
 esc="${msg//\\/\\\\}"
 esc="${esc//\"/\\\"}"
