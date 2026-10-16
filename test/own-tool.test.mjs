@@ -668,7 +668,10 @@ test('a checkout installed from INSIDE the memory is the memory\'s own tool: not
 // `|` and a line break, and refuses it when ANY part is denied; it runs it without asking only when EVERY part is
 // allowed. A word in front of `node` (a variable, `env`, `cd x &&`) leaves the allow list. This is a model of that
 // (the documentation's reading, not Claude Code itself); the test holds the rules the installer WRITES to it.
-function bashVerdict(cmd, rules) {
+// `pessimistic`: the other possible reading of the rules, in which Claude Code ignores variable assignments (and `env`)
+// in front of a command when it matches a part against the allow list. The documentation I know does not say so, and
+// the installer must not depend on it: a form is judged under BOTH readings.
+function bashVerdict(cmd, rules, pessimistic = false) {
   const specOf = (r, tool) => { const m = new RegExp(`^${tool}\\((.*)\\)$`, 's').exec(r); return m ? m[1] : null; };
   const hits = (spec, c) => {
     if (spec.endsWith(':*')) { const pre = spec.slice(0, -2); return c === pre || c.startsWith(`${pre} `); }
@@ -677,8 +680,9 @@ function bashVerdict(cmd, rules) {
   };
   const parts = cmd.split(/&&|\|\||;|\||\n/).map((x) => x.trim()).filter(Boolean);
   const on = (list, c) => list.some((r) => { const sp = specOf(r, 'Bash'); return sp !== null && hits(sp, c); });
-  const denied = on(rules.deny, cmd) || parts.some((c) => on(rules.deny, c));
-  const allowed = parts.length > 0 && parts.every((c) => on(rules.allow, c));
+  const bare = (c) => (pessimistic ? c.replace(/^(?:env\s+)?(?:\w+=\S*\s+)+/, '').replace(/^export\s+\w+=\S*$/, 'true') : c);
+  const denied = on(rules.deny, cmd) || parts.some((c) => on(rules.deny, c) || on(rules.deny, bare(c)));
+  const allowed = parts.length > 0 && parts.every((c) => on(rules.allow, bare(c)) || (pessimistic && bare(c) === 'true'));
   return { denied, allowed };
 }
 // A file rule: a leading double slash is an absolute path, `~/` the home directory, a trailing double star any depth.
@@ -719,10 +723,13 @@ test('the written rules: every real way to call the switch command is refused or
     'export first, name split by a quote': `export CHEAP_MEM_PROVISION=1 && node ${code}/bin/mem trust-own-"tool" --non-interactive`,
     'env in front, name split by a quote': `env CHEAP_MEM_PROVISION=1 node ${code}/bin/mem trust-own-'tool' --non-interactive`,
   };
-  for (const [name, cmd] of Object.entries(forms)) {
-    const v = bashVerdict(cmd, rules);
-    assert.ok(v.denied || !v.allowed, `[${name}] would run WITHOUT asking: ${cmd}\n(denied=${v.denied}, allowed=${v.allowed})`);
+  for (const pessimistic of [false, true]) {
+    for (const [name, cmd] of Object.entries(forms)) {
+      const v = bashVerdict(cmd, rules, pessimistic);
+      assert.ok(v.denied || !v.allowed, `[${name}${pessimistic ? ', variables ignored' : ''}] would run WITHOUT asking: ${cmd}\n(denied=${v.denied}, allowed=${v.allowed})`);
+    }
   }
+  assert.ok(rules.deny.includes('Bash(*CHEAP_MEM_PROVISION*)'), 'the provisioning variable is not denied wherever it stands');
   // Control: the matcher is not simply refusing everything - the installed tool's ordinary use goes through.
   const ok = bashVerdict(`node ${code}/bin/mem find "x" --top 3`, rules);
   assert.equal(ok.allowed && !ok.denied, true, 'the installed tool\'s ordinary commands must stay allowed');
