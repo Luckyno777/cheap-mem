@@ -304,3 +304,48 @@ test('both reflectors (sh and ps1) hand the model the copy, clean up, and keep t
   assert.ok(sh.indexOf('unset TRANSCRIPT_PATH_ENV') < sh.indexOf('export TRANSCRIPT_PATH'));
   assert.ok(ps.indexOf('Remove-Item Env:TRANSCRIPT_PATH_ENV') < ps.indexOf('Start-Job'));
 });
+
+// CI run 1074 (windows node 20): a source that fails while it is read left one empty mem-reflect-* directory behind.
+// The copy's own file was still open when the error path removed the directory, and Windows does not remove a
+// directory that holds an open file. The probe watches the removal itself: at the moment `fs.rmSync` is called on the
+// copy's directory, no descriptor of this process may point into it. Linux shows the descriptors in /proc/self/fd;
+// elsewhere there is no such view, and the probe holds the outcome (rejected, nothing left) - the Windows half of the
+// proof is the CLI test above on windows-latest. RED PROOF against the base 04ca129: the write stream is still open.
+test('a source that fails mid-read: every file of the copy is closed before its directory is removed', async (t) => {
+  const { makeCopy } = await import(new URL('../bin/mem-mask-copy.mjs', import.meta.url).href);
+  const d = scratch();
+  const realRm = fs.rmSync;
+  const seen = [];
+  try {
+    // A directory as the source: opening it works on Linux, reading it fails (EISDIR) - after the copy file is open.
+    const source = path.join(d, 'a-directory');
+    fs.mkdirSync(source);
+    const before = leftovers().length;
+    const hasProc = fs.existsSync('/proc/self/fd');
+    const spy = t.mock.method(fs, 'rmSync', (p, ...rest) => {
+      if (typeof p === 'string' && path.basename(p).startsWith('mem-reflect-') && hasProc) {
+        const into = fs.readdirSync('/proc/self/fd').map((n) => { try { return fs.readlinkSync(`/proc/self/fd/${n}`); } catch { return ''; } })
+          .filter((l) => l.startsWith(p + path.sep) || l === p);
+        seen.push(...into);
+      }
+      return realRm(p, ...rest);
+    });
+    await assert.rejects(makeCopy(source, null));
+    spy.mock.restore();
+    assert.deepEqual(seen, [], `open while its directory was removed: ${seen.join(', ')}`);
+    assert.equal(leftovers().length, before, 'a mem-reflect-* directory was left behind');
+    if (hasProc) {
+      // POSITIVE CONTROL of the instrument: a file held open inside such a directory IS seen.
+      const probeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mem-reflect-'));
+      const fd = fs.openSync(path.join(probeDir, 'x'), 'w');
+      const open = fs.readdirSync('/proc/self/fd').map((n) => { try { return fs.readlinkSync(`/proc/self/fd/${n}`); } catch { return ''; } })
+        .filter((l) => l.startsWith(probeDir + path.sep));
+      fs.closeSync(fd);
+      realRm(probeDir, { recursive: true, force: true });
+      assert.equal(open.length, 1, 'the /proc view does not show an open file - the probe would see nothing');
+    }
+  } finally {
+    t.mock.restoreAll();
+    realRm(d, { recursive: true, force: true });
+  }
+});

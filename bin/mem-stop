@@ -87,7 +87,8 @@ done
 # `$0` is a path from outside too: on Windows `dirname` of a
 # backslash path returns `.`, so this would become the CURRENT
 # directory instead of bin/.
-HERE="$(cd "$(dirname "$(to_slashes "$0")")" && pwd)"
+# Git Bash: `pwd -W` is the Windows form node.exe can open (MSYS2 leaves a path with an apostrophe untranslated; install/claude-code.sh).
+HERE="$(cd "$(dirname "$(to_slashes "$0")")" && { pwd -W 2>/dev/null || pwd; })"
 
 STDIN_JSON=""
 if [ ! -t 0 ]; then STDIN_JSON="$(cat 2>/dev/null || true)"; fi

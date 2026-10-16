@@ -133,7 +133,8 @@ done
 # so HOOK_DIR became the CURRENT directory instead of bin/. The tool
 # next to the hook was then not found and the hook exited 0 in
 # silence — the same failure as the root lookup, one line further on.
-HOOK_DIR="$(cd "$(dirname "$(to_slashes "$0")")" && pwd)"
+# Git Bash: `pwd -W` is the Windows form node.exe can open (MSYS2 leaves a path with an apostrophe untranslated; install/claude-code.sh).
+HOOK_DIR="$(cd "$(dirname "$(to_slashes "$0")")" && { pwd -W 2>/dev/null || pwd; })"
 if [ -f "$ROOT/bin/mem" ]; then
   TOOL_ROOT="$ROOT"
 elif [ -f "$HOOK_DIR/mem" ]; then

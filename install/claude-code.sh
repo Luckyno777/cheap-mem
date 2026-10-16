@@ -30,13 +30,22 @@ if [ -z "${CHEAP_MEM_ROOT:-}" ]; then
   echo "error: env CHEAP_MEM_ROOT missing" >&2
   exit 2
 fi
-CHEAP_MEM_ROOT="$(cd "$CHEAP_MEM_ROOT" && pwd)"
+# Both paths below are BAKED into every shim, and the hooks hand them to
+# node.exe on Windows. MSYS2 translates a POSIX path (`/c/Users/...`,
+# `/tmp/...`) in an argument or environment value for a native program,
+# but it leaves alone any value holding an apostrophe, a backtick, `*`,
+# `?`, `[` or `]` (msys2-runtime, msys2_path_conv.cc). node then read
+# `/tmp/x/mem's root` as C:\tmp\x\..., and every shim of an install in a
+# folder with an apostrophe answered with nothing (CI run 1074). Under Git Bash
+# `pwd -W` gives the Windows form with forward slashes, which bash and
+# node both read and which needs no translation; elsewhere it is `pwd`.
+CHEAP_MEM_ROOT="$(cd "$CHEAP_MEM_ROOT" && { pwd -W 2>/dev/null || pwd; })"
 if [ ! -f "$CHEAP_MEM_ROOT/.mem/config.json" ]; then
   echo "error: $CHEAP_MEM_ROOT/.mem/config.json not found — run 'mem init' first" >&2
   exit 2
 fi
 
-HERE="$(cd "$(dirname "$0")" && pwd)"
+HERE="$(cd "$(dirname "$0")" && { pwd -W 2>/dev/null || pwd; })"
 CODE_ROOT="$(dirname "$HERE")"
 CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
 HOOKS_DIR="$CLAUDE_HOME/hooks"
