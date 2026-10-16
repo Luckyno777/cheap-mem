@@ -81,8 +81,17 @@ $Here = Split-Path -Parent $PSCommandPath
 # Two shapes, same as mem-before-edit.ps1: the memory carries the
 # module itself, or a separate code checkout does.
 $Module = $null
-foreach ($c in @((Join-Path $Root 'src/subagentstart.mjs'), (Join-Path $Here '../src/subagentstart.mjs'))) {
-  if (Test-Path -LiteralPath $c) { $Module = $c; break }
+# Not the memory's copy unless the user switched that on (tool-trust-cm,
+# 2026-10-16): the memory is a git clone pulled from origin, and a module taken
+# from it is code its remote can ship. bin\_owntool.ps1 picks: the memory's copy
+# (switch only), else the installed tool (CHEAP_MEM_CODE), else the tool this
+# script sits in.
+$OwnToolLib = Join-Path $Here '_owntool.ps1'
+if (Test-Path -LiteralPath $OwnToolLib) {
+  . $OwnToolLib
+  $Module = (Find-OwnTool -Root $Root -Rel 'src/subagentstart.mjs' -Self $Here).Path
+} elseif (Test-Path -LiteralPath (Join-Path $Here '../src/subagentstart.mjs')) {
+  $Module = Join-Path $Here '../src/subagentstart.mjs'
 }
 if (-not $Module) { exit 0 }
 

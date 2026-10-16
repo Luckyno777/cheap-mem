@@ -63,6 +63,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isMain } from './ismain.mjs';
+import * as ownTool from './owntool.mjs';
 
 export const CODE_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -384,19 +385,10 @@ export function detectClients({ settingsPaths = [], matrix = MATRIX } = {}) {
 }
 
 /**
- * Registered, but silent: the hooks the settings file names, whose baked-in
- * code path points at nothing. (2026-10-16.) Every shim the installer
- * writes carries the memory root and the code location as text
- * (`export CHEAP_MEM_CODE='...'` in a .sh, `else { '...' }` in a .ps1).
- * When neither holds a `bin/mem`, the shim finds no tool and - before the
- * tool-missing message existed - exited 0 with no byte on every prompt. The
- * hook is registered and runs; it does nothing. That is read here from the
- * installed files, not guessed from the journal: no timing, no threshold,
- * and no false alarm on a machine nobody uses.
- *
- * Returns `[{ hook, code }]`, one per silent shim (empty: none is).
+ * Every shim the settings files register (`cheap-mem-<name>.sh|.ps1`), read as text: `script`, `text`, `isPs`, and
+ * the memory root and code path baked into it (`undefined` when the shim does not say). The two checks below read it.
  */
-function silentHooks(settingsPaths = []) {
+function installedShims(settingsPaths = []) {
   const out = [];
   const seen = new Set();
   // MSYS paths (/c/Users/..) mean nothing to a Windows node process.
@@ -426,16 +418,55 @@ function silentHooks(settingsPaths = []) {
           const isPs = script.endsWith('.ps1');
           const f = isPs ? ps : sh;
           const clean = (v) => (v === undefined ? undefined : native(isPs ? v.replace(/''/g, "'") : unq(v)));
-          const root = clean(f.root);
-          const code = clean(f.code);
-          // Only a shim that says where its code is can be judged; a hook
-          // of another make, or an older shim, is not accused.
-          if (code === undefined) continue;
-          const has = (d) => d && fs.existsSync(path.join(d, 'bin', 'mem'));
-          if (!has(code) && !has(root)) out.push({ hook: path.basename(script), code });
+          out.push({ script: native(script), text, isPs, root: clean(f.root), code: clean(f.code) });
         }
       }
     }
+  }
+  return out;
+}
+
+/**
+ * Registered, but silent: the hooks the settings file names, whose baked-in
+ * code path points at nothing. (2026-10-16.) Every shim the installer
+ * writes carries the memory root and the code location as text
+ * (`export CHEAP_MEM_CODE='...'` in a .sh, `else { '...' }` in a .ps1).
+ * When neither holds a `bin/mem`, the shim finds no tool and - before the
+ * tool-missing message existed - exited 0 with no byte on every prompt. The
+ * hook is registered and runs; it does nothing. That is read here from the
+ * installed files, not guessed from the journal: no timing, no threshold,
+ * and no false alarm on a machine nobody uses.
+ *
+ * `silentHooks()` returns `[{ hook, code }]`, one per silent shim (empty: none is).
+ */
+function silentHooks(settingsPaths = []) {
+  const out = [];
+  for (const { script, root, code } of installedShims(settingsPaths)) {
+    // Only a shim that says where its code is can be judged; a hook
+    // of another make, or an older shim, is not accused.
+    if (code === undefined) continue;
+    const has = (d) => d && fs.existsSync(path.join(d, 'bin', 'mem'));
+    // The memory's own tool counts only when the user trusted it (src/owntool.mjs):
+    // otherwise the shim passes it over, and a shim with nothing else is silent.
+    if (!has(code) && !(has(root) && ownTool.isTrusted(root))) out.push({ hook: path.basename(script), code });
+  }
+  return out;
+}
+
+/**
+ * Installed before the own-tool rule (tool-trust-cm, 2026-10-16): a shim of our make that does not ask the
+ * rule, or whose rule file is not installed next to it. Such a hook still looks in the memory FIRST, so the
+ * protection does not exist on this machine until the installer runs again. Returns `[{ hook, why }]`.
+ */
+function predatingHooks(settingsPaths = []) {
+  const out = [];
+  for (const { script, text, isPs, code } of installedShims(settingsPaths)) {
+    if (code === undefined) continue; // not our make, or older than the code-path line: not judged here
+    if (/cheap-mem-tool-missing\./.test(path.basename(script))) continue;
+    const calls = isPs ? /Find-OwnTool/.test(text) : /mem_pick_tool/.test(text);
+    const helper = path.join(path.dirname(script), isPs ? 'cheap-mem-own-tool.ps1' : 'cheap-mem-own-tool.sh');
+    if (!calls) out.push({ hook: path.basename(script), why: 'does not ask the rule' });
+    else if (!fs.existsSync(helper)) out.push({ hook: path.basename(script), why: `${path.basename(helper)} is not installed next to it` });
   }
   return out;
 }
@@ -478,8 +509,21 @@ export function judge({ codeRoot = CODE_ROOT, settingsPaths = [], matrix = MATRI
       text: `${silent.length} registered hook(s) are SILENT, the code path baked into them has no tool: `
         + silent.slice(0, 4).map((x) => `${x.hook} (CHEAP_MEM_CODE=${x.code})`).join('; ')
         + (silent.length > 4 ? ` (+${silent.length - 4})` : ''),
-      advice: 'The checkout the installer pointed at was moved or deleted, so recall does not run. '
+      advice: 'The checkout the installer pointed at was moved or deleted, so recall does not run (a memory\'s own bin/ is not used '
+        + 'unless you ran `mem trust-own-tool` for it). '
         + 'Run install/claude-code.sh (Windows: install/windows.ps1) from a current cheap-mem checkout, or `mem setup claude`.',
+    };
+  }
+  const old = predatingHooks(settingsPaths);
+  if (old.length) {
+    return {
+      level: 'warn',
+      text: `installed hooks predate the own-tool rule - run the installer: `
+        + old.slice(0, 4).map((x) => `${x.hook} (${x.why})`).join('; ')
+        + (old.length > 4 ? ` (+${old.length - 4})` : ''),
+      advice: 'These hooks still run a tool that comes with the memory BEFORE the installed one. The protection against code '
+        + 'shipped through the memory\'s remote works only after the installer has run again: install/claude-code.sh '
+        + '(Windows: install/windows.ps1), or `mem setup claude`.',
     };
   }
   const gaps = [];

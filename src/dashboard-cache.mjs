@@ -79,6 +79,7 @@ import { Worker, isMainThread, parentPort, workerData } from 'node:worker_thread
 import * as backlinks from './backlinks.mjs';
 import * as memory from './memory.mjs';
 import * as archive from './archive.mjs';
+import * as expand from './expand.mjs';
 
 /** How often the parent checks the build worker's heap against its cap (ms). */
 const GUARD_MS = 100;
@@ -140,8 +141,27 @@ export const DERIVED = frozenSet([
   'search-index', 'search-index.json', 'backlinks.json', 'langbridge', 'console.json', 'answer-patterns.json',
   // board-tempo-cm: the head the server itself lays down after every build.
   'dashboard-head.json',
+  // dashboard-tempo-cm (the sibling's R4 and its derived list): the component table the pre-edit hook rebuilds in the
+  // background, its lock and log; the time track of large drawers and its build lock; the drawer locks of a write
+  // (the write itself changes the drawer, which the stamp sees). Each is rebuilt from the drawers, none is shown.
+  'component-table.json', 'component-table-rebuild.lock', 'component-table-rebuild.log',
+  'timetrack', 'timetrack-build.lock', 'locks',
 ]);
-const isDerived = (name) => DERIVED.has(name) || /heartbeat/.test(name);
+// dashboard-tempo-cm (the sibling's R4, lever 25): with document expansion (`MEM_EXPAND=1`, src/expand.mjs) the index
+// cache lives in `search-index-expand` - the same derived cache in another index mode. DERIVED knew only the plain
+// form, so one expanded search turned the stamp and the dashboard rebuilt (measured: one `loadIndex()` with the
+// switch on, stamp different). The suffix comes off before the lookup.
+const EXPAND_SUFFIX = expand.cacheSuffix({ MEM_EXPAND: '1' });
+// A derived cache is written beside itself first and renamed into place: `<name>.<pid>.<random>.tmp` (atomicwrite,
+// indexcache) and the old one moved aside as `<name>.stale.<pid>.<random>` (indexcache). Those names change with
+// every write, so they are a pattern; what counts is the name they belong to.
+const SCRATCH_NAME = /(?:\.\d+\.[0-9a-z]+\.tmp|\.stale\.\d+\.[0-9a-z]+)$/;
+/** Is `name` (one path segment) a derived cache the stamp must not see? Exported for the probe. */
+export function isDerived(name) {
+  let base = String(name).replace(SCRATCH_NAME, '');
+  if (EXPAND_SUFFIX && base.endsWith(EXPAND_SUFFIX)) base = base.slice(0, -EXPAND_SUFFIX.length);
+  return DERIVED.has(base) || /heartbeat/.test(base);
+}
 
 function statPart(p, depth, acc) {
   if (isDerived(path.basename(p))) return;

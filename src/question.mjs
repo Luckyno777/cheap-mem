@@ -118,13 +118,24 @@ export function stateFrom(questionTier, edgeTiers) {
  * The GRAPH is read, not a field on the question — otherwise there
  * would be two truths about one state, and one of them would eventually
  * disagree with the other.
+ *
+ * **A drawer that cannot be read throws** (`memory.ReadError`, which names
+ * the file and the cause: a folder where the file belongs, EACCES, a file a
+ * virus scanner holds on Windows). A missing drawer is no question at all and
+ * reads as none; an unreadable one is "unknown", never "none": it used to be
+ * skipped, and every caller then said "no open questions" - after a confirm
+ * on the dashboard all questions vanished silently as a fresh state
+ * (dashboard-tempo-cm review, 2026-10-16). Every caller says it: the board
+ * tile and the dashboard tiles read "not measurable", the dashboard lists and
+ * the live part `questions` carry the reason, `mem questions` and the MCP
+ * tool exit with the message.
  */
 export function all(root, { project = undefined, who = undefined } = {}) {
   const projects = project === undefined ? [null, ...memory.listProjects(root)] : [project];
   const questions = [];
   for (const p of projects) {
-    let res;
-    try { res = memory.readLog(root, TYPE, { project: p }); } catch { continue; }
+    // Missing reads as empty inside readLog; anything else is a ReadError and goes to the caller.
+    const res = memory.readLog(root, TYPE, { project: p });
     const retired = memory.retiredMap(res.entries);
     for (const e of res.entries) {
       if (e.__broken || !e.question || !e.id) continue;

@@ -588,13 +588,16 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {}, p
   }
   let openPerProject = new Map();
   let waitingPerProject = new Map();
+  // A question drawer that cannot be read makes the per-project counts unknown (null), never 0 (question.all throws). The
+  // reason (it names a file path) stays on the questions tile, which says "not measurable" with it.
+  let questionsUnread = null;
   if (!pre) try {
     for (const q of question.all(root)) {
       const k = q._project ?? 'global';
       if (q.open) openPerProject.set(k, (openPerProject.get(k) ?? 0) + 1);
       else if (q.waiting) waitingPerProject.set(k, (waitingPerProject.get(k) ?? 0) + 1);
     }
-  } catch { openPerProject = new Map(); waitingPerProject = new Map(); }
+  } catch (e) { openPerProject = new Map(); waitingPerProject = new Map(); questionsUnread = e?.message || String(e); }
 
   const projects = pre ? pre.projects(mem.agents) : [...perProject.values()].map((p) => ({
     name: p.name,
@@ -609,8 +612,8 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {}, p
     agents: mem.agents
       .filter((a) => Object.keys(a.projects || {}).includes(agentKey(p.name)))
       .map((a) => ({ name: a.name, entries: (a.projects || {})[agentKey(p.name)] ?? 0 })),
-    openQuestions: openPerProject.get(p.name) ?? 0,
-    waitingQuestions: waitingPerProject.get(p.name) ?? 0,
+    openQuestions: questionsUnread ? null : openPerProject.get(p.name) ?? 0,
+    waitingQuestions: questionsUnread ? null : waitingPerProject.get(p.name) ?? 0,
   })).sort((a, b) => b.entries - a.entries || a.name.localeCompare(b.name));
 
   const tiles = [...con.board.tiles]
