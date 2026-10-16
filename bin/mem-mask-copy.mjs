@@ -54,7 +54,8 @@ const BLOCK_MAX_CHARS = 2 * 1024 * 1024;
 /** True when `inner` is `outer` or lies below it (real paths; case-insensitive where the platform is). */
 function isInside(inner, outer) {
   const rel = path.relative(outer, inner);
-  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+  // `..x` is a name inside the root, not a step out of it: only `..` itself or `../` leaves
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel));
 }
 
 async function makeCopy(source, root) {

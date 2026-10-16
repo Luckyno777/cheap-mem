@@ -233,6 +233,12 @@ test('fails closed when the temp directory lies INSIDE the memory root (the refl
     assert.equal(refused.status, 2);
     assert.equal(refused.stdout, '');
     assert.deepEqual(fs.readdirSync(inside), []);
+    // a directory in the root whose NAME starts with `..` is still inside the root
+    const dotted = path.join(root, '..tmp');
+    fs.mkdirSync(dotted);
+    const dottedRun = spawnSync(process.execPath, [MASK, '--root', root, t], { encoding: 'utf8', env: { ...process.env, TMPDIR: dotted, TEMP: dotted, TMP: dotted } });
+    assert.equal(dottedRun.status, 2, 'a `..tmp` directory inside the root is refused too');
+    assert.deepEqual(fs.readdirSync(dotted), []);
     // positive control: a temp directory outside the root is fine
     const ok = spawnSync(process.execPath, [MASK, '--root', root, t], { encoding: 'utf8' });
     assert.equal(ok.status, 0, ok.stderr);
