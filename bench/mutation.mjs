@@ -901,7 +901,7 @@ export const MUTANTS=[
    to:'  let base = String(name);  // MUTANT',
    tests:['test/dash-stamp-r4-cm.test.mjs'] },
 
- { name:'dashboard stamp: the component table and the time track are not derived',
+ { name:'dashboard stamp: the component table, its rebuild lock and log are not derived',
    file:'src/dashboard-cache.mjs',
    from:"  'component-table.json', 'component-table-rebuild.lock', 'component-table-rebuild.log',",
    to:'  // MUTANT: component table not derived',
@@ -977,6 +977,17 @@ export const MUTANTS=[
    from:"if (fs.existsSync(path.join(root, '.git'))) out('  ? tracked runtime files: unknown (git ls-files could not answer)');",
    to:"if (false) out('  ? tracked runtime files: unknown (git ls-files could not answer)');  // MUTANT",
    tests:['test/gitignore-guards.test.mjs'] },
+ { name:'dashboard stamp: the time track, its build lock and the drawer locks are not derived',
+   file:'src/dashboard-cache.mjs',
+   from:"  'timetrack', 'timetrack-build.lock', 'locks',",
+   to:'  // MUTANT: time track and locks not derived',
+   tests:['test/dash-stamp-r4-cm.test.mjs'] },
+
+ { name:'questions: an unreadable question drawer is skipped again (reads as "no questions")',
+   file:'src/question.mjs',
+   from:'    const res = memory.readLog(root, TYPE, { project: p });',
+   to:'    let res; try { res = memory.readLog(root, TYPE, { project: p }); } catch { continue; }  // MUTANT',
+   tests:['test/question-unreadable-cm.test.mjs'] },
 ];
 
 // The modules whose failure is a security or data-integrity failure. The

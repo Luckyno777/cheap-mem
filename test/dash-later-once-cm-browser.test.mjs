@@ -54,6 +54,8 @@ async function scenario({ script = null }, fn) {
     ctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });
     const page = await ctx.newPage();
     page.setDefaultTimeout(60000);
+    // A controllable clock (time still flows): `clock.runFor` lets the 3 s retry run out at once, no fixed wait.
+    await page.clock.install();
     const errors = [];
     page.on('pageerror', (e) => errors.push(e.message));
     if (script) await page.route(/\/dashboard\/app\.js(\?|$)/, (rt) => rt.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', body: script }));
@@ -79,14 +81,20 @@ async function scenario({ script = null }, fn) {
   }
 }
 
+/** Let the old retry's 3 s run out at once, then a round trip that comes after any request the timer issued. */
+async function pastTheRetry(page) {
+  await page.clock.runFor(4000);
+  await page.evaluate(() => fetch('/health', { cache: 'no-store' }).then((r) => r.ok));
+}
+
 test('later once: the newer round takes the part, the retry of the round before is dropped, no second request', { skip: SKIP, timeout: 300000 }, async () => {
   await scenario({}, async (page, answers, errors) => {
-    const real = answers.real;
-    // A later round still asks when a part says building again (checked below): the mechanism is not switched off.
-    answers.mode = 'building';
-    assert.equal(real, 1, 'the newer round asked once');
     const st = await page.evaluate(() => ({ timer: partRetryTimer, spell: partLater }));
-    assert.deepEqual(st, { timer: 0, spell: null }, 'no retry is left waiting (nothing can ask again)');
+    assert.deepEqual(st, { timer: 0, spell: null }, 'no retry is left waiting');
+    await pastTheRetry(page);
+    assert.equal(answers.real, 1, 'past the old retry\'s 3 s: the part was asked once, not a second time');
+    // A later round still asks when a part says building again: the mechanism is not switched off.
+    answers.mode = 'building';
     await page.evaluate(() => loadData({ quiet: true }));
     await page.waitForFunction(() => partRetryTimer === 1, null, { timeout: 30000 });
     assert.deepEqual(errors, []);
@@ -95,9 +103,9 @@ test('later once: the newer round takes the part, the retry of the round before 
 
 test(`later once RED on the base (${BASE.slice(0, 7)}): the old retry fires and asks the part a second time`, { skip: SKIP || NO_BASE, timeout: 300000 }, async () => {
   await scenario({ script: baseScript }, async (page, answers) => {
-    assert.equal(answers.real, 1, 'positive control: the newer round asked once');
     assert.equal(await page.evaluate(() => partRetryTimer), 1, 'the old retry still waits after the part arrived');
-    // Event: the old timer runs out (3 s) and asks again.
+    await pastTheRetry(page);
+    // The second request may still be on its way: wait for the event, bounded.
     for (let i = 0; i < 200 && answers.real < 2; i += 1) await page.waitForTimeout(50);
     assert.equal(answers.real, 2, 'the old state asked the part it already had a second time');
   });

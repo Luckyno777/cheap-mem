@@ -36,6 +36,14 @@ has no counterpart here (cheap-mem has no usage bonus in the ranking). Built:
   build calls too). 107 ms median on 5000 entries with 60 questions against 5.7 s for the full build (load about 15,
   4 cores). A compact store keeps its stored lists and says why. Probe `test/dash-confirm-fresh-cm.test.mjs` (module,
   data route, browser with the rebuild held 120 s), red 4 of 4 on dc6b69d.
+- **An unreadable question drawer (review).** `question.all()` skipped a drawer it could not read (`catch { continue; }`):
+  with `global/questions.jsonl` a folder (EISDIR; on Windows also a file a scanner holds) the new live part reported no
+  error and open 0 / waiting 0, so after a confirm every question vanished silently as a fresh state. It now throws the
+  `memory.ReadError` that names the drawer (a missing drawer still reads as none). Every caller says it: the live part
+  names it in `live_errors` and keeps the stored lists, the dashboard and board tiles read "not measurable", the
+  per-project counts are `null` (the page says "questions unknown"), `mem questions` and `mem questions confirm` exit 1
+  with the message and write nothing, the MCP tool returns it as an error. Probe `test/question-unreadable-cm.test.mjs`
+  (a real folder in place of the drawer), red 4 of 5 on 764e829.
 - **A waiting part retry.** When a newer data load starts its own round of parts, the retry still waiting from the round
   before is dropped (it fetched every part a second time; seen once on a cold start whose first answer was the quick
   head, 0 of 7 further cold starts). Probe `test/dash-later-once-cm-browser.test.mjs`, red on dc6b69d.

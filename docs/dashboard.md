@@ -140,7 +140,9 @@ The `questions` part reads the question drawers and the links of the questions
 (measured 107 ms median on 5000 entries with 60 questions, against 5.7 s for
 the full build, load about 15 on 4 cores). A store built compact keeps its
 stored question lists until the rebuild: reading the whole store is what the
-compact build avoids. A part that cannot be computed is named in
+compact build avoids. An unreadable question drawer (a folder in place of the
+file, a file another program holds) is not "no questions": the part names it and
+keeps the stored lists. A part that cannot be computed is named in
 `cache.live_errors` and said at its card ("Could not be computed fresh ...
 showing the state of HH:MM"), never shown silently old.
 
