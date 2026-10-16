@@ -41,7 +41,7 @@ import * as decisioncard from '../../decisioncard.mjs';
 import * as authority from '../../authority.mjs';
 import { zoneOf } from '../../appointments.mjs';
 import { maskText } from '../../outputguard.mjs';
-import { out, die, warn, checkFlags, numberFlag, isHelp, fieldsFrom, findRoot, requireConfig, authorityArg, textFlag, repeatedFlag } from '../shell.mjs';
+import { out, die, warn, checkFlags, numberFlag, isHelp, fieldsFrom, findRoot, requireConfig, authorityArg, textFlag, repeatedFlag, asMeWriter } from '../shell.mjs';
 import { dateFieldOf, compactLine, countLines, retireCmd } from '../display.mjs';
 
 /** The types whose card list fields (`card_options`, `card_evidence`) may stand several times on the command line. */
@@ -58,6 +58,10 @@ export const COMMANDS = {
         "  Reserved: --project, --root",
         "  Every other --flag becomes a field in the JSONL entry.",
         "  --tags takes a comma-separated list.",
+        "  --as-me    a switch: the writer of the entry is this install's own identity (CHEAP_MEM_AGENT, else",
+        "             `mem whoami`), not the OS account (`human:<user>`). Refused when neither is set. It sets the",
+        "             NAME only: the tier stays what the write path gives (agent); not combined with --agent or",
+        "             --authority; a name that reads as a person (owner, human:<name>) is refused.",
         "  --from <error-id[,...]>  for `log learning`: the error(s) this lesson",
         "             is drawn from — written as `generalizes` links, not as a",
         "             field. An unknown id aborts before anything is written.",
@@ -99,7 +103,10 @@ export const COMMANDS = {
     let data = {};
     // The rules live in fieldsFrom() — once, for `log` and `correction`
     // together. They used to be written out here and again below.
-    Object.assign(data, fieldsFrom('log', args, ['category', 'category-new']));
+    Object.assign(data, fieldsFrom('log', args, ['category', 'category-new', 'as-me']));
+    // `--as-me`: the writer is this install's own identity (`mem whoami` / CHEAP_MEM_AGENT), not the OS account. Name only, no rank.
+    const asMe = asMeWriter(root, cfg, args, 'log');
+    if (asMe) data.agent = asMe;
     // The list fields of a card may stand several times (`--card_options a --card_options b`); the parser keeps only the last value.
     if (CARD_LIST_TYPES.includes(type)) {
       for (const name of ['card_options', 'card_evidence']) {
@@ -634,7 +641,7 @@ export const COMMANDS = {
     if (isHelp(args) || !rest[0]) {
       out([
         'mem card add <target-id> --question "..." --context "..." --option "choice — effect" --option "..." [--option ...]',
-        '                         [--advice "..."] [--evidence <id|path|url>]... [--kind decide|approve|do-it] [--project <name>]',
+        '                         [--advice "..."] [--evidence <id|path|url>]... [--kind decide|approve|do-it] [--project <name>] [--as-me]',
         'mem card list            [--json]',
         '',
         '  What a person is meant to decide or release must be readable by a person: the question in one sentence, what it is',
@@ -647,6 +654,7 @@ export const COMMANDS = {
         '  - --option several times: "choice — effect", 2 to 6; at least one with No / Not / Not now / Discard.',
         `  - Lengths: question at most ${decisioncard.LIMITS.question}, context ${decisioncard.LIMITS.context}, advice ${decisioncard.LIMITS.advice} characters.`,
         '  - The write road stamps author and tier (agent). Tier user exists only from a person (--authority user).',
+        '  - --as-me: the author is this install\'s own identity (CHEAP_MEM_AGENT, else `mem whoami`), not the OS account; no rank.',
         '  - Append-only into cards.jsonl; the target stays byte for byte. The card of the higher tier counts, at equal tier the',
         '    youngest; the one it beat stays visible as "replaced". Withdraw: mem discard <card-id> --type card.',
       ].join('\n'));
@@ -655,7 +663,7 @@ export const COMMANDS = {
     const sub = rest[0];
     if (!subs.includes(sub)) die(`card: unknown subcommand '${sub}'. Known: ${subs.join(', ')}`);
     const root = findRoot(args);
-    requireConfig(root);
+    const cfg = requireConfig(root);
     if (sub === 'list') {
       checkFlags(args, ['json', 'root'], 'card list');
       const shelf = cardstore.readCards(root);
@@ -670,7 +678,7 @@ export const COMMANDS = {
       return;
     }
     // add
-    checkFlags(args, ['question', 'context', 'option', 'advice', 'evidence', 'kind', 'project', 'authority', 'root'], 'card add');
+    checkFlags(args, ['question', 'context', 'option', 'advice', 'evidence', 'kind', 'project', 'authority', 'as-me', 'root'], 'card add');
     const target = rest[1];
     if (!target) die('card add: <target-id> missing. Example: mem card add 3demxykbnzkx --question "..." --context "..." --option "Yes — ..." --option "No — ..."');
     // `--option` and `--evidence` may stand several times; the parser keeps only the last value, so read them from the command line.
@@ -679,6 +687,7 @@ export const COMMANDS = {
     for (const n of ['question', 'context', 'advice', 'kind', 'project', 'authority']) {
       if (args[n] === true) die(`card add: --${n} came without a value. Nothing was written.`);
     }
+    const asMe = asMeWriter(root, cfg, args, 'card add');
     const tier = authorityArg(args, 'card add');
     if (tier === 'user') {
       try { authority.checkUserWrite(); } catch (e) { die(`card add: ${e.message} Nothing was written.`); }
@@ -689,7 +698,7 @@ export const COMMANDS = {
       r = cardstore.write(root, {
         target_id: target, question: one(args.question), context: one(args.context), options: repeated('option'),
         advice: one(args.advice), evidence: repeated('evidence'), kind: one(args.kind),
-      }, { project: args.project && args.project !== true ? String(args.project) : null, authority: tier ?? undefined });
+      }, { project: args.project && args.project !== true ? String(args.project) : null, authority: tier ?? undefined, agent: asMe ?? undefined });
     } catch (e) {
       if (e.code === 'CARD_INVALID') die(`card add: ${e.message}`);
       throw e;
@@ -765,6 +774,8 @@ export const COMMANDS = {
         '  (warning) and in a closing correction (--state, --closes_id, --retires_id).',
         '  `mem doctor` still reports `correction-content-loss` (--without, cuts).',
         '',
+        '  --as-me stamps the correction with this install\'s own identity (CHEAP_MEM_AGENT, else `mem whoami`)',
+        '  instead of the OS account; the name only, never a rank (see `mem log --help`).',
         '  --authority <tier> stamps the correction (default: agent). A correction',
         '  the authority rule refuses is still written, warned about on stderr,',
         '  read as disputed, and the original keeps holding.',
@@ -832,11 +843,14 @@ export const COMMANDS = {
     if (!type) die("correction: which type?");
     if (!oldId) die("correction: old id missing");
     const root = findRoot(args);
-    requireConfig(root);
+    const cfg = requireConfig(root);
     // Same rules as `mem log` — they used to be written out a second time
     // here and had already drifted: no JSON form, no guard against a
     // swallowed value.
-    const data = fieldsFrom('correction', args, ['without']);
+    const data = fieldsFrom('correction', args, ['without', 'as-me']);
+    // `--as-me`, as on `mem log`: the correcting writer is this install's identity. Name only; the tier is not touched.
+    const asMe = asMeWriter(root, cfg, args, 'correction');
+    if (asMe) data.agent = asMe;
     if (args.without === true) die('correction: --without needs a field (e.g. --without why,tags).');
     const without = args.without === undefined ? []
       : String(args.without).split(',').map((x) => x.trim()).filter(Boolean);

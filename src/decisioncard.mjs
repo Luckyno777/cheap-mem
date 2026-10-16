@@ -557,6 +557,33 @@ export function lacksExplanation(c) {
 }
 
 /**
+ * Who wrote a card, for the display: NAME and RANK, not one of them (Lucky decision 2026-10-14, port of lucky-mem
+ * `entscheidungskarte.verfasserVon`). `{ name, rank, rank_state, text, by_human }`:
+ *
+ *   name         the author, cleaned and masked (the field is set by whoever writes); null when none is recorded
+ *   rank         the tier the LINE carries (`user`, `system`, `agent`, ...); null when it carries none - never `unknown` made up
+ *   rank_state   `set` | `missing` | `empty` | `broken` (the field absent / blank / no tier), null on a replacement card
+ *   text         "name (rank)", e.g. "builder-x (agent)"; what is not recorded reads "unknown" / "rank unknown"
+ *   by_human     the rank is `user`. ONLY then the display drops "written by an agent, not checked by you". The name alone does NOT
+ *                count: a CLI write stamps `human:<os user>` on every line written at that account - an agent in a cloud session
+ *                included - and tier `agent`, so a name rule would show an agent's card as a person's. The write path gives `user`
+ *                only on an explicit `--authority user` behind `authority.checkUserWrite`, never through a bridge.
+ *
+ * A replacement card has no author: everything null, `by_human` false (the display says "replacement card", never a name).
+ */
+export function bylineOf(stage, from, rankState) {
+  if (stage === 'fallback' || !from) return { name: null, rank: null, rank_state: null, text: null, by_human: false };
+  const name = from.author || null;
+  const set = rankState === 'set' && authority.TIERS.includes(from.rank);
+  const rank = set ? from.rank : null;
+  return {
+    name, rank, rank_state: rankState ?? 'missing',
+    text: `${name ?? 'unknown'} (${rank ?? 'rank unknown'})`,
+    by_human: Boolean(name) && rank === 'user',
+  };
+}
+
+/**
  * The card for an entry. Order of the stages: addendum (the better card from the shelf), then the fields on the entry, then the
  * fallback.
  *
@@ -565,9 +592,10 @@ export function lacksExplanation(c) {
  * @param opts.type     `duty` | `question` | `project` | `letter` | `review` | `word-pair`; otherwise a general card
  * @param opts.context.cards   Map target_id -> card (from the shelf)
  * @param opts.context.titles  Map or function id -> headline (only for review questions with titles)
- * @param opts.context.human   the configured human participant's name (or null): a card by this author is a person's (`origin.by_human`)
- * @returns {{kind, question, context, options, advice, evidence, origin, replaced, identifier, supplemented}}
- *   `replaced` is `{author, rank, ts}` of the card this one beat (tier, then age), else null. `advice` is `{text, author}` or
+ * @param opts.context.human   no longer read: a name never makes a card a person's, the rank does (`byline.by_human`); callers may still pass it
+ * @returns {{kind, question, context, options, advice, evidence, origin, byline, replaced, identifier, supplemented}}
+ *   `byline` is `{name, rank, rank_state, text, by_human}` (see `bylineOf`): author name AND rank, for the display.
+ *   `replaced` is `{author, rank, ts}` of the card this one beat (tier, then age), else null. `advice` is `{text, author}` (its rank is the card's: `byline`) or
  *   null; `supplemented` names what was filled from the fallback card.
  */
 export function cardOf(entry, { type = null, context = {} } = {}) {
@@ -586,6 +614,7 @@ function cardWithoutNorm(entry, { type = null, context = {} } = {}) {
   let stage = 'fallback';
   let parts = null;
   let from = { author: null, rank: null, ts: null };
+  let fromState = null;
   let replaced = null;
 
   if (readable && !locked) {
@@ -594,6 +623,10 @@ function cardWithoutNorm(entry, { type = null, context = {} } = {}) {
     const inlineHere = Boolean(clean(entry[CARD_FIELDS.question]));
     const addendumFrom = addendumHere ? { author: text(addendum.author) || null, rank: tierName(addendum.rank), ts: text(addendum.ts) || null } : null;
     const inlineFrom = inlineHere ? { author: text(authority.authorOf(entry)) || null, rank: authority.tierOf(entry), ts: text(entry.ts) || null } : null;
+    // The rank in three states (set / missing / empty / broken), kept apart from `rank` (which says `unknown` for all of them): the
+    // display names an author together with the rank the LINE carries and invents none (`byline`).
+    const addendumState = addendumHere ? (typeof addendum.rank_state === 'string' ? addendum.rank_state : authority.tierState({ authority: addendum.rank }).state) : null;
+    const inlineState = inlineHere ? authority.tierState(entry).state : null;
     // Two cards for one target: the HIGHER tier counts (authority order), at equal tier the youngest, at equal ts the addendum.
     // The card that loses stands as `replaced`: an agent's addendum never silently displaces the card the owner wrote himself.
     const takeAddendum = addendumHere && (!inlineHere || precedes(addendumFrom, inlineFrom));
@@ -601,6 +634,7 @@ function cardWithoutNorm(entry, { type = null, context = {} } = {}) {
       stage = 'addendum';
       parts = partsOf(addendum);
       from = addendumFrom;
+      fromState = addendumState;
       replaced = highest(inlineHere ? summary(inlineFrom) : null, summary(addendum.replaced));
     } else if (inlineHere) {
       stage = 'written';
@@ -609,6 +643,7 @@ function cardWithoutNorm(entry, { type = null, context = {} } = {}) {
         advice: entry[CARD_FIELDS.advice], evidence: entry[CARD_FIELDS.evidence], kind: entry[CARD_FIELDS.kind],
       });
       from = inlineFrom;
+      fromState = inlineState;
       replaced = addendumHere ? summary(addendumFrom) : null;
     }
   }
@@ -616,7 +651,8 @@ function cardWithoutNorm(entry, { type = null, context = {} } = {}) {
   const fb = fallbackCleaned(fallbackOf(entry, type, context));
   if (!parts) {
     return { kind: fb.kind, question: fb.question, context: fb.context, options: fb.options, advice: null, evidence: fb.evidence,
-      origin: { stage: 'fallback', author: null, rank: null, ts: null }, replaced: null, identifier: shownId, supplemented: [] };
+      origin: { stage: 'fallback', author: null, rank: null, ts: null }, byline: bylineOf('fallback', from, null), replaced: null,
+      identifier: shownId, supplemented: [] };
   }
 
   // A card with gaps is filled from the fallback card, visibly (`supplemented`). The ADVICE never.
@@ -634,13 +670,12 @@ function cardWithoutNorm(entry, { type = null, context = {} } = {}) {
     const add = fb.options.find((x) => !x.decline && !k.options.some((y) => y.choice === x.choice));
     if (add) { k.options = [{ ...add, supplemented: true }, ...k.options]; supplemented.push('options'); }
   }
-  // `by_human`: the author is a person, per the ONE rule (`authority.isHumanName`) or because it is the human participant of the
-  // configuration (`context.human`, handed in by the caller: no participant name stands in this file). The display shows no
-  // "written by an agent" note for such a card.
-  const byHuman = Boolean(from.author) && (authority.isHumanName(from.author) || (typeof context?.human === 'string' && context.human === from.author));
+  // The author with name AND rank (Lucky decision 2026-10-14, port of lucky-mem `verfasserVon`): `byline`. `origin.by_human` is the
+  // flag of the SAME derivation, so there is one truth: see `bylineOf` for why the name alone never makes a card a person's.
+  const byline = bylineOf(stage, from, fromState);
   return {
     kind: k.kind, question: k.question, context: k.context, options: k.options,
     advice: k.advice ? { text: k.advice, author: from.author } : null,
-    evidence: k.evidence, origin: { stage, ...from, by_human: byHuman }, replaced, identifier: shownId, supplemented,
+    evidence: k.evidence, origin: { stage, ...from, by_human: byline.by_human }, byline, replaced, identifier: shownId, supplemented,
   };
 }

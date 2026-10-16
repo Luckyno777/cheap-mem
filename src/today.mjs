@@ -588,7 +588,10 @@ function cardMark(card) {
   if (!card?.origin) return '';
   // H11, stage 1 of the write rule: an entry whose explanation is missing says so (derived, `decisioncard.lacksExplanation`).
   if (card.origin.stage === 'fallback') return '  (fallback card)  [explanation missing]';
-  const by = `card${card.origin.stage === 'addendum' ? ' added later' : ''} by ${card.origin.author ?? 'unknown'}, tier ${card.origin.rank ?? 'unknown'}`;
+  // Name AND rank, and a rank the line does not carry is said so, not shown as a tier (`byline`, `decisioncard.bylineOf`).
+  const b = card.byline;
+  const rankWord = b && b.rank === null && b.rank_state && b.rank_state !== 'set' ? `unknown (${b.rank_state})` : (card.origin.rank ?? 'unknown');
+  const by = `card${card.origin.stage === 'addendum' ? ' added later' : ''} by ${card.origin.author ?? 'unknown'}, tier ${rankWord}`;
   // A card that beat another (higher tier, or younger) names it.
   const replaced = card.replaced ? `; replaced a card by ${card.replaced.author ?? 'unknown'}${card.replaced.rank ? `, tier ${card.replaced.rank}` : ''}` : '';
   // A half card (a question without ways and effects) has an author but explains nothing: it says so too.

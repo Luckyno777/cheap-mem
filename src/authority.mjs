@@ -61,6 +61,27 @@ export function tierOf(entry) {
   return TIERS.includes(t) ? t : DEFAULT_TIER;
 }
 
+/**
+ * The tier of an entry in THREE states, for a display that must not invent a rank (port of lucky-mem `rang`, Lucky decision
+ * 2026-10-14: show name AND rank). `tierOf` answers `unknown` for all three of "no field", "empty field" and "a word that is
+ * no tier" - a fine default for deciding, a lie for showing. Here they stay apart:
+ *
+ *   `{ tier: 'agent', state: 'set' }`       a known tier
+ *   `{ tier: null, state: 'missing' }`      no `authority` field (an old line)
+ *   `{ tier: null, state: 'empty' }`        the field is there and blank
+ *   `{ tier: null, state: 'broken' }`       the field is no tier of `TIERS` (or not text)
+ *
+ * Nothing is derived from the author's name: a name is no rank.
+ */
+export function tierState(entry) {
+  const v = entry?.authority;
+  if (v === undefined || v === null) return { tier: null, state: 'missing' };
+  if (typeof v !== 'string') return { tier: null, state: 'broken' };
+  const t = v.trim().toLowerCase();
+  if (!t) return { tier: null, state: 'empty' };
+  return TIERS.includes(t) ? { tier: t, state: 'set' } : { tier: null, state: 'broken' };
+}
+
 /** The author of an entry, from either the explicit field or the stamp. */
 export function authorOf(entry) {
   return entry?.author ?? entry?.agent ?? entry?.origin?.agent ?? null;
