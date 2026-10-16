@@ -53,7 +53,7 @@ const HOOK = path.join(REPO, 'install', 'hooks', 'session-start.sh');
 // defence, not the whole case; every other test below runs the hook.
 test('static guard: the hook source calls `mem user --session-start`', () => {
   const src = fs.readFileSync(HOOK, 'utf8');
-  assert.match(src, /"\$CHEAP_MEM_ROOT\/bin\/mem"\s+user\s+--session-start/,
+  assert.match(src, /"\$MEM_BIN"\s+user\s+--session-start/,
     'install/hooks/session-start.sh no longer calls `mem user --session-start`');
 });
 
