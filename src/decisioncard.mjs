@@ -571,7 +571,7 @@ export function lacksExplanation(c) {
  *
  * A replacement card has no author: everything null, `by_human` false (the display says "replacement card", never a name).
  */
-export function bylineOf(stage, from, rankState) {
+function bylineOf(stage, from, rankState) {
   if (stage === 'fallback' || !from) return { name: null, rank: null, rank_state: null, text: null, by_human: false };
   const name = from.author || null;
   const set = rankState === 'set' && authority.TIERS.includes(from.rank);
