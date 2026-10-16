@@ -117,6 +117,11 @@ function checkParticipant(participants, role, field) {
  * older message and read as `null`, never as an error.
  */
 const IN_REPLY_TO_PATTERN = /^[0-9TZ-]+--[A-Za-z0-9._-]+-to-[A-Za-z0-9._-]+(?:~[a-z0-9]{1,12}(?:-[0-9]{1,3})?)?\.md$/;
+// A file name is at most 255 bytes on every file system we run on. The pattern has two adjacent runs over overlapping
+// classes (`[0-9TZ-]+--` and the name parts), quadratic on a long run of hyphens; the value comes from a flag or a tool
+// argument, so it is cut by length BEFORE the pattern sees it. Nothing longer can name a message file.
+const FILE_NAME_MAX = 255;
+const isReplyTarget = (v) => v.length <= FILE_NAME_MAX && IN_REPLY_TO_PATTERN.test(v);
 
 export function build(participants, {
   from, to, time, subject, state = STATE.OPEN, text, requestId = null, inReplyTo = null,
@@ -140,7 +145,7 @@ export function build(participants, {
   if (requestId !== null && !REQUEST_ID_PATTERN.test(String(requestId))) {
     throw new Error(`Client-Request-Id is [A-Za-z0-9._:-], not: ${JSON.stringify(requestId)}`);
   }
-  if (inReplyTo !== null && !IN_REPLY_TO_PATTERN.test(String(inReplyTo))) {
+  if (inReplyTo !== null && !isReplyTarget(String(inReplyTo))) {
     throw new Error(`In-Reply-To is a message file name, not: ${JSON.stringify(inReplyTo)}`);
   }
   const header = [
@@ -151,7 +156,7 @@ export function build(participants, {
     // Block S: Intent, Turn, From-Route, To-Route — optional, validated there.
     ...envelope.headerLines({ intent, turn, turnMax, fromRoute, toRoute }),
   ].join('\n');
-  return `${header}\n\n${text.replace(/\s+$/, '')}\n`;
+  return `${header}\n\n${text.trimEnd()}\n`;
 }
 
 export function parse(content) {
@@ -184,7 +189,7 @@ export function parse(content) {
   const boundary = normalised.indexOf('\n\n');
   if (boundary < 0) throw new Error('No blank line — that is a header, not a message');
   const headerPart = normalised.slice(0, boundary);
-  const text = normalised.slice(boundary + 2).replace(/\s+$/, '');
+  const text = normalised.slice(boundary + 2).trimEnd();
 
   const header = {};
   for (const line of headerPart.split('\n')) {

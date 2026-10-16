@@ -133,7 +133,7 @@ A variable that is not in the table is not a switch: there is none.
 | `CHEAP_MEM_ARCHIVE` | not set (`raw/YYYY/MM/` inside the root, or the place `mem archive` recorded) | Where the raw archive is kept; a mount outside the repository. |
 | `CHEAP_MEM_ARCHIVE_BASES` | not set (only the memory root, the home folder and the temp folder) | Extra folders (a `:`-separated list, `;` on Windows) the dashboard may point the raw archive into. Compared by real path. The shell (`mem archive`) is not limited by it. |
 | `CHEAP_MEM_CHECK_FILE` | `<root>/checked.jsonl` | Where `bin/mem-check-record` writes its rows. |
-| `CHEAP_MEM_CODE` | not set (the hook uses the root as the code directory) | Where the cheap-mem code lives when it is not the memory root itself (the sub-agent and session-start hooks). |
+| `CHEAP_MEM_CODE` | not set (the hooks look for the tool in the memory root, then next to themselves) | Where the cheap-mem code lives when it is not the memory root itself. The installer writes it into all seven Claude Code hook shims (session start, prompt recall, before-edit, swallowed failure, real failure, sub-agent start, stop); each looks for its tool in the memory root first and here second. When the path points at nothing, the shim says so (a `systemMessage`, at most every 30 minutes) instead of staying silent. |
 | `CHEAP_MEM_GOLD_FILE` | `~/.cheap-mem-gold/...` outside the repository | The gold-question log; kept outside the repository on purpose. |
 | `CHEAP_MEM_MISS_GOLD` | `<root>/.mem/local/miss-gold.jsonl` | The local, never-committed file of real retrieval misses. |
 | `CHEAP_MEM_PKG` | set by the git hook installer | The package directory the installed git hooks call back into. |

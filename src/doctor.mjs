@@ -45,6 +45,7 @@ import * as skillusage from './skillusage.mjs';
 import * as archive from './archive.mjs';
 import * as search from './search.mjs';
 import * as redaction from './redaction.mjs';
+import { jsonlPlaces } from './lineartext.mjs';
 import * as cfgmod from './config.mjs';
 import * as thesaurus from './thesaurus.mjs';
 import { pack } from './language.mjs';
@@ -2924,8 +2925,10 @@ export function checkEntryForm(root) {
         // hang on. It is on the record when a finding line of class
         // `idless-line` names its place `<file>:<line>`.
         if (e.class === IDLESS_LINE_CLASS) {
-          for (const m of `${e.title ?? ''} ${e.text ?? ''}`.matchAll(/[A-Za-z0-9_./\\-]+\.jsonl:\d+/g)) {
-            idlessAcked.add(m[0].replace(/\\/g, '/'));
+          // `jsonlPlaces`, not `matchAll(/[A-Za-z0-9_./\\-]+\.jsonl:\d+/g)`: the run in front of `.jsonl:` is quadratic in a long unbroken
+          // run of path characters (src/lineartext.mjs).
+          for (const m of jsonlPlaces(`${e.title ?? ''} ${e.text ?? ''}`)) {
+            idlessAcked.add(m.replace(/\\/g, '/'));
           }
         }
         const where = `${rel}:${i + 1}`;

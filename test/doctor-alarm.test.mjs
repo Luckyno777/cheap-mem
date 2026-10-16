@@ -123,4 +123,10 @@ test('H: hitting the time cap is REPORTED, not swallowed', (t) => {
     .run({ MEM_ALARM_SECONDS: '1' });
   assert.match(r.stdout, /hit its time cap/, `timed out looked like all fine:\n${r.stdout}`);
   assert.doesNotMatch(r.stdout, /must never appear/);
+  // The branch used a variable that was only set further down: under
+  // `set -u` the hook died with rc 1 right here and the rest of the start
+  // block (today line, hints, journal) never came.
+  assert.equal(r.status, 0, `the cap branch killed the hook: rc ${r.status}\n${r.stderr}`);
+  assert.doesNotMatch(r.stderr, /unbound variable/);
+  assert.match(r.stdout, /how to use this memory this session/, 'nothing came after the cap line');
 });

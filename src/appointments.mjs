@@ -361,7 +361,7 @@ export function plan(state, nowMs, { zone, canWake = () => true } = {}) {
 const oneLine = (s) => String(s).replace(/\s+/g, ' ').trim();
 
 function checkField(name, value, max, { required = false, single = true } = {}) {
-  const s = single ? oneLine(value ?? '') : String(value ?? '').replace(/\s+$/, '');
+  const s = single ? oneLine(value ?? '') : String(value ?? '').trimEnd();
   if (required && !s) throw new AppointmentError('INVALID', `${name} is missing`);
   if (s.length > max) throw new AppointmentError('INVALID', `${name} is too long (${s.length} > ${max} characters)`);
   if (CONTROL.test(s)) throw new AppointmentError('INVALID', `${name} contains control characters`);

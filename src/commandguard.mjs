@@ -116,24 +116,102 @@ export function rejected(value) {
 
 // --- Matching ----------------------------------------------------------------
 
-const LEAD_WORD = /(?<![^\s;&|({`])(?:(?:sudo|time|nohup|exec|command|xargs)(?: -\S+)*|[A-Za-z_][A-Za-z0-9_]*=\S*)$/;
+/** The words that may stand in front of a command: `sudo -u x git push` is a `git push`. */
+const LEAD_KEYWORDS = ['sudo', 'time', 'nohup', 'exec', 'command', 'xargs'];
 
 /** The raw command on one line: a line break becomes `;`, whitespace becomes one space. */
 export function normalise(command) {
   return String(command ?? '').replace(/\r?\n/g, ' ; ').replace(/[ \t]+/g, ' ');
 }
 
-function atCommandStart(text, pos) {
-  // mask-ok: a cut of the checked COMMAND at a match position, not entry text
-  let before = text.slice(0, pos).replace(/ +$/, '');
-  for (let i = 0; i < 6; i += 1) {
-    const m = before.match(LEAD_WORD);
-    if (!m) break;
-    // mask-ok: the checked COMMAND cut at a match position, not entry text
-    before = before.slice(0, m.index).replace(/ +$/, '');
+// What `\s` knows, by code: tab to carriage return, space, no-break space, ogham space mark, the en to hair spaces,
+// the line and paragraph separators, narrow no-break, medium mathematical, ideographic space and the byte order mark.
+function isBlank(c) {
+  return (c >= 9 && c <= 13) || c === 32 || c === 160 || c === 0x1680 || (c >= 0x2000 && c <= 0x200a)
+    || c === 0x2028 || c === 0x2029 || c === 0x202f || c === 0x205f || c === 0x3000 || c === 0xfeff;
+}
+const isLetterOrUnderscore = (c) => (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c === 95;
+const isIdentChar = (c) => isLetterOrUnderscore(c) || (c >= 48 && c <= 57);
+// ; & | ( { `  and the blanks: where a word may begin
+const isWordEdge = (c) => isBlank(c) || c === 59 || c === 38 || c === 124 || c === 40 || c === 123 || c === 96;
+
+/**
+ * For a command text, the answer to "where does the lead word that ends at `end` begin?" - for every `end` at once, in one
+ * pass. This was `LEAD_WORD`, a pattern ending in `$`, matched against `text.slice(0, pos)` at EVERY place the first word of
+ * a rule stands: the engine tries every start, and the copy of the prefix is a pass of its own, so `'xgit push '` x 20,000
+ * (200 KB) took 17 s and twice that did not finish; the hook waits for this. A lead word is
+ *   - an assignment: `NAME=` and then non-blank characters up to `end`, or
+ *   - one of LEAD_KEYWORDS and then any number of ` -x` options (a blank, a hyphen, non-blank characters) up to `end`,
+ * and it begins at the start of the text or behind a blank or one of `;&|({\``. Of all lead words that end at `end` the
+ * leftmost counts, as the pattern's leftmost match did. Every start is visited once, left to right, and paints the ends it
+ * reaches that no earlier start reached (a skip list keeps this linear); a chain of options stops where an earlier chain
+ * has already been.
+ * @param {string} text
+ */
+function leadIndex(text) {
+  const n = text.length;
+  const startOf = new Int32Array(n + 1).fill(-1);          // end -> leftmost start of a lead word that ends there
+  const next = new Int32Array(n + 2);                       // skip list over the ends not yet painted
+  for (let i = 0; i < next.length; i += 1) next[i] = i;
+  const find = (i) => {
+    let r = i;
+    while (next[r] !== r) r = next[r];
+    for (let j = i; next[j] !== r; ) { const k = next[j]; next[j] = r; j = k; }
+    return r;
+  };
+  const paint = (lo, hi, start) => {
+    for (let e = find(lo); e <= hi; e = find(e + 1)) { startOf[e] = start; next[e] = e + 1; }
+  };
+  const blankAt = new Int32Array(n + 1);                    // first blank at or behind i
+  blankAt[n] = n;
+  for (let i = n - 1; i >= 0; i -= 1) blankAt[i] = isBlank(text.charCodeAt(i)) ? i : blankAt[i + 1];
+  const chainEnd = new Uint8Array(n + 1);                   // an option chain went through this end already
+  for (let p = 0; p < n; p += 1) {
+    if (p > 0 && !isWordEdge(text.charCodeAt(p - 1))) continue;
+    const c = text.charCodeAt(p);
+    if (isLetterOrUnderscore(c)) {
+      let q = p + 1;
+      while (q < n && isIdentChar(text.charCodeAt(q))) q += 1;
+      if (q < n && text.charCodeAt(q) === 61) paint(q + 1, blankAt[q + 1], p);
+    }
+    for (const word of LEAD_KEYWORDS) {
+      if (!text.startsWith(word, p)) continue;
+      let k = p + word.length;
+      paint(k, k, p);
+      while (text.charCodeAt(k) === 32 && text.charCodeAt(k + 1) === 45) {
+        const t = blankAt[k + 2];
+        if (t <= k + 2) break;                              // a hyphen alone is no option
+        if (chainEnd[t]) break;
+        chainEnd[t] = 1;
+        paint(k + 3, t, p);
+        k = t;
+      }
+    }
   }
-  if (before === '' || /[;&|({`]$/.test(before)) return true;
-  return /(?:^|\s)-[A-Za-z]*c ["']$/.test(before);
+  const spaceEnd = new Int32Array(n + 1);                   // end of the text up to i without the blanks (' ') that trail it
+  for (let i = 1; i <= n; i += 1) spaceEnd[i] = text.charCodeAt(i - 1) === 32 ? spaceEnd[i - 1] : i;
+  return { startOf, spaceEnd };
+}
+
+/** Does what stands in front end in `-` letters `c`, a blank and a quote, behind a blank or the start: `bash -c "git push`? */
+function afterShellC(text, end) {
+  const q = text[end - 1];
+  if ((q !== '"' && q !== "'") || text[end - 2] !== ' ' || text[end - 3] !== 'c') return false;
+  let j = end - 3;
+  while (j >= 0 && /[A-Za-z]/.test(text[j])) j -= 1;
+  return j >= 0 && text[j] === '-' && (j === 0 || isBlank(text.charCodeAt(j - 1)));
+}
+
+function atCommandStart(text, pos, lead) {
+  let end = lead.spaceEnd[pos];
+  for (let i = 0; i < 6 && end > 0; i += 1) {
+    const start = lead.startOf[end];
+    if (start < 0) break;
+    end = lead.spaceEnd[start];
+  }
+  if (end === 0) return true;
+  if (';&|({`'.includes(text[end - 1])) return true;
+  return afterShellC(text, end);
 }
 
 function endOk(text, end) {
@@ -143,8 +221,9 @@ function endOk(text, end) {
 /**
  * Does this pattern (list of wordings) hit the (already normalised) command?
  * A first wording ending in `$` counts only WITHOUT a further argument.
+ * `shared`: one object for all the patterns tried on the same text, so the index of the lead words is built once.
  */
-export function hits(text, pattern) {
+export function hits(text, pattern, shared = {}) {
   const [rawFirst, ...more] = pattern;
   const bare = rawFirst.endsWith('$');
   // mask-ok: the checked COMMAND, a trailing character
@@ -153,9 +232,17 @@ export function hits(text, pattern) {
   let found = false;
   while (pos !== -1 && !found) {
     const end = pos + first.length;
-    const endGood = bare ? /^ *(?:$|[;&|)}])/.test(text.slice(end)) : endOk(text, end);
-    if (endGood && atCommandStart(text, pos)) found = true;
-    else pos = text.indexOf(first, pos + 1);
+    let endGood;
+    if (bare) {
+      let k = end;
+      while (text[k] === ' ') k += 1;
+      endGood = k >= text.length || ';&|)}'.includes(text[k]);
+    } else endGood = endOk(text, end);
+    if (endGood) {
+      shared.index ??= leadIndex(text);                     // built at the first place that needs it, once per text
+      if (atCommandStart(text, pos, shared.index)) found = true;
+    }
+    if (!found) pos = text.indexOf(first, pos + 1);
   }
   return found && more.every((w) => text.includes(w));
 }
@@ -262,8 +349,9 @@ export function matches(root, command) {
   const text = normalise(command);
   if (!text.trim()) return [];
   const out = [];
+  const shared = {};
   for (const r of booklet(root)) {
-    const p = r.patterns.find((pat) => hits(text, pat));
+    const p = r.patterns.find((pat) => hits(text, pat, shared));
     if (p) out.push({ ...r, matched: p });
   }
   return out;

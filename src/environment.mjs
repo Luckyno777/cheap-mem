@@ -34,6 +34,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { Worker } from 'node:worker_threads';
+import { attributesOf } from './lineartext.mjs';
 
 export const LAYER = Object.freeze({
   APP: 'application',      // cheap-mem's own code
@@ -75,7 +76,7 @@ export function checkMergeDriver(root) {
       'Add `*.jsonl merge=union`. Without it a merge silently destroys entries.');
   }
   const text = fs.readFileSync(p, 'utf8');
-  const ok = /^\s*\*\.jsonl\s+merge=union\s*$/m.test(text);
+  const ok = attributesOf(text, '*.jsonl').get('merge') === 'union';
   return check('merge-driver', LAYER.GIT, ok,
     ok ? '*.jsonl merge=union declared' : '.gitattributes exists but does not declare the driver',
     ok ? null : 'Add the line `*.jsonl merge=union`.');

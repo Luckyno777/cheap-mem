@@ -206,6 +206,16 @@ if (-not $SkipClaudeCode) {
   $startHookSrc = Join-Path $RepoRoot 'install\hooks\session-start.sh'
   $stopHookSrc  = Join-Path $RepoRoot 'install\hooks\session-stop.sh'
 
+  # Where the CODE lives, as a hint for every hook below (the same job
+  # CHEAP_MEM_CODE does in install/claude-code.sh). A memory made by
+  # `mem init` carries no bin\, so a hook that looked only in the memory
+  # found no tool, exited 0 and stayed silent (found 2026-10-16). The
+  # environment variable wins when set; this baked path is the fallback.
+  $CodeHint = $RepoRoot -replace "'", "''"
+  # The memory path is baked in single quotes the same way (an apostrophe
+  # in a path must not end the string).
+  $RootHint = $env:CHEAP_MEM_ROOT -replace "'", "''"
+
   # On native Windows, Claude Code hooks are PowerShell too.
   $startHookDst = Join-Path $HooksDir 'cheap-mem-session-start.ps1'
   $stopHookDst  = Join-Path $HooksDir 'cheap-mem-session-stop.ps1'
@@ -224,6 +234,29 @@ if (-not $SkipClaudeCode) {
   # starts on Windows knowing nothing this memory holds, same class of
   # gap as the two lanes above.
   $subagentHookDst = Join-Path $HooksDir 'cheap-mem-subagent-start.ps1'
+  $missingHookDst  = Join-Path $HooksDir 'cheap-mem-tool-missing.ps1'
+
+  # What a hook says when its tool cannot be found (see
+  # install/support/tool-missing.sh for the reasoning): systemMessage JSON on
+  # stdout, exit 0 (never block), at most once per 30 minutes per hook.
+  @'
+param([string]$Name, [string]$Tool, [string]$Code, [string]$Root)
+if (-not (Test-Path -LiteralPath $Code)) { $why = "the code path $Code does not exist" } else { $why = "$Code has no bin\$Tool" }
+if ($Root) {
+  $mark = Join-Path (Join-Path $Root '.pipeline') "tool-missing-$Name"
+  if (Test-Path -LiteralPath $mark) {
+    if (((Get-Date) - (Get-Item -LiteralPath $mark).LastWriteTime).TotalMinutes -lt 30) { exit 0 }
+  }
+  try {
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $mark) | Out-Null
+    Set-Content -LiteralPath $mark -Value ''
+  } catch { }
+}
+$msg = "cheap-mem: the $Name hook is SILENT - it cannot find its tool ($why), so it recalls nothing. Fix: run install\windows.ps1 from a current cheap-mem checkout. Said at most every 30 minutes."
+[Console]::Error.WriteLine($msg)
+Write-Output (@{ systemMessage = $msg } | ConvertTo-Json -Compress)
+exit 0
+'@ | Set-Content -LiteralPath $missingHookDst -Encoding UTF8
 
   @"
 # cheap-mem SessionStart hook (Windows).
@@ -232,7 +265,7 @@ if (-not $SkipClaudeCode) {
 # not the answer: on a second machine that directory does not exist. The
 # hook used to exit 0 there - no memory, no error, no clue. Now it looks
 # the memory up and SAYS SO when it cannot find one.
-`$hint = '$($env:CHEAP_MEM_ROOT)'
+`$hint = '$RootHint'
 if (`$env:MEM_HOOK_OFF -eq '1') { exit 0 }
 # Hook time starts here - the journal line at the bottom carries it.
 `$hookStartMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
@@ -260,6 +293,13 @@ if (-not `$memRoot) {
 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
 
+# Where the tool is: the memory first, then the code checkout the
+# installer named (the same order as the POSIX hook; see there).
+`$codeRoot = if (`$env:CHEAP_MEM_CODE) { `$env:CHEAP_MEM_CODE } else { '$CodeHint' }
+`$mem = Join-Path `$env:CHEAP_MEM_ROOT 'bin\mem'
+if (-not (Test-Path -LiteralPath `$mem) -and `$codeRoot) { `$mem = Join-Path `$codeRoot 'bin\mem' }
+if (`$codeRoot -and (Test-Path -LiteralPath `$codeRoot)) { `$env:CHEAP_MEM_CODE = `$codeRoot }
+
 # R6: a V8 compile cache for the node starts below, in the USER's cache (never
 # in the memory). Same rule as the other Windows hooks: a value already in the
 # environment stays; a directory that cannot be made means no cache.
@@ -278,12 +318,18 @@ if (-not `$env:NODE_COMPILE_CACHE) {
   } catch { }
 }
 
-if (Test-Path (Join-Path `$env:CHEAP_MEM_ROOT 'bin\mem')) {
+if (Test-Path -LiteralPath `$mem) {
   Write-Host '=== cheap-mem attached ==='
 } else {
   Write-Host "=== cheap-mem NOT attached: memory found at `$env:CHEAP_MEM_ROOT, but the tool (bin\mem) is missing ==="
   Write-Host "Recent context, alarm state and today line: UNKNOWN (not loaded, not 'nothing')."
-  Write-Host 'Fix: check out the tool into that memory, or point CHEAP_MEM_ROOT at one that has it.'
+  if (`$codeRoot) {
+    Write-Host "The code path baked in by the installer has no tool: CHEAP_MEM_CODE=`$codeRoot (nothing under bin\ there)."
+    Write-Host 'The other hooks (prompt recall, before-edit, subagent, stop) are SILENT for the same reason.'
+    Write-Host "Fix: run install\windows.ps1 from a current cheap-mem checkout (CHEAP_MEM_ROOT=`$env:CHEAP_MEM_ROOT)."
+  } else {
+    Write-Host 'Fix: check out the tool into that memory, or re-run install\windows.ps1 from the code checkout (it names the code location).'
+  }
 }
 Write-Host ''
 # Which remote and branch does this memory TRACK? .mem\config.json says
@@ -361,8 +407,7 @@ if (Test-Path `$facts) {
   Write-Host ''
 }
 
-`$mem = Join-Path `$env:CHEAP_MEM_ROOT 'bin\mem'
-if (Test-Path `$mem) {
+if (Test-Path -LiteralPath `$mem) {
   Write-Host '=== mem context ==='
   & node `$mem context --n 10
   Write-Host ''
@@ -376,7 +421,7 @@ if (Test-Path `$mem) {
 # the reasoning. This hook adds nothing beyond calling it and deciding
 # whether to print what came back: an empty string, from "not enough
 # evidence" or "no capture readable at all" alike, prints nothing.
-if (Test-Path `$mem) {
+if (Test-Path -LiteralPath `$mem) {
   try {
     `$habits = & node `$mem user --session-start 2>`$null
     if (`$habits) {
@@ -394,7 +439,7 @@ if (Test-Path `$mem) {
 # timeout binary, so the cap is a background job with a wait limit -
 # the same shape bin/mem-watch.ps1 and bin/mem-reflect.ps1 already use.
 # A cap that expires reports itself as expired, never as "all fine".
-if (Test-Path `$mem) {
+if (Test-Path -LiteralPath `$mem) {
   try {
     `$alarmSeconds = 8
     if (`$env:MEM_ALARM_SECONDS) { `$alarmSeconds = [int]`$env:MEM_ALARM_SECONDS }
@@ -429,7 +474,7 @@ if (Test-Path `$mem) {
 # Today card read, and it prints nothing at all when there is nothing
 # notable, so there is no unconditional Write-Host outside the check
 # below. Own time-cap job, same shape as the alarm above.
-if (Test-Path `$mem) {
+if (Test-Path -LiteralPath `$mem) {
   try {
     `$todaySeconds = 5
     if (`$env:MEM_TODAY_SECONDS) { `$todaySeconds = [int]`$env:MEM_TODAY_SECONDS }
@@ -514,7 +559,7 @@ Write-Host 'transcript grows past the byte-delta threshold.'
 # Same lookup as the start hook - see the note there. This one stays
 # quiet on a miss: the start hook has already said it once per session,
 # and repeating it after every turn would train people to ignore it.
-`$hint = '$($env:CHEAP_MEM_ROOT)'
+`$hint = '$RootHint'
 if (`$env:MEM_HOOK_OFF -eq '1') { exit 0 }
 `$memRoot = `$null
 foreach (`$candidate in @(
@@ -528,8 +573,16 @@ foreach (`$candidate in @(
 }
 if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
-`$stop = Join-Path `$env:CHEAP_MEM_ROOT 'bin\mem-stop.ps1'
-if (-not (Test-Path `$stop)) { exit 0 }
+`$rel = 'bin\mem-stop.ps1'
+`$stop = Join-Path `$env:CHEAP_MEM_ROOT `$rel
+`$codeRoot = if (`$env:CHEAP_MEM_CODE) { `$env:CHEAP_MEM_CODE } else { '$CodeHint' }
+if (-not (Test-Path -LiteralPath `$stop) -and `$codeRoot) { `$stop = Join-Path `$codeRoot `$rel }
+if (-not (Test-Path -LiteralPath `$stop)) {
+  # Say so instead of exiting silent (cheap-mem-tool-missing.ps1).
+  `$missing = Join-Path `$PSScriptRoot 'cheap-mem-tool-missing.ps1'
+  if (Test-Path -LiteralPath `$missing) { & `$missing -Name 'session-stop' -Tool 'mem-stop.ps1' -Code `$codeRoot -Root `$env:CHEAP_MEM_ROOT }
+  exit 0
+}
 & powershell -NoProfile -ExecutionPolicy Bypass -File `$stop
 "@ | Set-Content -LiteralPath $stopHookDst -Encoding UTF8
 
@@ -558,7 +611,7 @@ if (-not (Test-Path `$stop)) { exit 0 }
 # cheap-mem UserPromptSubmit hook (Windows). Delegates to mem-retrieve.ps1.
 # The recall lane: it runs before every message of yours and blends in
 # what the memory already knows. Model-free.
-`$hint = '$($env:CHEAP_MEM_ROOT)'
+`$hint = '$RootHint'
 if (`$env:MEM_HOOK_OFF -eq '1') { exit 0 }
 `$memRoot = `$null
 foreach (`$candidate in @(
@@ -572,8 +625,16 @@ foreach (`$candidate in @(
 }
 if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
-`$retrieve = Join-Path `$env:CHEAP_MEM_ROOT 'bin\mem-retrieve.ps1'
-if (-not (Test-Path `$retrieve)) { exit 0 }
+`$rel = 'bin\mem-retrieve.ps1'
+`$retrieve = Join-Path `$env:CHEAP_MEM_ROOT `$rel
+`$codeRoot = if (`$env:CHEAP_MEM_CODE) { `$env:CHEAP_MEM_CODE } else { '$CodeHint' }
+if (-not (Test-Path -LiteralPath `$retrieve) -and `$codeRoot) { `$retrieve = Join-Path `$codeRoot `$rel }
+if (-not (Test-Path -LiteralPath `$retrieve)) {
+  # Say so instead of exiting silent (cheap-mem-tool-missing.ps1).
+  `$missing = Join-Path `$PSScriptRoot 'cheap-mem-tool-missing.ps1'
+  if (Test-Path -LiteralPath `$missing) { & `$missing -Name 'user-prompt' -Tool 'mem-retrieve.ps1' -Code `$codeRoot -Root `$env:CHEAP_MEM_ROOT }
+  exit 0
+}
 & powershell -NoProfile -ExecutionPolicy Bypass -File `$retrieve
 "@ | Set-Content -LiteralPath $promptHookDst -Encoding UTF8
 
@@ -582,7 +643,7 @@ if (-not (Test-Path `$retrieve)) { exit 0 }
 # The before-edit lane: it runs before an Edit/Write/NotebookEdit (or a
 # Bash command that writes a file) and shows what the memory holds
 # about THAT file. Model-free.
-`$hint = '$($env:CHEAP_MEM_ROOT)'
+`$hint = '$RootHint'
 if (`$env:MEM_HOOK_OFF -eq '1') { exit 0 }
 `$memRoot = `$null
 foreach (`$candidate in @(
@@ -596,8 +657,16 @@ foreach (`$candidate in @(
 }
 if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
-`$before = Join-Path `$env:CHEAP_MEM_ROOT 'bin\mem-before-edit.ps1'
-if (-not (Test-Path `$before)) { exit 0 }
+`$rel = 'bin\mem-before-edit.ps1'
+`$before = Join-Path `$env:CHEAP_MEM_ROOT `$rel
+`$codeRoot = if (`$env:CHEAP_MEM_CODE) { `$env:CHEAP_MEM_CODE } else { '$CodeHint' }
+if (-not (Test-Path -LiteralPath `$before) -and `$codeRoot) { `$before = Join-Path `$codeRoot `$rel }
+if (-not (Test-Path -LiteralPath `$before)) {
+  # Say so instead of exiting silent (cheap-mem-tool-missing.ps1).
+  `$missing = Join-Path `$PSScriptRoot 'cheap-mem-tool-missing.ps1'
+  if (Test-Path -LiteralPath `$missing) { & `$missing -Name 'pre-edit' -Tool 'mem-before-edit.ps1' -Code `$codeRoot -Root `$env:CHEAP_MEM_ROOT }
+  exit 0
+}
 & powershell -NoProfile -ExecutionPolicy Bypass -File `$before
 "@ | Set-Content -LiteralPath $editHookDst -Encoding UTF8
 
@@ -606,7 +675,7 @@ if (-not (Test-Path `$before)) { exit 0 }
 # mem-catch-fail.ps1. Catches a Bash call that exits 0 while its own
 # output carries a failure signature - PostToolUseFailure never fires
 # for that case at all. Model-free.
-`$hint = '$($env:CHEAP_MEM_ROOT)'
+`$hint = '$RootHint'
 if (`$env:MEM_HOOK_OFF -eq '1') { exit 0 }
 `$memRoot = `$null
 foreach (`$candidate in @(
@@ -620,8 +689,16 @@ foreach (`$candidate in @(
 }
 if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
-`$catchFail = Join-Path `$env:CHEAP_MEM_ROOT 'bin\mem-catch-fail.ps1'
-if (-not (Test-Path `$catchFail)) { exit 0 }
+`$rel = 'bin\mem-catch-fail.ps1'
+`$catchFail = Join-Path `$env:CHEAP_MEM_ROOT `$rel
+`$codeRoot = if (`$env:CHEAP_MEM_CODE) { `$env:CHEAP_MEM_CODE } else { '$CodeHint' }
+if (-not (Test-Path -LiteralPath `$catchFail) -and `$codeRoot) { `$catchFail = Join-Path `$codeRoot `$rel }
+if (-not (Test-Path -LiteralPath `$catchFail)) {
+  # Say so instead of exiting silent (cheap-mem-tool-missing.ps1).
+  `$missing = Join-Path `$PSScriptRoot 'cheap-mem-tool-missing.ps1'
+  if (Test-Path -LiteralPath `$missing) { & `$missing -Name 'catch-fail' -Tool 'mem-catch-fail.ps1' -Code `$codeRoot -Root `$env:CHEAP_MEM_ROOT }
+  exit 0
+}
 & powershell -NoProfile -ExecutionPolicy Bypass -File `$catchFail
 "@ | Set-Content -LiteralPath $catchFailHookDst -Encoding UTF8
 
@@ -631,7 +708,7 @@ if (-not (Test-Path `$catchFail)) { exit 0 }
 # catch-fail hook above: a tool call that REALLY failed. PostToolUse
 # never fires on a failure, so before this hook a command that exited
 # nonzero got no recall at all. Model-free.
-`$hint = '$($env:CHEAP_MEM_ROOT)'
+`$hint = '$RootHint'
 if (`$env:MEM_HOOK_OFF -eq '1') { exit 0 }
 `$memRoot = `$null
 foreach (`$candidate in @(
@@ -645,8 +722,16 @@ foreach (`$candidate in @(
 }
 if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
-`$afterFailure = Join-Path `$env:CHEAP_MEM_ROOT 'bin\mem-after-failure.ps1'
-if (-not (Test-Path `$afterFailure)) { exit 0 }
+`$rel = 'bin\mem-after-failure.ps1'
+`$afterFailure = Join-Path `$env:CHEAP_MEM_ROOT `$rel
+`$codeRoot = if (`$env:CHEAP_MEM_CODE) { `$env:CHEAP_MEM_CODE } else { '$CodeHint' }
+if (-not (Test-Path -LiteralPath `$afterFailure) -and `$codeRoot) { `$afterFailure = Join-Path `$codeRoot `$rel }
+if (-not (Test-Path -LiteralPath `$afterFailure)) {
+  # Say so instead of exiting silent (cheap-mem-tool-missing.ps1).
+  `$missing = Join-Path `$PSScriptRoot 'cheap-mem-tool-missing.ps1'
+  if (Test-Path -LiteralPath `$missing) { & `$missing -Name 'after-failure' -Tool 'mem-after-failure.ps1' -Code `$codeRoot -Root `$env:CHEAP_MEM_ROOT }
+  exit 0
+}
 & powershell -NoProfile -ExecutionPolicy Bypass -File `$afterFailure
 "@ | Set-Content -LiteralPath $afterFailureHookDst -Encoding UTF8
 
@@ -656,7 +741,7 @@ if (-not (Test-Path `$afterFailure)) { exit 0 }
 # thread - src/gauges.mjs), so this shows it any procedure tagged
 # 'subagent-start' plus a context recap. Model-free, no matcher: every
 # subagent type gets the same block.
-`$hint = '$($env:CHEAP_MEM_ROOT)'
+`$hint = '$RootHint'
 if (`$env:MEM_HOOK_OFF -eq '1') { exit 0 }
 `$memRoot = `$null
 foreach (`$candidate in @(
@@ -670,8 +755,16 @@ foreach (`$candidate in @(
 }
 if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
-`$subagent = Join-Path `$env:CHEAP_MEM_ROOT 'bin\mem-subagent-start.ps1'
-if (-not (Test-Path `$subagent)) { exit 0 }
+`$rel = 'bin\mem-subagent-start.ps1'
+`$subagent = Join-Path `$env:CHEAP_MEM_ROOT `$rel
+`$codeRoot = if (`$env:CHEAP_MEM_CODE) { `$env:CHEAP_MEM_CODE } else { '$CodeHint' }
+if (-not (Test-Path -LiteralPath `$subagent) -and `$codeRoot) { `$subagent = Join-Path `$codeRoot `$rel }
+if (-not (Test-Path -LiteralPath `$subagent)) {
+  # Say so instead of exiting silent (cheap-mem-tool-missing.ps1).
+  `$missing = Join-Path `$PSScriptRoot 'cheap-mem-tool-missing.ps1'
+  if (Test-Path -LiteralPath `$missing) { & `$missing -Name 'subagent-start' -Tool 'mem-subagent-start.ps1' -Code `$codeRoot -Root `$env:CHEAP_MEM_ROOT }
+  exit 0
+}
 & powershell -NoProfile -ExecutionPolicy Bypass -File `$subagent
 "@ | Set-Content -LiteralPath $subagentHookDst -Encoding UTF8
 
