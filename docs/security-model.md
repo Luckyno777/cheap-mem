@@ -631,8 +631,10 @@ non-integer value) and leaves the cap unset (`test/http-limits.test.mjs`).
 
 **What is not limited, on purpose.** The limits bound only the RECEIVING of a request. The answer is untouched: there is
 no socket idle limit (`server.timeout` stays 0), so a long answer or a stream is not cut (probe "long answer": 12 s of events
-against a request limit of 10 s arrive whole). None of the two services streams today (the MCP bridge answers JSON, the dashboard
-polls), but a future stream would not break on these limits.
+against a request limit of 10 s arrive whole). The dashboard does not stream (it polls), but the MCP bridge does: `GET /mcp`
+(Streamable HTTP, stateless) opens an SSE stream that sends `: keepalive` every 15 s and does not end by itself (measured on the
+shipped bridge: status 200, `text/event-stream`, still open after 35 s with keepalives at 15 s and 30 s). Such a stream is not cut
+by these limits, which is the point, and it is also the residual risk below.
 
 **Measured** (Node 22.22, Linux, loopback, a real service as a process, 8 slow connections sending one byte a second; 600 silent
 connections for the flood; the old stand is `kette/cm` at 04ca129):
@@ -659,6 +661,11 @@ The client (`bin/mem-retrieve-client.mjs`) gives up on its own clock, so a hangi
 **Residual risk.**
 - A cap is a seat count, not a defence against someone who can reach the port: behind a tunnel or a reverse proxy every connection
   comes from 127.0.0.1, so there is no limit per peer. Put rate limiting in the proxy.
+- **Every open GET stream of the MCP bridge holds one of its 256 seats for good** (`server.timeout` is 0, the stream has no end of
+  its own). Whoever holds 256 streams locks the bridge: new connections are dropped on accept until a stream closes. This needs the
+  bridge token, except under `--local-no-token` (`CHEAP_MEM_MCP_LOCAL_NO_TOKEN=1`) on loopback, where any local process can do it.
+  No code limits it (no cap per stream kind, no stream age limit): the fix would be a decision about streams, not a tuning of
+  numbers. Mitigation until then: keep the token set, and a reverse proxy in front may cap streams per client.
 - A slow READER (a client that takes an answer a byte at a time) holds its connection: `server.timeout` is 0 so that a stream never breaks.
   Limiting it needs a decision about streams first.
 - If the event loop of the service itself hangs for longer than the head limit (a long synchronous call), Node cuts the

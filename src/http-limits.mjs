@@ -18,6 +18,11 @@
 // (head plus body), never the answer: a long answer or a stream comes through (test/http-limits.test.mjs, probe "long
 // answer"). There is no socket idle limit (`server.timeout` stays 0).
 //
+// **The price of that: a stream holds a seat for good.** The MCP bridge DOES stream: `GET /mcp` (Streamable HTTP, stateless)
+// opens an SSE stream that sends `: keepalive` every 15 s and never ends by itself (measured: still open after 35 s). Each
+// open stream keeps one of the `maxConnections` seats until the client leaves, so a client that holds 256 streams locks
+// the bridge. That needs the token (or `--local-no-token` on loopback); see docs/security-model.md, "HTTP service limits".
+//
 // **The check interval.** Node checks the time limits only every `connectionsCheckingInterval` (default 30 s): a 10 s limit
 // would act after up to 40 s. 2 s makes it 10 to 12 s; the check walks the open connections and costs nothing at 512.
 //
