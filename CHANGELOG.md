@@ -39,6 +39,15 @@ Documented in `docs/security-model.md` section 11 (threat, protection, residual 
 `npx` inside `spawnSync` arguments). `test/headless-start.test.mjs`: a stand-in `claude` that runs the planted hook and server unless started with the flag - red on `9ee3441` for all three scripts and on the first
 version (`9efe57d`) for `env`, `npx`, `sudo`, `nice` and an alias, green now - plus a ratchet against any launch outside the starter; new mutants in `bench/mutation.mjs`.
 
+### Fixed - CI run 1060: a test helper red under `npm test`, and the mutation job without history
+
+`npm test` is `node --test` with no file list, so it also runs every helper under `test/`. `test/helpers/linear-probes.mjs`
+ran its command-line branch there with no probe name and exited 2, which turned all six test jobs red; it now measures
+only when a probe is named. The local chain runs the `*.test.mjs` list and never saw it: `test/plain-files-under-node-test.test.mjs`
+runs the remaining files the way `npm test` does, with a positive control. The `guarantees` job checked out one commit,
+and `bench/mutation.mjs` re-runs suites whose red proofs read a fixed old commit (`test/redaction-object-keys.test.mjs`):
+"not a tree object" before any mutant ran. It now fetches the whole history and runs `bench/ci-history-check.mjs` first.
+
 ### Security - the shred keyring is ignored by `mem init`, and a tracked one is an ERROR
 
 `.mem/keyring.json` (the keys of `shred: true` entries) had no `.gitignore` rule, and `mem-reflect` and `mem-handle-post` run `git add -A`. A keyring under git history
