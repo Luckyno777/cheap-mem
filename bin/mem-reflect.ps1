@@ -48,6 +48,8 @@ if ($stdinJson) {
 if (-not $transcriptPath -and $env:TRANSCRIPT_PATH_ENV) {
   $transcriptPath = $env:TRANSCRIPT_PATH_ENV
 }
+# The variable held the raw path; the model must not inherit it (it would still point at the file as it lies on disk).
+Remove-Item Env:TRANSCRIPT_PATH_ENV -ErrorAction SilentlyContinue
 
 if (-not $transcriptPath -or -not (Test-Path $transcriptPath)) {
   exit 0
@@ -78,8 +80,27 @@ if ($delta -lt $Threshold) {
 # Above threshold - record now, then run reflector.
 $curSize | Set-Content -LiteralPath $marker
 
+# The model reads a MASKED copy of the transcript, never the file as it lies on
+# disk (as bin/mem-reflect does; the digest and the mail handler read masked,
+# too). The copy is made by bin/mem-mask-copy.mjs under the OS temp directory,
+# not under the memory root (the reflector commits with `git add -A`; if the temp
+# directory lies inside the memory root the helper refuses), and is removed in
+# the `finally` below, which covers everything from here to the end. Fails CLOSED: no copy, no model; the marker
+# goes back to where it was so the next Stop tries again.
+$Here = Split-Path -Parent $MyInvocation.MyCommand.Path
+$maskScript = Join-Path $Here 'mem-mask-copy.mjs'
+$maskedCopy = ''
+try { $maskedCopy = (& node $maskScript --root $env:CHEAP_MEM_ROOT $transcriptPath 2>$null | Select-Object -First 1) } catch {}
+if (-not $maskedCopy -or -not (Test-Path -LiteralPath $maskedCopy)) {
+  $lastSize | Set-Content -LiteralPath $marker
+  exit 0
+}
+# (the body of this try is deliberately not indented: it holds a here-string whose closing marker must start a line)
+try {
+$transcriptPath = $maskedCopy
+
 $defaultPrompt = @"
-You are the reflector for cheap-mem. Read the transcript at `$TRANSCRIPT_PATH (env). Decide whether anything substantial happened since the last reflect.
+You are the reflector for cheap-mem. Read the transcript at `$TRANSCRIPT_PATH (env). It is a masked copy: secrets in it are already replaced by [REDACTED:...] markers, and you never need the original. Decide whether anything substantial happened since the last reflect.
 
 If YES: write ONE inbox message to the librarian summarizing what you saw, and log at most three JSONL entries. Use absolute paths since your cwd is NOT the memory root:
 
@@ -124,4 +145,7 @@ if ($job.State -eq 'Running') {
   Stop-Job -Job $job
 }
 Remove-Job -Job $job -Force
+} finally {
+  & node $maskScript --clean $maskedCopy 2>$null | Out-Null
+}
 exit 0
