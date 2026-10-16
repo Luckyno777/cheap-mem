@@ -198,7 +198,7 @@ test('server: the warm recall server answers a tie like the direct path (one fin
         const stop = () => x.close().then(() => process.exit(0));
         process.on('message', (m) => { if (m === 'stop') stop(); });
       });
-  `], { env: { ...process.env, ...ON, MEM_RECALL_SERVER_DIR: '' }, stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });
+  `], { env: { ...process.env, MEM_RETRIEVE_TIE: '', MEM_RECALL_SERVER_DIR: '' }, stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });
   try {
     let err = '';
     kid.stderr.on('data', (s) => { err += s; });
@@ -206,7 +206,9 @@ test('server: the warm recall server answers a tie like the direct path (one fin
     while (!/listening on/.test(err) && Date.now() < until && kid.exitCode == null) await new Promise((r) => setTimeout(r, 25));
     assert.match(err, /listening on/, err);
     const client = path.join(CODE, 'bin', 'mem-retrieve-client.mjs');
-    const out = execFileSync(process.execPath, [client, root, QUESTION, '3'], { encoding: 'utf8', env: { ...process.env, MEM_HOOK_START_MS: String(Date.now()) } });
+    // abruf-stamm-cm, step 1: the switch is the ASKING session's (it travels with the question); the service
+    // above runs without it. Until then this probe put it into the service's environment, which is the bug.
+    const out = execFileSync(process.execPath, [client, root, QUESTION, '3'], { encoding: 'utf8', env: { ...process.env, ...ON, MEM_HOOK_START_MS: String(Date.now()) } });
     const viaServer = JSON.parse(out).hits.map((h) => h.entry.id);
     const direct = findOn(CODE, root, QUESTION, { top: 3, recall: true }).ids;
     assert.equal(viaServer.length, 4, `server: ${viaServer}`);

@@ -362,10 +362,12 @@ export async function forTask(root, j, { env = process.env, exclude = new Set() 
   // searches (module, index, query) fails them all. Neither is "no hit".
   try {
     const search = await import('./search.mjs');
+    const { requestFrameOn } = await import('./requestframe.mjs');
     if (!tooLong()) {
-      const index = search.loadIndex(root);
+      const index = search.loadIndex(root, { env });
       if (index && !tooLong()) {
-        const query = search.retrievalQuery(task, { root, index }) || task;
+        // The switches come from the `env` this call was GIVEN (src/recallconfig.mjs), not from the process.
+        const query = search.retrievalQuery(task, { root, index, requestFrame: requestFrameOn(env) }) || task;
         for (const type of TYPES) {
           if (tooLong()) return onlyNotice(true);
           try {

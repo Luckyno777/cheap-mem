@@ -103,6 +103,7 @@ import * as variantsMod from '../src/variants.mjs';
 import * as mcpvisibility from '../src/mcpvisibility.mjs';
 import * as injection from '../src/injection.mjs';
 import * as levers from '../src/searchlevers.mjs';
+import * as recallconfig from '../src/recallconfig.mjs';
 import * as errorfixes from '../src/errorfixes.mjs';
 import * as bridgefields from '../src/bridgefields.mjs';
 import * as cardrule from '../src/cardrule.mjs';
@@ -1695,11 +1696,13 @@ async function handleCall(name, args) {
         mq = resolved.query;
         extraTerms = resolved.extraTerms;
       }
+      // One resolved configuration (src/recallconfig.mjs): the MCP server's own environment, read once.
+      const conf = recallconfig.resolve();
       const findOpt = {
         top: top ?? 10, type: type ?? null, project: project ?? null,
         capability: findCapability,
         since: s, language: cfg.language, extraTerms,
-        withCoverage: levers.active('h3'),
+        withCoverage: conf.levers.has('h3'),
       };
       // `variants`: rewordings the calling agent supplies (src/variants.mjs)
       // - no model here; without them this is the plain search as before.
@@ -1709,7 +1712,7 @@ async function handleCall(name, args) {
       // H3 (Block H): the same answer gate as `mem find` — a flat field of
       // weak hits, none clearly ahead, is withheld and said so. One rule,
       // in src/searchlevers.mjs, for both doors.
-      const withheld = !weak && levers.active('h3')
+      const withheld = !weak && conf.levers.has('h3')
         && !levers.answerHolds(listed, { occasion: 'find', bar: levers.findBar(index.statsN ?? index.N) }) ? listed.length : 0;
       for (const h of listed) delete h.covered;   // the gate's input, not part of the answer
       const ranked = withheld ? [] : listed;

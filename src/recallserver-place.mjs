@@ -55,6 +55,28 @@ export const CLIENT_RC = Object.freeze({
   ERROR: 7, // anything else
 });
 
+/**
+ * The environment names whose VALUE decides a recall answer, and so travel from the asking hook to the warm
+ * server (`src/recallconfig.mjs`). Switches and one path, no secret. Closed list: the server takes nothing else.
+ */
+export const FORWARDED_ENV = Object.freeze([
+  'MEM_SEARCH_LEVERS', 'MEM_RETRIEVE_REQUEST_FRAME', 'MEM_RETRIEVE_TIE', 'MEM_TZ',
+  'MEM_REWRITES', 'CHEAP_MEM_STATE_SIGNAL_WORDS',
+]);
+
+/** Longest value that travels (a path is the longest thing on the list). */
+const FORWARDED_VALUE_MAX = 4096;
+
+/** The slice of `env` that decides a recall answer: names from {@link FORWARDED_ENV}, string values, bounded. */
+export function forwardedEnv(env) {
+  const out = {};
+  for (const name of FORWARDED_ENV) {
+    const v = env?.[name];
+    if (typeof v === 'string' && v.length <= FORWARDED_VALUE_MAX) out[name] = v;
+  }
+  return out;
+}
+
 export function rootId(root) {
   return crypto.createHash('sha256').update(path.resolve(String(root))).digest('hex').slice(0, 16);
 }

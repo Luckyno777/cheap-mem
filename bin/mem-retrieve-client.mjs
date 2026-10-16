@@ -43,7 +43,9 @@ const where = place.place(root, env);
 let key;
 try { key = fs.readFileSync(where.key, 'utf8').trim(); } catch { process.exit(RC.NO_SERVER); }
 
-const request = `${JSON.stringify({ v: place.VERSION, key, root, query: query ?? '', top: top ?? null, deadline_ms: giveUpAt })}\n`;
+// The switches of THIS session travel with the question: the server answers with them, not with its own
+// environment (src/recallconfig.mjs).
+const request = `${JSON.stringify({ v: place.VERSION, key, root, query: query ?? '', top: top ?? null, deadline_ms: giveUpAt, env: place.forwardedEnv(env) })}\n`;
 
 let finished = false;
 const end = (rc, text = null) => {

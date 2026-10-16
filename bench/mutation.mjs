@@ -913,6 +913,42 @@ export const MUTANTS=[
    to:"const plainWords = (text) => String(text ?? '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);  // MUTANT",
    tests:['test/k1-underscore.test.mjs'] },
 
+ { name:'RC `mem find` reads the request-frame switch from the process again',
+   file:'src/cli/commands/search.mjs',
+   from:"    if (args.recall && conf.requestFrame) {",
+   to:"    if (args.recall && requestframe.requestFrameOn()) {  // MUTANT: the service decides",
+   tests:['test/recall-config.test.mjs'] },
+
+ { name:'RC `mem find` reads the tie spread from the process again',
+   file:'src/cli/commands/search.mjs',
+   from:"tiecut.cutWithTie(ordered, wanted, conf.tie)",
+   to:"tiecut.cutWithTie(ordered, wanted, tiecut.tieSpread())  /* MUTANT */",
+   tests:['test/recall-config.test.mjs'] },
+
+ { name:'RC `mem find` reads the answer-gate lever from the process again',
+   file:'src/cli/commands/search.mjs',
+   from:"    const gated = !args.weak && conf.levers.has('h3')\n",
+   to:"    const gated = !args.weak && levers.active('h3')  // MUTANT\n",
+   tests:['test/recall-config.test.mjs'] },
+
+ { name:'RC the warm server drops the asking session\'s switches',
+   file:'src/recallserver.mjs',
+   from:"COMMANDS.find({ rest: [query], args, env })",
+   to:"COMMANDS.find({ rest: [query], args })  /* MUTANT */",
+   tests:['test/recall-config.test.mjs'] },
+
+ { name:'RC the recall client does not send its switches',
+   file:'bin/mem-retrieve-client.mjs',
+   from:"env: place.forwardedEnv(env) })",
+   to:"env: {} })  /* MUTANT */",
+   tests:['test/recall-config.test.mjs'] },
+
+ { name:'RC the index load reads the state-signal words from the process again',
+   file:'src/search.mjs',
+   from:"statequestion.resolveWordsPath(root, { env })",
+   to:"statequestion.resolveWordsPath(root)  /* MUTANT */",
+   tests:['test/recall-config.test.mjs'] },
+
 ];
 
 // The modules whose failure is a security or data-integrity failure. The

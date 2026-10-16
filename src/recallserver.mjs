@@ -331,7 +331,10 @@ export async function start(root, {
     const args = { json: true, recall: true, root };
     if (Number.isFinite(top) && top > 0) args.top = String(top);
     try {
-      const stdout = await shell.captureOutput(() => COMMANDS.find({ rest: [query], args }));
+      // The asking session's switches (src/recallconfig.mjs), not this process's environment. A request without
+      // `env` (a client from before this field) keeps the old behaviour: the handler reads the process environment.
+      const env = req.env && typeof req.env === 'object' ? place.forwardedEnv(req.env) : undefined;
+      const stdout = await shell.captureOutput(() => COMMANDS.find({ rest: [query], args, env }));
       return { ok: true, stdout };
     } catch {
       // `die()` inside `find` (bad input): the direct path would exit 1
