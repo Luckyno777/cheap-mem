@@ -22,7 +22,7 @@ STOP="$CHEAP_MEM_ROOT/bin/mem-stop"
 if [ ! -f "$STOP" ]; then
   # Nothing found: say so (tool-missing.sh), do not just exit.
   HERE="$(cd "$(dirname "$0")" && pwd)"
-  for missing_helper in "$HERE/cheap-mem-tool-missing.sh" "$HERE/tool-missing.sh"; do
+  for missing_helper in "$HERE/cheap-mem-tool-missing.sh" "$HERE/../support/tool-missing.sh"; do
     [ -f "$missing_helper" ] && exec bash "$missing_helper" session-stop mem-stop
   done
   exit 0

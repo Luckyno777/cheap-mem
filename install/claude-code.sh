@@ -114,8 +114,8 @@ ROOT_Q="$(sq "$CHEAP_MEM_ROOT")"
 CODE_Q="$(sq "$CODE_ROOT")"
 
 # What a shim says when its tool cannot be found - installed next to the
-# shims, called by them as the last step (see install/hooks/tool-missing.sh).
-cp "$HERE/hooks/tool-missing.sh" "$HOOKS_DIR/cheap-mem-tool-missing.sh"
+# shims, called by them as the last step (see install/support/tool-missing.sh).
+cp "$HERE/support/tool-missing.sh" "$HOOKS_DIR/cheap-mem-tool-missing.sh"
 chmod +x "$HOOKS_DIR/cheap-mem-tool-missing.sh"
 
 # Copy hooks, injecting CHEAP_MEM_ROOT so they work regardless of the

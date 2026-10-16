@@ -36,7 +36,7 @@ fi
 HERE="$(cd "$(dirname "$0")" && pwd)"
 [ -f "$HERE/mem-retrieve" ] && exec bash "$HERE/mem-retrieve"
 # Nothing found anywhere: say so (tool-missing.sh), do not just exit.
-for missing_helper in "$HERE/cheap-mem-tool-missing.sh" "$HERE/tool-missing.sh"; do
+for missing_helper in "$HERE/cheap-mem-tool-missing.sh" "$HERE/../support/tool-missing.sh"; do
   [ -f "$missing_helper" ] && exec bash "$missing_helper" user-prompt mem-retrieve
 done
 exit 0

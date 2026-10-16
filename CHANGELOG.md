@@ -20,7 +20,7 @@ are the day the work landed on `main`.
   the installed shim ended with rc 1 ("unbound variable"), and the today line, the how-to block and the journal line never came (base 870788f: rc 0). It is set right after the tool lookup now.
   `test/doctor-alarm.test.mjs` H demands rc 0 and the rest of the output, and `test/installed-hooks-run.test.mjs` runs the installed shim with a 0.01 s alarm limit.
 - **A dead `CHEAP_MEM_CODE` is said, not swallowed.** When the checkout the installer pointed at is moved or deleted, prompt recall, before-edit, swallowed-failure, real-failure, sub-agent and stop
-  exited 0 with no byte. They now call `install/hooks/tool-missing.sh` (installed as `cheap-mem-tool-missing.sh`; `.ps1` twin on Windows), which prints one `systemMessage` JSON object
+  exited 0 with no byte. They now call `install/support/tool-missing.sh` (installed as `cheap-mem-tool-missing.sh`; `.ps1` twin on Windows), which prints one `systemMessage` JSON object
   (Claude Code shows it to the person and does not hand it to the model; exit 0, so it never blocks a prompt or an edit; stderr on exit 0 is not shown, which is why it is not the channel),
   at most every 30 minutes per hook (marker under `<memory>/.pipeline/`). The start hook names the baked path and the repair. It stays silent without `CHEAP_MEM_CODE` (a shim started by hand promised nothing).
   `mem doctor` finding `integration-contract` is ERROR when a registered shim's baked code path and memory hold no `bin/mem` ("registered, but SILENT"); it reads the installed files, not the journal.

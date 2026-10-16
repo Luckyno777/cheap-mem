@@ -237,7 +237,7 @@ if (-not $SkipClaudeCode) {
   $missingHookDst  = Join-Path $HooksDir 'cheap-mem-tool-missing.ps1'
 
   # What a hook says when its tool cannot be found (see
-  # install/hooks/tool-missing.sh for the reasoning): systemMessage JSON on
+  # install/support/tool-missing.sh for the reasoning): systemMessage JSON on
   # stdout, exit 0 (never block), at most once per 30 minutes per hook.
   @'
 param([string]$Name, [string]$Tool, [string]$Code, [string]$Root)
