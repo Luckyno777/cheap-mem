@@ -574,7 +574,19 @@ function partLaterAgain(name) {
   const limit = spell.budget.take();
   if (limit) { spell.ended = limit; partLaterEnd(spell, limit); return; }
   partRetryTimer = 1;
-  runWait(spell.run, TEMPO_TEST_MS ?? 3000).then((ok) => { if (partLater !== spell) return; partRetryTimer = 0; if (ok) loadParts(); });
+  const run = spell.run;
+  runWait(run, TEMPO_TEST_MS ?? 3000).then((ok) => { if (partLater !== spell || spell.run !== run) return; partRetryTimer = 0; if (ok) loadParts(); });
+}
+// dashboard-tempo-cm: a new round of loadParts() asks every part anyway (a newer data load started it). A retry still
+// waiting from the round before would ask them all a SECOND time when its timer runs out - seen on a cold start with 5000
+// entries whose first answer was the quick head: every part fetched twice, the second round 3.5 s long (not on every cold
+// start: 0 of 7 more, where the first answer was the placeholder without parts). The waiting spell keeps its deadline and its budget
+// (the bound holds across rounds); only its timer goes, and the new round arms a new one if a part still says building.
+function partLaterSkipTimer() {
+  if (!partRetryTimer || !partLater || partLater.ended) return;
+  runCancel('part-later');
+  partLater.run = runStart('part-later');
+  partRetryTimer = 0;
 }
 function partLaterEnd(spell, limit) {
   const text = 'The part is still being built — ' + (limit === 'deadline' ? 'the time limit (' + Math.round(PART_LATER_DEADLINE_MS / 1000) + ' s) ran out.' : 'the budget of ' + PART_LATER_REQUESTS + ' requests is used up.') + ' Please load again.';
@@ -694,6 +706,7 @@ async function loadParts() {
   const parts = Object.keys(D?.parts || {}).filter((name) => name !== 'entries' && name !== 'atlas');
   const firstOk = [];
   let otherChanged = false;
+  partLaterSkipTimer();
   const entriesRun1 = loadEntriesPart();
   await Promise.all(parts.map(async (name) => {
     const wasOk = partState[name] === 'ok';
@@ -1681,7 +1694,7 @@ const pages = {
     const openRow = (e, c) => (c
       ? cardHtml(c, { foot: `<span class="small quiet">${esc(types[e.type])} · ${ce(e.project)}${e.type === 'duty' ? ' · owed by ' + ce(D._dutyWho.get(e.id) || 'not named') : ''}</span>${statusBadge(e.id)}${open(e.id, 'Open ↗', 'btn small ghost')}${D._waitingQuestion.has(e.id) ? confirmAnswerBtn(e.id) : ''}` })
       : row(e));
-    return panel('Open and finished work', (workGroupsHtml(openOnes, { render: openRow }) || empty(es.length ? 'Nothing open.' : 'No duty and no question recorded yet.')) + (closed.length ? `<details class="accordion"><summary>${num(closed.length)} finished</summary>${closed.slice(0, 60).map(row).join('')}${limitNote(Math.min(60, closed.length), closed.length, 'knowledge/entries')}</details>` : ''), `${num(openOnes.length)} open · decided by memory.openDuties and question.open`);
+    return panel('Open and finished work', (workGroupsHtml(openOnes, { render: openRow }) || empty(es.length ? 'Nothing open.' : 'No duty and no question recorded yet.')) + (closed.length ? `<details class="accordion"><summary>${num(closed.length)} finished</summary>${closed.slice(0, 60).map(row).join('')}${limitNote(Math.min(60, closed.length), closed.length, 'knowledge/entries')}</details>` : ''), `${num(openOnes.length)} open · decided by memory.openDuties and question.open`, '', ['questions']);
   },
   calendar: () => `<div id="calendarView">${calCache ? calendarHtml() : '<p class="small quiet">Reading the calendar …</p>'}</div>`,
   agents: () => {
@@ -1741,7 +1754,7 @@ const pages = {
         const r = shelf.get(p.name);
         return panel(
           esc(p.name) + (r?.isNew ? ' ' + badge('warning', 'new · unconfirmed') : ''),
-          `${r?.isNew ? `${waitingCard(p.name) ? cardHtml(waitingCard(p.name)) : `<p class="small muted" style="margin-bottom:8px">Newly created${r.createdOn ? ' on ' + esc(r.createdOn) : ''}${r.createdBy ? ' by ' + esc(r.createdBy) : ''} — awaits confirmation.</p>`}<div class="drawer-actions" style="margin-bottom:12px">${btn('Confirm project', 'project-confirm', `data-value="${esc(p.name)}" ${state.readonly ? 'disabled' : ''}`, 'small ghost')}</div><div class="small quiet" data-confirm-status="${esc(p.name)}" role="status" aria-live="polite"></div><details class="cmd-fallback"><summary class="small quiet">Details · command to copy</summary>${skCopy('node bin/mem project confirm ' + p.name)}</details>` : ''}<div class="number">${num(p.entries)}</div><p class="small muted" style="margin:5px 0 20px">entries · ${p.drawers.length} filled types${p.retired ? ` · ${num(p.retired)} retired` : ''}${p.openQuestions ? ` · ${num(p.openQuestions)} open questions` : ''}${p.waitingQuestions ? ` · ${num(p.waitingQuestions)} waiting for you` : ''}</p>${p.drawers.map((t) => `<span class="tag">${esc(types[t] || t)}</span>`).join('')}${r ? `<div class="stats-list" style="margin-top:14px"><div class="row"><span class="small">Shelf</span><span class="small">${num(r.filled)} filled · ${num(r.empty)} empty · ${num(r.missing)} missing of ${num(r.drawersTotal)}</span></div>${(r.files || []).map((f) => `<div class="row"><span class="small mono">${esc(f.name)}</span>${badge(f.where)}</div>`).join('')}</div>` : ''}${p.agents?.length ? `<p class="small quiet" style="margin-top:12px">Agents: ${p.agents.map((a) => esc(a.name) + ' (' + num(a.entries) + ')').join(', ')}</p>` : ''}<div class="drawer-actions">${btn('Open project', 'project', `data-value="${esc(p.name)}"`, 'ghost')}${btn('Export', 'export-project', `data-value="${esc(p.name)}"`, 'ghost')}</div>`,
+          `${r?.isNew ? `${waitingCard(p.name) ? cardHtml(waitingCard(p.name)) : `<p class="small muted" style="margin-bottom:8px">Newly created${r.createdOn ? ' on ' + esc(r.createdOn) : ''}${r.createdBy ? ' by ' + esc(r.createdBy) : ''} — awaits confirmation.</p>`}<div class="drawer-actions" style="margin-bottom:12px">${btn('Confirm project', 'project-confirm', `data-value="${esc(p.name)}" ${state.readonly ? 'disabled' : ''}`, 'small ghost')}</div><div class="small quiet" data-confirm-status="${esc(p.name)}" role="status" aria-live="polite"></div><details class="cmd-fallback"><summary class="small quiet">Details · command to copy</summary>${skCopy('node bin/mem project confirm ' + p.name)}</details>` : ''}<div class="number">${num(p.entries)}</div><p class="small muted" style="margin:5px 0 20px">entries · ${p.drawers.length} filled types${p.retired ? ` · ${num(p.retired)} retired` : ''}${p.openQuestions === null ? ' · questions unknown (not readable)' : ''}${p.openQuestions ? ` · ${num(p.openQuestions)} open questions` : ''}${p.waitingQuestions ? ` · ${num(p.waitingQuestions)} waiting for you` : ''}</p>${p.drawers.map((t) => `<span class="tag">${esc(types[t] || t)}</span>`).join('')}${r ? `<div class="stats-list" style="margin-top:14px"><div class="row"><span class="small">Shelf</span><span class="small">${num(r.filled)} filled · ${num(r.empty)} empty · ${num(r.missing)} missing of ${num(r.drawersTotal)}</span></div>${(r.files || []).map((f) => `<div class="row"><span class="small mono">${esc(f.name)}</span>${badge(f.where)}</div>`).join('')}</div>` : ''}${p.agents?.length ? `<p class="small quiet" style="margin-top:12px">Agents: ${p.agents.map((a) => esc(a.name) + ' (' + num(a.entries) + ')').join(', ')}</p>` : ''}<div class="drawer-actions">${btn('Open project', 'project', `data-value="${esc(p.name)}"`, 'ghost')}${btn('Export', 'export-project', `data-value="${esc(p.name)}"`, 'ghost')}</div>`,
           p.last ? 'Newest entry ' + when(p.last) : '',
           '', ['projects'],
         );
