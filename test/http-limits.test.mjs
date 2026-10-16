@@ -8,13 +8,13 @@
 // connections per service.
 //
 // **Four groups.**
-//   1. The helper on a CHILD server (test/fixture/limits-server.mjs) with SMALL times: slow headers, a dripping body, a
-//      connection flood (cap 8), the header-line count - and the other side: a long answer (SSE-like) does NOT break and a
+//   1. The helper on a CHILD server (test/fixture/limits-server.mjs) with SMALL times: slow headers, silent connections (no byte at
+//      all), a dripping body, a connection flood (cap 8), the header-line count - and the other side: a long answer (SSE-like) does NOT break and a
 //      normal request goes through. One mutation per probe (a line of the helper removed -> red) or a control that the probe
 //      sees an abort at all.
 //   2. The wiring: every `http.createServer(` under bin/ and src/ has its `hardenServer(` (a count, with sabotage), the cap
 //      of each service is the one named in MAX_CONNECTIONS, and the real dashboard server carries the values.
-//   3. The REAL services as processes with the real values: slow headers, dripping body - and a mutation (call removed ->
+//   3. The REAL services as processes with the real values: slow headers, silent connections, dripping body - and a mutation (call removed ->
 //      the slow connection stays open). No flood against the real services: 512 sockets on a loaded machine prove nothing
 //      the cap-8 probe of group 1 plus the wiring check do not.
 //   4. The recall server (Unix socket / pipe): a hung client does not block the next one. No limit was added there (see
@@ -168,6 +168,38 @@ async function probeFlood(modulePath, edgeMs) {
   } finally { k.stop(); }
 }
 
+/**
+ * Silent connections: a client connects and sends NOTHING. Green when the head limit closes them (Node answers 408) and a
+ * normal request goes through meanwhile. (A probe must READ from its sockets: a client socket nobody reads from does not
+ * show the close, which looks like "the server never closes it".)
+ */
+async function probeSilent(modulePath, edgeMs) {
+  const k = await startChild(null, modulePath, { ...SMALL, requestTimeoutMs: 600_000 });
+  try {
+    const conns = [];
+    for (let i = 0; i < 5; i += 1) conns.push(await open(k.port));
+    const meanwhile = await fetchOnce(k.port, '/health');
+    const closed = await waitUntil(() => conns.every((o) => o.closed), edgeMs);
+    closeAll(conns);
+    return { ok: closed && meanwhile.status === 200, closed, meanwhile };
+  } finally { k.stop(); }
+}
+
+/**
+ * The flood that frees itself: 20 silent connections at maxConnections 8 and NO cleanup by the probe. Green when the service
+ * answers a normal client again on its own (the head limit frees the seats after 2 s). Without the head limit the seats stay taken.
+ */
+async function probeSilentFlood(modulePath, edgeMs) {
+  const k = await startChild(null, modulePath, { headersTimeoutMs: 2000, requestTimeoutMs: 120_000, checkIntervalMs: 100, maxConnections: 8 });
+  const conns = [];
+  try {
+    for (let i = 0; i < 20; i += 1) conns.push(await open(k.port));
+    const capped = await waitUntil(() => conns.filter((o) => o.closed).length >= 12, edgeMs);
+    const recovered = await waitUntil(async () => (await fetchOnce(k.port, '/health', { edgeMs: 3000 })).status === 200, edgeMs, 200);
+    return { ok: capped && recovered, capped, recovered };
+  } finally { closeAll(conns); k.stop(); }
+}
+
 /** Header lines: 300 lines in ONE request; the server reads at most maxHeadersCount. */
 async function probeHeaderLines(modulePath) {
   const k = await startChild(null, modulePath, {});
@@ -232,6 +264,26 @@ test('group 1: the helper hardens; the mutations and controls keep the probes ho
       const opt = { headersTimeoutMs: 2000, requestTimeoutMs: 600_000 };
       const v = await probeSlowHeaders(m, 15_000, { opt, mustBeOpen: false });
       assert.equal(v.closed, false, JSON.stringify(v));
+    }),
+    t.test('silent connections (no byte at all) are closed by the head limit, a normal request goes through', async () => {
+      const v = await probeSilent(HELPER, EDGE_GREEN);
+      assert.ok(v.ok, JSON.stringify(v));
+    }),
+    t.test('mutation: headersTimeout removed -> silent connections stay open (red)', async (tt) => {
+      const m = mutatedHelper(tt, 'server.headersTimeout = g.headersTimeoutMs;', 'server.headersTimeout = 0;');
+      const v = await probeSilent(m, EDGE_MUTATION);
+      assert.equal(v.closed, false, JSON.stringify(v));
+      assert.equal(v.meanwhile.status, 200, 'control: the request itself goes through (5 silent connections lame nothing)');
+    }),
+    t.test('silent flood: the seats are freed by the head limit, the service answers again without help', async () => {
+      const v = await probeSilentFlood(HELPER, EDGE_GREEN);
+      assert.ok(v.ok, JSON.stringify(v));
+    }),
+    t.test('mutation: headersTimeout removed -> the silent flood keeps the seats (red)', async (tt) => {
+      const m = mutatedHelper(tt, 'server.headersTimeout = g.headersTimeoutMs;', 'server.headersTimeout = 0;');
+      const v = await probeSilentFlood(m, EDGE_MUTATION);
+      assert.equal(v.recovered, false, JSON.stringify(v));
+      assert.equal(v.capped, true, 'control: the cap itself acted (the surplus was dropped)');
     }),
     t.test('dripping body: the server closes, a small POST goes through', async () => {
       const v = await probeDrippingBody(HELPER, EDGE_GREEN);
@@ -481,6 +533,20 @@ async function realSlowHeaders(kind, tree, edgeMs) {
   } finally { s.stop(); }
 }
 
+/** Real: silent connections (no byte at all); the head limit closes them, a normal request goes through. */
+async function realSilent(kind, tree, edgeMs) {
+  const d = SERVICES[kind];
+  const s = await startReal(null, kind, tree);
+  try {
+    const conns = [];
+    for (let i = 0; i < SLOW_CONNECTIONS; i += 1) conns.push(await open(s.port));
+    const meanwhile = await fetchOnce(s.port, d.health);
+    const closed = await waitUntil(() => conns.every((o) => o.closed), edgeMs, 250);
+    closeAll(conns);
+    return { kind, ok: closed && meanwhile.status === 200, closed, meanwhile };
+  } finally { s.stop(); }
+}
+
 /** Real: head complete, large Content-Length, one byte a second. */
 async function realDrippingBody(kind, tree, edgeMs) {
   const d = SERVICES[kind];
@@ -505,6 +571,10 @@ test('group 3: the real services close slow headers and a dripping body (real va
       const v = await realSlowHeaders(kind, ROOT, EDGE_REAL_HEAD);
       assert.ok(v.ok, JSON.stringify(v));
       assert.match(v.first, /408/);
+    })),
+    ...kinds.map((kind) => t.test(`${kind}: silent connections (no byte at all) are closed, a normal request goes through`, async () => {
+      const v = await realSilent(kind, ROOT, EDGE_REAL_HEAD);
+      assert.ok(v.ok, JSON.stringify(v));
     })),
     ...kinds.map((kind) => t.test(`${kind}: a dripping body is closed, a normal request goes through`, async () => {
       const v = await realDrippingBody(kind, ROOT, EDGE_REAL_BODY);
