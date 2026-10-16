@@ -90,7 +90,13 @@ $curSize | Set-Content -LiteralPath $marker
 $Here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $maskScript = Join-Path $Here 'mem-mask-copy.mjs'
 $maskedCopy = ''
-try { $maskedCopy = (& node $maskScript --root $env:CHEAP_MEM_ROOT $transcriptPath 2>$null | Select-Object -First 1) } catch {}
+# Every value is its OWN argument of the call (variables, never one string put together): a path with a space or an apostrophe
+# reaches node whole. Windows PowerShell 5.1 wraps an argument with a space in double quotes, and a backslash at the end of
+# it would escape the closing quote (`"C:\My Mem\"` reaches node as `C:\My Mem"` plus the next argument), so the root loses
+# a trailing separator (a drive root such as `C:\` has no space and stays as it is).
+$rootArg = $env:CHEAP_MEM_ROOT
+if ($rootArg.Length -gt 3) { $rootArg = $rootArg.TrimEnd('\', '/') }
+try { $maskedCopy = (& node $maskScript --root $rootArg $transcriptPath 2>$null | Select-Object -First 1) } catch {}
 if (-not $maskedCopy -or -not (Test-Path -LiteralPath $maskedCopy)) {
   $lastSize | Set-Content -LiteralPath $marker
   exit 0

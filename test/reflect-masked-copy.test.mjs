@@ -296,7 +296,8 @@ test('both reflectors (sh and ps1) hand the model the copy, clean up, and keep t
   assert.ok(tryAt > 0 && tryAt < ps.indexOf('$defaultPrompt') && ps.indexOf('$defaultPrompt') < ps.indexOf('Start-Job'), 'the try opens before the prompt and the job');
   assert.ok(ps.indexOf('Start-Job') < ps.indexOf('Wait-Job') && ps.indexOf('Wait-Job') < finallyAt && ps.indexOf('Remove-Job') < finallyAt, 'job start, wait and removal are inside the try');
   assert.ok(ps.indexOf('--clean', finallyAt) > finallyAt, 'the finally removes the copy');
-  assert.match(ps, /--root \$env:CHEAP_MEM_ROOT/);
+  assert.match(ps, /--root \$rootArg \$transcriptPath/);
+  assert.match(ps, /\$rootArg = \$env:CHEAP_MEM_ROOT/);
   assert.match(sh, /mem-mask-copy\.mjs" --root "\$CHEAP_MEM_ROOT"/);
   // the hand-in variable is dropped before the model can inherit it
   assert.match(sh, /\nunset TRANSCRIPT_PATH_ENV\n/);
