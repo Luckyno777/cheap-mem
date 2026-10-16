@@ -42,6 +42,7 @@ import * as categories from '../../categories.mjs';
 import { out, die, warn, checkFlags, numberFlag, isHelp, findRoot, requireConfig } from '../shell.mjs';
 import { asOfOf, sinceOf, showWindow, compactLine, markedEntry, sanitizeForDisplay } from '../display.mjs';
 import { maskText } from '../../outputguard.mjs';
+import { clears, RECALL_MIN } from '../../recallrender.mjs';
 
 // What a raw hit shows when no real user line carries a query word: never
 // the entry text (an unfiltered join of every role).
@@ -225,8 +226,15 @@ export const COMMANDS = {
     // tissue. Not the default: whoever types `mem find "..."` by hand has
     // already chosen the words.
     const askedAs = query;
+    // The index is opened ONCE per question, and only when something needs it (a long question to shorten, the ranked
+    // search): `--content-words` used to load it for the shortening and `find` again for the search.
+    let opened = null;
+    const openIndex = () => {
+      opened ??= search.loadIndex(root, { fresh: Boolean(args.fresh), language: cfg.language });
+      return opened;
+    };
     if (args['content-words']) {
-      const shortened = search.retrievalQuery(query, { root });
+      const shortened = search.retrievalQuery(query, { root, loadIndex: openIndex });
       if (shortened && shortened !== query) query = shortened;
     }
     // --category: only entries whose topic is assigned to the category (src/categories.mjs).
@@ -362,7 +370,7 @@ export const COMMANDS = {
 
     thesaurus.loadUserGroups(root, fs, path);
     const t0 = Date.now();
-    const index = search.loadIndex(root, { fresh: Boolean(args.fresh), language: cfg.language });
+    const index = openIndex();
     if (index.bridgeError) process.stderr.write(`mem find: language bridge off: ${index.bridgeError}\n`);
     // The `word*` prefix operator (Windows-search style). OPT-IN via
     // `--wildcard`, deliberately not merely "a `*` appears in the query":
@@ -560,8 +568,8 @@ export const COMMANDS = {
     // score at or over `--journal-min`, or an exact hit.
     if (typeof args['journal-session'] === 'string' && args['journal-session']) {
       const injection = await import('../../injection.mjs');
-      const min = numberFlag('journal-min', args['journal-min'], { fallback: 5 });
-      const shown = hits.filter((h) => Number(h.score) >= min || (h.exact && h.exact.length));
+      const min = numberFlag('journal-min', args['journal-min'], { fallback: RECALL_MIN });
+      const shown = hits.filter((h) => clears(h, min));
       injection.book(root, {
         session: args['journal-session'],
         occasion: injection.OCCASION.QUESTION,
