@@ -35,7 +35,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import * as provenance from './provenance.mjs';
 import { writeAtomic } from './atomicwrite.mjs';
-import { maskText } from './outputguard.mjs';
+import { cutMasked } from './outputguard.mjs';
 import * as bidi from './bidi.mjs';
 
 /** The verdict is worked out again after this long. */
@@ -52,8 +52,10 @@ export const CACHE_FILE = path.join('.pipeline', 'clone-gate.json');
  */
 function cleanLine(raw) {
   if (typeof raw !== 'string' || !raw.startsWith('Memory: ')) return null;
-  const one = raw.replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ').trim().slice(0, 300);
-  return maskText(bidi.visible(one)) || null;
+  const one = raw.replace(/\p{Cc}+/gu, ' ').trim();
+  // Mask FIRST, cut the masked text (a plain slice before the mask leaves the front half of a token at the edge, and no
+  // pattern knows half a token): `cutMasked` is `maskText(text).slice(0, n)` and never ends inside a marker.
+  return cutMasked(bidi.visible(one), 300) || null;
 }
 
 function readCache(file) {
