@@ -28,8 +28,9 @@ import * as search from '../src/search.mjs';
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MEM = path.join(REPO, 'bin', 'mem');
 const BASE = 'dc6b69d58cbc90e35827f62381897bc3abe8fee6';
-const TOPICS = ['Datenbankmigration', 'Zahlungsabwicklung', 'Sicherungskopie', 'Rechnungsstellung', 'Kundenverwaltung'];
-const LONG = 'wir haben gestern lange ueber die Datenbankmigration und die Entscheidung daran gesprochen und wollen sie nun wirklich so machen';
+const TOPICS = ['database migration', 'payment settlement', 'backup rotation', 'invoice batch', 'customer sync'];
+// more than eight content words: the rarity cut of `--content-words` needs the index
+const LONG = 'we discussed at length database migration payment settlement backup rotation invoice batch customer synchronisation decisions';
 
 function world(t, language = 'de') {
   const root = tempDir('cm-ai-', t);
@@ -39,9 +40,9 @@ function world(t, language = 'de') {
   cfg.language = language;
   fs.writeFileSync(cfgPath, JSON.stringify(cfg));
   for (let i = 0; i < 30; i += 1) {
-    memory.logEntry(root, 'decision', { id: `ai-${i}`, topic: `${TOPICS[i % 5]} Stufe ${i}`, choice: `wir fuehren die ${TOPICS[i % 5]} nachts aus, Variante ${i}`, why: 'weil die Last dann niedrig ist' });
+    memory.logEntry(root, 'decision', { id: `ai-${i}`, topic: `${TOPICS[i % 5]} step ${i}`, choice: `we run the ${TOPICS[i % 5]} at night, variant ${i}`, why: 'because the load is low then' });
   }
-  memory.logEntry(root, 'error', { id: 'ai-err', class: 'wrong-cause', title: 'Datenbankmigration quokka bricht ab', text: 'die Datenbankmigration bricht bei quokka ab' });
+  memory.logEntry(root, 'error', { id: 'ai-err', class: 'wrong-cause', title: 'database migration quokka aborts', text: 'the database migration aborts at quokka' });
   return root;
 }
 const cacheId = (root) => {
@@ -50,7 +51,7 @@ const cacheId = (root) => {
 };
 /** Warm the cache the way `mem find` leaves it. */
 const warm = (tree, root) => {
-  const r = spawnSync(process.execPath, [path.join(tree, 'bin', 'mem'), '--root', root, 'find', 'Datenbankmigration', '--top', '1', '--json'], { encoding: 'utf8', env: { ...process.env, CHEAP_MEM_ROOT: '' } });
+  const r = spawnSync(process.execPath, [path.join(tree, 'bin', 'mem'), '--root', root, 'find', 'database migration', '--top', '1', '--json'], { encoding: 'utf8', env: { ...process.env, CHEAP_MEM_ROOT: '' } });
   assert.equal(r.status, 0, r.stderr);
 };
 
@@ -62,7 +63,7 @@ const PATHS = {
   },
   'SubagentStart task query': async (tree, root) => {
     const m = await import(pathToFileURL(path.join(tree, 'src', 'subagenttask.mjs')).href);
-    await m.forTask(root, { prompt: 'Fix the Datenbankmigration quokka crash please.' }, { env: { MEM_RETRIEVE_MIN: '0.1' } });
+    await m.forTask(root, { prompt: 'Fix the database migration quokka crash please.' }, { env: { MEM_RETRIEVE_MIN: '0.1' } });
   },
   'short-prompt check of the hook': async (tree, root) => {
     const m = await import(pathToFileURL(path.join(tree, 'src', 'recallhook.mjs')).href);

@@ -11,7 +11,7 @@
 // Paths with a question-side cutter: `mem find --content-words` (also the after-failure hook), the H1
 // lever of the recall hook (`MEM_SEARCH_LEVERS=h1`), and the task query of the SubagentStart block.
 //
-// Narrowed on purpose (sibling commit "Unterstrich-Wortgrenze nur in der Suchanfrage"): text-against-text
+// Narrowed on purpose (as in the sibling house: the underscore rule only for the question): text-against-text
 // readers of `contentWords` (error fixes, neighbours, project check) keep their old cutting.
 //
 // Red proof: at BASE (origin/kette/cm when this was built) the question-side paths miss the entry.

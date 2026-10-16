@@ -28,7 +28,7 @@ The hook's block is byte for byte the old one (6 hit lists x 7 settings; renderH
 
 **One index language, one load.** The index cache is kept per language and a cache of another language is `stale`. `mem find` asked for the memory's configured language; the SubagentStart block, the short-prompt check of the hook, the content-word shortening and a dozen readers asked for nothing, i.e. 'en': on a memory configured for another language they and `mem find` took turns rebuilding the cache (`stale` on every alternate load, the cache directory replaced each time).
 `search.loadIndex()` now takes the config's language when the caller names none (English memories unchanged; a named language still wins). `mem find --content-words` on a long question loaded the index for the shortening and again for the search; it opens it once (2 loads before, 1 now).
-The SubagentStart query also reads the request-frame switch from the `env` it is given (it read the process's). Probes `test/abruf-index.test.mjs`, `test/subagent-given-env.test.mjs`; eleven mutants in all.
+The SubagentStart query also reads the request-frame switch from the `env` it is given (it read the process's). Probes `test/recall-index-language.test.mjs`, `test/subagent-given-env.test.mjs`; eleven mutants in all.
 What was NOT built, with the evidence for the follow-up, is in the branch report: a total byte budget over the pieces of the hook's answer (header, clone line, hit lines, skill offer, workflow block) and over the SubagentStart blocks, and one search plan for `mem find`, `mem_find` (a hand-written copy of the ranked branch without the exact lane, the echo filter or MMR), the hook and the task query.
 
 ### Security - the shred keyring is ignored by `mem init`, and a tracked one is an ERROR
