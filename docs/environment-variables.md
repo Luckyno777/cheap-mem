@@ -153,13 +153,14 @@ A variable that is not in the table is not a switch: there is none.
 | `MEM_BEFORE_EDIT_MARKS` | `<root>/.mem/before-edit` | Directory of the per-session marks of the before-edit hook. |
 | `MEM_CATCH_FAIL_TURNS` | `<root>/.mem/catch-fail-turns` | Directory of the once-per-turn claims of the swallowed-failure hook. |
 | `MEM_COMMAND_GUARD_MARKS` | `<root>/.mem/command-guard-marks` | Directory of the per-session marks of the command guard. |
-| `MEM_DIGEST_CMD` | `claude -p` | The model command the digest starts (Windows: `claude`, arguments from `MEM_DIGEST_ARGS`). |
+| `MEM_DIGEST_CMD` | `claude -p` | The model command the digest starts (Windows: `claude`, arguments from `MEM_DIGEST_ARGS`). Started in a neutral empty directory outside the memory; a `claude` also gets `--setting-sources user --strict-mcp-config` (security-model.md, 11). |
 | `MEM_DIGEST_LOG` | `<root>/.mem/digest.log` | Log file of `bin/mem-digest`. |
-| `MEM_HANDLER_CMD` | `claude -p` | The model command that handles an incoming letter. |
+| `MEM_HANDLER_CMD` | `claude -p` | The model command that handles an incoming letter. Started in a neutral empty directory outside the memory; a `claude` also gets `--setting-sources user --strict-mcp-config` (security-model.md, 11). |
+| `MEM_HEADLESS_CWD` | `~/.cache/cheap-mem` | Parent of the neutral working directory `headless-cwd` for the model command. Set, the only place tried (unusable: no start); unset, the user cache, then a fresh temp folder. Never inside the memory. |
 | `MEM_RECALL_SERVER_CODE_STATE` | the server's own code directory | Tests only: which directory's `src/` the server watches to restart itself after a code change. |
 | `MEM_RECALL_SERVER_DIR` | `.pipeline/` of the root | Where the warm recall server keeps its socket and key; set it when the root path is too long for a Unix socket. |
 | `MEM_RECALL_SERVER_SHORT_BASE` | `/tmp` | Base directory for the short socket directory the recall server picks on its own when the default socket path is too long (macOS temp dirs); only used when MEM_RECALL_SERVER_DIR is unset. |
-| `MEM_REFLECT_CMD` | `claude -p` | The model command of the reflector. |
+| `MEM_REFLECT_CMD` | `claude -p` | The model command of the reflector. Started in a neutral empty directory outside the memory; a `claude` also gets `--setting-sources user --strict-mcp-config` (security-model.md, 11). |
 | `MEM_RETRIEVE_ROOTS` | `~/cheap-mem` | Space-separated roots the recall and after-failure hooks probe after `CHEAP_MEM_ROOT`; setting it replaces the default (a `;` list also works for the PowerShell twins). |
 | `MEM_RETRIEVE_TURNS` | `<root>/.mem/retrieve-turns` | Directory of the once-per-turn claims of the recall hook. |
 | `MEM_STOP_ROOTS` | `~/cheap-mem` | The same probe list for the stop hook. |
@@ -235,6 +236,6 @@ A variable that is not in the table is not a switch: there is none.
 ### Internal — handed from one cheap-mem process to the next
 
 Set by a hook script for the program it starts, or plain shell variables that only look like environment
-variables. Nothing to configure: `CM_REBUILD_LOCK`, `MAX`, `MEM_AF_REASON`, `MEM_AF_SESSION`, `MEM_AF_START_MS`, `MEM_ALARM_RC`, `MEM_ALARM`, `MEM_BE_ASCII`, `MEM_BE_START_MS`, `MEM_CAP`, `MEM_CLI`, `MEM_DETOUR_REASON`, `MEM_ERRSIG`, `MEM_HOOK_START_MS`, `MEM_J_BYTES`, `MEM_J_HITS`, `MEM_J_PATH_REASON`, `MEM_J_PATH`, `MEM_J_QB`, `MEM_J_Q`, `MEM_J_REASON`, `MEM_J_ROOT`, `MEM_J_SESSION`, `MEM_J_SRC`, `MEM_J_START`, `MEM_OWN_SKIPPED`, `MEM_RECALL_SERVER_PARENT`, `MEM_RH_CWD`, `MEM_RH_MIN`, `MEM_RH_PATH_REASON`, `MEM_RH_PATH`, `MEM_RH_PROMPT`, `MEM_RH_QB`, `MEM_RH_SESSION`, `MEM_RH_START_MS`, `MEM_RH_TRANSCRIPT`, `MEM_RH_TURNS`, `MEM_RH_WORKFLOW`, `MEM_SS_CODE`, `MEM_SS_INPUT`, `MEM_SS_IN`, `MEM_SS_PROV`, `MEM_SS_SRC`, `MEM_SS_START_MS`, `MEM_START`, `MEM_SUBAGENT_TASK_FELL_BACK`, `MEM_TODAY`, `MEM_USER_HABITS`, `RESERVE`, `ROOT`, `TRANSCRIPT_PATH`.
+variables. Nothing to configure: `CM_REBUILD_LOCK`, `MAX`, `MEM_AF_REASON`, `MEM_AF_SESSION`, `MEM_AF_START_MS`, `MEM_ALARM_RC`, `MEM_ALARM`, `MEM_BE_ASCII`, `MEM_BE_START_MS`, `MEM_CAP`, `MEM_CLI`, `MEM_DETOUR_REASON`, `MEM_ERRSIG`, `MEM_HL_ARGS`, `MEM_HL_CLEAN`, `MEM_HL_CWD`, `MEM_HL_HELPER`, `MEM_HL_ISOLATED`, `MEM_HL_NOTE`, `MEM_HOOK_START_MS`, `MEM_J_BYTES`, `MEM_J_HITS`, `MEM_J_PATH_REASON`, `MEM_J_PATH`, `MEM_J_QB`, `MEM_J_Q`, `MEM_J_REASON`, `MEM_J_ROOT`, `MEM_J_SESSION`, `MEM_J_SRC`, `MEM_J_START`, `MEM_OWN_SKIPPED`, `MEM_RECALL_SERVER_PARENT`, `MEM_RH_CWD`, `MEM_RH_MIN`, `MEM_RH_PATH_REASON`, `MEM_RH_PATH`, `MEM_RH_PROMPT`, `MEM_RH_QB`, `MEM_RH_SESSION`, `MEM_RH_START_MS`, `MEM_RH_TRANSCRIPT`, `MEM_RH_TURNS`, `MEM_RH_WORKFLOW`, `MEM_SS_CODE`, `MEM_SS_INPUT`, `MEM_SS_IN`, `MEM_SS_PROV`, `MEM_SS_SRC`, `MEM_SS_START_MS`, `MEM_START`, `MEM_SUBAGENT_TASK_FELL_BACK`, `MEM_TODAY`, `MEM_USER_HABITS`, `RESERVE`, `ROOT`, `TRANSCRIPT_PATH`.
 
 <!-- envvars:end -->
