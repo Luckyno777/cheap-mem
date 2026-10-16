@@ -73,7 +73,7 @@ The model does not read the transcript as it lies on disk. `bin/mem-mask-copy.mj
 makes a masked copy first (the masking of `mem raw show`: `maskEntry` per JSON
 line, `maskText` for any other line) in a private directory under the OS temp
 directory, `$TRANSCRIPT_PATH` points at the copy, and the copy is deleted when
-the reflector ends. If the copy cannot be made, no model starts (fail closed).
+the reflector ends. If the copy cannot be made, or the temp directory lies inside the memory root (where `git add -A` would pick it up), no model starts (fail closed). Runs of plain lines are masked as one block, so a secret across lines (a PEM key) is caught.
 
 ## Why the inbox lives IN the memory repo
 

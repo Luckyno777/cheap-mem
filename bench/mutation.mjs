@@ -842,6 +842,18 @@ export const MUTANTS=[
    to:'\n: # MUTANT\n',
    tests:['test/reflect-masked-copy.test.mjs'] },
 
+ { name:'reflect: the helper is not told the memory root, so a temp directory inside it passes',
+   file:'bin/mem-reflect',
+   from:'mem-mask-copy.mjs" --root "$CHEAP_MEM_ROOT" "$TRANSCRIPT_PATH"',
+   to:'mem-mask-copy.mjs" "$TRANSCRIPT_PATH"',
+   tests:['test/reflect-masked-copy.test.mjs'] },
+
+ { name:'mask-copy: a temp directory inside the memory root is accepted',
+   file:'bin/mem-mask-copy.mjs',
+   from:"    if (root && isInside(fs.realpathSync.native(dir), fs.realpathSync.native(root)))",
+   to:"    if (false && root && isInside(fs.realpathSync.native(dir), fs.realpathSync.native(root)))  // MUTANT\n",
+   tests:['test/reflect-masked-copy.test.mjs'] },
+
  { name:'reflect: the masked copy is never deleted',
    file:'bin/mem-reflect',
    from:'    node "$HERE/mem-mask-copy.mjs" --clean "$MASKED_COPY" >/dev/null 2>&1 || true\n',

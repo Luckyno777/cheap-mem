@@ -4,7 +4,7 @@
 /**
  * mem-mask-copy.mjs - a MASKED copy of a session transcript, for the reflector.
  *
- *   node bin/mem-mask-copy.mjs <transcript>        prints the path of the masked copy
+ *   node bin/mem-mask-copy.mjs [--root <memory root>] <transcript>   prints the path of the masked copy
  *   node bin/mem-mask-copy.mjs --clean <copy>      removes a copy made by the first form
  *
  * The reflector (bin/mem-reflect, bin/mem-reflect.ps1) hands a model the path of the
@@ -16,7 +16,9 @@
  * `maskText` as one block (a PEM key spans lines). Keys and the shape of the lines stay, so the model reads the same session.
  *
  * The copy sits in a private directory under the OS temp directory (never under the memory
- * root: the reflector commits with `git add -A`). It is deleted by the caller with --clean
+ * root: the reflector commits with `git add -A`). With --root the script checks it: if the temp
+ * directory itself lies inside the memory root (TMPDIR, TEMP or TMP set that way), it fails
+ * instead of leaving a secret-bearing file where `git add -A` would pick it up. It is deleted by the caller with --clean
  * as soon as the model has ended.
  *
  * Fails CLOSED: on any error nothing is left behind, nothing is printed, the exit code is 2,
@@ -49,8 +51,20 @@ function parseStructured(line) {
 const BLOCK_MAX_LINES = 20000;
 const BLOCK_MAX_CHARS = 2 * 1024 * 1024;
 
-async function makeCopy(source) {
+/** True when `inner` is `outer` or lies below it (real paths; case-insensitive where the platform is). */
+function isInside(inner, outer) {
+  const rel = path.relative(outer, inner);
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
+async function makeCopy(source, root) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), DIR_PREFIX));
+  try {
+    if (root && isInside(fs.realpathSync.native(dir), fs.realpathSync.native(root))) throw Object.assign(new Error('temp directory inside the memory root'), { code: 'TMPDIR_IN_ROOT' });
+  } catch (e) {
+    fs.rmSync(dir, { recursive: true, force: true });
+    throw e;
+  }
   const target = path.join(dir, FILE_NAME);
   try {
     const fd = fs.openSync(target, 'w', 0o600);
@@ -106,10 +120,12 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   try {
     if (args[0] === '--clean') {
       cleanCopy(args[1]);
+    } else if (args[0] === '--root' && args.length === 3 && args[1] && args[2]) {
+      process.stdout.write(`${await makeCopy(args[2], args[1])}\n`);
     } else if (args.length === 1 && args[0]) {
-      process.stdout.write(`${await makeCopy(args[0])}\n`);
+      process.stdout.write(`${await makeCopy(args[0], null)}\n`);
     } else {
-      process.stderr.write('usage: mem-mask-copy <transcript> | --clean <copy>\n');
+      process.stderr.write('usage: mem-mask-copy [--root <memory root>] <transcript> | --clean <copy>\n');
       process.exitCode = 2;
     }
   } catch (e) {

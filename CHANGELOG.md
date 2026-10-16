@@ -14,6 +14,15 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Fixed - reflector follow-up: lines that belong together, the env route, a temp directory inside the memory root (small-parity-cm, point 3; Parity lm=open)
+
+- **A secret across lines is masked.** `bin/mem-mask-copy.mjs` masked a plain (non-JSON-object) line on its own, so a PEM private key lost its mask: no single line has its shape. Consecutive plain lines are now masked as one block, cut at
+  20,000 lines or 2 MiB so the work stays linear (8 MB of plain lines took 2.0 s, measured). A bare number or string line counts as text. A secret longer than a cut (2 MiB) is the only thing a cut can split.
+- **The env route.** `TRANSCRIPT_PATH_ENV` is unset right after it is read, so the model no longer inherits the raw path through it.
+- **A temp directory inside the memory root fails closed.** If `TMPDIR`/`TEMP`/`TMP` points into the memory root the copy would be picked up by `git add -A`: the helper (`--root`) refuses, no model starts, the marker goes back.
+- **ps1:** everything from the copy to the end of the job sits in one `try`/`finally` that removes the copy.
+Probes in `test/reflect-masked-copy.test.mjs`, red against 37e1e25; five mutants added or re-anchored.
+
 ### Fixed - pin words with digits, `pinhash`/`pinvalue`/`pinnumber`, and the plural of a compound (small-parity-cm, follow-up to point 1; Parity lm=yes)
 
 A word that ends in `pin` and digits (`pin1`, `PIN2`, `myPIN2`, `userpin2`) is a pin word, and so is `pin` + `code|hash|value|number|num|digest|salt` spelled in one word (`pinhash`, `pinvalue`, `pinnumber`, `userpinhash`).
@@ -26,9 +35,9 @@ Monotone against 870788f: 40,105 text cases and 60,000 random objects with the n
 
 `bin/mem-reflect` (and its `.ps1` twin) handed `claude -p` the path of the transcript as it lies on disk, so the model saw every secret in it, while the digest (`mem raw show`) and the mail handler (`mem inbox show`) read masked.
 New `bin/mem-mask-copy.mjs` writes a copy through the same masking (`maskEntry` per JSON line, `maskText` for any other line) into a private directory under the OS temp directory (never under the memory root: the reflector
-commits with `git add -A`); `$TRANSCRIPT_PATH` is the copy and it is removed when the reflector ends, also on a kill signal (sh) or a timeout (ps1). Fail closed: if the copy cannot be made no model starts and the marker goes back
+commits with `git add -A`); `$TRANSCRIPT_PATH` is the copy and it is removed when the reflector ends: on a normal end and on a timeout (sh: trap EXIT; ps1: `finally` around the whole run from the copy to the job). Honest limits: SIGKILL (or a power cut) cannot clean up; and a TERM, INT or HUP that reaches the sh script while the model runs is deferred by bash until the model has ended, then the copy is removed. Fail closed: if the copy cannot be made no model starts and the marker goes back
 to where it was. `MEM_HEADLESS` is untouched. Probe `test/reflect-masked-copy.test.mjs` with a stand-in model (token, keyed value and PIN do not arrive; the raw path is in neither argument nor environment), red against the base; six mutants added.
-The original path is not given to the model; a model with file tools that guesses where its host keeps transcripts can still open one, which only a sandbox would prevent.
+The original path is not given to the model: not in the prompt, not in `TRANSCRIPT_PATH`, and the hand-in variable `TRANSCRIPT_PATH_ENV` is unset (`Remove-Item Env:` in the ps1) before the model starts. A model with file tools that guesses where its host keeps transcripts can still open one, which only a sandbox would prevent.
 
 ### Fixed - the answer check asks for the WHOLE corrected answer, not an addendum (small-parity-cm, point 2; Parity lm=yes)
 

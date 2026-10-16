@@ -213,6 +213,33 @@ test('fails closed: if the copy cannot be made, no model starts and the marker s
   } finally { fs.rmSync(root, { recursive: true, force: true }); fs.rmSync(d, { recursive: true, force: true }); }
 });
 
+test('fails closed when the temp directory lies INSIDE the memory root (the reflector commits with git add -A)', () => {
+  const root = memory();
+  const d = scratch();
+  try {
+    const inside = path.join(root, 'scratch-tmp');
+    fs.mkdirSync(inside);
+    const t = writeTranscript(d);
+    const { res, saw } = reflect(root, t, { TMPDIR: inside, TEMP: inside, TMP: inside });
+    assert.equal(res.status, 0, 'a Stop hook still exits 0');
+    assert.equal(saw, null, 'no model starts when the copy would sit in the memory root');
+    assert.deepEqual(fs.readdirSync(inside), [], 'nothing was left in the memory root');
+    const markers = path.join(root, '.mem', 'reflect-marker');
+    const files = fs.existsSync(markers) ? fs.readdirSync(markers) : [];
+    assert.ok(files.length > 0);
+    for (const f of files) assert.equal(fs.readFileSync(path.join(markers, f), 'utf8').trim(), '0', 'the marker went back');
+    // the helper itself: --root refuses (exit 2, nothing printed); without --root it does not look
+    const refused = spawnSync(process.execPath, [MASK, '--root', root, t], { encoding: 'utf8', env: { ...process.env, TMPDIR: inside, TEMP: inside, TMP: inside } });
+    assert.equal(refused.status, 2);
+    assert.equal(refused.stdout, '');
+    assert.deepEqual(fs.readdirSync(inside), []);
+    // positive control: a temp directory outside the root is fine
+    const ok = spawnSync(process.execPath, [MASK, '--root', root, t], { encoding: 'utf8' });
+    assert.equal(ok.status, 0, ok.stderr);
+    spawnSync(process.execPath, [MASK, '--clean', ok.stdout.trim()], { encoding: 'utf8' });
+  } finally { fs.rmSync(root, { recursive: true, force: true }); fs.rmSync(d, { recursive: true, force: true }); }
+});
+
 test('bin/mem-mask-copy: masks line by line, prints one path, --clean removes only its own directory', () => {
   const d = scratch();
   try {
@@ -257,6 +284,14 @@ test('both reflectors (sh and ps1) hand the model the copy, clean up, and keep t
   assert.ok(ps.indexOf('mem-mask-copy.mjs') < ps.indexOf('$env:TRANSCRIPT_PATH = $transcriptPath'));
   assert.ok(sh.indexOf('TRANSCRIPT_PATH="$MASKED_COPY"') < sh.indexOf('export TRANSCRIPT_PATH'));
   assert.ok(ps.indexOf('$transcriptPath = $maskedCopy') < ps.indexOf('Start-Job'));
+  // ps1: everything from the moment the copy exists to the end of the job sits in ONE try, the clean-up in its finally
+  const tryAt = ps.indexOf('try {\n$transcriptPath = $maskedCopy');
+  const finallyAt = ps.indexOf('} finally {', tryAt);
+  assert.ok(tryAt > 0 && tryAt < ps.indexOf('$defaultPrompt') && ps.indexOf('$defaultPrompt') < ps.indexOf('Start-Job'), 'the try opens before the prompt and the job');
+  assert.ok(ps.indexOf('Start-Job') < ps.indexOf('Wait-Job') && ps.indexOf('Wait-Job') < finallyAt && ps.indexOf('Remove-Job') < finallyAt, 'job start, wait and removal are inside the try');
+  assert.ok(ps.indexOf('--clean', finallyAt) > finallyAt, 'the finally removes the copy');
+  assert.match(ps, /--root \$env:CHEAP_MEM_ROOT/);
+  assert.match(sh, /mem-mask-copy\.mjs" --root "\$CHEAP_MEM_ROOT"/);
   // the hand-in variable is dropped before the model can inherit it
   assert.match(sh, /\nunset TRANSCRIPT_PATH_ENV\n/);
   assert.match(ps, /Remove-Item Env:TRANSCRIPT_PATH_ENV/);

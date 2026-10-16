@@ -116,8 +116,9 @@ echo "$CUR_SIZE" > "$MARKER"
 # the model the raw path, secrets and all. The copy is made by
 # bin/mem-mask-copy.mjs (the masking of `mem raw show`: maskEntry per JSON
 # line, maskText for the rest), sits under the OS temp directory (not under the
-# memory root: the reflector commits with `git add -A`), and is removed when
-# this script ends. Fails CLOSED: no copy, no model. The marker then goes back
+# memory root: the reflector commits with `git add -A`; if TMPDIR points into the
+# memory root the helper refuses), and is removed when this script ends. Fails
+# CLOSED: no copy, no model. The marker then goes back
 # to where it was, so the next Stop tries again.
 HERE="$(cd "$(dirname "$(to_slashes "$0")")" && pwd)"
 MASKED_COPY=""
@@ -129,7 +130,7 @@ cleanup_masked() {
 }
 trap cleanup_masked EXIT
 trap 'exit 0' HUP INT TERM
-MASKED_COPY="$(node "$HERE/mem-mask-copy.mjs" "$TRANSCRIPT_PATH" 2>/dev/null || true)"
+MASKED_COPY="$(node "$HERE/mem-mask-copy.mjs" --root "$CHEAP_MEM_ROOT" "$TRANSCRIPT_PATH" 2>/dev/null || true)"
 MASKED_COPY="$(to_slashes "$MASKED_COPY")"
 if [ -z "$MASKED_COPY" ] || [ ! -f "$MASKED_COPY" ]; then
   MASKED_COPY=""
