@@ -633,9 +633,13 @@ test('#37 CRLF: a changelog saved with Windows line endings is read the same', (
 
 // --- #38 mem-before-edit.ps1 passes --hook like the POSIX hook ---
 
-test('#38 source probe (PowerShell, not executed here): mem-before-edit.ps1 calls `component --hook`', () => {
-  assert.match(read('bin/mem-before-edit'), /component "\$QUERY" --hook --json/, 'control: the POSIX hook has it');
-  assert.match(read('bin/mem-before-edit.ps1'), /component \$Query --hook --json/);
+test('#38 source probe (PowerShell, not executed here): the before-edit lookup passes --hook, in the ONE module both shells run', () => {
+  // Since TB5 (2026-10-14) neither shell starts `mem component` itself: both start bin/mem-before-edit-core.mjs, which calls
+  // src/componenthook.mjs - the very functions `mem component <path> --hook` runs. The probe follows the call.
+  assert.match(read('bin/mem-before-edit'), /mem-before-edit-core\.mjs/, 'control: the POSIX hook starts the core');
+  assert.match(read('bin/mem-before-edit.ps1'), /mem-before-edit-core\.mjs/);
+  assert.match(read('src/beforeedit.mjs'), /componentHook\.lookup\(/);
+  assert.match(read('src/cli/commands/setup.mjs'), /componentHook\.lookup\(root, p/, 'the CLI handler for --hook calls the same function');
 });
 
 // --- #41 mem-watch: the .git check sees a backslash root ---

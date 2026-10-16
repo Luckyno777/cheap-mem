@@ -87,7 +87,8 @@ for (const h of HOOKS) {
 
   test(`${h.name}: the default chain names only $HOME/cheap-mem`, posixOnly, () => {
     for (const f of FIXED) assert.ok(!now.includes(f), `${file} still names ${f}`);
-    assert.match(chainOf(now), new RegExp(`^PROBE="\\$\\{${h.roots}:-\\$HOME/cheap-mem\\}"`));
+    // `${HOME:-}` since 2026-10-14 (D5): a hook run with HOME unset must not die under `set -u`.
+    assert.match(chainOf(now), new RegExp(`^PROBE="\\$\\{${h.roots}:-(?:\\$HOME|\\$\\{HOME:-\\})/cheap-mem\\}"`));
   });
 
   test(`${h.name}: RED on the old source, a root at an old fixed place is found; new, it is not`, posixOnly, (t) => {

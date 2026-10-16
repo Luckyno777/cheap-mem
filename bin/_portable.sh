@@ -135,6 +135,115 @@ capped() {
   "$@"
 }
 
+# --- A compile cache for the hooks' node starts (R6) ----------------
+#
+# Every hook call is a NEW node process, and each one translates the
+# `src/*.mjs` it imports from scratch. `NODE_COMPILE_CACHE` (Node >= 22.1)
+# keeps the translated code in a directory and reads it back at the next
+# start. Measured 2026-10-14 on the before-edit hook, now one start
+# (Linux 6.18, 4 cores, Node 22.22, median of 15): see CHANGELOG.
+#
+# **Where it lives: the USER's cache, not the memory.** The memory is a git
+# repository that travels between machines; a directory of machine code for
+# one Node version has no business in it (the sibling house keeps it under
+# the memory's `.pipeline/`, which it ignores - here the user cache is the
+# honest place, and one cache serves every memory on the machine):
+#
+#   Linux / other   ${XDG_CACHE_HOME:-$HOME/.cache}/cheap-mem/node-cc
+#   macOS           $HOME/Library/Caches/cheap-mem/node-cc
+#   Git Bash (Win)  $LOCALAPPDATA/cheap-mem/node-cc
+#
+# **A value the user set stays** (NODE_COMPILE_CACHE already in the
+# environment). **The cache only speeds up:** if the directory cannot be
+# made (no HOME, read-only, disk full) the hook runs without it - a hook
+# that falls silent over a cache is worse than one that needs 20 ms more.
+# Node 20 does not know the variable and ignores it. A relative
+# XDG_CACHE_HOME is ignored, as the specification says.
+mem_compile_cache() {
+  [ -n "${NODE_COMPILE_CACHE:-}" ] && return 0
+  local base="" dir
+  case "$(uname -s 2> /dev/null)" in
+    Darwin) [ -n "${HOME:-}" ] && base="$HOME/Library/Caches" ;;
+    MINGW* | MSYS* | CYGWIN*) base="${LOCALAPPDATA:-}"; base="${base//\\//}" ;;
+    *)
+      case "${XDG_CACHE_HOME:-}" in
+        /*) base="$XDG_CACHE_HOME" ;;
+        *) [ -n "${HOME:-}" ] && base="$HOME/.cache" ;;
+      esac ;;
+  esac
+  [ -n "$base" ] || return 0
+  dir="$base/cheap-mem/node-cc"
+  [ -d "$dir" ] || (umask 077; mkdir -p "$dir") 2> /dev/null || return 0
+  [ -d "$dir" ] && export NODE_COMPILE_CACHE="$dir"
+  return 0
+}
+
+# --- Which remote and branch does this memory TRACK? (D4) -----------
+#
+# `.mem/config.json` says: `defaultRemote` and `defaultBranch` - the same
+# keys `mem-watch` reads. Until 2026-10-14 the recall hook pulled
+# `origin main` and the session start fetched `origin main`, checked out
+# `main` and pulled, whatever the memory said. Reproduced: a clone on
+# `develop` (config `defaultBranch: develop`, the remote also has a
+# `main`) came out of a session start on a NEW local `main` tracking
+# `origin/main` - every later write went to the wrong branch. The hook
+# had been "forcing main so a feature-branch checkout cannot misroute
+# writes"; for a memory that does not live on main it did the misrouting.
+#
+# Sets mem_track_remote and mem_track_branch (default origin / main, when the
+# file or the key is missing) and mem_track_note (empty, or one sentence
+# when a value was refused). The config is DATA out of a cloned repository:
+# a value goes to git only if it is a plain name (letters, digits, `._-`,
+# `/` inside a branch) that starts with a letter or digit (a leading `-` would
+# be read by git as an option), holds no `..` or `//` and does not end in `/`
+# or `.lock`. Anything else is refused LOUDLY
+# (the note), and the default stands - never a half-trusted value.
+#
+# install/hooks/session-start.sh carries an inline twin of this function (the
+# installed hook has no _portable.sh next to it); test/tracked-ref.test.mjs runs
+# both over the same cases.
+#
+# A remote that is not one of THIS clone's is refused as well (N5): `git fetch <name>` with a name that is no remote is
+# read by git as a path or URL, and the name comes out of a file in a cloned repository. Checked with
+# `git remote get-url -- <name>`; where the directory is no git repository nothing is fetched anyway and nothing is asked.
+# N5-1: no warning where the answer is the same anyway: the default "origin" that is no remote (a memory without a remote) and any
+# value in a clone that has no remote at all. A warning needs a value set on purpose AND remotes it could have named.
+# The refused value is shown clipped (40 characters, printable ASCII only): it is data, and it is printed.
+#
+# mem_tracked_ref <memory root>
+mem_clip() {
+  local c; c="$(printf '%s' "$1" | LC_ALL=C tr -cd '\040-\176' | cut -c1-40)"
+  [ "${#1}" -gt 40 ] && c="$c..."
+  printf '%s' "$c"
+}
+mem_tracked_ref() {
+  local cfg="$1/.mem/config.json" v
+  mem_track_remote="origin"; mem_track_branch="main"; mem_track_note=""
+  [ -f "$cfg" ] || return 0
+  v="$(grep -o '"defaultRemote"[[:space:]]*:[[:space:]]*"[^"]*"' "$cfg" 2> /dev/null | head -n 1 | sed 's/^[^:]*:[[:space:]]*"\(.*\)"$/\1/')"
+  if [ -n "$v" ]; then
+    case "$v" in
+      [!A-Za-z0-9]* | *[!A-Za-z0-9._-]* | *..*) mem_track_note="config defaultRemote '$(mem_clip "$v")' is not a plain remote name - using origin" ;;
+      *)
+        if git -C "$1" rev-parse --git-dir > /dev/null 2>&1 && ! git -C "$1" remote get-url -- "$v" > /dev/null 2>&1; then
+          # N5-1: origin stays either way, so a warning is only for a value somebody SET against a clone that has remotes.
+          # The default name ("origin", which `mem init` writes) and a clone without any remote say nothing.
+          if [ "$v" != origin ] && [ -n "$(git -C "$1" remote 2> /dev/null)" ]; then
+            mem_track_note="config defaultRemote '$(mem_clip "$v")' is not a remote of this clone - using origin"
+          fi
+        else mem_track_remote="$v"; fi ;;
+    esac
+  fi
+  v="$(grep -o '"defaultBranch"[[:space:]]*:[[:space:]]*"[^"]*"' "$cfg" 2> /dev/null | head -n 1 | sed 's/^[^:]*:[[:space:]]*"\(.*\)"$/\1/')"
+  if [ -n "$v" ]; then
+    case "$v" in
+      [!A-Za-z0-9]* | */ | *//* | *..* | *.lock | *[!A-Za-z0-9._/-]*) mem_track_note="${mem_track_note:+$mem_track_note; }config defaultBranch '$(mem_clip "$v")' is not a plain branch name - using main" ;;
+      *) mem_track_branch="$v" ;;
+    esac
+  fi
+  return 0
+}
+
 # --- An exclusive claim --------------------------------------------
 #
 # flock on FD 9 where it exists; a directory otherwise. `mkdir` is

@@ -15,6 +15,8 @@
 # Env:
 #   CHEAP_MEM_ROOT        absolute path to the memory (as the installer sets it)
 #   MEM_RETRIEVE_OFF=1    turn recall off for this session
+#   MEM_CLONE_GATE=0      never put the "which clone answered" line above a recall
+#                         from a STALE clone (src/clonegate.mjs; default: show it, at most every 30 min)
 #   MEM_HOOK_OFF=1        turn ALL cheap-mem hooks off (shared with the others)
 #   MEM_RETRIEVE_MIN      minimum BM25 score to show (default 5.0)
 #   MEM_RETRIEVE_TOP      at most this many hits (default 3)
@@ -25,7 +27,8 @@
 #                         show me") like every other word (src/requestframe.mjs)
 #   MEM_RETRIEVE_NO_PULL=1  read only, never refresh the clone
 #   MEM_RETRIEVE_FRESH_MIN  minutes between background pulls (default 10)
-#   MEM_RETRIEVE_REMOTE / _BRANCH  where to pull from (default origin/main)
+#   MEM_RETRIEVE_REMOTE / _BRANCH  where to pull from (default: the memory's
+#                         config defaultRemote / defaultBranch, else origin/main)
 #   MEM_RETRIEVE_ROOTS    space-separated fallback roots to probe
 #   MEM_RETRIEVE_TIME     seconds for the search, server AND fallback (default 5)
 #   MEM_RECALL_SERVER=0   never ask the warm recall server (M10), always direct
@@ -67,11 +70,24 @@ to_slashes() { printf '%s' "${1//\\//}"; }
 # location would read, and the stop hook push, a stranger's memory).
 # A hook that no test can reach is a hook that breaks unnoticed, so the
 # list is overridable via MEM_RETRIEVE_ROOTS.
-PROBE="${MEM_RETRIEVE_ROOTS:-$HOME/cheap-mem}"
+PROBE="${MEM_RETRIEVE_ROOTS:-${HOME:-}/cheap-mem}"
+# D5 (2026-10-14): the roots to try are an ARRAY. This used to be an unquoted
+# `$PROBE` in the loop below, so a HOME with a space in it ("/home/Max Muster")
+# split the DEFAULT root in two and the hook found no memory - silently, exit 0.
+# The documented list stays whitespace-separated; the whole value is tried
+# first (it may be ONE path that has a space), then its words. `read -a` does
+# not glob, the unquoted expansion did. test/hook-spaces.test.mjs.
+PROBE_LIST=()
+if [ -n "${MEM_RETRIEVE_ROOTS:-}" ]; then
+  PROBE_LIST+=("$MEM_RETRIEVE_ROOTS")
+  read -r -a PROBE_WORDS <<< "$MEM_RETRIEVE_ROOTS"
+  PROBE_LIST+=(${PROBE_WORDS[@]+"${PROBE_WORDS[@]}"})
+elif [ -n "${HOME:-}" ]; then
+  PROBE_LIST+=("$HOME/cheap-mem")
+fi
 
 ROOT=""
-# shellcheck disable=SC2086
-for k in "${CHEAP_MEM_ROOT:-}" $PROBE; do
+for k in "${CHEAP_MEM_ROOT:-}" ${PROBE_LIST[@]+"${PROBE_LIST[@]}"}; do
   [ -z "$k" ] && continue
   k="$(to_slashes "$k")"
   [ -f "$k/.mem/config.json" ] && { ROOT="$k"; break; }
@@ -130,6 +146,7 @@ esac
 # the cap only keeps a hung git from lingering.
 # shellcheck source=bin/_portable.sh
 . "$HOOK_DIR/_portable.sh"
+mem_compile_cache  # R6: V8 compile cache in the user's cache dir, before the first node start
 
 # --- Keep the clone from going stale --------------------------------
 #
@@ -188,8 +205,13 @@ refresh() {
   fi
 
   touch "$marker" 2>/dev/null || return 0
-  remote="${MEM_RETRIEVE_REMOTE:-origin}"
-  branch="${MEM_RETRIEVE_BRANCH:-main}"
+  # Where to pull from: the switch, else what the memory TRACKS (.mem/config.json
+  # defaultRemote / defaultBranch - bin/_portable.sh mem_tracked_ref), else origin/main.
+  # It used to be origin/main whatever the memory said: on a clone that lives on
+  # `develop` the pull merged the remote's `main` into it.
+  mem_tracked_ref "$ROOT"
+  remote="${MEM_RETRIEVE_REMOTE:-$mem_track_remote}"
+  branch="${MEM_RETRIEVE_BRANCH:-$mem_track_branch}"
   ( capped 30 git -C "$ROOT" pull --ff-only --quiet "$remote" "$branch" ) >/dev/null 2>&1 &
   return 0
 }

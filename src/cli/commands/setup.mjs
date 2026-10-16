@@ -29,14 +29,15 @@ import * as guardgaps from '../../guardgaps.mjs';
 import * as source from '../../source.mjs';
 import * as component from '../../component.mjs';
 import * as componentTable from '../../component-table.mjs';
+import * as componentHook from '../../componenthook.mjs';
 import * as capability from '../../capability.mjs';
 import * as board from '../../board.mjs';
-import * as errorcontext from '../../errorcontext.mjs';
 import * as codexcloud from '../../codexcloud.mjs';
 import * as owntool from '../../owntool.mjs';
 import { PKG_ROOT, out, die, warn, checkFlags, numberFlag, isHelp, findRoot, requireConfig } from '../shell.mjs';
 import { compactLine, countLines } from '../display.mjs';
 import { maskText } from '../../outputguard.mjs';
+import { trackedRuntimeFiles, untrackCommand, describeTracked, trackedNotes, shellHint } from '../../trackedruntime.mjs';
 import { installHook, proveHook, writeMergeDriver, writeMemoryGitignore, armHookIfRepo } from '../githook.mjs';
 
 /** 16 commands. */
@@ -106,6 +107,19 @@ export const COMMANDS = {
         out(`  check with: mem doctor`);
       } else {
         out(`  .gitignore and merge driver are in order`);
+      }
+      // A rule does not untrack. A memory that committed files under .pipeline/ before the rule existed keeps tracking it (dirty tree,
+      // blocked pull, add/add conflicts), whatever the rule says now - so it is said here, with the one command.
+      const stillTracked = trackedRuntimeFiles(root);
+      if (stillTracked === null) {
+        // Not a git repository: nothing is tracked, nothing to say. A repository git cannot list: say so, never a quiet "in order".
+        if (fs.existsSync(path.join(root, '.git'))) out('  ? tracked runtime files: unknown (git ls-files could not answer)');
+      } else if (stillTracked.length) {
+        const command = untrackCommand(stillTracked);
+        out(`  ! ${stillTracked.length} runtime file(s) are still TRACKED (${describeTracked(stillTracked)}):`);
+        for (const note of trackedNotes(stillTracked)) out(`    ${note}`);
+        out(`    run: ${command}   (once, then commit - the rule only keeps NEW files out)`);
+        if (shellHint(command)) out(`    ${shellHint(command)}`);
       }
       // AU11: the hook is part of "in order" - arm it when it is not (a git repo, nothing set yet).
       for (const l of armHookIfRepo(root).lines) out(`  ${l}`);
@@ -1428,38 +1442,12 @@ export const COMMANDS = {
       return;
     }
     if (args.hook) {
-      const cap = args.project
-        ? capability.grantProject(String(args.project), { subject: 'cli' })
-        : capability.grantAll('cli');
-      const res = componentTable.beforeEditHits(root, p, { cap: top });
-      const usedTable = res.hits !== null;
-      const hits = res.hits ?? component.find(root, p, cap);
+      // The lookup and the `--json` object are src/componenthook.mjs — the
+      // before-edit hook calls the same two functions inside its own process.
+      const look = componentHook.lookup(root, p, { top, project: args.project });
+      const { res, usedTable, hits } = look;
       if (args.json) {
-        // Open duties and released procedures for this file, from the
-        // FULL hit list (not the `--top` slice): the hook shows them in
-        // their own capped section, see errorcontext.beforeEditDuties().
-        const owed = errorcontext.beforeEditDuties(root, p, hits, {
-          project: args.project ? String(args.project) : undefined,
-        });
-        const row = (e) => ({ id: e.id, ts: e.ts ?? null, source: e._source ?? null,
-          label: compactLine(e, { root }) || '' });
-        out(JSON.stringify({
-          path: p,
-          forms: component.forms(p),
-          n: hits.length,
-          duties: owed.duties.map(row),
-          procedures: owed.procedures.map(row),
-          table: { state: res.tableState, usedTable, backgroundRebuild: res.backgroundRebuild },
-          hits: hits.slice(0, top).map((h) => ({
-            score: null,
-            form: h._form,
-            source: h._source,
-            line: h._line,
-            ts: h.ts ?? null,
-            raw: false,
-            label: compactLine(h) || '',
-          })),
-        }));
+        out(JSON.stringify(componentHook.asJson(root, p, look, { top, project: args.project })));
         return;
       }
       if (!hits.length) {

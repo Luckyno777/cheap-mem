@@ -60,11 +60,24 @@ to_slashes() { printf '%s' "${1//\\//}"; }
 # Resolve the memory root (has .mem/config.json). CHEAP_MEM_ROOT is what
 # the installer hardcodes; the probe (only $HOME/cheap-mem unless
 # MEM_STOP_ROOTS says otherwise) keeps the hook usable by hand.
-PROBE="${MEM_STOP_ROOTS:-$HOME/cheap-mem}"
+PROBE="${MEM_STOP_ROOTS:-${HOME:-}/cheap-mem}"
+# D5 (2026-10-14): the roots to try are an ARRAY. This used to be an unquoted
+# `$PROBE` in the loop below, so a HOME with a space in it ("/home/Max Muster")
+# split the DEFAULT root in two and the hook found no memory - silently, exit 0.
+# The documented list stays whitespace-separated; the whole value is tried
+# first (it may be ONE path that has a space), then its words. `read -a` does
+# not glob, the unquoted expansion did. test/hook-spaces.test.mjs.
+PROBE_LIST=()
+if [ -n "${MEM_STOP_ROOTS:-}" ]; then
+  PROBE_LIST+=("$MEM_STOP_ROOTS")
+  read -r -a PROBE_WORDS <<< "$MEM_STOP_ROOTS"
+  PROBE_LIST+=(${PROBE_WORDS[@]+"${PROBE_WORDS[@]}"})
+elif [ -n "${HOME:-}" ]; then
+  PROBE_LIST+=("$HOME/cheap-mem")
+fi
 
 ROOT=""
-# shellcheck disable=SC2086
-for k in "${CHEAP_MEM_ROOT:-}" $PROBE; do
+for k in "${CHEAP_MEM_ROOT:-}" ${PROBE_LIST[@]+"${PROBE_LIST[@]}"}; do
   [ -z "$k" ] && continue
   k="$(to_slashes "$k")"
   [ -f "$k/.mem/config.json" ] && { ROOT="$k"; break; }
@@ -99,6 +112,7 @@ if [ ! -t 0 ]; then STDIN_JSON="$(cat 2>/dev/null || true)"; fi
 if [ -f "$HERE/_portable.sh" ]; then
   # shellcheck source=bin/_portable.sh
   . "$HERE/_portable.sh"
+  mem_compile_cache  # R6: V8 compile cache in the user's cache dir, before the first node start
 else
   mem_cap_kind=none
   capped() { shift; "$@"; }

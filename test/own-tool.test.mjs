@@ -307,6 +307,8 @@ function plant(root) {
   }
   const js = (n) => `require('node:fs').writeFileSync(require('node:path').join(process.env.CM_PLANT_DIR, ${JSON.stringify(n)}), 'x');\n`;
   fs.writeFileSync(path.join(root, 'bin', 'mem'), `#!/usr/bin/env node\n${js('mem')}`, { mode: 0o755 });
+  fs.writeFileSync(path.join(root, 'bin', 'mem-before-edit-core.mjs'),
+    `import fs from 'node:fs'; import path from 'node:path';\nfs.writeFileSync(path.join(process.env.CM_PLANT_DIR, 'core'), 'x');\n`);
   for (const n of ['answercheck', 'closingreport', 'subagentstart', 'injection', 'afterfailure', 'errorsignature']) {
     fs.writeFileSync(path.join(root, 'src', `${n}.mjs`),
       `import fs from 'node:fs'; import path from 'node:path';\nfs.writeFileSync(path.join(process.env.CM_PLANT_DIR, 'src-${n}'), 'x');\nexport const checkStop = () => null; export const stopReport = () => null;\nexport const hookResultFor = async () => null; export const book = () => {}; export const OCCASION = { SESSION_START: 'session-start' };\n`);
@@ -479,7 +481,7 @@ test('the doctor: a registered hook whose only tool is the memory\'s untrusted o
 const DIRECT = [
   // script, input name, extra env, markers that must stay away without the switch (and appear with it)
   ['mem-retrieve', 'user-prompt', {}, ['mem']],
-  ['mem-before-edit', 'pre-edit', {}, ['mem']],
+  ['mem-before-edit', 'pre-edit', {}, ['core']],
   ['mem-after-failure', 'after-failure', {}, ['src-afterfailure']],
   ['mem-catch-fail', 'catch-fail', {}, ['src-errorsignature']],
   ['mem-stop', 'session-stop', { MEM_REFLECT: '1' }, ['src-answercheck', 'src-closingreport', 'mem-capture', 'mem-reflect']],

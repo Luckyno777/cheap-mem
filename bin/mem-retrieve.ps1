@@ -34,18 +34,40 @@
 # Env (identical to the POSIX hook):
 #   CHEAP_MEM_ROOT        absolute path to the memory (as the installer sets it)
 #   MEM_RETRIEVE_OFF=1    turn recall off for this session
+#   MEM_CLONE_GATE=0      never put the "which clone answered" line above a recall
+#                         from a STALE clone (src/clonegate.mjs; default: show it, at most every 30 min)
 #   MEM_HOOK_OFF=1        turn ALL cheap-mem hooks off (shared with the others)
 #   MEM_RETRIEVE_MIN      minimum BM25 score to show (default 5.0)
 #   MEM_RETRIEVE_TOP      at most this many hits (default 3)
 #   MEM_RETRIEVE_NO_PULL=1  read only, never refresh the clone
 #   MEM_RETRIEVE_FRESH_MIN  minutes between background pulls (default 10)
-#   MEM_RETRIEVE_REMOTE / _BRANCH  where to pull from (default origin/main)
+#   MEM_RETRIEVE_REMOTE / _BRANCH  where to pull from (default: the memory's
+#                         config defaultRemote / defaultBranch, else origin/main)
 #   MEM_RETRIEVE_ROOTS    fallback roots to probe
 #   MEM_RETRIEVE_TURNS    where the once-per-turn claims live
 
 # A hook must never break the session it is attached to. Every exit
 # below is 0; a terminating error would surface as a failed hook.
 $ErrorActionPreference = 'Continue'
+
+# R6: V8 compile cache for this hook's node starts, in the USER's cache
+# (never in the memory repo). The why is in bin/_portable.sh
+# (mem_compile_cache): a value already in the environment stays, a
+# directory that cannot be made means no cache - never a silent hook.
+if (-not $env:NODE_COMPILE_CACHE) {
+  try {
+    $CcBase = $null
+    if ($env:LOCALAPPDATA) { $CcBase = $env:LOCALAPPDATA }
+    elseif ($IsMacOS -and $HOME) { $CcBase = Join-Path $HOME 'Library/Caches' }
+    elseif ($env:XDG_CACHE_HOME -and [System.IO.Path]::IsPathRooted($env:XDG_CACHE_HOME)) { $CcBase = $env:XDG_CACHE_HOME }
+    elseif ($HOME) { $CcBase = Join-Path $HOME '.cache' }
+    if ($CcBase) {
+      $CcDir = Join-Path (Join-Path $CcBase 'cheap-mem') 'node-cc'
+      New-Item -ItemType Directory -Force -Path $CcDir -ErrorAction Stop | Out-Null
+      $env:NODE_COMPILE_CACHE = $CcDir
+    }
+  } catch { }
+}
 
 if ($env:MEM_RETRIEVE_OFF -eq '1') { exit 0 }
 if ($env:MEM_HOOK_OFF -eq '1') { exit 0 }
@@ -88,7 +110,9 @@ function Get-ProbeRoots {
   if ($env:MEM_RETRIEVE_ROOTS.Contains(';')) {
     return $env:MEM_RETRIEVE_ROOTS -split ';' | Where-Object { $_ }
   }
-  return $env:MEM_RETRIEVE_ROOTS -split '\s+' | Where-Object { $_ }
+  # D5: the WHOLE value first (it may be one path with a space in it, e.g.
+  # D:\Max Muster\memory), then its whitespace-separated words.
+  return @($env:MEM_RETRIEVE_ROOTS) + ($env:MEM_RETRIEVE_ROOTS -split '\s+' | Where-Object { $_ })
 }
 
 $Root = $null
@@ -188,8 +212,29 @@ function Update-Clone {
 
   try { Set-Content -LiteralPath $marker -Value '' -ErrorAction Stop } catch { return }
 
-  $remote = if ($env:MEM_RETRIEVE_REMOTE) { $env:MEM_RETRIEVE_REMOTE } else { 'origin' }
-  $branch = if ($env:MEM_RETRIEVE_BRANCH) { $env:MEM_RETRIEVE_BRANCH } else { 'main' }
+  # Where to pull from: the switch, else what the memory TRACKS (.mem/config.json
+  # defaultRemote / defaultBranch), else origin/main. Only a plain name goes to git:
+  # the config is data out of a cloned repository (same rule as mem_tracked_ref in
+  # bin/_portable.sh).
+  $tracked = @{ remote = 'origin'; branch = 'main' }
+  try {
+    $cfgPath = Join-Path $Root '.mem/config.json'
+    if (Test-Path -LiteralPath $cfgPath) {
+      $cfg = Get-Content -LiteralPath $cfgPath -Raw -ErrorAction Stop | ConvertFrom-Json
+      $r = [string]$cfg.defaultRemote
+      $b = [string]$cfg.defaultBranch
+      # `\z`, not `$`: in .NET `$` also matches before a trailing newline. And a name that is no remote of THIS clone is
+      # refused (`git fetch <name>` would read it as a path or URL).
+      if ($r -match '^[A-Za-z0-9][A-Za-z0-9._-]*\z' -and -not $r.Contains('..')) {
+        & git -C $Root remote get-url -- $r 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) { $tracked.remote = $r }
+      }
+      if ($b -match '^[A-Za-z0-9][A-Za-z0-9._/-]*\z' -and -not $b.Contains('..') -and -not $b.Contains('//') -and
+          -not $b.EndsWith('/') -and -not $b.EndsWith('.lock')) { $tracked.branch = $b }
+    }
+  } catch { }
+  $remote = if ($env:MEM_RETRIEVE_REMOTE) { $env:MEM_RETRIEVE_REMOTE } else { $tracked.remote }
+  $branch = if ($env:MEM_RETRIEVE_BRANCH) { $env:MEM_RETRIEVE_BRANCH } else { $tracked.branch }
   # One pre-quoted argument string, not an array: Start-Process joins an
   # -ArgumentList array with plain spaces on Windows PowerShell, which
   # tears a root path containing spaces apart.

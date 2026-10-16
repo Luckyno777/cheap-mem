@@ -46,6 +46,7 @@ A variable that is not in the table is not a switch: there is none.
 | `MEM_BROADCAST_OFF` | off (a new error entry is broadcast) | With `1` `mem log error` does not broadcast the new error to the other sessions. |
 | `MEM_CAPTURE_OFF` | off | The raw capture of a session transcript is switched off by `1` |
 | `MEM_CATCH_FAIL_OFF` | off | The swallowed-failure hook is switched off by `1` |
+| `MEM_CLONE_GATE` | on | With `0` the recall hook never adds the "which clone answered" line when the clone is stale (src/clonegate.mjs). |
 | `MEM_CLOSING_REPORT` | on | With `0` the closing report of open duties is not shown. |
 | `MEM_CORRECTION_WARN_OFF` | off | With `1` `mem correction` does not warn when a rare word of the old entry is missing from the correction. |
 | `MEM_EXPAND` | off | With `1` the search also reads the `asked_as` phrasings stored next to an entry (document expansion, weight 0.3). Off, the search is bit-identical to before. |
@@ -108,10 +109,10 @@ A variable that is not in the table is not a switch: there is none.
 | `MEM_REFLECT_PROMPT` | the built-in prompt | The prompt the reflector gives the model. |
 | `MEM_REFLECT_THRESHOLD_BYTES` | 400000 | Transcript growth, in bytes, before the reflector runs again. |
 | `MEM_REFLECT_TIMEOUT` | 90 | Seconds one reflector run may take. |
-| `MEM_RETRIEVE_BRANCH` | main | Branch the recall hook pulls. |
+| `MEM_RETRIEVE_BRANCH` | the memory's `defaultBranch` (config), else main | Branch the recall hook pulls. |
 | `MEM_RETRIEVE_FRESH_MIN` | 10 | Minutes the clone counts as fresh before the recall hook pulls. |
 | `MEM_RETRIEVE_MIN` | 5.0 | Score a hit needs before the recall hook shows it. |
-| `MEM_RETRIEVE_REMOTE` | origin | Remote the recall hook pulls from. |
+| `MEM_RETRIEVE_REMOTE` | the memory's `defaultRemote` (config), else origin | Remote the recall hook pulls from. |
 | `MEM_RETRIEVE_TIE` | 0 (off) | Relative score spread within which ONE more hit than `MEM_RETRIEVE_TOP` comes along when it ties the last one shown (the recall hook only; `0.01` is the 1 % of lucky-mem; valid above 0 up to 0.5, anything else is the hard cut). Off by default: on the gold set it gained nothing and cost one gold case (`docs/recall-levers-2026-10-10.md`). |
 | `MEM_RETRIEVE_TIME` | 5 seconds | Time budget of one recall search, server and direct fallback alike. |
 | `MEM_RETRIEVE_TOP` | 3 | How many hits the recall hook shows at most. |
@@ -164,6 +165,7 @@ A variable that is not in the table is not a switch: there is none.
 | `MEM_WATCH_HANDLER` | `bin/mem-handle-post` next to the watcher | The program the watcher starts for a new letter. |
 | `MEM_WATCH_LOG` | `<root>/.mem/watch.log` | Log file of `bin/mem-watch`. |
 | `MEM_WORKFLOW_MARKS` | `<root>/.mem/workflow-marks` | Directory of the per-session marks of the workflow hint. |
+| `NODE_COMPILE_CACHE` | the hooks set `<user cache>/cheap-mem/node-cc` (Node 22.1 and later) | Node's own compile-cache directory. A value you set wins; the hooks only fill it in when it is empty, under your user cache (never in the memory), so each hook start finds the translated code of `src/` again. |
 
 ### Connections — servers, ports, remotes
 
@@ -232,6 +234,6 @@ A variable that is not in the table is not a switch: there is none.
 ### Internal — handed from one cheap-mem process to the next
 
 Set by a hook script for the program it starts, or plain shell variables that only look like environment
-variables. Nothing to configure: `CM_REBUILD_LOCK`, `MAX`, `MEM_AF_REASON`, `MEM_AF_SESSION`, `MEM_AF_START_MS`, `MEM_ALARM_RC`, `MEM_ALARM`, `MEM_BE_START_MS`, `MEM_BT_CMD`, `MEM_CAP`, `MEM_CLI`, `MEM_COUNT`, `MEM_DETOUR_REASON`, `MEM_ERRSIG`, `MEM_FP`, `MEM_HOOK_START_MS`, `MEM_J_BYTES`, `MEM_J_FILE`, `MEM_J_HITS`, `MEM_J_IDS`, `MEM_J_PATH_REASON`, `MEM_J_PATH`, `MEM_J_QB`, `MEM_J_Q`, `MEM_J_REASON`, `MEM_J_ROOT`, `MEM_J_SESSION`, `MEM_J_SRC`, `MEM_J_START`, `MEM_J_TOOL`, `MEM_LEVEL`, `MEM_MARK`, `MEM_OWN_SKIPPED`, `MEM_PICK`, `MEM_Q`, `MEM_RECALL_SERVER_PARENT`, `MEM_RH_CWD`, `MEM_RH_MIN`, `MEM_RH_PATH_REASON`, `MEM_RH_PATH`, `MEM_RH_PROMPT`, `MEM_RH_QB`, `MEM_RH_SESSION`, `MEM_RH_START_MS`, `MEM_RH_TRANSCRIPT`, `MEM_RH_TURNS`, `MEM_RH_WORKFLOW`, `MEM_ROOT_ARG`, `MEM_SS_CODE`, `MEM_SS_INPUT`, `MEM_SS_IN`, `MEM_SS_SRC`, `MEM_SS_START_MS`, `MEM_START`, `MEM_SUBAGENT_TASK_FELL_BACK`, `MEM_TODAY`, `MEM_USER_HABITS`, `RESERVE`, `ROOT`, `TRANSCRIPT_PATH`.
+variables. Nothing to configure: `CM_REBUILD_LOCK`, `MAX`, `MEM_AF_REASON`, `MEM_AF_SESSION`, `MEM_AF_START_MS`, `MEM_ALARM_RC`, `MEM_ALARM`, `MEM_BE_ASCII`, `MEM_BE_START_MS`, `MEM_CAP`, `MEM_CLI`, `MEM_DETOUR_REASON`, `MEM_ERRSIG`, `MEM_HOOK_START_MS`, `MEM_J_BYTES`, `MEM_J_HITS`, `MEM_J_PATH_REASON`, `MEM_J_PATH`, `MEM_J_QB`, `MEM_J_Q`, `MEM_J_REASON`, `MEM_J_ROOT`, `MEM_J_SESSION`, `MEM_J_SRC`, `MEM_J_START`, `MEM_OWN_SKIPPED`, `MEM_RECALL_SERVER_PARENT`, `MEM_RH_CWD`, `MEM_RH_MIN`, `MEM_RH_PATH_REASON`, `MEM_RH_PATH`, `MEM_RH_PROMPT`, `MEM_RH_QB`, `MEM_RH_SESSION`, `MEM_RH_START_MS`, `MEM_RH_TRANSCRIPT`, `MEM_RH_TURNS`, `MEM_RH_WORKFLOW`, `MEM_SS_CODE`, `MEM_SS_INPUT`, `MEM_SS_IN`, `MEM_SS_PROV`, `MEM_SS_SRC`, `MEM_SS_START_MS`, `MEM_START`, `MEM_SUBAGENT_TASK_FELL_BACK`, `MEM_TODAY`, `MEM_USER_HABITS`, `RESERVE`, `ROOT`, `TRANSCRIPT_PATH`.
 
 <!-- envvars:end -->
