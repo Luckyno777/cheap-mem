@@ -463,19 +463,25 @@ const SERVICES = {
   mcp: { script: 'mem-mcp', health: '/health', post: '/mcp', length: 100_000 },
 };
 
-/** A tree for the mutation: everything from the root linked, bin/ one by one - the `files` are put in as a changed copy. */
+/**
+ * A tree for the mutation: directories of the root are linked (a junction, which Windows allows without a privilege), files are
+ * COPIED (a file symlink needs one there); bin/ is copied file by file - the `files` are put in as a changed copy.
+ */
 function mutatedTree(t, files) {
   const dir = tempDir('http-limits-tree-', t);
   for (const n of fs.readdirSync(ROOT)) {
     if (n === 'bin' || n === '.git' || n === 'node_modules') continue;
-    fs.symlinkSync(path.join(ROOT, n), path.join(dir, n), 'junction');
+    const source = path.join(ROOT, n);
+    if (fs.statSync(source).isDirectory()) fs.symlinkSync(source, path.join(dir, n), 'junction');
+    else fs.copyFileSync(source, path.join(dir, n));
   }
-  fs.symlinkSync(path.join(ROOT, 'node_modules'), path.join(dir, 'node_modules'), 'junction');
+  fs.symlinkSync(fs.realpathSync(path.join(ROOT, 'node_modules')), path.join(dir, 'node_modules'), 'junction');
   fs.mkdirSync(path.join(dir, 'bin'));
   for (const n of fs.readdirSync(path.join(ROOT, 'bin'))) {
     const source = path.join(ROOT, 'bin', n);
+    if (!fs.statSync(source).isFile()) continue;
     if (n in files) fs.writeFileSync(path.join(dir, 'bin', n), files[n](fs.readFileSync(source, 'utf8')), { mode: 0o755 });
-    else fs.symlinkSync(source, path.join(dir, 'bin', n));
+    else fs.copyFileSync(source, path.join(dir, 'bin', n));
   }
   return dir;
 }
