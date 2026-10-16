@@ -28,6 +28,7 @@ hook and have the next tick run it. One starter now decides every launch (`src/h
   model's exit code: the Windows watcher counts a failure (loop guard after three, 900 s) and the mail is tried again later.
 - `DIGEST.md` uses `git -C <root>`; the install docs say `gemini` runs neutral now. A custom `MEM_WATCH_HANDLER` still starts inside the memory (documented). Limits and residual risk, including that the
   ratchet is a text scanner: `docs/security-model.md` section 11. `test/headless-start.test.mjs`: red on `9ee3441` and, for `env`/`npx`/`sudo`/`nice`/an alias, on the first version (`9efe57d`).
+- Merge note: `bin/_owntool.sh` no longer carries the `windows-parity-ok` marker (its twin `bin/_owntool.ps1` exists, so it never needed one); with `bin/_headless.ps1` and `bin/_portable.sh` the exemptions stay at the two `test/hook-parity.test.mjs` allows.
 
 ### Added - `--as-me`: the writer is this install, and a card names its author with name AND rank
 
