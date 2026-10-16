@@ -308,16 +308,25 @@ test('the switch changes nothing for the stdio bridge (no port, no door)', () =>
 
 // --- the inventory of listeners ------------------------------------------------------------------------------------
 //
-// A ratchet against the COMMON shapes, not a proof: a file under bin/, src/, install/, hooks/, shared/, bench/ or eval/ that
-// imports a network module (net, http, https, http2, tls, dgram; static, dynamic or require) AND creates a server (`createServer`
-// / `createSecureServer` / `createSocket` by any receiver, `new Server(`, `new h.Server(`; `h['createServer']` is the same bare word, quoted) must be one of
+// A ratchet against the COMMON shapes, not a proof. What it reads: `bin/ src/ install/ hooks/ shared/ bench/ eval/` and, from
+// `package.json` "files", everything else the package ships (`assets/`, `docs/`, root files) - the list is derived, so a new
+// shipped directory is scanned without anyone remembering to add it. What it calls a listener:
+//   - a file that reaches a Node network module (net, http, https, http2, tls, dgram; static import, dynamic import, require,
+//     `createRequire(...)(...)`, `process.getBuiltinModule(...)`) AND creates a server (`createServer` / `createSecureServer` /
+//     `createSocket` by any receiver, `Server(` with or without `new`, `h.Server(`, `Server as S` imported under an alias);
+//   - a file that imports a server framework (express, fastify, koa, ws, hono, @hono/node-server, restify, polka, @hapi/hapi,
+//     socket.io, http-server) AND listens (`.listen(`, `new WebSocketServer(`, `new WebSocket.Server(`, hono's `serve(`);
+//   - a script that starts a listener from the shell: `python -m http.server`, `SimpleHTTPServer`, `php -S`, `nc -l`, `socat
+//     ...LISTEN`, `ruby -run -e httpd`, `npx http-server`, `node -e "...createServer..."` (also `--eval`), `HttpListener`; and a
+//     JS file that spawns one of those (`spawn('python3', ['-m', 'http.server'])`, `exec('php -S ...')`, `execFile('node', ['-e', ...])`).
+// A listener must be one of
 //   - the two doored services (`bin/mem-serve`, `bin/mem-mcp`): they must call `webauth.startDecision` and act on a refusal;
 //   - the recall server: a Unix socket / named pipe with a key file, every `.listen(` takes the socket path, never a port;
 //   - the two bench helpers that find a free port: they bind `127.0.0.1:0` for an instant and close it, serving nothing.
-// Comments are removed first (a comment that mentions `startDecision(` or `createServer(` proves nothing). Shell and PowerShell
-// files are scanned for the usual listeners (`http.server`, `HttpListener`, `nc -l`, `socat ...LISTEN`). A name built at run
-// time (`h['create' + 'Server']`) is NOT seen. tests/ are not scanned: a test's fixture server is not a shipped service, and
-// the probes that start the real services set the switch (or a token) on purpose.
+// Comments are removed first (a comment that mentions `startDecision(` or `createServer(` proves nothing). What it does NOT see:
+// a name built at run time (`h['create' + 'Server']`, `import(`node:${x}`)`), a listener inside a dependency, a framework reached
+// through a module not on the list, a listener started by a compiled binary. tests/ are not scanned: a test's fixture server is
+// not a shipped service, and the probes that start the real services set the switch (or a token) on purpose.
 const SCAN_DIRS = ['bin', 'src', 'install', 'hooks', 'shared', 'bench', 'eval'];
 const DOORED = ['bin/mem-mcp', 'bin/mem-serve'];
 const SOCKET_ONLY = { 'src/recallserver.mjs': 'a Unix socket / named pipe with a key file, not a TCP port' };
@@ -325,9 +334,55 @@ const LOOPBACK_PROBES = {
   'bench/scale-gate.mjs': 'finds a free port: binds 127.0.0.1:0, closes at once, serves nothing',
   'bench/board-tempo.mjs': 'finds a free port: binds 127.0.0.1:0, closes at once, serves nothing',
 };
-const NET_MODULE = /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*)['"](?:node:)?(?:net|http|https|http2|tls|dgram)['"]/;
-const CREATION = /\bcreate(?:Secure)?Server\b|\bcreateSocket\b|\bnew\s+(?:[A-Za-z_$][\w$]*\.)?(?:Http2?|Https?|Net|Tls)?Server\s*\(|\b(?:net|tls|https?2?)\.Server\b/;
-const SHELL_LISTENER = /\bhttp\.server\b|\bHttpListener\b|\bTcpListener\b|TCP-LISTEN|\bnc\s+-\w*l|\bncat\b[^\n]*(?:-l\b|--listen)|\bsocat\b[^\n]*LISTEN/i;
+const NET_NAMES = '(?:node:)?(?:net|http|https|http2|tls|dgram)';
+const FRAMEWORK_NAMES = '(?:express|fastify|koa|ws|hono|@hono\\/node-server|restify|polka|@hapi\\/hapi|socket\\.io|http-server)(?:\\/[^\'"]*)?';
+// Every pattern has a NAME, so a counter-probe can switch exactly one off (the mutant) and see its sample go quiet.
+const PARTS = {
+  // how a Node network module is reached
+  netStatic: new RegExp(`(?:\\bfrom\\s*|\\bimport\\s*\\(\\s*|\\brequire\\s*\\(\\s*)['"]${NET_NAMES}['"]`),
+  netBuiltin: new RegExp(`\\bgetBuiltinModule\\s*\\(\\s*['"]${NET_NAMES}['"]`),
+  netCreateRequire: new RegExp(`\\bcreateRequire\\s*\\([^)]*\\)\\s*\\(\\s*['"]${NET_NAMES}['"]`),
+  // how a server framework is reached
+  framework: new RegExp(`(?:\\bfrom\\s*|\\bimport\\s*\\(\\s*|\\brequire\\s*\\(\\s*)['"]${FRAMEWORK_NAMES}['"]`),
+  // how a server is made (with any network module or framework in the file)
+  mkCreate: /\bcreate(?:Secure)?Server\b|\bcreateSocket\b/,
+  mkServer: /(?<![\w$])(?<!\bfunction\s+)(?:[A-Za-z_$][\w$]*\.)?(?:Http2?|Https?|Net|Tls)?Server\s*\(|\b(?:net|tls|https?2?)\.Server\b/,
+  mkAlias: /\b(?:Http2?|Https?|Net|Tls)?Server\s+as\s+[A-Za-z_$][\w$]*/,
+  mkWebSocket: /\bWebSocketServer\s*\(/,
+  // how a framework listens (only with a framework in the file: a bare `.listen(` is too common a word)
+  fwListen: /\.listen\s*\(/,
+  fwServe: /(?<![\w$.])(?:serve|createAdaptorServer)\s*\(/,
+  // shell
+  shellWords: /\bhttp\.server\b|\bHttpListener\b|\bTcpListener\b|TCP-LISTEN|\bnc\s+-\w*l|\bncat\b[^\n]*(?:-l\b|--listen)|\bsocat\b[^\n]*LISTEN/i,
+  shellNodeEval: /\bnode(?:js)?(?:\.exe)?\b[^\n]*?\s(?:-e|--eval|-p|--print)(?:\s|=|["'])[\s\S]{0,600}?(?:\bcreate(?:Secure)?Server\b|\.listen\s*\(|\bhttp\.Server\b)/i,
+  shellPhp: /\bphp(?:\.exe)?\b[^\n]*\s-S\s/i,
+  shellNpx: /\b(?:npx|bunx|pnpm\s+dlx|yarn\s+dlx)\s+(?:-{1,2}[\w-]+\s+)*(?:http-server|live-server|serve|json-server|browser-sync)\b/i,
+  shellRuby: /\bruby\b[^\n]*-run\b[^\n]*\bhttpd\b|\bbusybox\s+httpd\b/i,
+  shellSimpleHttp: /\bSimpleHTTPServer\b/,
+  // a JS file that starts a listener as a child: the call and its next 600 characters
+  spawnPython: /(?:python[\d.]*|py)(?:\.exe)?['"`][\s\S]{0,200}?(?:http\.server|SimpleHTTPServer)|(?:python[\d.]*)\s+-m\s+(?:http\.server|SimpleHTTPServer)/,
+  spawnNodeEval: /['"`]node(?:js)?(?:\.exe)?['"`]\s*,\s*\[\s*['"`](?:-e|--eval|-p|--print)['"`][\s\S]{0,600}?(?:\bcreate(?:Secure)?Server\b|\.listen\s*\()|process\.execPath\s*,\s*\[\s*['"`](?:-e|--eval|-p|--print)['"`][\s\S]{0,600}?(?:\bcreate(?:Secure)?Server\b|\.listen\s*\()/,
+  spawnNc: /['"`](?:nc|ncat|netcat|socat)['"`]\s*,\s*\[[^\]]*['"`]-\w*l|\b(?:exec|execSync)\s*\(\s*['"`][^'"`]*\b(?:nc\s+-\w*l|php\s+-S|socat\b[^'"`]*LISTEN)/i,
+};
+const SPAWN_CALL = /\b(?:spawn|spawnSync|execFile|execFileSync|fork|exec|execSync)\s*\(/g;
+const JS_EXT = ['.mjs', '.js', '.cjs', '.ts', '.mts', '.cts', '.jsx', '.tsx'];
+const SHELL_EXT = ['.sh', '.bash', '.zsh', '.fish', '.ps1', '.psm1', '.cmd', '.bat'];
+const never = /(?!)/;
+
+/** Does this text (already stripped of comments) start a listener? `off` switches named parts off, for the mutant. */
+function listens(text, kind, off = new Set()) {
+  const P = (n) => (off.has(n) ? never : PARTS[n]);
+  if (kind === 'shell') return ['shellWords', 'shellNodeEval', 'shellPhp', 'shellNpx', 'shellRuby', 'shellSimpleHttp'].some((n) => P(n).test(text));
+  const net = ['netStatic', 'netBuiltin', 'netCreateRequire'].some((n) => P(n).test(text));
+  const fw = P('framework').test(text);
+  if ((net || fw) && ['mkCreate', 'mkServer', 'mkAlias', 'mkWebSocket'].some((n) => P(n).test(text))) return true;
+  if (fw && ['fwListen', 'fwServe'].some((n) => P(n).test(text))) return true;
+  for (const m of text.matchAll(SPAWN_CALL)) {
+    const window = text.slice(m.index, m.index + 700);
+    if (['spawnPython', 'spawnNodeEval', 'spawnNc'].some((n) => P(n).test(window))) return true;
+  }
+  return false;
+}
 
 /** Remove `//` and block comments outside strings. A string ends at its quote or at the end of the line (a regex literal with a quote cannot swallow the file). */
 function stripJsComments(src) {
@@ -363,125 +418,232 @@ function walkFiles(dir, out = []) {
   return out;
 }
 
-/** What kind of text is this file: 'js', 'shell' or null (binary, data, anything else)? */
-function kindOf(file, text) {
-  if (text.includes('\0') || text.length > 2_000_000) return null;
+/**
+ * Everything to read: the fixed directories and what `package.json` "files" ships (directories and root files; the `!` entries
+ * only subtract from the package, not from what must be listener-free, so they are not honoured; entries with a glob are skipped).
+ */
+function scanFiles(root, off = new Set()) {
+  const names = [...SCAN_DIRS];
+  if (!off.has('packageFiles')) {
+    let pkg = null;
+    try { pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')); } catch { /* no package.json: the fixed list only */ }
+    for (const entry of Array.isArray(pkg?.files) ? pkg.files : []) {
+      if (typeof entry !== 'string' || entry.startsWith('!') || /[*?[\]{}]/.test(entry)) continue;
+      const name = entry.replace(/^\.\//, '').replace(/\/+$/, '');
+      if (name && !name.split('/').includes('..') && !names.includes(name)) names.push(name);
+    }
+  }
+  const files = [];
+  for (const name of names) {
+    const p = path.join(root, name);
+    let st;
+    try { st = fs.statSync(p); } catch { continue; }
+    if (st.isDirectory()) walkFiles(p, files); else if (st.isFile()) files.push(p);
+  }
+  return files;
+}
+
+/** What kind of text is this file: 'js', 'shell' or null (binary, data, anything else)? Decided by the extension; only a file without one is opened. */
+function kindOf(file, off = new Set()) {
   const ext = path.extname(file).toLowerCase();
-  if (['.mjs', '.js', '.cjs', '.ts'].includes(ext)) return 'js';
-  if (['.sh', '.bash', '.ps1'].includes(ext)) return 'shell';
-  const first = text.split('\n', 1)[0];
-  if (ext === '' && /^#!.*\bnode\b/.test(first)) return 'js';
-  if (ext === '') return 'shell'; // a hook or script without extension: read as shell (a shebang-less file is still text)
-  return null;
+  if (off.has(`ext:${ext}`)) return null;
+  if (JS_EXT.includes(ext)) return 'js';
+  if (SHELL_EXT.includes(ext)) return 'shell';
+  if (ext !== '') return null;
+  let text;
+  try { text = fs.readFileSync(file, 'utf8'); } catch { return null; }
+  if (text.includes('\0') || text.length > 2_000_000) return null;
+  return /^#!.*\bnode\b/.test(text.split('\n', 1)[0]) ? 'js' : 'shell'; // a hook or script without extension: a shebang-less file is still text
 }
 
 /** Every listener-shaped file under `root`, and what is wrong with each. Returns { found, problems }. */
-function inventory(root) {
+function inventory(root, off = new Set()) {
   const found = []; const problems = [];
-  for (const dir of SCAN_DIRS) {
-    for (const file of walkFiles(path.join(root, dir))) {
-      let raw;
-      try { raw = fs.readFileSync(file, 'utf8'); } catch { continue; }
-      const kind = kindOf(file, raw);
-      if (!kind) continue;
-      const rel = path.relative(root, file).split(path.sep).join('/');
-      const text = kind === 'js' ? stripJsComments(raw) : stripShellComments(raw);
-      const listens = kind === 'js' ? (NET_MODULE.test(text) && CREATION.test(text)) : SHELL_LISTENER.test(text);
-      if (!listens) continue;
-      found.push(rel);
-      if (DOORED.includes(rel)) {
-        if (!/\bwebauth\.startDecision\(/.test(text) || !/!\s*\w+\.ok\)\s*throw/.test(text)) problems.push(`${rel}: opens a listener without acting on webauth.startDecision`);
-      } else if (rel in SOCKET_ONLY) {
-        const args = [...text.matchAll(/\.listen\(\s*([^,)\s]+)/g)].map((m) => m[1]);
-        if (args.length === 0 || args.some((a) => a !== 'where.socket')) problems.push(`${rel}: a listener that is not the socket path (${args.join(', ')})`);
-      } else if (rel in LOOPBACK_PROBES) {
-        const listensOk = [...text.matchAll(/\.listen\(([^)]*)/g)].every((m) => /^\s*0\s*,\s*'127\.0\.0\.1'/.test(m[1]));
-        const creates = [...text.matchAll(/\bnet\.createServer\(([^)]*)\)/g)].every((m) => m[1].trim() === '');
-        if (!listensOk || !creates || /\bcreateSecureServer\b|\bhttps?2?\.create/.test(text)) problems.push(`${rel}: more than a free-port probe`);
-      } else {
-        problems.push(`${rel}: a listener that is neither a doored service nor a named exemption`);
-      }
+  for (const file of scanFiles(root, off)) {
+    const kind = kindOf(file, off);
+    if (!kind) continue;
+    let raw;
+    try { raw = fs.readFileSync(file, 'utf8'); } catch { continue; }
+    if (raw.includes('\0') || raw.length > 2_000_000) continue;
+    const rel = path.relative(root, file).split(path.sep).join('/');
+    const text = kind === 'js' ? stripJsComments(raw) : stripShellComments(raw);
+    if (!listens(text, kind, off)) continue;
+    found.push(rel);
+    if (DOORED.includes(rel)) {
+      if (!/\bwebauth\.startDecision\(/.test(text) || !/!\s*\w+\.ok\)\s*throw/.test(text)) problems.push(`${rel}: opens a listener without acting on webauth.startDecision`);
+    } else if (rel in SOCKET_ONLY) {
+      const args = [...text.matchAll(/\.listen\(\s*([^,)\s]+)/g)].map((m) => m[1]);
+      if (args.length === 0 || args.some((a) => a !== 'where.socket')) problems.push(`${rel}: a listener that is not the socket path (${args.join(', ')})`);
+    } else if (rel in LOOPBACK_PROBES) {
+      const listensOk = [...text.matchAll(/\.listen\(([^)]*)/g)].every((m) => /^\s*0\s*,\s*'127\.0\.0\.1'/.test(m[1]));
+      const creates = [...text.matchAll(/\bnet\.createServer\(([^)]*)\)/g)].every((m) => m[1].trim() === '');
+      if (!listensOk || !creates || /\bcreateSecureServer\b|\bhttps?2?\.create/.test(text)) problems.push(`${rel}: more than a free-port probe`);
+    } else {
+      problems.push(`${rel}: a listener that is neither a doored service nor a named exemption`);
     }
   }
   return { found: found.sort(), problems };
 }
 
-test('inventory: every listener under bin/ src/ install/ hooks/ shared/ bench/ eval/ is a doored service or a named exemption', () => {
+test('inventory: every listener under bin/ src/ install/ hooks/ shared/ bench/ eval/ and what package.json ships is a doored service or a named exemption', () => {
   const { found, problems } = inventory(ROOT);
   assert.deepEqual(problems, [], 'a new listener: give it the start decision, or name it above with the reason');
   assert.deepEqual(found, [...DOORED, ...Object.keys(LOOPBACK_PROBES), ...Object.keys(SOCKET_ONLY)].sort(), 'the exemptions are not stale: each one is still found');
   for (const [f, why] of Object.entries({ ...SOCKET_ONLY, ...LOOPBACK_PROBES })) assert.ok(why.length > 20, `${f} carries its reason`);
 });
 
-test('inventory counter-probes: each pattern, each directory and the comment rule turn a sample file red', () => {
-  const SAMPLES = {
-    'net.createServer on 0.0.0.0': ["import net from 'node:net';\nnet.createServer(() => {}).listen(0, '0.0.0.0');\n", 'src/x.mjs'],
-    'createServer imported from node:net': ["import { createServer } from 'node:net';\ncreateServer().listen(8080);\n", 'src/x.mjs'],
-    'dynamic import and bracket access': ["const h = await import('node:http');\nh['createServer'](() => {}).listen(80);\n", 'src/x.mjs'],
-    'new Server from node:http': ["import { Server } from 'node:http';\nconst s = new Server(() => {});\n", 'src/x.mjs'],
-    'new h.Server on a namespace import': ["import * as h from 'node:https';\nconst s = new h.Server({});\n", 'src/x.mjs'],
-    'require and createSecureServer on http2': ["const http2 = require('node:http2');\nhttp2.createSecureServer({});\n", 'src/x.cjs'],
-    'tls createServer, module without the node: prefix': ["import tls from 'tls';\ntls.createServer({});\n", 'src/x.mjs'],
-    'dgram socket': ["import dgram from 'node:dgram';\ndgram.createSocket('udp4');\n", 'src/x.mjs'],
-    'extensionless node script in bin/': ["#!/usr/bin/env node\nimport http from 'node:http';\nhttp.createServer(() => {}).listen(1);\n", 'bin/mem-extra'],
-    'in install/': ["import net from 'node:net';\nnet.createServer();\n", 'install/x.mjs'],
-    'in hooks/': ["import net from 'node:net';\nnet.createServer();\n", 'hooks/x.mjs'],
-    'in shared/': ["import net from 'node:net';\nnet.createServer();\n", 'shared/x.mjs'],
-    'in bench/ (not one of the two free-port helpers)': ["import net from 'node:net';\nnet.createServer(() => {}).listen(0, '0.0.0.0');\n", 'bench/x.mjs'],
-    'in eval/': ["import net from 'node:net';\nnet.createServer();\n", 'eval/x.mjs'],
-    'shell: python http.server': ['#!/usr/bin/env bash\npython3 -m http.server 8000\n', 'install/serve.sh'],
-    'shell: netcat listen': ['nc -l 9000\n', 'hooks/pre-commit'],
-    'PowerShell: HttpListener': ['$l = [System.Net.HttpListener]::new()\n', 'install/x.ps1'],
-  };
-  for (const [name, [text, rel]] of Object.entries(SAMPLES)) probeSample(name, rel, text);
-  function probeSample(name, rel, text) {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-inventory-'));
-    try {
+test('inventory scan list: derived from package.json "files", so the shipped directories and root files are read', () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+  const read = new Set(scanFiles(ROOT).map((f) => path.relative(ROOT, f).split(path.sep)[0]));
+  const shipped = pkg.files.filter((e) => !e.startsWith('!') && !/[*?[\]{}]/.test(e)).map((e) => e.replace(/\/+$/, ''));
+  assert.ok(shipped.length >= 6, 'positive control: the package lists several entries');
+  for (const e of [...shipped, ...SCAN_DIRS]) {
+    if (!fs.existsSync(path.join(ROOT, e))) continue;
+    const top = e.split('/')[0];
+    assert.ok(read.has(top), `${e} is shipped (or fixed) and must be read by the inventory`);
+  }
+  for (const e of ['assets', 'docs', 'README.md', 'HOUSE-RULES.md']) assert.ok(read.has(e), `${e} in particular`);
+  // Not read: tests (a fixture server is not a shipped service) and node_modules.
+  assert.equal(read.has('test'), false);
+  assert.equal(read.has('node_modules'), false);
+});
+
+// Each sample is a listener the inventory must call red. `by` names the ONE part that catches it: switching that part off must
+// turn the sample quiet (the mutant), which proves the part is what does the work and no other part covers for it.
+const SAMPLES = {
+  'net.createServer on 0.0.0.0': ["import net from 'node:net';\nnet.createServer(() => {}).listen(0, '0.0.0.0');\n", 'src/x.mjs'],
+  'createServer imported from node:net': ["import { createServer } from 'node:net';\ncreateServer().listen(8080);\n", 'src/x.mjs'],
+  'dynamic import and bracket access': ["const h = await import('node:http');\nh['createServer'](() => {}).listen(80);\n", 'src/x.mjs'],
+  'new Server from node:http': ["import { Server } from 'node:http';\nconst s = new Server(() => {});\n", 'src/x.mjs'],
+  'new h.Server on a namespace import': ["import * as h from 'node:https';\nconst s = new h.Server({});\n", 'src/x.mjs'],
+  'require and createSecureServer on http2': ["const http2 = require('node:http2');\nhttp2.createSecureServer({});\n", 'src/x.cjs'],
+  'tls createServer, module without the node: prefix': ["import tls from 'tls';\ntls.createServer({});\n", 'src/x.mjs'],
+  'dgram socket': ["import dgram from 'node:dgram';\ndgram.createSocket('udp4');\n", 'src/x.mjs'],
+  'extensionless node script in bin/': ["#!/usr/bin/env node\nimport http from 'node:http';\nhttp.createServer(() => {}).listen(1);\n", 'bin/mem-extra'],
+  'in install/': ["import net from 'node:net';\nnet.createServer();\n", 'install/x.mjs'],
+  'in hooks/': ["import net from 'node:net';\nnet.createServer();\n", 'hooks/x.mjs'],
+  'in shared/': ["import net from 'node:net';\nnet.createServer();\n", 'shared/x.mjs'],
+  'in bench/ (not one of the two free-port helpers)': ["import net from 'node:net';\nnet.createServer(() => {}).listen(0, '0.0.0.0');\n", 'bench/x.mjs'],
+  'in eval/': ["import net from 'node:net';\nnet.createServer();\n", 'eval/x.mjs'],
+  'shell: python http.server': ['#!/usr/bin/env bash\npython3 -m http.server 8000\n', 'install/serve.sh'],
+  'shell: netcat listen': ['nc -l 9000\n', 'hooks/pre-commit'],
+  'PowerShell: HttpListener': ['$l = [System.Net.HttpListener]::new()\n', 'install/x.ps1'],
+
+  // --- serve-token-rest: frameworks, shipped directories, more shell and JS shapes
+  'express without any Node network import': ["import express from 'express';\nexpress().listen(8000, '0.0.0.0');\n", 'src/x.mjs', 'fwListen'],
+  'express through require': ["const express = require('express');\nconst app = express();\napp.listen(3000);\n", 'src/x.cjs', 'framework'],
+  'fastify, dynamic import': ["const { default: fastify } = await import('fastify');\nawait fastify().listen({ port: 3000, host: '0.0.0.0' });\n", 'bin/mem-extra.mjs', 'fwListen'],
+  'koa with a subpath import': ["import Koa from 'koa';\nnew Koa().listen(3000);\n", 'shared/x.mjs', 'fwListen'],
+  'ws WebSocketServer': ["import { WebSocketServer } from 'ws';\nconst wss = new WebSocketServer({ port: 8080 });\n", 'src/x.mjs', 'mkWebSocket'],
+  'ws default export Server': ["import WebSocket from 'ws';\nconst wss = new WebSocket.Server({ port: 8080 });\n", 'src/x.mjs', 'mkServer'],
+  'hono node-server': ["import { serve } from '@hono/node-server';\nimport { Hono } from 'hono';\nserve({ fetch: new Hono().fetch, port: 3000 });\n", 'src/x.mjs', 'fwServe'],
+  'a server written as a call on an alias, no new': ["import * as h from 'node:http';\nconst s = h.Server(() => {});\n", 'src/x.mjs', 'mkServer'],
+  'a Server class imported under another name': ["import { Server as S } from 'node:net';\nexport { S };\n", 'src/x.mjs', 'mkAlias'],
+  'process.getBuiltinModule': ["const h = process.getBuiltinModule('node:http');\nh.createServer(() => {});\n", 'src/x.mjs', 'netBuiltin'],
+  'createRequire(...)(module)': ["import { createRequire } from 'node:module';\nconst h = createRequire(import.meta.url)('node:http');\nh.createServer(() => {});\n", 'src/x.mjs', 'netCreateRequire'],
+  'a .mts file': ["import net from 'node:net';\nnet.createServer();\n", 'src/x.mts', 'ext:.mts'],
+  'a .cts file': ["const net = require('node:net');\nnet.createServer();\n", 'src/x.cts', 'ext:.cts'],
+  'a .tsx file': ["import net from 'node:net';\nnet.createServer();\n", 'src/x.tsx', 'ext:.tsx'],
+  'a shell script in a directory only package.json lists': ['python3 -m http.server 8000\n', 'tool/run.sh', 'packageFiles', { 'package.json': JSON.stringify({ files: ['tool/', '!tool/skip.txt'] }) }],
+  'a root file only package.json lists': ['nc -l 9000\n', 'serve-me.sh', 'packageFiles', { 'package.json': JSON.stringify({ files: ['serve-me.sh'] }) }],
+  'docs/ as shipped': ["import http from 'node:http';\nhttp.createServer().listen(80);\n", 'docs/example.mjs', 'packageFiles', { 'package.json': JSON.stringify({ files: ['docs/'] }) }],
+  'shell: node -e with createServer': ['#!/bin/sh\nnode -e "require(\'node:http\').createServer((q,r)=>r.end()).listen(8080)"\n', 'install/x.sh', 'shellNodeEval'],
+  'shell: node --eval, flags before it': ['node --no-warnings --eval \'require("http").createServer().listen(1)\'\n', 'hooks/x.sh', 'shellNodeEval'],
+  'PowerShell: node -e': ['node -e "require(\'node:net\').createServer().listen(9)"\n', 'install/x.ps1', 'shellNodeEval'],
+  'shell: php -S': ['php -S 0.0.0.0:8000\n', 'install/x.sh', 'shellPhp'],
+  'shell: npx http-server': ['npx --yes http-server -p 8080\n', 'install/x.sh', 'shellNpx'],
+  'shell: ruby -run -e httpd': ['ruby -run -e httpd . -p 8000\n', 'install/x.sh', 'shellRuby'],
+  'shell: python2 SimpleHTTPServer': ['python -m SimpleHTTPServer 8000\n', 'install/x.sh', 'shellSimpleHttp'],
+  'JS spawns python -m http.server': ["import { spawn } from 'node:child_process';\nspawn('python3', ['-m', 'http.server', '8000']);\n", 'src/x.mjs', 'spawnPython'],
+  'JS execFile python SimpleHTTPServer': ["import { execFile } from 'node:child_process';\nexecFile('python', ['-m', 'SimpleHTTPServer']);\n", 'src/x.mjs', 'spawnPython'],
+  'JS spawns node -e with a server': ["import { spawn } from 'node:child_process';\nspawn('node', ['-e', 'globalThis.s.listen(80)']);\n", 'src/x.mjs', 'spawnNodeEval'],
+  'JS spawns process.execPath --eval with listen': ["import { spawn } from 'node:child_process';\nspawn(process.execPath, ['--eval', 'x.listen(80)']);\n", 'src/x.mjs', 'spawnNodeEval'],
+  'JS execs php -S': ["import { execSync } from 'node:child_process';\nexecSync('php -S 0.0.0.0:8000');\n", 'src/x.mjs', 'spawnNc'],
+  'JS spawns nc -l': ["import { spawn } from 'node:child_process';\nspawn('nc', ['-l', '9000']);\n", 'src/x.mjs', 'spawnNc'],
+};
+
+// Not a listener: a comment that names one, a client, a module that only reads, a command that only evaluates. Green.
+const QUIET = {
+  'a comment that names createServer': "import net from 'node:net';\n// net.createServer().listen(80)\n/* http.createServer( */\nnet.connect(80);\n",
+  'a client only': "import net from 'node:net';\nnet.connect(80, '127.0.0.1');\n",
+  'createServer without a network module (a local function)': 'function createServer() {}\ncreateServer();\n',
+  'express imported, an app exported, nothing listens': "import express from 'express';\nexport const app = express();\napp.get('/', (q, r) => r.end());\n",
+  'a ws client': "import WebSocket from 'ws';\nconst c = new WebSocket('wss://example.org/');\nc.on('open', () => c.close());\n",
+  '.listen( without any framework or network module (an event emitter)': "const bus = makeBus();\nbus.listen('event', () => {});\n",
+  'a local function called Server': "import net from 'node:net';\nfunction Server() {}\nnet.connect(80);\n",
+  'getBuiltinModule of a module that opens no port': "const fs = process.getBuiltinModule('node:fs');\nfs.readFileSync('x');\n",
+  'JS spawns python for something else': "import { spawn } from 'node:child_process';\nspawn('python3', ['-m', 'pytest']);\n",
+  'JS spawns node -e that only prints': "import { spawn } from 'node:child_process';\nspawn('node', ['-e', 'console.log(1)']);\n",
+  'a comment that names php -S': "import { execSync } from 'node:child_process';\n// execSync('php -S 0.0.0.0:8000');\nexecSync('php -v');\n",
+};
+const QUIET_SHELL = {
+  'shell: node -e that only prints': ['node -e "console.log(1)"\n', 'install/x.sh'],
+  'shell: a commented http.server': ['# python3 -m http.server\necho done\n', 'install/x.sh'],
+  'shell: php -v': ['php -v\n', 'install/x.sh'],
+  'shell: npx a linter': ['npx eslint .\n', 'install/x.sh'],
+  'shell: a client': ['curl -s http://127.0.0.1:8080/health\n', 'install/x.sh'],
+};
+
+function withTree(files, fn) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-inventory-'));
+  try {
+    for (const [rel, text] of Object.entries(files)) {
       fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
       fs.writeFileSync(path.join(dir, rel), text);
+    }
+    return fn(dir);
+  } finally { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
+}
+
+test('inventory counter-probes: each pattern, each directory and the comment rule turn a sample file red', () => {
+  for (const [name, [text, rel, , extra = {}]] of Object.entries(SAMPLES)) {
+    withTree({ ...extra, [rel]: text }, (dir) => {
       const r = inventory(dir);
       assert.ok(r.found.includes(rel) && r.problems.length > 0, `${name}: the sample file must turn the inventory red, got ${JSON.stringify(r)}`);
-    } finally { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
+    });
   }
-  // Not a listener: a comment that names one, a client, a module that only reads. Green.
-  const quiet = {
-    'a comment that names createServer': "import net from 'node:net';\n// net.createServer().listen(80)\n/* http.createServer( */\nnet.connect(80);\n",
-    'a client only': "import net from 'node:net';\nnet.connect(80, '127.0.0.1');\n",
-    'createServer without a network module (a local function)': 'function createServer() {}\ncreateServer();\n',
-  };
-  for (const [name, text] of Object.entries(quiet)) {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-inventory-'));
-    try {
-      fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
-      fs.writeFileSync(path.join(dir, 'src', 'x.mjs'), text);
-      const r = inventory(dir);
-      assert.deepEqual(r, { found: [], problems: [] }, `${name}: not a listener`);
-    } finally { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
+  for (const [name, text] of Object.entries(QUIET)) {
+    withTree({ 'src/x.mjs': text }, (dir) => assert.deepEqual(inventory(dir), { found: [], problems: [] }, `${name}: not a listener`));
+  }
+  for (const [name, [text, rel]] of Object.entries(QUIET_SHELL)) {
+    withTree({ [rel]: text }, (dir) => assert.deepEqual(inventory(dir), { found: [], problems: [] }, `${name}: not a listener`));
   }
   // A doored service whose only mention of the decision is a comment is red; with the real call it is green.
-  const door = (body) => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-inventory-'));
-    try {
-      fs.mkdirSync(path.join(dir, 'bin'), { recursive: true });
-      fs.writeFileSync(path.join(dir, 'bin', 'mem-serve'), `#!/usr/bin/env node\nimport http from 'node:http';\n${body}\nhttp.createServer(() => {});\n`);
-      return inventory(dir);
-    } finally { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
-  };
+  const door = (body) => withTree({ 'bin/mem-serve': `#!/usr/bin/env node\nimport http from 'node:http';\n${body}\nhttp.createServer(() => {});\n` }, inventory);
   assert.ok(door('// webauth.startDecision(cfg)\n/* if (!d.ok) throw new Error(); */').problems.length > 0, 'a comment is not the door');
   assert.deepEqual(door('const d = webauth.startDecision(cfg);\nif (!d.ok) throw new Error(d.reason);').problems, [], 'positive control: the real call is accepted');
   assert.ok(door('const d = webauth.startDecision(cfg);').problems.length > 0, 'calling it and ignoring a refusal is not the door');
   // The socket-only and free-port exemptions are narrow: the same file name with a TCP port is red.
-  const tcpRecall = (() => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-inventory-'));
-    try {
-      fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
-      fs.writeFileSync(path.join(dir, 'src', 'recallserver.mjs'), "import net from 'node:net';\nnet.createServer().listen(8080, '0.0.0.0');\n");
-      return inventory(dir);
-    } finally { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
-  })();
+  const tcpRecall = withTree({ 'src/recallserver.mjs': "import net from 'node:net';\nnet.createServer().listen(8080, '0.0.0.0');\n" }, inventory);
   assert.ok(tcpRecall.problems.length > 0, 'the recall exemption does not cover a TCP listen');
   // The recall server itself: a socket path, no port (the inventory above pins it; this names the shape).
   assert.match(fs.readFileSync(path.join(ROOT, 'src', 'recallserver.mjs'), 'utf8'), /server\.listen\(where\.socket,/);
+});
+
+test('inventory mutants: switch one named part off and ITS sample goes quiet (no other part covers for it)', () => {
+  const parts = new Set();
+  for (const [name, [text, rel, by, extra = {}]] of Object.entries(SAMPLES)) {
+    if (!by) continue;
+    parts.add(by);
+    withTree({ ...extra, [rel]: text }, (dir) => {
+      assert.ok(inventory(dir).found.includes(rel), `${name}: positive control, the unmutated inventory sees it`);
+      const mutant = inventory(dir, new Set([by]));
+      assert.deepEqual(mutant.found, [], `${name}: with "${by}" switched off the sample must go quiet, so "${by}" is what catches it`);
+    });
+  }
+  // Every named part that is new in this change is exercised by at least one sample (a part nobody tests can rot unseen).
+  const owed = ['netBuiltin', 'netCreateRequire', 'framework', 'mkServer', 'mkAlias', 'mkWebSocket', 'fwListen', 'fwServe', 'shellNodeEval', 'shellPhp', 'shellNpx',
+    'shellRuby', 'shellSimpleHttp', 'spawnPython', 'spawnNodeEval', 'spawnNc', 'packageFiles', 'ext:.mts', 'ext:.cts', 'ext:.tsx'];
+  for (const p of owed) assert.ok(parts.has(p), `${p} has a mutant sample`);
+  for (const p of Object.keys(PARTS)) assert.ok(owed.includes(p) || ['netStatic', 'mkCreate', 'shellWords'].includes(p), `${p} is owed a sample or is one of the three that existed before`);
+  // The old detector is the new one with every new part off: none of the new samples was seen by it (the red proof against dc6b69d).
+  const allNew = new Set(owed);
+  for (const [name, [text, rel, by, extra = {}]] of Object.entries(SAMPLES)) {
+    if (!by) continue;
+    withTree({ ...extra, [rel]: text }, (dir) => assert.deepEqual(inventory(dir, allNew).found, [], `${name}: the old detector did not see it`));
+  }
+  // The same text under an extension the inventory does not read is quiet: the extension is what decides.
+  withTree({ 'src/x.txt': "import net from 'node:net';\nnet.createServer();\n" }, (dir) => assert.deepEqual(inventory(dir), { found: [], problems: [] }));
 });
 
 test('no lock-out: the service units set no switch and no LOGIN=off (the password stays the door); the docs carry the way out', () => {

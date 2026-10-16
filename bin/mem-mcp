@@ -2254,7 +2254,7 @@ async function startHttp(pkg) {
   // No login stands behind this door: the token is the only credential, so without it the bridge starts only on purpose.
   const bind = webauth.startDecision({
     host: cfg.host, token: cfg.token, login: false, localNoToken: cfg.localNoToken,
-    variable: 'CHEAP_MEM_MCP_TOKEN', switchVariable: 'CHEAP_MEM_MCP_LOCAL_NO_TOKEN',
+    variable: 'CHEAP_MEM_MCP_TOKEN', switchVariable: 'CHEAP_MEM_MCP_LOCAL_NO_TOKEN', hasLogin: false,
   });
   if (!bind.ok) throw Object.assign(new Error(bind.reason), { startRefused: true });
 
@@ -2327,8 +2327,12 @@ async function startHttp(pkg) {
   });
 
   await new Promise((resolve, reject) => {
-    network.once('error', reject);
-    network.listen(cfg.port, cfg.host, resolve);
+    // A bind that fails (the port is taken, above all) is a message and exit 1, not "mem-mcp fatal" with a stack.
+    const onListenError = (e) => reject(Object.assign(new Error(webauth.listenFailureMessage({
+      host: cfg.host, port: cfg.port, code: e?.code, message: e?.message, portVariable: 'CHEAP_MEM_MCP_PORT',
+    })), { startRefused: true, cause: e }));
+    network.once('error', onListenError);
+    network.listen(cfg.port, cfg.host, () => { network.off('error', onListenError); resolve(); });
   });
   process.stderr.write(`cheap-mem MCP (http): http://${cfg.host}:${cfg.port}/mcp\n`);
   process.stderr.write(`  agent=${resolveAgent()} profile=${PROFILE} token=${cfg.token ? 'set' : 'none (plain loopback only; a request with a proxy header is refused)'}\n`);
