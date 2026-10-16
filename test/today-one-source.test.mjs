@@ -37,13 +37,15 @@ test('one source: CLI json, dashboard card data and hook line carry the same cou
     const card = data.collectDashboard(r, { now: new Date(), env: { ...process.env, ...envFor(r) } }).today;
     assert.deepEqual(card.counts, cli.counts);
     assert.equal(card.line, cli.line);
-    // The hook calls `$CHEAP_MEM_ROOT/bin/mem`; a delegating stub runs the REAL CLI.
-    fs.mkdirSync(path.join(r, 'bin'), { recursive: true });
-    fs.writeFileSync(path.join(r, 'bin', 'mem'), `const { spawnSync } = require('node:child_process');
+    // The hook calls the INSTALLED tool (CHEAP_MEM_CODE; a memory's own bin/ is not run unless the
+    // user trusted it, tool-trust-cm); a delegating stub runs the REAL CLI.
+    const code = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-today-code-'));
+    fs.mkdirSync(path.join(code, 'bin'), { recursive: true });
+    fs.writeFileSync(path.join(code, 'bin', 'mem'), `const { spawnSync } = require('node:child_process');
 const x = spawnSync(process.execPath, [${JSON.stringify(MEM)}, '--root', ${JSON.stringify(r)}, ...process.argv.slice(2)], { stdio: 'inherit' });
 process.exit(x.status ?? 1);
 `);
-    const hook = spawnSync('bash', [HOOK], { encoding: 'utf8', env: { ...process.env, CHEAP_MEM_ROOT: r, ...envFor(r) } });
+    const hook = spawnSync('bash', [HOOK], { encoding: 'utf8', env: { ...process.env, CHEAP_MEM_ROOT: r, CHEAP_MEM_CODE: code, ...envFor(r) } });
     assert.ok(cli.line, 'a fresh install has something to say (unknown/warn)');
     assert.ok(hook.stdout.split('\n').includes(cli.line), `${cli.line} in ${hook.stdout}`);
     assert.equal(today.line(cli), cli.line, 'line() is a pure function of the same result');

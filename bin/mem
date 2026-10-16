@@ -126,6 +126,7 @@ if (!head || head === '--help' || head === '-h' || head === 'help') {
   out("  digest due|bell                              is the pile ripe? (exit 0/1/3)");
   out("  thesaurus [--graph]                          word groups; --graph = what it learned");
   out("  hooks install|check                          arm and prove the secret check");
+  out("  trust-own-tool [--off|--status]              let this memory run its own bin/ (off by default)");
   out("  doctor [--quiet] [--alarm]                   is this memory healthy?");
   out("                                               --alarm: only what is DOWN now");
   out("  raw archive [--set <where>] [--list-stores]  where the raw capture lives");

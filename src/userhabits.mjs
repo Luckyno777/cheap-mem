@@ -527,7 +527,7 @@ export function analyze(root, {
  * cheap-mem's own SessionStart path is `install/hooks/session-start.sh`
  * (wired via `install/claude-code.sh`, see docs/mcp-setup.md). Calling
  * this from there needs exactly one added line —
- * `node "$CHEAP_MEM_ROOT/bin/mem" user --session-start` — which this
+ * `node "$CHEAP_MEM_CODE/bin/mem" --root "$CHEAP_MEM_ROOT" user --session-start` — which this
  * module does not add itself (that file belongs to a different part of
  * this change); `mem user --session-start` prints exactly what that
  * line would inject, so wiring it in is a one-line, reviewable change
