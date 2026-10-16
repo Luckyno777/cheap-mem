@@ -74,7 +74,7 @@ export function readFlatYaml(text) {
   const out = {};
   let list = null;
   for (const rawLine of String(text ?? '').split('\n')) {
-    const line = rawLine.replace(/\s+$/, '');
+    const line = rawLine.trimEnd();
     if (!line.trim() || line.trim().startsWith('#') || line.trim() === '---') continue;
     const listHit = /^\s+-\s+(.*)$/.exec(line);
     if (listHit && list) { out[list].push(unquote(listHit[1])); continue; }

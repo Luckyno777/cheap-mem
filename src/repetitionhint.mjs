@@ -32,7 +32,26 @@ import { maskText } from './outputguard.mjs';
 export const THRESHOLD = 3;
 
 /** Marker words that make a sentence "names the right way". */
-const CORRECTION_SENTENCE = /[^.?!\n]*\b(fixed|remedy|guard|corrected|resolved|improved|the right way is|right way)\b[^.?!\n]*[.?!]?/i;
+const CORRECTION_MARKER = /\b(fixed|remedy|guard|corrected|resolved|improved|the right way is|right way)\b/i;
+
+/**
+ * The first sentence (a stretch without `.`, `?`, `!` or a line break, with its one closing mark) that holds a marker word,
+ * or `null`. Same text as `/[^.?!\n]*MARKER[^.?!\n]*[.?!]?/i.exec(text)?.[0]`, one pass: that pattern starts over at every
+ * character of a long stretch without a stop and walks to its end each time, quadratic on an error text of one long line.
+ * A stop character is not a word character, so `\b` at the cut ends of a stretch reads the same as in the whole text.
+ */
+function correctionSentence(text) {
+  let start = 0;
+  for (;;) {
+    let end = start;
+    while (end < text.length && !'.?!\n'.includes(text[end])) end += 1;
+    // mask-ok: `text` is the masked entry text (correctPathText masks before it calls); the cut falls between whole stretches
+    const stretch = text.slice(start, end);
+    if (CORRECTION_MARKER.test(stretch)) return end < text.length && text[end] !== '\n' ? stretch + text[end] : stretch;
+    if (end >= text.length) return null;
+    start = end + 1;
+  }
+}
 
 /**
  * The sentence that names the right way — never invented, only quoted
@@ -44,8 +63,8 @@ export function correctPathText(entry) {
   }
   const text = maskText(String(entry?.text ?? '')).trim();
   if (!text) return '(no text in the newest error)';
-  const hit = CORRECTION_SENTENCE.exec(text);
-  if (hit) return hit[0].trim();
+  const hit = correctionSentence(text);
+  if (hit !== null) return hit.trim();
   const first = text.split(/(?<=[.?!])\s+/)[0] ?? text;
   return `(no correction marker found, first sentence) ${first}`;
 }

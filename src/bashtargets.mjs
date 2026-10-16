@@ -93,7 +93,8 @@ function tokens(text) {
         const op = s[i + 2] === '>' ? '&>>' : '&>';
         out.push({ op }); i += op.length - 1; continue;
       }
-      if (c === '&' && /\d*>$/.test(cur) && has) { cur += c; continue; } // N>&M stays one word
+      // `endsWith`, not `/\d*>$/`: `\d*` may be empty, so the same test, and the pattern was quadratic on a long run of digits.
+      if (c === '&' && cur.endsWith('>') && has) { cur += c; continue; } // N>&M stays one word
       push();
       if (two === '&&' || two === '||' || two === '|&') { out.push({ op: two }); i += 1; } else out.push({ op: c });
       continue;

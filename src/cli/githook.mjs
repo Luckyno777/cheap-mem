@@ -21,6 +21,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import * as observations from '../observations.mjs';
 import { PKG_ROOT } from './shell.mjs';
 import { writeAtomic } from '../atomicwrite.mjs';
+import { trimEndNewlines, attributesOf } from '../lineartext.mjs';
 
 export function canExecuteIn(dir) {
   // Windows has no execve and no noexec mounts: git for Windows starts
@@ -286,14 +287,17 @@ export function writeMergeDriver(root) {
   // was already in place or had just been created.
   if (!fs.existsSync(p)) { fs.writeFileSync(p, note, 'utf8'); return { added: 1, path: p }; }
   const cur = fs.readFileSync(p, 'utf8');
-  const hasUnion = /^\s*\*\.jsonl\s+merge=union\s*$/m.test(cur);
-  const hasEol = /^\s*\*\.jsonl\s+(?:\S+\s+)*eol=lf(?:\s|$)/m.test(cur);
+  // Read by line and by word (src/lineartext.mjs), as git reads it: `.gitattributes` comes with the cloned repository, and `^\s*`
+  // in a multiline pattern is quadratic on a file of blank lines. `merge=union eol=lf` on one line is both rules.
+  const attrs = attributesOf(cur, '*.jsonl');
+  const hasUnion = attrs.get('merge') === 'union';
+  const hasEol = attrs.get('eol') === 'lf';
   if (hasUnion && hasEol) return { added: 0, path: p };
   const add = hasUnion ? [
     '# The hash chain is computed over LF bytes: never let git turn them into CRLF.',
     eolRule, '',
   ].join('\n') : note;
-  fs.writeFileSync(p, `${cur.replace(/\n*$/, '')}\n\n${add}`, 'utf8');
+  fs.writeFileSync(p, `${trimEndNewlines(cur)}\n\n${add}`, 'utf8');
   return { added: 1, path: p };
 }
 
@@ -360,7 +364,8 @@ export function writeMemoryGitignore(root) {
   const missing = wanted.filter(([rule]) => !have.has(rule));
   if (missing.length === 0 && broken.length === 0) return { added: 0, path: p, repaired: 0 };
 
-  const kept = lines.filter((_, i) => !broken.includes(i));
+  const brokenAt = new Set(broken);
+  const kept = lines.filter((_, i) => !brokenAt.has(i));
   const rest = kept.join('\n').replace(/\n{3,}/g, '\n\n');
   const block = ['', '# cheap-mem: derived state and secrets'];
   for (const [rule, why] of missing) {
@@ -369,6 +374,6 @@ export function writeMemoryGitignore(root) {
   }
   const text = block.join('\n');
   fs.writeFileSync(p, rest.trim()
-    ? `${rest.replace(/\n*$/, '')}\n${text}\n` : `${text.trimStart()}\n`);
+    ? `${trimEndNewlines(rest)}\n${text}\n` : `${text.trimStart()}\n`);
   return { added: missing.length, path: p, repaired: broken.length };
 }

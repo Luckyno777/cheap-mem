@@ -29,7 +29,7 @@ the verification commands at the end.
 | **Automation** | 7 Claude Code hooks (session start, recall per message, recall per file edit, recall after a failed or failure-printing tool call, subagent start, answer check and capture at stop), one model call per few hours, watcher, git as sync | [6](#6-automation) |
 | **Surfaces** | 87 CLI commands, 45 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 4899 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 4916 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -156,6 +156,7 @@ directory. The section number in brackets is where it is explained.
 | `language.mjs` | stemming and stop words, per language |
 | `langbridge.mjs` | optional starter dictionaries from the language a person asks in to the language the agents wrote in, as files (`src/langbridge/*.tsv`), off by default (`languageBridges` in `.mem/config.json`, M18b) |
 | `latencybudget.mjs` | ONE latency budget per recall-hook occasion over the injection journal's `duration_ms`: p50/p95, four states, under 20 timed lines unknown — the doctor's `hook-latency` finding and the dashboard's hook-time panel read only this (Bauplan P2) |
+| `lineartext.mjs` | text helpers whose time is linear in the input: the trailing line breaks cut by a loop, a `.gitattributes` read the way git reads it (a set of words per line, last word wins; `git check-attr` is the truth in the tests), and the `<file>.jsonl:<line>` places of a text; used where inbox mail, a cloned repository's `.gitattributes`/`.gitignore` or a model's job fields reach a pattern |
 | `mailpermit.mjs` | the user's permission and budgets for waking messages, as an append-only ledger with estimated token spend (10.28) |
 | `maintenance.mjs` | content-hash deduplication: identical entries merge, highest authority stays active |
 | `mcplive.mjs` | a real `tools/list` probe of the local MCP bridge — cached, run in the background, never awaited by `/dashboard.json` (7.5) |
