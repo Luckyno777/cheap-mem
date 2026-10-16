@@ -574,7 +574,19 @@ function partLaterAgain(name) {
   const limit = spell.budget.take();
   if (limit) { spell.ended = limit; partLaterEnd(spell, limit); return; }
   partRetryTimer = 1;
-  runWait(spell.run, TEMPO_TEST_MS ?? 3000).then((ok) => { if (partLater !== spell) return; partRetryTimer = 0; if (ok) loadParts(); });
+  const run = spell.run;
+  runWait(run, TEMPO_TEST_MS ?? 3000).then((ok) => { if (partLater !== spell || spell.run !== run) return; partRetryTimer = 0; if (ok) loadParts(); });
+}
+// dashboard-tempo-cm: a new round of loadParts() asks every part anyway (a newer data load started it). A retry still
+// waiting from the round before would ask them all a SECOND time when its timer runs out - seen on a cold start with 5000
+// entries whose first answer was the quick head: every part fetched twice, the second round 3.5 s long (not on every cold
+// start: 0 of 7 more, where the first answer was the placeholder without parts). The waiting spell keeps its deadline and its budget
+// (the bound holds across rounds); only its timer goes, and the new round arms a new one if a part still says building.
+function partLaterSkipTimer() {
+  if (!partRetryTimer || !partLater || partLater.ended) return;
+  runCancel('part-later');
+  partLater.run = runStart('part-later');
+  partRetryTimer = 0;
 }
 function partLaterEnd(spell, limit) {
   const text = 'The part is still being built — ' + (limit === 'deadline' ? 'the time limit (' + Math.round(PART_LATER_DEADLINE_MS / 1000) + ' s) ran out.' : 'the budget of ' + PART_LATER_REQUESTS + ' requests is used up.') + ' Please load again.';
@@ -694,6 +706,7 @@ async function loadParts() {
   const parts = Object.keys(D?.parts || {}).filter((name) => name !== 'entries' && name !== 'atlas');
   const firstOk = [];
   let otherChanged = false;
+  partLaterSkipTimer();
   const entriesRun1 = loadEntriesPart();
   await Promise.all(parts.map(async (name) => {
     const wasOk = partState[name] === 'ok';

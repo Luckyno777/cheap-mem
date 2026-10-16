@@ -929,6 +929,11 @@ export const MUTANTS=[
    from:"  } catch (e) { reasons.push(`waiting questions not readable: ${e?.message || e}`); }\n  return { openQuestions",
    to:"  } catch { /* MUTANT: silent */ }\n  return { openQuestions",
    tests:['test/dash-confirm-fresh-cm.test.mjs'] },
+ { name:'deferred parts: a newer round leaves the old retry waiting (every part fetched twice)',
+   file:'assets/dashboard/dashboard.js',
+   from:'  partLaterSkipTimer();\n  const entriesRun1 = loadEntriesPart();',
+   to:'  const entriesRun1 = loadEntriesPart();  // MUTANT',
+   tests:['test/dash-later-once-cm-browser.test.mjs'] },
 ];
 
 // The modules whose failure is a security or data-integrity failure. The
