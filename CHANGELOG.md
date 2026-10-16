@@ -17,11 +17,38 @@ are the day the work landed on `main`.
 ### Changed / Security - the HTTP services refuse to start without a token, unless "local, no token" is set on purpose (serve-token-refuse-cm; owner decision 2026-10-14)
 
 `mem serve` (`bin/mem-serve`) and `mem-mcp --http` are the two HTTP services in cheap-mem (the warm recall server is a Unix socket or named pipe with a key file, not a TCP port; `test/serve-token-refuse-cm.test.mjs` pins the list: a file under `bin/`, `src/`, `install/`, `hooks/`, `shared/`, `bench/` or `eval/` that imports `net`, `http`, `https`, `http2`, `tls` or `dgram` (static, dynamic or `require`) and creates a server by any of the common shapes must be one of the two doored services or a named exemption - a ratchet against the common shapes with a counter-probe per pattern, not a proof: a name built at run time is not seen).
-Follow-up on the same branch: a refusal is now a message and exit 1 from `bin/mem-serve` and `bin/mem-mcp` too (it was a stack trace), the refusal names the PowerShell form of the token, and the older `openDoorNotice` (which said every proxy hit counts as local, against the new check that turns a forwarding-header request away) is replaced by one accurate start notice.
 Until now a door with no token and nothing else behind it started anyway and printed a `NOTICE`; the rule is now one shared decision, `webauth.startDecision`: no token, no password login (the dashboard's own credential) and no switch means the process exits with a code other than 0, a message that names the token variable, a command that makes a token and the switch, and **no port is bound**.
 The switch is `--local-no-token` (on `mem serve`, `bin/mem-serve` and `mem-mcp --http`) or `CHEAP_MEM_SERVE_LOCAL_NO_TOKEN=1` / `CHEAP_MEM_MCP_LOCAL_NO_TOKEN=1` for a service unit. It lifts only that one refusal: it is honoured on loopback only (an allow list of three names; `0.0.0.0`, `::`, `127.0.0.2` and every other spelling refuse), a request that carries a proxy header is still turned away, and the start prints a `NOTICE` that the service runs without a token.
 **What breaks:** a dashboard started with `CHEAP_MEM_SERVE_LOGIN=off` and no token, and an HTTP bridge started with no token; both now need a token or the switch. **What does not:** a dashboard with its password login on (the default, and what `install/serve-service.sh` installs) keeps starting, because the password is a credential; a start with a token is unchanged. The probes that started token-less servers (about 50 test files, three bench scripts) set the switch.
 New environment variables `CHEAP_MEM_SERVE_LOCAL_NO_TOKEN` and `CHEAP_MEM_MCP_LOCAL_NO_TOKEN` are in `src/envregister.mjs` and `docs/environment-variables.md`; the way to a token is in `docs/dashboard.md`, `docs/mcp-setup.md` and in every refusal message.
+Follow-up on the same branch: a refusal is now a message and exit 1 from `bin/mem-serve` and `bin/mem-mcp` too (it was a stack trace), the refusal names the PowerShell form of the token, and the older `openDoorNotice` (which said every proxy hit counts as local, against the new check that turns a forwarding-header request away) is replaced by one accurate start notice.
+
+### Fixed - review of the hook-shim fix: the time-cap branch, a dead code path, an apostrophe in a path (hook-shims-code-cm, second round)
+
+- **The start hook died when the alarm hit its time cap.** `install/hooks/session-start.sh` named `$mem_show` in the "alarm hit its time cap" line, but set it only at the bottom; under `set -u`
+  the installed shim ended with rc 1 ("unbound variable"), and the today line, the how-to block and the journal line never came (base 870788f: rc 0). It is set right after the tool lookup now.
+  `test/doctor-alarm.test.mjs` H demands rc 0 and the rest of the output, and `test/installed-hooks-run.test.mjs` runs the installed shim with a 0.01 s alarm limit.
+- **A dead `CHEAP_MEM_CODE` is said, not swallowed.** When the checkout the installer pointed at is moved or deleted, prompt recall, before-edit, swallowed-failure, real-failure, sub-agent and stop
+  exited 0 with no byte. They now call `install/support/tool-missing.sh` (installed as `cheap-mem-tool-missing.sh`; `.ps1` twin on Windows), which prints one `systemMessage` JSON object
+  (Claude Code shows it to the person and does not hand it to the model; exit 0, so it never blocks a prompt or an edit; stderr on exit 0 is not shown, which is why it is not the channel),
+  at most every 30 minutes per hook (marker under `<memory>/.pipeline/`). The start hook names the baked path and the repair. It stays silent without `CHEAP_MEM_CODE` (a shim started by hand promised nothing).
+  `mem doctor` finding `integration-contract` is ERROR when a registered shim's baked code path and memory hold no `bin/mem` ("registered, but SILENT"); it reads the installed files, not the journal.
+- **An apostrophe in a path broke the shims.** The installer wrote `export CHEAP_MEM_CODE='<path>'` unescaped (bash -n rc 2); the memory path likewise. Both are escaped in all shims, and `windows.ps1` doubles
+  the quote for both baked values and tests the tool paths with `-LiteralPath`.
+- `CHEAP_MEM_CODE` in `src/envregister.mjs` and `docs/environment-variables.md` now says what is true: all seven hooks read it. The order (memory `bin/` before the installed tool) is unchanged.
+
+### Fixed - the installed prompt hook was mute and the start hook said "NOT attached" (hook-shims-code-cm; lm counterpart: 7c9c414ab, another cause, same effect)
+
+Installed with `install/claude-code.sh` into a scratch HOME and started the way Claude Code starts a hook (`env -i`, no `CHEAP_MEM_ROOT`, the hook JSON on stdin), two of the seven
+shims delivered nothing: `UserPromptSubmit` exited 0 with 0 bytes on a prompt that the same memory answers through `bin/mem-retrieve`, and `SessionStart` printed
+`cheap-mem NOT attached ... the tool (<memory>/bin/mem) is missing`. Both looked for the tool only inside the memory, and a memory made by `mem init` carries no `bin/`.
+The other shims (pre-edit, catch-fail, after-failure, subagent-start, stop) already found it through `CHEAP_MEM_CODE`, which the installer bakes in; these two never got the line,
+so no prompt of any session got recall and nothing failed to say so. Now `install/hooks/user-prompt.sh` and `install/hooks/session-start.sh` resolve the tool in the order of
+`pre-edit.sh` (the memory, then `CHEAP_MEM_CODE`, then the shim's own directory), and `claude-code.sh` bakes `CHEAP_MEM_CODE` into the prompt shim. `install/windows.ps1` had the same
+shape in all seven generated PowerShell hooks (and set `CHEAP_MEM_CODE` in none): each now looks under `$env:CHEAP_MEM_CODE`, falling back to the install location baked in as `$CodeHint`.
+`install/linux.sh` and `install/macos.sh` install the watcher service and write no hook shims; `mem setup claude` runs `claude-code.sh`. New guard `test/installed-hooks-run.test.mjs`:
+installs into a scratch HOME, starts every registered hook with a bare environment and a real hook JSON, and demands bytes in the context (and a capture from the Stop hook); the
+.ps1 hooks are run on win32 with PowerShell, and checked statically on every platform.
 
 ### Fixed - reflector follow-up: lines that belong together, the env route, a temp directory inside the memory root (small-parity-cm, point 3; Parity lm=open)
 

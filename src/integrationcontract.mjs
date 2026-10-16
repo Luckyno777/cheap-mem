@@ -382,6 +382,63 @@ export function detectClients({ settingsPaths = [], matrix = MATRIX } = {}) {
 }
 
 /**
+ * Registered, but silent: the hooks the settings file names, whose baked-in
+ * code path points at nothing. (2026-10-16.) Every shim the installer
+ * writes carries the memory root and the code location as text
+ * (`export CHEAP_MEM_CODE='...'` in a .sh, `else { '...' }` in a .ps1).
+ * When neither holds a `bin/mem`, the shim finds no tool and - before the
+ * tool-missing message existed - exited 0 with no byte on every prompt. The
+ * hook is registered and runs; it does nothing. That is read here from the
+ * installed files, not guessed from the journal: no timing, no threshold,
+ * and no false alarm on a machine nobody uses.
+ *
+ * Returns `[{ hook, code }]`, one per silent shim (empty: none is).
+ */
+function silentHooks(settingsPaths = []) {
+  const out = [];
+  const seen = new Set();
+  // MSYS paths (/c/Users/..) mean nothing to a Windows node process.
+  const native = (p) => (process.platform === 'win32' ? p.replace(/^\/([a-zA-Z])\//, '$1:/') : p);
+  const unq = (v) => v.replace(/'\\''/g, "'");
+  for (const sp of settingsPaths) {
+    let cfg;
+    try { cfg = JSON.parse(fs.readFileSync(sp, 'utf8')); } catch { continue; }
+    for (const entries of Object.values(cfg?.hooks ?? {})) {
+      for (const entry of Array.isArray(entries) ? entries : []) {
+        for (const h of entry?.hooks ?? []) {
+          const tokens = String(h?.command ?? '').match(/"[^"]*"|\S+/g) ?? [];
+          const script = tokens.map((t) => t.replace(/^"|"$/g, ''))
+            .find((t) => /cheap-mem-[a-z-]+\.(sh|ps1)$/.test(t));
+          if (!script || seen.has(script)) continue;
+          seen.add(script);
+          let text;
+          try { text = fs.readFileSync(native(script), 'utf8'); } catch { continue; }
+          const sh = {
+            root: /^export CHEAP_MEM_ROOT='(.*)'$/m.exec(text)?.[1],
+            code: /^export CHEAP_MEM_CODE='(.*)'$/m.exec(text)?.[1],
+          };
+          const ps = {
+            root: /^\$hint = '((?:[^']|'')*)'$/m.exec(text)?.[1],
+            code: /else \{ '((?:[^']|'')*)' \}/.exec(text)?.[1],
+          };
+          const isPs = script.endsWith('.ps1');
+          const f = isPs ? ps : sh;
+          const clean = (v) => (v === undefined ? undefined : native(isPs ? v.replace(/''/g, "'") : unq(v)));
+          const root = clean(f.root);
+          const code = clean(f.code);
+          // Only a shim that says where its code is can be judged; a hook
+          // of another make, or an older shim, is not accused.
+          if (code === undefined) continue;
+          const has = (d) => d && fs.existsSync(path.join(d, 'bin', 'mem'));
+          if (!has(code) && !has(root)) out.push({ hook: path.basename(script), code });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * The doctor's verdict. Four states, `level` in
  * `good | warn | error | unknown`:
  *
@@ -410,6 +467,17 @@ export function judge({ codeRoot = CODE_ROOT, settingsPaths = [], matrix = MATRI
       text: `cannot tell which client is installed (${det.readable} settings file(s) readable, none registers this tool's hooks)`,
       advice: 'Run install/claude-code.sh for Claude Code. MCP clients and a plain shell leave no trace to read; '
         + 'both are partial by construction (see docs/integration-contract.md).',
+    };
+  }
+  const silent = silentHooks(settingsPaths);
+  if (silent.length) {
+    return {
+      level: 'error',
+      text: `${silent.length} registered hook(s) are SILENT, the code path baked into them has no tool: `
+        + silent.slice(0, 4).map((x) => `${x.hook} (CHEAP_MEM_CODE=${x.code})`).join('; ')
+        + (silent.length > 4 ? ` (+${silent.length - 4})` : ''),
+      advice: 'The checkout the installer pointed at was moved or deleted, so recall does not run. '
+        + 'Run install/claude-code.sh (Windows: install/windows.ps1) from a current cheap-mem checkout, or `mem setup claude`.',
     };
   }
   const gaps = [];
