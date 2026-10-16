@@ -850,14 +850,26 @@ export const MUTANTS=[
 
  { name:'mask-copy: a transcript line is copied unmasked',
    file:'bin/mem-mask-copy.mjs',
-   from:'  return JSON.stringify(maskEntry(parsed));',
-   to:'  return line;  // MUTANT',
+   from:'        await put(JSON.stringify(maskEntry(parsed)));',
+   to:'        await put(line);  // MUTANT',
+   tests:['test/reflect-masked-copy.test.mjs'] },
+
+ { name:'mask-copy: every plain line is masked alone, a PEM key loses its mask',
+   file:'bin/mem-mask-copy.mjs',
+   from:'const BLOCK_MAX_LINES = 20000;',
+   to:'const BLOCK_MAX_LINES = 1;  // MUTANT',
+   tests:['test/reflect-masked-copy.test.mjs'] },
+
+ { name:'mask-copy: a bare number or string line is read as a JSON structure',
+   file:'bin/mem-mask-copy.mjs',
+   from:"return parsed !== null && typeof parsed === 'object' ? parsed : undefined;",
+   to:'return parsed;  // MUTANT',
    tests:['test/reflect-masked-copy.test.mjs'] },
 
  { name:'mask-copy: a line that is no JSON is copied unmasked',
    file:'bin/mem-mask-copy.mjs',
-   from:'catch { return maskText(line); }',
-   to:'catch { return line; }  // MUTANT',
+   from:"      const text = maskText(block.join('\\n'));",
+   to:"      const text = block.join('\\n');  // MUTANT",
    tests:['test/reflect-masked-copy.test.mjs'] },
 
  { name:'mask-copy: --clean removes a directory it did not make',

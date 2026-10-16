@@ -135,6 +135,57 @@ test('the hand-in route TRANSCRIPT_PATH_ENV is masked too, and the variable does
   } finally { fs.rmSync(root, { recursive: true, force: true }); fs.rmSync(d, { recursive: true, force: true }); }
 });
 
+// A PEM private key pasted into a tool result: four-plus lines, none of which has a shape of its own.
+function pemBlock() {
+  const body = Array.from({ length: 6 }, (_, i) => Buffer.from(`runtime-key-material-${i}-`.repeat(4)).toString('base64').replace(/=+$/, ''));
+  // a body line made of digits only is valid JSON (a number): it must stay inside the block
+  body[3] = '8675309123456789012345678901234567890123456789012345678901234567';
+  return { body, lines: [`-----BEGIN ${'RSA PRIVATE'} KEY-----`, ...body, `-----END ${'RSA PRIVATE'} KEY-----`] };
+}
+
+test('a secret that spans lines (a PEM key) is masked: runs of non-JSON lines are one block', () => {
+  const d = scratch();
+  try {
+    const pem = pemBlock();
+    const lines = [JSON.stringify({ type: 'user', message: { content: 'show the key' } }), 'plain text before', ...pem.lines, 'plain text after',
+      JSON.stringify({ type: 'assistant', message: { content: 'ok' } }), `last: ${TOKEN}`];
+    const t = path.join(d, 'pem.jsonl');
+    fs.writeFileSync(t, `${lines.join('\n')}\n`);
+    for (const b of pem.body) assert.ok(fs.readFileSync(t, 'utf8').includes(b), 'control: the body is in the raw file');
+    const made = spawnSync(process.execPath, [MASK, t], { encoding: 'utf8' });
+    assert.equal(made.status, 0, made.stderr);
+    const copy = made.stdout.trim();
+    const text = fs.readFileSync(copy, 'utf8');
+    spawnSync(process.execPath, [MASK, '--clean', copy], { encoding: 'utf8' });
+    for (const b of pem.body) assert.ok(!text.includes(b), `a line of the key body survived: ${b.slice(0, 8)}...`);
+    assert.ok(!text.includes(TOKEN));
+    assert.match(text, /show the key/);
+    assert.match(text, /plain text before/);
+    assert.match(text, /plain text after/);
+    assert.match(text, /"content":"ok"/);
+  } finally { fs.rmSync(d, { recursive: true, force: true }); }
+});
+
+test('the block has a cost limit: a long run of plain lines is cut into blocks and takes linear time', { timeout: 120000 }, () => {
+  const d = scratch();
+  try {
+    const t = path.join(d, 'long.jsonl');
+    const line = 'x'.repeat(78);
+    const n = 100000;
+    fs.writeFileSync(t, `${JSON.stringify({ type: 'user', message: { content: 'start' } })}\n${Array.from({ length: n }, (_, i) => `${line}${i}`).join('\n')}\n${TOKEN}\n`);
+    const t0 = performance.now();
+    const made = spawnSync(process.execPath, [MASK, t], { encoding: 'utf8', timeout: 100000 });
+    const ms = performance.now() - t0;
+    assert.equal(made.status, 0, made.stderr);
+    const copy = made.stdout.trim();
+    const text = fs.readFileSync(copy, 'utf8');
+    spawnSync(process.execPath, [MASK, '--clean', copy], { encoding: 'utf8' });
+    assert.ok(!text.includes(TOKEN), 'the token at the end of a long run is masked');
+    assert.equal(text.split('\n').filter((l) => l.startsWith(line)).length, n, 'every plain line is still there');
+    assert.ok(ms < 30000, `${ms.toFixed(0)} ms for ${n} plain lines (${(n * 80 / 1e6).toFixed(0)} MB)`);
+  } finally { fs.rmSync(d, { recursive: true, force: true }); }
+});
+
 test('MEM_HEADLESS still stops the reflector before anything is copied or run', () => {
   const root = memory();
   const d = scratch();

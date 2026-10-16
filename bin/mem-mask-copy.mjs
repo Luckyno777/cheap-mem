@@ -11,9 +11,9 @@
  * transcript. The digest reads captures through `mem raw show` and the mail handler reads
  * mail through `mem inbox show`, both masked (`maskEntry`); the reflector alone gave the
  * model the file as it lies on disk, secrets and all. Now it gets this copy instead: every
- * line that is JSON goes through `maskEntry` (the very masking of `mem raw show`: the text
- * rules, and a secret's KEY as context for the value under it), every other line through
- * `maskText`. Keys and the shape of the lines stay, so the model reads the same session.
+ * line that is a JSON object goes through `maskEntry` (the very masking of `mem raw show`: the text
+ * rules, and a secret's KEY as context for the value under it), every run of other lines through
+ * `maskText` as one block (a PEM key spans lines). Keys and the shape of the lines stay, so the model reads the same session.
  *
  * The copy sits in a private directory under the OS temp directory (never under the memory
  * root: the reflector commits with `git add -A`). It is deleted by the caller with --clean
@@ -33,12 +33,21 @@ import { maskEntry, maskText } from '../src/outputguard.mjs';
 const DIR_PREFIX = 'mem-reflect-';
 const FILE_NAME = 'transcript.jsonl';
 
-function maskLine(line) {
-  if (!line.trim()) return line;
+/** A line that is a JSON object or array: masked as a structure (keys are context). Anything else is text. */
+function parseStructured(line) {
+  if (!line.trim()) return undefined;
   let parsed;
-  try { parsed = JSON.parse(line); } catch { return maskText(line); }
-  return JSON.stringify(maskEntry(parsed));
+  try { parsed = JSON.parse(line); } catch { return undefined; }
+  return parsed !== null && typeof parsed === 'object' ? parsed : undefined;
 }
+
+// Consecutive lines that are no JSON object are masked as ONE block of text, not line by line: a secret that spans
+// lines (a PEM private key, a multi-line token in a pasted log) has no shape in any single one of its lines. The block
+// has a cost limit: it is cut at BLOCK_MAX_LINES lines or BLOCK_MAX_CHARS characters and the rest starts a new block,
+// so the work stays linear in the size of the file (every character is masked once). A secret longer than the limit
+// is the only thing a cut can split; a key is a few KB, the limit is 2 MiB.
+const BLOCK_MAX_LINES = 20000;
+const BLOCK_MAX_CHARS = 2 * 1024 * 1024;
 
 async function makeCopy(source) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), DIR_PREFIX));
@@ -47,9 +56,28 @@ async function makeCopy(source) {
     const fd = fs.openSync(target, 'w', 0o600);
     const out = fs.createWriteStream(null, { fd });
     const rl = readline.createInterface({ input: fs.createReadStream(source), crlfDelay: Infinity });
+    let block = [];
+    let blockChars = 0;
+    const put = async (text) => { if (!out.write(`${text}\n`)) await once(out, 'drain'); };
+    const flush = async () => {
+      if (block.length === 0) return;
+      const text = maskText(block.join('\n'));
+      block = [];
+      blockChars = 0;
+      await put(text);
+    };
     for await (const line of rl) {
-      if (!out.write(`${maskLine(line)}\n`)) await once(out, 'drain');
+      const parsed = parseStructured(line);
+      if (parsed !== undefined) {
+        await flush();
+        await put(JSON.stringify(maskEntry(parsed)));
+      } else {
+        block.push(line);
+        blockChars += line.length + 1;
+        if (block.length >= BLOCK_MAX_LINES || blockChars >= BLOCK_MAX_CHARS) await flush();
+      }
     }
+    await flush();
     out.end();
     await once(out, 'close');
     return target;
