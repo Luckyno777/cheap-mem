@@ -14,6 +14,34 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Fixed / Performance - eighteen sites that took quadratic time on one long run of the same character (linear-regex-cm, task 26; cheap-mem only)
+
+The redaction-keys round measured it: a run of 100,000 blanks, hyphens or line breaks plus one letter took 3.7 to 4.3 s PER pattern that ends in `+$` or `*$`
+(each character of the run starts a match that walks to the end of the run and fails at the `$`). Inventory of `src/`, `bin/` and `install/` (1,301 regular expression
+literals, every one run on 30 pathological inputs, plus the dynamic patterns read by eye), then, per site, whether foreign or model-written text reaches it and how large it can be.
+Repaired, 18 sites in 14 files (measured at 1 MB, best of three, against the state before; the old state needs minutes for each):
+`src/inbox.mjs` (`build`, `parse`: `trimEnd`; `In-Reply-To`), `src/agents.mjs` and `src/appointments.mjs` (`trimEnd`), `src/cli/githook.mjs` and `src/environment.mjs`
+(the `.gitattributes` rules, the trailing line breaks, and the `.gitignore` repair, which looked a line up in an array per line and now in a set), `src/repetitionhint.mjs` (the
+sentence with a marker word, one pass over the stretches between stops), `src/agentledger.mjs` (the package name), `src/component.mjs` (the lazy run in front of a file name: found by the
+name, the run read backwards), `src/doctor.mjs` (the `<file>.jsonl:<line>` places), `src/gauges.mjs` (the paths of a command, the redirect pattern, the quoted stretches),
+`src/bashtargets.mjs` (`/\d*>$/` is `endsWith('>')`) and `src/commandguard.mjs` (`hits`: the lead words in front of every place a rule's first word stands, found for every end in one
+pass; `'xgit push '` x 20,000, 200 KB, took 17 s in the hook, 1 MB takes 0.14 s). New: `src/lineartext.mjs` (`trimEndNewlines`, `attributesOf`, `jsonlPlaces`).
+The paths of a command and the idless-line places are read EXACTLY and come out whole: a first version cut a run of path characters at 512 (`boundRuns`), which turned a path of 619 characters
+into 512 and lost one of 605; the golden tests below hold both.
+Deliberate changes of behaviour, all on input no real file or tool produces:
+(1) an `In-Reply-To` of more than 255 characters is refused as "not a message file name" (no file system holds a longer name; the old pattern took minutes to say it);
+(2) `.gitattributes` is read the way git reads it, a set of words per line, the last word wins, a line with a word that is no attribute name (a trailing `# comment`) dropped as git drops it: `*.jsonl merge=union eol=lf`
+in ONE line is both rules (`mem init` and `mem doctor` called the union driver "missing" and appended a second rule), a later line that takes the value back is respected, and a rule split over two lines is no rule.
+The test for this is `git check-attr` on 28 shapes of the file.
+Not reachable at a size that matters, and left alone: `src/skillregistry.mjs` and `src/categories.mjs` (the slug has no run of hyphens left),
+`src/cardrules.mjs`, `src/viewer.mjs`, `src/recallrender.mjs` (cut to a budget of a few hundred characters first, whitespace folded),
+`src/appointment-invite.mjs` (a mode-600 password file of the owner), `src/doctor.mjs` (`git rev-parse --show-prefix`, a path), `src/errorfixes.mjs`, `src/decisioncard.mjs`, `src/login.mjs`
+(a run that cannot repeat the character in front of it: linear), `bin/mem-serve` (a header line is at most 16 KB), `src/gap.mjs`, `src/inbox.mjs` `fromFileName` (file names, and a name part is at most 64 characters),
+`src/entity.mjs` and `src/netderive.mjs` (already bound by `boundRuns`).
+Guards: `test/linear-trim.test.mjs` (20 probes: the site on 1 MB of the bad input in a child process, once at 1 MB and once at a quarter of it, read as a ratio, linear about 4, quadratic about 16, next to a generous
+ceiling of 2 s; the state before is killed, over the ceiling or wrong on all 20),
+`test/linear-trim-golden.test.mjs` (the old pattern written out as the reference, 4,000 to 120,000 random strings per site; `git check-attr` as the truth for the attributes; 17 mutants red).
+
 ### Fixed - review of the hook-shim fix: the time-cap branch, a dead code path, an apostrophe in a path (hook-shims-code-cm, second round)
 
 - **The start hook died when the alarm hit its time cap.** `install/hooks/session-start.sh` named `$mem_show` in the "alarm hit its time cap" line, but set it only at the bottom; under `set -u`
