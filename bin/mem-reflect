@@ -178,6 +178,34 @@ export CHEAP_MEM_MAX_AUTHORITY="${CHEAP_MEM_MAX_AUTHORITY:-inferred}"
 # reflector would have died with 127 before the model started — silently,
 # because of the `|| true`. Same line as bin/mem-digest carried until
 # 2026-09-17.
-capped "$TIMEOUT" $CMD "$PROMPT" >/dev/null 2>&1 || true
+#
+# **How the session starts (bin/_portable.sh, src/headless.mjs).** `claude`
+# gets `--setting-sources user --strict-mcp-config` and an empty working
+# directory outside the memory: the folder this hook was called in is
+# whatever repository the host session works in, and its
+# `.claude/settings.json` and `.mcp.json` must not run. The reflector never
+# reads the memory as files (absolute `git -C` and `mem` calls only), so no
+# `--add-dir`. No safe start, no start: the marker goes back so the next Stop
+# tries again, and the reason goes to stderr.
+if ! mem_headless_plan "$CMD" "$CHEAP_MEM_ROOT" 0; then
+  echo "mem-reflect: REFUSED - no safe way to start the model session; nothing was started." >&2
+  echo "$LAST_SIZE" > "$MARKER"
+  exit 0
+fi
+if [ -n "$MEM_HL_CWD" ]; then cd "$MEM_HL_CWD" || { echo "$LAST_SIZE" > "$MARKER"; exit 0; }; fi
+OUT_FILE="$(mktemp)" || OUT_FILE=""
+if [ -n "$OUT_FILE" ]; then
+  # shellcheck disable=SC2086
+  capped "$TIMEOUT" $CMD "$PROMPT" ${MEM_HL_ARGS[@]+"${MEM_HL_ARGS[@]}"} >"$OUT_FILE" 2>&1
+  CODE=$?
+  # An old claude stops on the unknown option; say so, and do not start it open.
+  if [ "$CODE" -ne 0 ] && [ "$MEM_HL_ISOLATED" = "1" ]; then
+    mem_headless_old_claude "$OUT_FILE" 0 >&2 || true
+  fi
+  rm -f "$OUT_FILE"
+else
+  # shellcheck disable=SC2086
+  capped "$TIMEOUT" $CMD "$PROMPT" ${MEM_HL_ARGS[@]+"${MEM_HL_ARGS[@]}"} >/dev/null 2>&1 || true
+fi
 
 exit 0

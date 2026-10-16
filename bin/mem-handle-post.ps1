@@ -29,6 +29,20 @@ if (-not $env:MEM_WATCH_WHO) {
 
 $CmdLine = if ($env:MEM_HANDLER_CMD) { $env:MEM_HANDLER_CMD } else { 'claude -p' }
 
+# How the model session is started: `claude` gets `--setting-sources user
+# --strict-mcp-config`, an empty working directory outside the memory and the
+# memory as `--add-dir` (bin/_headless.ps1, src/headless.mjs). bin/mem-watch.ps1
+# starts this script IN the memory; without this a `.claude/settings.json` or
+# `.mcp.json` pushed into the memory would run when the session starts.
+# No safe start, no start.
+. (Join-Path $PSScriptRoot '_headless.ps1')
+$plan = Get-HeadlessPlan -CmdLine $CmdLine -Root $env:CHEAP_MEM_ROOT
+if (-not $plan) {
+  [Console]::Error.WriteLine('mem-handle-post: REFUSED - no safe way to start the model session; nothing was started.')
+  exit 1
+}
+if ($plan.Cwd) { Set-Location -LiteralPath $plan.Cwd }
+
 $defaultPrompt = @"
 You are the '$($env:MEM_WATCH_WHO)' role in this cheap-mem installation. Read `$CHEAP_MEM_ROOT\.mem\config.json for context. Then process new inbox mail addressed to you:
 
@@ -45,6 +59,9 @@ You are the '$($env:MEM_WATCH_WHO)' role in this cheap-mem installation. Read `$
 
 Exit after the last message.
 "@
+if ($plan.Isolated) {
+  $defaultPrompt += "`nYour working directory is NOT the memory: it is an empty folder, and `$CHEAP_MEM_ROOT is added to what you may read. Use absolute paths and git -C `$CHEAP_MEM_ROOT.`n"
+}
 
 $prompt = if ($env:MEM_HANDLER_PROMPT) { $env:MEM_HANDLER_PROMPT } else { $defaultPrompt }
 
@@ -53,5 +70,18 @@ $exe = $parts[0]
 $argList = @()
 if ($parts.Length -gt 1) { $argList = $parts[1..($parts.Length - 1)] }
 $argList += $prompt
+# The flags go AFTER the prompt and `--add-dir` last: it takes a list and would swallow a prompt that followed it.
+$argList += $plan.Args
 
-& $exe @argList
+# Output is collected so an old claude can be recognised; the job log still gets all of it.
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+$seen = & $exe @argList 2>&1
+$code = $LASTEXITCODE
+$ErrorActionPreference = $prevEap
+$seen | Out-Host
+if ($code -ne 0 -and $plan.Isolated) {
+  $old = Get-OldClaudeMessage -Text (($seen | Out-String))
+  if ($old) { $old | ForEach-Object { [Console]::Error.WriteLine($_) } }
+}
+exit $code

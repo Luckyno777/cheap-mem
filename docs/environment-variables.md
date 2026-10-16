@@ -152,13 +152,13 @@ A variable that is not in the table is not a switch: there is none.
 | `MEM_BEFORE_EDIT_MARKS` | `<root>/.mem/before-edit` | Directory of the per-session marks of the before-edit hook. |
 | `MEM_CATCH_FAIL_TURNS` | `<root>/.mem/catch-fail-turns` | Directory of the once-per-turn claims of the swallowed-failure hook. |
 | `MEM_COMMAND_GUARD_MARKS` | `<root>/.mem/command-guard-marks` | Directory of the per-session marks of the command guard. |
-| `MEM_DIGEST_CMD` | `claude -p` | The model command the digest starts (Windows: `claude`, arguments from `MEM_DIGEST_ARGS`). |
+| `MEM_DIGEST_CMD` | `claude -p` | The model command the digest starts (Windows: `claude`, arguments from `MEM_DIGEST_ARGS`). When it is `claude`, the job adds `--setting-sources user --strict-mcp-config` and starts it in a neutral directory outside the memory (docs/security-model.md, section 11); another command is left as configured. |
 | `MEM_DIGEST_LOG` | `<root>/.mem/digest.log` | Log file of `bin/mem-digest`. |
-| `MEM_HANDLER_CMD` | `claude -p` | The model command that handles an incoming letter. |
+| `MEM_HANDLER_CMD` | `claude -p` | The model command that handles an incoming letter. When it is `claude`, the job adds `--setting-sources user --strict-mcp-config` and starts it in a neutral directory outside the memory (docs/security-model.md, section 11); another command is left as configured. |
 | `MEM_RECALL_SERVER_CODE_STATE` | the server's own code directory | Tests only: which directory's `src/` the server watches to restart itself after a code change. |
 | `MEM_RECALL_SERVER_DIR` | `.pipeline/` of the root | Where the warm recall server keeps its socket and key; set it when the root path is too long for a Unix socket. |
 | `MEM_RECALL_SERVER_SHORT_BASE` | `/tmp` | Base directory for the short socket directory the recall server picks on its own when the default socket path is too long (macOS temp dirs); only used when MEM_RECALL_SERVER_DIR is unset. |
-| `MEM_REFLECT_CMD` | `claude -p` | The model command of the reflector. |
+| `MEM_REFLECT_CMD` | `claude -p` | The model command of the reflector. When it is `claude`, the job adds `--setting-sources user --strict-mcp-config` and starts it in a neutral directory outside the memory (docs/security-model.md, section 11); another command is left as configured. |
 | `MEM_RETRIEVE_ROOTS` | `~/cheap-mem` | Space-separated roots the recall and after-failure hooks probe after `CHEAP_MEM_ROOT`; setting it replaces the default (a `;` list also works for the PowerShell twins). |
 | `MEM_RETRIEVE_TURNS` | `<root>/.mem/retrieve-turns` | Directory of the once-per-turn claims of the recall hook. |
 | `MEM_STOP_ROOTS` | `~/cheap-mem` | The same probe list for the stop hook. |

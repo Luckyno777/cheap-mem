@@ -131,18 +131,45 @@ $argList = @()
 if ($parts.Length -gt 1) { $argList = $parts[1..($parts.Length - 1)] }
 $argList += $prompt
 
+# How the session starts (bin/_headless.ps1, src/headless.mjs): `claude` gets
+# `--setting-sources user --strict-mcp-config` and an empty working directory
+# outside the memory. The folder this hook was called in is whatever repository
+# the host session works in; its `.claude/settings.json` and `.mcp.json` must
+# not run. The reflector never reads the memory as files (absolute `git -C` and
+# `mem` calls only), so no `--add-dir`. No safe start, no start: the marker goes
+# back so the next Stop tries again, and the reason goes to stderr.
+. (Join-Path $PSScriptRoot '_headless.ps1')
+$plan = Get-HeadlessPlan -CmdLine $CmdLine -Root $env:CHEAP_MEM_ROOT -AddDir $false
+if (-not $plan) {
+  [Console]::Error.WriteLine('mem-reflect: REFUSED - no safe way to start the model session; nothing was started.')
+  $lastSize | Set-Content -LiteralPath $marker
+  exit 0
+}
+# The flags go AFTER the prompt.
+$argList += $plan.Args
+
 $job = Start-Job -ScriptBlock {
-  param($e, $a, $tp, $root, $env_h)
+  param($e, $a, $tp, $root, $env_h, $cwd)
   $env:TRANSCRIPT_PATH = $tp
   $env:CHEAP_MEM_ROOT  = $root
   $env:MEM_HEADLESS    = $env_h
   if (-not $env:CHEAP_MEM_MAX_AUTHORITY) { $env:CHEAP_MEM_MAX_AUTHORITY = 'inferred' }
-  & $e @a
-} -ArgumentList $exe, $argList, $transcriptPath, $env:CHEAP_MEM_ROOT, 'reflector'
+  if ($cwd) { Set-Location -LiteralPath $cwd }
+  $ErrorActionPreference = 'Continue'
+  $o = & $e @a 2>&1
+  [pscustomobject]@{ Code = $LASTEXITCODE; Text = ($o | Out-String) }
+} -ArgumentList $exe, $argList, $transcriptPath, $env:CHEAP_MEM_ROOT, 'reflector', $plan.Cwd
 
 $null = Wait-Job -Job $job -Timeout $Timeout
 if ($job.State -eq 'Running') {
   Stop-Job -Job $job
+} elseif ($plan.Isolated) {
+  # An old claude stops on the unknown option; say so, and do not start it open.
+  $res = @(Receive-Job -Job $job -ErrorAction SilentlyContinue) | Where-Object { $_ -and $_.PSObject.Properties['Code'] } | Select-Object -Last 1
+  if ($res -and $res.Code -ne 0) {
+    $old = Get-OldClaudeMessage -Text $res.Text
+    if ($old) { $old | ForEach-Object { [Console]::Error.WriteLine($_) } }
+  }
 }
 Remove-Job -Job $job -Force
 } finally {

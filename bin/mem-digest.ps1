@@ -169,11 +169,29 @@ let d="";process.stdin.on("data",c=>d+=c).on("end",async()=>{
   if (-not $Chosen) { Note 'nothing selected - nothing to do'; exit 0 }
 
   $Listing = ($Chosen | ForEach-Object { "  $_" }) -join "`n"
+
+  # How the model session is started: `claude` gets `--setting-sources user
+  # --strict-mcp-config`, an empty working directory outside the memory and the
+  # memory as `--add-dir`, so a `.claude/settings.json` or `.mcp.json` pushed into
+  # the memory runs nothing (bin/_headless.ps1, src/headless.mjs). No safe start,
+  # no start: it never falls back to the open one.
+  . (Join-Path $Here '_headless.ps1')
+  $Plan = Get-HeadlessPlan -CmdLine $Cmd -Root $Root
+  if (-not $Plan) {
+    Note 'REFUSED: no safe way to start the model session (the neutral working directory or the isolation flags could not be set up).'
+    Note "  Nothing was started. Run: node `"$Here\mem-headless.mjs`" plan --cmd `"$Cmd`" --root `"$Root`""
+    exit 1
+  }
+  $WhereLine = ''
+  if ($Plan.Isolated) {
+    $WhereLine = "`nYour working directory is NOT the memory: it is an empty folder, and $Root is added to what you may read. Use absolute paths, and run git as: git -C $Root <command>."
+  }
+
   $Prompt = @"
 You are the digest for a cheap-mem memory. Read `$ROOT\DIGEST.md first and follow it.
 
 Root: $Root
-CLI:  node $Mem --root $Root <command>
+CLI:  node $Mem --root $Root <command>$WhereLine
 
 Raw material for THIS run (only these, no more):
 $Listing
@@ -221,8 +239,11 @@ condensing enough. Stop after the push.
   # had lost it). src/memory.mjs enforces it on the write path.
   if (-not $env:CHEAP_MEM_MAX_AUTHORITY) { $env:CHEAP_MEM_MAX_AUTHORITY = 'inferred' }
   try {
-    $proc = Start-Process -FilePath $Cmd -ArgumentList ($CmdArgs + @($Prompt)) `
-      -WorkingDirectory $Root -NoNewWindow -PassThru `
+    # The flags go AFTER the prompt and `--add-dir` last: it takes a list and would swallow a prompt that followed it.
+    $StartArgs = $CmdArgs + @($Prompt) + @($Plan.Args | ForEach-Object { ConvertTo-StartProcessArg $_ })
+    $StartCwd = if ($Plan.Cwd) { $Plan.Cwd } else { $Root }
+    $proc = Start-Process -FilePath $Cmd -ArgumentList $StartArgs `
+      -WorkingDirectory $StartCwd -NoNewWindow -PassThru `
       -RedirectStandardOutput $OutTmp -RedirectStandardError $ErrTmp
     $Finished = $proc.WaitForExit($Timeout * 1000)
   } finally {
@@ -231,9 +252,12 @@ condensing enough. Stop after the push.
     Remove-Item Env:\MEM_HEADLESS -ErrorAction SilentlyContinue
   }
 
+  $ModelText = ''
   foreach ($t in @($OutTmp, $ErrTmp)) {
     if (Test-Path $t) {
-      Get-Content $t -ErrorAction SilentlyContinue | Add-Content -Path $LogPath
+      $got = @(Get-Content $t -ErrorAction SilentlyContinue)
+      $ModelText += (($got -join "`n") + "`n")
+      $got | Add-Content -Path $LogPath
       Remove-Item $t -Force -ErrorAction SilentlyContinue
     }
   }
@@ -245,7 +269,15 @@ condensing enough. Stop after the push.
   }
   $ModelExit = $proc.ExitCode
 
-  if ($ModelExit -ne 0) { Note "model call exited $ModelExit"; exit 1 }
+  if ($ModelExit -ne 0) {
+    # An old claude does not know `--setting-sources` and stops on the unknown
+    # option. Say so, and do not start it again without the flag.
+    if ($Plan.Isolated) {
+      $Old = Get-OldClaudeMessage -Text $ModelText
+      if ($Old) { $Old | ForEach-Object { Note $_ } }
+    }
+    Note "model call exited $ModelExit"; exit 1
+  }
 
   # **Check the effect, do not trust the exit code.**
   $After = (& node $Mem --root $Root raw pending --json 2>$null | & node -e $CountScript)

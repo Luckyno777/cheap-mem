@@ -931,6 +931,74 @@ export const MUTANTS=[
    from:"if (fs.existsSync(path.join(root, '.git'))) out('  ? tracked runtime files: unknown (git ls-files could not answer)');",
    to:"if (false) out('  ? tracked runtime files: unknown (git ls-files could not answer)');  // MUTANT",
    tests:['test/gitignore-guards.test.mjs'] },
+
+ // headless start (src/headless.mjs, bin/_portable.sh, the three jobs): an unattended job never starts claude open.
+ { name:'headless: drop --strict-mcp-config from the isolation flags',
+   file:'src/headless.mjs',
+   from:"export const ISOLATION_FLAGS = Object.freeze(['--setting-sources', 'user', '--strict-mcp-config']);",
+   to:"export const ISOLATION_FLAGS = Object.freeze(['--setting-sources', 'user']);  // MUTANT",
+   tests:['test/headless-start.test.mjs'] },
+
+ { name:'headless: the session starts in the memory itself',
+   file:'src/headless.mjs',
+   from:"return { isolated: true, args: [...ISOLATION_FLAGS, ...(addDir ? ['--add-dir', root] : [])], cwd };",
+   to:"return { isolated: true, args: [...ISOLATION_FLAGS, ...(addDir ? ['--add-dir', root] : [])], cwd: root };  // MUTANT",
+   tests:['test/headless-start.test.mjs'] },
+
+ { name:'headless: claude is not recognised as claude',
+   file:'src/headless.mjs',
+   from:"  if (named(w[0])) return true;",
+   to:"  // MUTANT: first word no longer checked",
+   tests:['test/headless-start.test.mjs'] },
+
+ { name:'headless: a neutral directory inside the memory is accepted',
+   file:'src/headless.mjs',
+   from:"    if (rootReal && inside(real(dir), rootReal)) continue;",
+   to:"    // MUTANT: no containment check",
+   tests:['test/headless-start.test.mjs'] },
+
+ { name:'headless: an old claude is never recognised',
+   file:'src/headless.mjs',
+   from:"export function looksLikeOldClaude(text) {",
+   to:"export function looksLikeOldClaude(text) {\n  if (true) return false;  // MUTANT",
+   tests:['test/headless-start.test.mjs'] },
+
+ { name:'headless: the digest starts claude without the starter arguments',
+   file:'bin/mem-digest',
+   from:'$CMD "$PROMPT" --output-format json ${MEM_HL_ARGS[@]+"${MEM_HL_ARGS[@]}"} ) 2>>"$LOG"',
+   to:'$CMD "$PROMPT" --output-format json ) 2>>"$LOG"  # MUTANT',
+   tests:['test/headless-start.test.mjs'] },
+
+ { name:'headless: the digest ignores a failed plan',
+   file:'bin/mem-digest',
+   from:'  if ! mem_headless_plan "$CMD" "$ROOT"; then',
+   to:'  if ! { mem_headless_plan "$CMD" "$ROOT"; true; }; then  # MUTANT',
+   tests:['test/headless-start.test.mjs'] },
+
+ { name:'headless: the mail handler starts claude without the starter arguments',
+   file:'bin/mem-handle-post',
+   from:'$CMD "$PROMPT" ${MEM_HL_ARGS[@]+"${MEM_HL_ARGS[@]}"} 2>&1 | tee "$SEEN"',
+   to:'$CMD "$PROMPT" 2>&1 | tee "$SEEN"  # MUTANT',
+   tests:['test/headless-start.test.mjs'] },
+
+ { name:'headless: the mail handler stays in the memory',
+   file:'bin/mem-handle-post',
+   from:'if [ -n "$MEM_HL_CWD" ]; then cd "$MEM_HL_CWD" || exit 1; fi',
+   to:'# MUTANT: no cd',
+   tests:['test/headless-start.test.mjs'] },
+
+ { name:'headless: the reflector stays in the host repository',
+   file:'bin/mem-reflect',
+   from:'if [ -n "$MEM_HL_CWD" ]; then cd "$MEM_HL_CWD" ||',
+   to:'if false; then cd "$MEM_HL_CWD" ||',
+   tests:['test/headless-start.test.mjs'] },
+
+ { name:'headless: the reflector ignores a failed plan',
+   file:'bin/mem-reflect',
+   from:'if ! mem_headless_plan "$CMD" "$CHEAP_MEM_ROOT" 0; then',
+   to:'if ! { mem_headless_plan "$CMD" "$CHEAP_MEM_ROOT" 0; true; }; then  # MUTANT',
+   tests:['test/headless-start.test.mjs'] },
+
 ];
 
 // The modules whose failure is a security or data-integrity failure. The

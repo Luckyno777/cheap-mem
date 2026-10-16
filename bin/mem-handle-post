@@ -32,6 +32,19 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 CMD="${MEM_HANDLER_CMD:-claude -p}"
 
+# How the model session is started: `claude` gets `--setting-sources user
+# --strict-mcp-config`, an empty working directory outside the memory and
+# the memory as `--add-dir`. bin/mem-watch starts this script IN the
+# memory; without this a `.claude/settings.json` or `.mcp.json` pushed
+# into the memory would run when the session starts (bin/_portable.sh,
+# src/headless.mjs, docs/security-model.md). No safe start, no start.
+if ! mem_headless_plan "$CMD" "$CHEAP_MEM_ROOT"; then
+  echo "mem-handle-post: REFUSED - no safe way to start the model session; nothing was started." >&2
+  echo "mem-handle-post:   run: node $HERE/mem-headless.mjs plan --cmd \"$CMD\" --root \"$CHEAP_MEM_ROOT\"" >&2
+  exit 1
+fi
+if [ -n "$MEM_HL_CWD" ]; then cd "$MEM_HL_CWD" || exit 1; fi
+
 DEFAULT_PROMPT="You are the '$MEM_WATCH_WHO' role in this cheap-mem installation. Read \$CHEAP_MEM_ROOT/.mem/config.json for context. Then process new inbox mail addressed to you:
 
   1. node \$CHEAP_MEM_ROOT/bin/mem inbox new --as $MEM_WATCH_WHO
@@ -46,6 +59,11 @@ DEFAULT_PROMPT="You are the '$MEM_WATCH_WHO' role in this cheap-mem installation
        git -C \$CHEAP_MEM_ROOT push origin HEAD:main
 
 Exit after the last message. Do not start new work of your own."
+if [ "$MEM_HL_ISOLATED" = "1" ]; then
+  DEFAULT_PROMPT="$DEFAULT_PROMPT
+
+Your working directory is NOT the memory: it is an empty folder, and \$CHEAP_MEM_ROOT is added to what you may read. Use absolute paths and git -C \$CHEAP_MEM_ROOT."
+fi
 
 PROMPT="${MEM_HANDLER_PROMPT:-$DEFAULT_PROMPT}"
 
@@ -63,19 +81,27 @@ PROMPT="${MEM_HANDLER_PROMPT:-$DEFAULT_PROMPT}"
 SEEN="$(mktemp)"
 trap 'rm -f "$SEEN"' EXIT
 
+# The flags go AFTER the prompt and `--add-dir` last: it takes a list and would swallow a prompt that followed it.
 # shellcheck disable=SC2086
-$CMD "$PROMPT" 2>&1 | tee "$SEEN"
+$CMD "$PROMPT" ${MEM_HL_ARGS[@]+"${MEM_HL_ARGS[@]}"} 2>&1 | tee "$SEEN"
 CODE="${PIPESTATUS[0]}"
 
 if mem_never_started "$CODE" 0 "$SEEN"; then
   if mem_detour_cmd "$CMD"; then
     echo "mem-handle-post: exit 126, nothing written — the CLI never started." >&2
     echo "mem-handle-post: retrying once, $MEM_DETOUR_REASON" >&2
-    "${MEM_START[@]}" "$PROMPT" 2>&1 | tee "$SEEN"
+    "${MEM_START[@]}" "$PROMPT" ${MEM_HL_ARGS[@]+"${MEM_HL_ARGS[@]}"} 2>&1 | tee "$SEEN"
     CODE="${PIPESTATUS[0]}"
   else
     echo "mem-handle-post: exit 126, nothing written, no detour: $MEM_DETOUR_REASON" >&2
   fi
+fi
+
+# An old claude does not know `--setting-sources` and stops on the unknown
+# option: say so (stderr, which mem-watch logs) and never start it again
+# without the flag.
+if [ "$CODE" -ne 0 ] && [ "$MEM_HL_ISOLATED" = "1" ]; then
+  mem_headless_old_claude "$SEEN" 0 >&2 || true
 fi
 
 exit "$CODE"
