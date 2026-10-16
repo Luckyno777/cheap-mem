@@ -44,6 +44,7 @@ import * as indexcache from './indexcache.mjs';
 import * as expand from './expand.mjs';
 import * as statequestion from './statequestion.mjs';
 import { dateAnchors } from './timeexpr.mjs';
+import { configPath } from './config.mjs';
 import { dropRequestFrame, requestFrameOn } from './requestframe.mjs';
 
 // Crypto-shredding reader (src/shred.mjs), loaded as tolerantly as
@@ -2845,7 +2846,25 @@ function loadMemoized(root, opts) {
   return { ...served, fromCache: true, appended, graphsStale, cacheStatus: 'hit' };
 }
 
+/**
+ * The language the memory's config names (`.mem/config.json`), or 'en' when there is no config, no such field or the
+ * file cannot be read. Light on purpose: one small JSON file, no participant merge.
+ */
+function configuredLanguage(root) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(configPath(root), 'utf8'));
+    return typeof raw?.language === 'string' && raw.language ? raw.language : 'en';
+  } catch { return 'en'; }
+}
+
 export function loadIndex(root, opts = {}) {
+  // **One memory, one index language (abruf-stamm-cm, step 3).** The cache is kept per language, and a cache of another
+  // language is "stale": rebuilt and rewritten. `mem find` always asked for the memory's configured language; the
+  // SubagentStart block, the short-prompt check of the hook, the content-word shortening and a dozen readers asked for
+  // nothing, i.e. for 'en'. On a memory configured for another language those calls and `mem find` took turns rebuilding
+  // the cache (measured: `stale` on every alternate load), and they searched different indexes. A caller that names a
+  // language still gets that one (the benches pass 'en').
+  if (opts.language === undefined) opts = { ...opts, language: configuredLanguage(root) };
   let index;
   if (processMemoOn && !opts.fresh) {
     index = loadMemoized(root, opts);
@@ -3136,19 +3155,44 @@ const SHORT_OK = new Set(['mem', 'pwa', 'api', 'css', 'git', 'vm', 'ui', 'ux', '
  * the request frame at the start of the question ("explain", "can you show
  * me") is not a word of the subject (src/requestframe.mjs).
  */
-export function contentWords(text, { withoutRequest = false } = {}) {
-  const raw = (withoutRequest ? dropRequestFrame(text) : String(text ?? '')).toLowerCase()
-    .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
-    .split(/[^a-z0-9]+/)
-    .filter(Boolean);
-  const out = [];
-  for (const w of raw) {
+export function contentWords(text, { withoutRequest = false, typed = false } = {}) {
+  const src = withoutRequest ? dropRequestFrame(text) : String(text ?? '');
+  // **`typed` (K1, port of the sibling house's 2026-10-10 finding): the words as the INDEX will meet them.**
+  // The index holds `a_b` as ONE term (`tokenizeGroupsMulti` splits on `[^\p{L}\p{N}_-]`), and it holds a
+  // word with an umlaut in the spelling of the language it was detected in: an entry that reads as English
+  // carries `absichlach_keinnern` and `absichl\u00e4ch_keinnern`, never the `ae` spelling. A question cut at `_`
+  // searches `a` and `b`; a question put into `ae` spelling here matches only entries that read as German.
+  // So the question side (`retrievalQuery`, the H1 split) keeps `_` and the typed umlaut, and `search()`
+  // normalises it per language pack, as it does for a plain `mem find`. The hyphen still cuts (the index
+  // holds the whole AND the parts there). The FILTER (filler, length) looks at the `ae` spelling, as before.
+  // Callers that compare TEXT with TEXT (error fixes, neighbours, project check) leave it off: their
+  // result must not move because a question got a better cut.
+  const words = typed ? typedWords(src) : lowerAscii(src).split(/[^a-z0-9]+/).filter(Boolean);
+  const out = new Map();
+  for (const tw of words) {
+    const w = typed ? lowerAscii(tw) : tw;
     if (FILLER.has(w)) continue;
-    if (w.length >= 4 || SHORT_OK.has(w)) out.push(w);
+    if ((w.length >= 4 || SHORT_OK.has(w)) && !out.has(w)) out.set(w, tw);
   }
   // Drop duplicates, keep order: saying "topic" three times must not make
   // the question three times as heavy as it is.
-  return [...new Set(out)];
+  return [...out.values()];
+}
+
+/** Lower case, umlauts and sharp s written out (`ae`, `oe`, `ue`, `ss`). */
+function lowerAscii(text) {
+  return String(text ?? '').toLowerCase()
+    .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss');
+}
+
+/**
+ * The words of a QUESTION in the spelling the index meets (see `contentWords`, option `typed`): lower case,
+ * `_` and the typed umlauts kept, everything else cuts. A token without a letter or digit is no word.
+ */
+export function typedWords(text) {
+  return String(text ?? '').toLowerCase()
+    .split(/[^a-z0-9_\u00e4\u00f6\u00fc\u00df]+/)
+    .filter((w) => /[a-z0-9\u00e4\u00f6\u00fc\u00df]/.test(w));
 }
 
 /**
@@ -3168,7 +3212,7 @@ export function contentWords(text, { withoutRequest = false } = {}) {
  */
 export const RETRIEVE_WORDS_MAX = 8;
 
-export function retrievalQuery(text, { root = null, index = null, requestFrame = undefined } = {}) {
+export function retrievalQuery(text, { root = null, index = null, loadIndex: open = null, requestFrame = undefined } = {}) {
   // **Date anchors survive the shortening (ported from lucky-mem,
   // 2026-10-01).** "what was on 2028-10-04" came out as "2028": "on" is
   // filler and the date crumbled into its parts. `mem find
@@ -3180,14 +3224,18 @@ export function retrievalQuery(text, { root = null, index = null, requestFrame =
   const anchorParts = new Set(anchors.flatMap((a) => a.split(/[^a-z0-9]+/)).filter(Boolean));
   // The request frame ("explain me X") is no subject word (src/requestframe.mjs);
   // `requestFrame` false = the old way, undefined = the switch MEM_RETRIEVE_REQUEST_FRAME.
-  const w = contentWords(text, { withoutRequest: requestFrame ?? requestFrameOn() })
+  const w = contentWords(text, { withoutRequest: requestFrame ?? requestFrameOn(), typed: true })
     .filter((x) => !anchorParts.has(x));
   const withAnchors = (words) => [...anchors, ...words].join(' ');
   if (!w.length) return anchors.length ? withAnchors([]) : String(text ?? '').trim();
   if (w.length <= RETRIEVE_WORDS_MAX) return withAnchors(w);
 
+  // `open`: the caller's own way to the index (`mem find` opens it once and uses it again for the search); without
+  // it the index is loaded here, as before.
   let idx = index;
-  if (!idx && root) {
+  if (!idx && open) {
+    try { idx = open(); } catch { idx = null; }
+  } else if (!idx && root) {
     try { idx = loadIndex(root); } catch { idx = null; }
   }
   const df = idx?.statsDocFreq ?? idx?.docFreq;

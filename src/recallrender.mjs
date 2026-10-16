@@ -40,6 +40,22 @@ import { BODY_FIELDS, NON_BODY_FIELDS, bodyAsText } from './bodyfields.mjs';
 import { maskEntry, maskText } from './outputguard.mjs';
 import { FIELD as EXPAND_FIELD } from './expand.mjs';
 
+/**
+ * The recall hook's bar: the score a hit needs before it is shown (`MEM_RETRIEVE_MIN` overrides it). ONE number
+ * for the hook's renderer, the SubagentStart block and the measurements; the shell defaults in
+ * `bin/mem-retrieve` and its `.ps1` twin cannot import it, `test/recall-bar.test.mjs` holds them to it.
+ */
+export const RECALL_MIN = 5.0;
+
+/**
+ * Does this hit clear the bar? A score at or over `min`, or an exact hit (a named identifier is not a score).
+ * The ONE predicate: the renderers and every measurement of "what the hook would show" call this instead of
+ * writing the comparison again (a copy in a bench was how a measurement drifted from the hook).
+ */
+export function clears(hit, min = RECALL_MIN) {
+  return Number(hit?.score) >= min || Boolean(hit?.exact && hit.exact.length);
+}
+
 /** Characters of text per hit (the line's prefix — day, id, lane — not counted). */
 export const LINE_BUDGET = 300;
 /** Own share of the budget for the reason. */
@@ -181,7 +197,7 @@ export function renderHits(hits, { min, top = Infinity, lanes = null, budget = L
   for (const h of Array.isArray(hits) ? hits : []) {
     if (lanes && !lanes.test(String(h?.source ?? ''))) continue;
     seen += 1;
-    if (!(Number(h.score) >= min) && !(h.exact && h.exact.length)) continue;
+    if (!clears(h, min)) continue;
     if (lines.length >= top) continue;
     const r = renderHit(h, { budget });
     // `attach(hit)` (src/recallattach.mjs): a line directly below this one, e.g. the solution of an error.
