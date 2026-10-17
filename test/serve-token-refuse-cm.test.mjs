@@ -350,7 +350,7 @@ test('the switch changes nothing for the stdio bridge (no port, no door)', () =>
 //   - the two doored services (`bin/mem-serve`, `bin/mem-mcp`): they must call `webauth.startDecision` and act on a refusal, and
 //     `hardenServer(server, { maxConnections: MAX_CONNECTIONS.<service> })` (src/http-limits.mjs: slow-header, dripping-body and flood limits);
 //   - the recall server: a Unix socket / named pipe with a key file, every `.listen(` takes the socket path, never a port;
-//   - the two bench helpers that find a free port: they bind `127.0.0.1:0` for an instant and close it, serving nothing.
+//   - the bench helpers that find a free port: they bind `127.0.0.1:0` for an instant and close it, serving nothing.
 // Comments are removed first (a comment that mentions `startDecision(` or `createServer(` proves nothing). What it does NOT see:
 // a name built at run time (`h['create' + 'Server']`, `import(`node:${x}`)`), a listener inside a dependency, a framework reached
 // through a module not on the list, a listener started by a compiled binary. tests/ are not scanned: a test's fixture server is
@@ -361,6 +361,7 @@ const SOCKET_ONLY = { 'src/recallserver.mjs': 'a Unix socket / named pipe with a
 const LOOPBACK_PROBES = {
   'bench/scale-gate.mjs': 'finds a free port: binds 127.0.0.1:0, closes at once, serves nothing',
   'bench/board-tempo.mjs': 'finds a free port: binds 127.0.0.1:0, closes at once, serves nothing',
+  'bench/atlas/serve-world.mjs': 'finds a free port: binds 127.0.0.1:0, closes at once, serves nothing (the server it then starts is bin/mem-serve itself, with the loopback-only switch)',
 };
 const NET_NAMES = '(?:node:)?(?:net|http|https|http2|tls|dgram)';
 const FRAMEWORK_NAMES = '(?:express|fastify|koa|ws|hono|@hono\\/node-server|restify|polka|@hapi\\/hapi|socket\\.io|http-server)(?:\\/[^\'"]*)?';
