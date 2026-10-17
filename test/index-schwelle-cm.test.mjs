@@ -46,11 +46,12 @@ const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MEM = path.join(REPO, 'bin', 'mem');
 // The base of this work (origin/agent/k1-teilwort-cm), FIXED: never a moving merge-base (the probe would turn red by itself).
 const BASE = '71be9cfe0a269932fd1c51bd889f5ea378b745ad';
-const BOUND = search.REBUILD_AFTER_APPENDED ?? 100;
+// The scenes are built with LITERAL numbers, not from the constant: a constant that drifts (a mutant sets it to 100000) must turn
+// the scenes red, not make them build a memory of 500,000 entries. (a) holds the constant itself to the number.
+const BOUND = 100;
+const BASIS_N = 600;   // a fifth of it (120) lies above the bound, else the scenes tell nothing
+const CACHE_WRITE_BYTES = 4 * 1024 * 1024;   // search.CACHE_WRITE_AFTER_BYTES
 const warte = (ms) => new Promise((r) => setTimeout(r, ms));
-
-/** Entries the memory holds before the first full build: a fifth of it lies ABOVE the bound (else the probes tell nothing). */
-const BASIS_N = Math.ceil(BOUND / (search.REBUILD_AFTER_FRACTION ?? 0.2)) + 100;
 
 function world(t, n = BASIS_N) {
   const root = tempDir('cm-index-schwelle-', t);
@@ -94,7 +95,7 @@ async function warteBis(f, ms = 20000) {
 // --- (a) the rule -------------------------------------------------------------------------------------
 
 test('(a) appendedTooMany: the smaller of a fifth and the absolute bound, exactly at the edge', () => {
-  assert.equal(typeof search.REBUILD_AFTER_APPENDED, 'number');
+  assert.equal(search.REBUILD_AFTER_APPENDED, BOUND, 'the bound moved: the scenes below are built for 100');
   assert.equal(typeof search.appendedTooMany, 'function');
   // a big memory: the absolute bound counts
   assert.equal(search.appendedTooMany(6000, 6000 + BOUND), false);
@@ -108,6 +109,7 @@ test('(a) appendedTooMany: the smaller of a fifth and the absolute bound, exactl
   assert.equal(search.appendedTooMany(6000, 6000 + 500, { absolute: false }), false);
   assert.equal(search.appendedTooMany(6000, 7201, { absolute: false }), true);
   // the bound is a real improvement on a fifth of a memory of the size seen in the field
+  assert.equal(search.REBUILD_AFTER_FRACTION, 0.2);
   assert.ok(BOUND <= 150 && BOUND < 7000 * search.REBUILD_AFTER_FRACTION / 5, `bound ${BOUND} improves nothing on a fifth of 7,000`);
 });
 
@@ -139,7 +141,7 @@ test('(b) hook: at the bound appended and answered; one line above it `stale` an
 
 test('(c) terminal (no allowStale): the fifth counts; above the bound nothing stale, no lock, no child; above a fifth it builds in-process', (t) => {
   const root = world(t);
-  const fifth = Math.floor(BASIS_N * (search.REBUILD_AFTER_FRACTION ?? 0.2));
+  const fifth = Math.floor(BASIS_N * 0.2);
   assert.ok(fifth > BOUND + 1, 'the scene needs a fifth above the bound');
   append(root, BOUND + 1);
   const cli = search.loadIndex(root, {});
@@ -332,6 +334,42 @@ test('(i2) the correction still warns about a rare word it drops (the guard is n
   await correct(root, lastLearningId(root), 1, { stderr: warned });
   const seen = warned.text;
   assert.ok(/quokkaword/.test(seen), `no warning about the dropped rare word: ${seen}`);
+});
+
+// --- (k) the warm server ------------------------------------------------------------------------------------------
+
+test('(k) the warm recall server (process memo on) starts the rebuild too and keeps answering', (t) => {
+  const root = world(t);
+  append(root, BOUND + 1);
+  search.setProcessMemo(true);
+  try {
+    const first = search.loadIndex(root, { allowStale: true });
+    assert.equal(first.appended, BOUND + 1);
+    assert.ok(search.search(first, 'zebrafish', { top: 3 }).length > 0, 'the stack is not answered from');
+    idle(root);
+    assert.equal(readNote(root)?.ok, true, 'the memoized hook load started no rebuild');
+  } finally { search.setProcessMemo(false); }
+});
+
+// --- (l) the hook does not write the cache the rebuild is about to replace ----------------------------------------
+
+test('(l) a stack of 4 MiB above the bound: the hook leaves the cache to the rebuild, the terminal tops it up (positive control)', (t) => {
+  const root = world(t);
+  const filler = 'quartz '.repeat(Math.ceil(CACHE_WRITE_BYTES / (BOUND + 1) / 7) + 100);
+  for (let i = 0; i < BOUND + 1; i += 1) memory.logEntry(root, 'learning', { title: `heavy ${i} zebrafish`, text: filler });
+  const manifestN = () => JSON.parse(fs.readFileSync(path.join(root, search.CACHE_DIR, 'manifest.json'), 'utf8')).N;
+  assert.equal(manifestN(), BASIS_N);
+  // a fresh lock stands (someone else is rebuilding): the hook starts nothing, and must not write either
+  assert.equal(tryLock(lockOf(root)), true);
+  const hook = search.loadIndex(root, { allowStale: true });
+  assert.equal(hook.rebuild, 'running');
+  assert.equal(hook.appended, BOUND + 1);
+  assert.equal(manifestN(), BASIS_N, 'the hook wrote the cache that the rebuild replaces');
+  // control: without the hook's permission the same stack is written into the cache (the bound is the hook's alone)
+  const cli = search.loadIndex(root, {});
+  assert.equal(cli.fromCache, true);
+  assert.equal(manifestN(), BASIS_N + BOUND + 1, 'the control does not write: the probe measures nothing');
+  fs.rmSync(lockOf(root), { force: true });
 });
 
 // --- (j) red proof against the pinned base -------------------------------------------------------------------------
