@@ -57,11 +57,6 @@ export function readHookStdin(stream = process.stdin) {
   });
 }
 
-/** The same, synchronously (file descriptor 0): for the before-edit core, which reads before it does anything else. */
-export function readHookStdinSync() {
-  try { return hookText(fs.readFileSync(0).toString('utf8')); } catch { return ''; }
-}
-
 /**
  * The raw bytes of stdin, synchronously, for a core that wants the SHAPE too: `{ text, shape }` where `text` is the
  * decoded input with the mark STILL in front (the consumer runs it through `hookText`) and `shape` is `hookShape` of the

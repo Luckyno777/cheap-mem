@@ -28,7 +28,6 @@
  "src/effect.mjs": 1,
  "src/embed/store.mjs": 1,
  "src/entryops.mjs": 1,
- "src/epoch.mjs": 1,
  "src/errorcontext.mjs": 1,
  "src/filelock.mjs": 2,
  "src/goldlog.mjs": 1,

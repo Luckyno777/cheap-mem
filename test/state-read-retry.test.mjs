@@ -38,7 +38,7 @@ const noPause = () => {};
 
 /** A reader that fails `times` times with `code`, then answers `text`. Counts its calls. */
 function flaky(code, times, text = '{"ok":1}') {
-  const f = (file, enc) => {
+  const f = (_file, _enc) => {
     f.calls += 1;
     if (f.calls <= times) throw err(code);
     return text;
