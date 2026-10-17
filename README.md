@@ -429,8 +429,8 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-numbers.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **88 CLI commands, 45 MCP tools, 224 modules, 5223
-tests**; as of 2026-09-20, about 91891 lines in `bin/` and `src/`, at
+As of 2026-09-26: **88 CLI commands, 45 MCP tools, 224 modules, 5244
+tests**; as of 2026-09-20, about 92018 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 
 ### Reading it with a model, or evaluating it properly
@@ -467,7 +467,7 @@ enforced fails the build rather than waiting for someone to audit it.
 
 | check | what a red run means |
 |---|---|
-| `bench/mutation.mjs` | one of 297 guarantees was broken on purpose and no test noticed |
+| `bench/mutation.mjs` | one of 306 guarantees was broken on purpose and no test noticed |
 | `bench/fuzz.mjs` | a crash, hang, unbounded growth, or a bypass |
 | `bench/composed.mjs` | seven attacks that are only dangerous in combination |
 | `bench/byzantine.mjs` | a flood of rule-abiding liars buried the genuine claim, or the conflict went unreported |
@@ -604,7 +604,9 @@ mem doctor                     is this memory healthy?
 mem doctor --alarm             ONLY what is down right now; silent when
                                nothing is. The session-start hook prints it.
 mem doctor --full              also run the concurrent-append probe (writer threads);
-                               without it that one finding says "not measured"
+                               without it that one finding says "not measured" -
+                               unless an earlier --full measured tearing on this
+                               mount: then it stays an error (and --alarm shows it)
 
 mem serve [--port N]           the dashboard at ONE fixed link.
           [--allow-writes]     The console is the only place anything can
@@ -1044,6 +1046,7 @@ noticing.
 mem doctor            # says which layer owns each guarantee
 mem doctor --strict   # for CI: an UNVERIFIABLE guarantee is a failure
 mem doctor --full     # also the concurrent-append probe (--strict includes it); without it: "not measured"
+                      # (a tearing measured earlier on this mount stays an error, kept in .pipeline/append-atomicity.json)
 mem doctor --alarm    # only level ERROR, one line each — nothing when nothing is red
 mem epoch show        # has the memory gone BACKWARDS since this machine looked?
 ```
