@@ -71,8 +71,8 @@ function append(root, count, from = 0) {
   }
 }
 
-const lockOf = (root) => path.join(root, indexrebuild.REBUILD_LOCK_PATH);
-const noteOf = (root) => path.join(root, indexrebuild.REBUILD_NOTE_PATH);
+const lockOf = (root) => path.join(root, indexrebuild.INDEX_REBUILD_LOCK_PATH);
+const noteOf = (root) => path.join(root, indexrebuild.INDEX_REBUILD_NOTE_PATH);
 const readNote = (root) => { try { return JSON.parse(fs.readFileSync(noteOf(root), 'utf8')); } catch { return null; } };
 const idle = (root) => assert.equal(indexrebuild.waitForIndexRebuildIdle(root, 60000), true, 'the background rebuild did not end');
 
@@ -226,9 +226,9 @@ test('(f) a lock older than the age bound is taken over; a fresh one is respecte
   await warte(150);
   assert.equal(starts(root), 0, 'a child started although a fresh lock stood');
   // the owner died: the lock is older than the bound
-  const old = new Date(Date.now() - (indexrebuild.REBUILD_LOCK_MAX_AGE_S + 60) * 1000);
+  const old = new Date(Date.now() - (indexrebuild.INDEX_REBUILD_LOCK_MAX_AGE_S + 60) * 1000);
   fs.utimesSync(lockOf(root), old, old);
-  assert.equal(indexrebuild.rebuildRunning(root), false);
+  assert.equal(indexrebuild.indexRebuildRunning(root), false);
   assert.equal(indexrebuild.kickIndexRebuild(root, { childScript: FAKE_CHILD }), 'started');
   assert.ok(await warteBis(() => starts(root) === 1), 'no child after the takeover');
   release(root);
@@ -252,7 +252,7 @@ test('(g) after a failed rebuild a while of no child; an old failure or a good e
   assert.equal(fs.existsSync(lockOf(root)), false, 'a backoff left a lock behind');
   note(true, 5);
   assert.equal(indexrebuild.failedRecently(root), false);
-  note(false, indexrebuild.REBUILD_BACKOFF_S + 60);
+  note(false, indexrebuild.INDEX_REBUILD_BACKOFF_S + 60);
   assert.equal(indexrebuild.failedRecently(root), false);
   assert.equal(indexrebuild.kickIndexRebuild(root, { childScript: FAKE_CHILD }), 'started');
   assert.ok(await warteBis(() => starts(root) === 1));

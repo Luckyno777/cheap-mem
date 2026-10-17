@@ -20,10 +20,10 @@
 // * **One at a time.** The lock is a file created with link/O_EXCL (`filelock.tryLock`): of two processes that ask at the
 //   same moment exactly one gets it and starts the child; the other gets `running`.
 // * **No lock for ever.** The child removes the lock when it ends, whatever way. A child that is killed leaves the lock, and it
-//   is taken over by AGE (`REBUILD_LOCK_MAX_AGE_S`, through the takeover bar of `filelock.takeOverIfStale`); the owner PID in
+//   is taken over by AGE (`INDEX_REBUILD_LOCK_MAX_AGE_S`, through the takeover bar of `filelock.takeOverIfStale`); the owner PID in
 //   the file is the PID of the asker, which is gone a moment later, so only the age can decide here. A rebuild that
 //   outlives the age loses at worst a second, harmless build: both write through the atomic swap.
-// * **After a failure, hold back.** A child that throws leaves a note; for `REBUILD_BACKOFF_S` no new child is started
+// * **After a failure, hold back.** A child that throws leaves a note; for `INDEX_REBUILD_BACKOFF_S` no new child is started
 //   (`backoff`), the hook goes on answering from the appended index.
 // * **No half index.** The child writes the cache the way every build does (new directory, then rename). A reader that
 //   meets the cache between the two renames finds no manifest and builds in its own process: slower, never wrong.
@@ -37,19 +37,19 @@ import { tryLock, releaseLock, lockAgeS, takeOverIfStale } from './filelock.mjs'
 import { writeAtomic } from './atomicwrite.mjs';
 
 /** The lock of a running background rebuild. */
-export const REBUILD_LOCK_PATH = path.join('.mem', 'locks', 'search-index-rebuild.lock');
+export const INDEX_REBUILD_LOCK_PATH = path.join('.mem', 'locks', 'search-index-rebuild.lock');
 /** How the last background rebuild ended. */
-export const REBUILD_NOTE_PATH = path.join('.mem', 'locks', 'search-index-rebuild.note.json');
+export const INDEX_REBUILD_NOTE_PATH = path.join('.mem', 'locks', 'search-index-rebuild.note.json');
 /** A lock older than this belongs to a dead child (seconds). A full build of 100,000 entries takes about a minute. */
-export const REBUILD_LOCK_MAX_AGE_S = 900;
+export const INDEX_REBUILD_LOCK_MAX_AGE_S = 900;
 /** After a failed rebuild no new child is started for this long (seconds). */
-export const REBUILD_BACKOFF_S = 600;
+export const INDEX_REBUILD_BACKOFF_S = 600;
 
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 
 /** Is a background rebuild running (going by the lock file)? Never throws. */
-export function rebuildRunning(root) {
-  return lockAgeS(path.join(root, REBUILD_LOCK_PATH)) <= REBUILD_LOCK_MAX_AGE_S;
+export function indexRebuildRunning(root) {
+  return lockAgeS(path.join(root, INDEX_REBUILD_LOCK_PATH)) <= INDEX_REBUILD_LOCK_MAX_AGE_S;
 }
 
 /**
@@ -60,7 +60,7 @@ export function rebuildRunning(root) {
 export function waitForIndexRebuildIdle(root, timeoutMs = 15000, graceMs = 150) {
   const nap = (ms) => { try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch { /* no wait */ } };
   const deadline = Date.now() + timeoutMs;
-  while (rebuildRunning(root)) {
+  while (indexRebuildRunning(root)) {
     if (Date.now() >= deadline) return false;
     nap(25);
   }
@@ -71,16 +71,16 @@ export function waitForIndexRebuildIdle(root, timeoutMs = 15000, graceMs = 150) 
 /** Write down how the last rebuild ended. Never throws. */
 export function noteRebuild(root, outcome) {
   try {
-    writeAtomic(path.join(root, REBUILD_NOTE_PATH), JSON.stringify({ at: new Date().toISOString(), ...outcome }));
+    writeAtomic(path.join(root, INDEX_REBUILD_NOTE_PATH), JSON.stringify({ at: new Date().toISOString(), ...outcome }));
   } catch { /* nothing more can be done about a note */ }
 }
 
 /** Did the last rebuild fail a moment ago? Never throws. */
 export function failedRecently(root) {
   try {
-    const note = JSON.parse(fs.readFileSync(path.join(root, REBUILD_NOTE_PATH), 'utf8'));
+    const note = JSON.parse(fs.readFileSync(path.join(root, INDEX_REBUILD_NOTE_PATH), 'utf8'));
     const age = (Date.now() - new Date(note.at).getTime()) / 1000;
-    return note.ok === false && age >= 0 && age < REBUILD_BACKOFF_S;
+    return note.ok === false && age >= 0 && age < INDEX_REBUILD_BACKOFF_S;
   } catch { return false; }
 }
 
@@ -92,10 +92,10 @@ export function failedRecently(root) {
  */
 export function kickIndexRebuild(root, { language = 'en', env = process.env, childScript = null } = {}) {
   if (failedRecently(root)) return 'backoff';
-  const lockPath = path.join(root, REBUILD_LOCK_PATH);
+  const lockPath = path.join(root, INDEX_REBUILD_LOCK_PATH);
   try { fs.mkdirSync(path.dirname(lockPath), { recursive: true }); } catch { return 'error'; }
   if (!tryLock(lockPath)) {
-    if (!takeOverIfStale(lockPath, REBUILD_LOCK_MAX_AGE_S)) return 'running';
+    if (!takeOverIfStale(lockPath, INDEX_REBUILD_LOCK_MAX_AGE_S)) return 'running';
     if (!tryLock(lockPath)) return 'running'; // someone else was faster
   }
   try {
