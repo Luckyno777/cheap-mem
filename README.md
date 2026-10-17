@@ -263,7 +263,7 @@ on 2026-09-05 they cost far more than the tool itself:
 
 | you want | install | cost |
 |---|---|---|
-| the MCP server (`mem-mcp`) | `npm i -g "@modelcontextprotocol/sdk@^1.30.0"` | 28 MB, 91 packages |
+| the MCP server (`mem-mcp`) | `npm i -g "@modelcontextprotocol/sdk@^1.31.0"` | 28 MB, 91 packages |
 | semantic search (`mem embed`) | `npm i -g better-sqlite3 sqlite-vec` | 14 MB, 40 packages |
 
 Together those are 43 MB around a download of a couple of MB (the row at the top). They used to be installed
@@ -429,7 +429,7 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-numbers.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **88 CLI commands, 45 MCP tools, 226 modules, 5386
+As of 2026-09-26: **88 CLI commands, 45 MCP tools, 226 modules, 5387
 tests**; as of 2026-09-20, about 92811 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 
