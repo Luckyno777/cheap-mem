@@ -1606,6 +1606,65 @@ export function admits(doc, {
   return true;
 }
 
+/**
+ * The parts of an identifier with an underscore in the QUESTION (k1-subword-cm, port of lucky-mem's
+ * `k1-teilwort-lm`, 2026-10-16).
+ *
+ * **The finding.** K1 keeps `a_b` in the question as ONE word, because the index holds it that way: `session_id`
+ * finds the entry that carries `session_id`, not every entry that says `session`. The price: the question
+ * `socket_closed_by_peer` (the after-failure hook asks it so) no longer finds the entry "the peer closed the
+ * socket" - the index holds `socket`, `closed`, `peer` there, never the identifier.
+ *
+ * **The rule: the whole word keeps weight 1.0 (so it keeps its bonus); its parts come beside it, weaker - and
+ * how much weaker hangs on one question the index answers: does it KNOW the whole word?**
+ *
+ *   SUBWORD_WEIGHT        0.6  the whole word stands in the index NOWHERE (an identifier out of a tool error whose
+ *                              words an entry carries in prose). The parts are the only signal.
+ *   SUBWORD_WEIGHT_KNOWN  0    the index holds the whole word. Then it is a statement and the parts are noise
+ *                              (`session_id` must not pull in every `session` entry: that was K1). 0 means no
+ *                              parts; a value above 0 would be a bonus gap instead of a switch.
+ *
+ * Measured in the sibling house (N=6746, 392 identifiers known to the index, 305 invented ones): parts ALWAYS at
+ * 0.5 lose 16 of 372 first places on the known identifiers and show 231 instead of 18 foreign hits; with the
+ * distinction the known side stays bit-identical and the unknown side rises from 0 to 278 of 305 above the hook's
+ * bar. 0.6 is the smallest value that reaches those 278. Here: bench/subword-measure.mjs.
+ *
+ * The hyphen needs none of this: there the question already types the whole AND the parts (`hyphenForms`).
+ */
+const SUBWORD_WEIGHT = 0.6;
+const SUBWORD_WEIGHT_KNOWN = 0;
+/** Shorter parts (`by`, `id`, `to`) are filler and are not searched. */
+const SUBWORD_MIN = 3;
+
+/**
+ * The parts of ONE typed word with an underscore, as `{ weight, perPack }` entries: `perPack` holds, per language
+ * pack, the forms of one part (stem, and the stem of the typed spelling when normalising changed it). Empty when
+ * the word has no underscore or the index knows it whole. "Knows" is asked on the forms the whole word has in the
+ * index (`wordForms`), against the RAW document frequency (a capture counts: the word is known).
+ */
+function subwordParts(index, word, packs) {
+  if (!word.includes('_')) return [];
+  const df = index.docFreq;
+  const known = Boolean(df) && packs.some((lang) => {
+    const n = lang.normalize(word);
+    return (df.get(lang.stem(n)) ?? 0) > 0 || (df.get(lang.stem(word)) ?? 0) > 0;
+  });
+  const weight = known ? SUBWORD_WEIGHT_KNOWN : SUBWORD_WEIGHT;
+  if (!(weight > 0)) return [];
+  const out = [];
+  for (const part of new Set(word.split(/[_-]+/))) {
+    if (part.length < SUBWORD_MIN || packs.every((lang) => lang.stopwords.has(part))) continue;
+    const perPack = [];
+    for (const lang of packs) {
+      if (lang.stopwords.has(part)) continue;
+      const n = lang.normalize(part);
+      perPack.push(n !== part ? [lang.stem(n), lang.stem(part)] : [lang.stem(n)]);
+    }
+    if (perPack.length) out.push({ weight, perPack });
+  }
+  return out;
+}
+
 export function search(index, query, {
   top = 10,
   type = null,
@@ -1747,6 +1806,18 @@ export function search(index, query, {
   if (own.length === 0) return [];
   const ownSet = new Set(own);
 
+  // k1-subword-cm: the parts of an identifier with an underscore, weaker than the whole word, only while the index
+  // does not hold the whole word (see `subwordParts`). Scored below with MAX across packs like the typed forms;
+  // in coverage a word covered only by its parts counts HALF, like a bridged one.
+  const subwords = [];
+  for (const packVariants of groups) {
+    const parts = subwordParts(index, packVariants.word ?? '', queryPacks)
+      .filter((p) => !p.perPack.flat().some((t) => ownSet.has(t)));
+    if (!parts.length) continue;
+    packVariants.subwordForms = parts.flatMap((p) => p.perPack.flat());
+    subwords.push(...parts);
+  }
+
   // The curated thesaurus is English-only (see `curatedCoverage`'s own
   // doc comment) — a German pack could not look its own words up in it
   // any better, so this leg of expansion stays pinned to English rather
@@ -1857,6 +1928,15 @@ export function search(index, query, {
     // evidence — a different word the query did not type — so these keep
     // stacking additively, unchanged from before P28.
     for (const [term, qWeight] of terms) score += qWeight * bm25Term(index, doc, term);
+    for (const part of subwords) {
+      let best = 0;
+      for (const forms of part.perPack) {
+        let sub = 0;
+        for (const t of forms) sub += bm25Term(index, doc, t);
+        if (sub > best) best = sub;
+      }
+      score += part.weight * best;
+    }
     if (score <= 0) continue;
 
     // Coordination. BM25 adds up term scores and has no notion of "this
@@ -1898,7 +1978,8 @@ export function search(index, query, {
       for (const packVariants of groups) {
         if (packVariants.some((forms) => forms.some(own))) c += 1;
         else if (packVariants.bridged?.some((t) => doc.weights.has(t))
-          || packVariants.rewritten?.some((t) => doc.weights.has(t))) c += 0.5;
+          || packVariants.rewritten?.some((t) => doc.weights.has(t))
+          || packVariants.subwordForms?.some((t) => doc.weights.has(t))) c += 0.5;
       }
       coveredShare = fillers === groups.length ? 0 : c / counted;
     }
@@ -1911,7 +1992,8 @@ export function search(index, query, {
         // measured full coverage: same hit rate, more risk).
         // A rewritten word (src/rewrites.mjs) likewise: learned, not typed.
         else if (packVariants.bridged?.some((t) => doc.weights.has(t))
-          || packVariants.rewritten?.some((t) => doc.weights.has(t))) covered += 0.5;
+          || packVariants.rewritten?.some((t) => doc.weights.has(t))
+          || packVariants.subwordForms?.some((t) => doc.weights.has(t))) covered += 0.5;
         else if (viaExp(packVariants)) covered += 0.5;
       }
       // **The floor (2026-09-20).** Until this day the line read

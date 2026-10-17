@@ -253,6 +253,20 @@ dictionary file, no maintenance. It is on for English too, because
 technical English is full of closed compounds — `datastore`,
 `codebase`, `runtime`, `changelog`.
 
+### Identifiers with an underscore in a question
+
+The index holds `session_id` as ONE term, so a question that types it is
+searched as one word: it finds the entry that carries `session_id`, not
+every entry that says `session`. When the index does **not** hold that
+word anywhere (an identifier out of a tool's error message, whose words
+an entry carries only in prose: "the peer closed the socket"), its parts
+(`socket`, `closed`, `peer`) are searched too, at weight 0.6 against 1.0
+for a typed word, and a word covered only through its parts counts half
+in the coverage factor. When the index holds the word, no part is
+searched. Parts under three letters are filler. A hyphen needs none of
+this: there the question already types the whole and the parts.
+Measurement: `bench/subword-measure.mjs`, `CHANGELOG.md`.
+
 ### Raw material is searchable immediately
 
 The digest may take 45 minutes. In that window whatever was said would
