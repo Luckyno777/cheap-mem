@@ -134,6 +134,12 @@ if (Test-Path -LiteralPath $LockPath) {
   Remove-Item -LiteralPath $LockPath -Force -ErrorAction SilentlyContinue
 }
 Set-Content -LiteralPath $LockPath -Value $PID
+# stdin to node (CI run 1141, src/hookstdin.mjs says why): Windows PowerShell 5.1 opens a native command's stdin in
+# [Console]::InputEncoding and writes its preamble first - under code page 65001 a UTF-8 BOM before the hook JSON, and
+# the core's JSON.parse failed in silence. Same code page without a preamble; what PowerShell writes into the pipe as
+# UTF-8 without a BOM (or a non-ASCII path arrives as '?'). No console to set it on: the cores strip a BOM themselves.
+try { if ([Console]::InputEncoding.CodePage -eq 65001 -and [Console]::InputEncoding.GetPreamble().Length -gt 0) { [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false) } } catch { }
+$OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 
 try {
   $PendingJson = & node $Mem --root $Root raw pending --json 2>&1
@@ -148,7 +154,7 @@ try {
   # B19 (2026-09-30): bytes BEFORE packing (`rawSizes`), not gzipped.
   $SelectScript = @'
 let d="";process.stdin.on("data",c=>d+=c).on("end",async()=>{
-  let o;try{o=JSON.parse(d)}catch{process.exit(1)}
+  let o;try{o=JSON.parse(d.replace(/^[\uFEFF\s]+/,""))}catch{process.exit(1)}
   if(!process.env.ROOT){process.stderr.write("selection: ROOT missing\n");process.exit(2)}
   if(!o.rawSizes){process.stderr.write("selection: raw pending --json has no rawSizes\n");process.exit(2)}
   let m;try{m=await import(process.argv[1])}catch(e){process.stderr.write("selection: "+e.message+"\n");process.exit(2)}
@@ -222,7 +228,7 @@ condensing enough. Stop after the push.
   # Remember how much was pending. The model call's exit code alone
   # says NOTHING about whether work happened - a session that fails on
   # permissions explains itself at length and exits 0.
-  $CountScript = 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{process.stdout.write(String((JSON.parse(d).open||[]).length))}catch{process.stdout.write("-1")}})'
+  $CountScript = 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{process.stdout.write(String((JSON.parse(d.replace(/^[\uFEFF\s]+/,"")).open||[]).length))}catch{process.stdout.write("-1")}})'
   $Before = (& node $Mem --root $Root raw pending --json 2>$null | & node -e $CountScript)
 
   # MEM_HEADLESS stops this call from triggering the Stop hook.
