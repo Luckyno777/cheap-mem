@@ -107,7 +107,8 @@ function Find-OwnTool {
     $res.Skipped = $true
   }
   $cands = @()
-  if ($env:CHEAP_MEM_CODE) { $cands += (Join-Path $env:CHEAP_MEM_CODE $Rel) }
+  # A code path with a control character is not used (the shims reject it too; this is the same rule for a caller that did not).
+  if ($env:CHEAP_MEM_CODE -and $env:CHEAP_MEM_CODE -notmatch '[\x00-\x1f\x7f]') { $cands += (Join-Path $env:CHEAP_MEM_CODE $Rel) }
   if ($Self) {
     $cands += (Join-Path $Self (Join-Path '..' $Rel))
     $cands += (Join-Path $Self (Split-Path -Leaf $Rel))

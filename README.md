@@ -474,7 +474,7 @@ enforced fails the build rather than waiting for someone to audit it.
 | `bench/cache-attack.mjs` | an unsigned local file changed what the memory means |
 | `bench/query-independence.mjs` | two queries disagreed about whether the same claim is active |
 | `bench/merge-driver.mjs` | the `*.jsonl merge=union` contract stopped holding |
-| `npm run atlas` | the full-surface run: every command executed as a process, 12 phases, four verdicts — including `not-measured`, which is not a pass |
+| `npm run atlas` | the full-surface run: every command executed as a process, 16 phases, four verdicts — including `not-measured`, which is not a pass |
 
 Each of these also refuses to pass for the wrong reason: mutation needs a
 green baseline and will not credit a mutant it could not apply or whose
@@ -834,6 +834,9 @@ is allowed without asking. Details: [docs/security-model.md](docs/security-model
   or personal). The whole start answers under one budget of 3,200 bytes, as
   does the `UserPromptSubmit` answer: what does not fit steps down to a
   pointer (id and `mem show <id>`) and one note says what was left out.
+  The order of giving way: the procedures get their full text first (each
+  stays at least a pointer with its id), then the assignment block; the
+  workflow card steps down to its pointer BEFORE the recap is shortened.
 - Below an error the recall hooks show, one line gives its newest valid
   solution (`↳ Solution <id>: ...`); a skill offer brings two lines of its
   experience account.

@@ -76,6 +76,15 @@ Mac will:
 - Capture the transcript at Stop, model-free; the model-backed reflector
   runs only with `MEM_REFLECT=1`
 
+**Paths with unusual characters.** Claude Code runs each hook `command` in
+`settings.json` through a shell, so the installer writes every path so that
+the shell reads it as one word. A path made only of letters, digits and
+`- _ . : @ % + = , /` is written bare, exactly as older versions did (so a
+re-run replaces the entry instead of adding a second). Any other POSIX path
+(a space, `'`, `"`, `$`, a backtick, `\`, `&`, `;`, `(`, ...) goes into single
+quotes with each `'` written as `'\''`; nothing inside is expanded. A re-run
+rewrites an entry that an older version wrote in double quotes.
+
 The seven hooks, and what each one does, are listed in the README under
 "Claude Code (hooks + MCP)".
 

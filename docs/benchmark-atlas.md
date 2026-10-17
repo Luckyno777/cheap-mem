@@ -435,9 +435,36 @@ ported afterwards (change `silent-errors-cm`): `read()` now answers with a state
 one sentence for a lane that failed or ran out of time. Both read `pass`.
 E2 and E4 of the sister house's list are named as blind spots.
 
-`test/atlas-phase-parity.json` now lists, besides the mapping
-`bridge`/`bruecke` and `silent-errors`/`stille-fehler`, the sister house's
-phases this house does not have, each with its reason.
+`test/atlas-phase-parity.json` lists the sister house's phase ids and the
+phases this house does not have, each with its reason. (Until 2026-10-17 it also
+carried a mapping for `bridge`/`bruecke` and `silent-errors`/`stille-fehler`;
+see the next section.)
+
+## One id per phase, and four phases that are only named: `dashboard`, `cost`, `digest`, `net-tempo`
+
+From 2026-10-17 a phase has the same id in both houses, and new ids are English
+in both. The sister house renames `kennungen`, `bruecke` and `stille-fehler` to
+`identifiers`, `bridge` and `silent-errors` before its first baseline, and its
+`netz-tempo` to `net-tempo` (names confirmed by the sister house, 2026-10-17;
+its branch `agent/atlas-rahmen-lm` was not pushed yet at that date). So the `idMap` of `test/atlas-phase-parity.json` is empty.
+`luckyMemPhases` is the list the sister house is building toward, and
+`luckyMemPending` names the ids of it that are not on the sister house's main
+branch yet, with the branch that carries them (`agent/atlas-rahmen-lm`).
+
+Four ids are in this atlas as **stubs** (`bench/atlas/stub.mjs`): `dashboard`,
+`cost`, `digest` and `net-tempo`. A stub measures nothing. It writes one record,
+`<id>.not-built`, with the verdict `not-measured`, and one named blind spot; it
+never writes `pass`. The stubs add four fixed `not-measured` rows and four blind
+spots to a run. They do not change the exit code on their own account: a real run
+already ends with 1 or 3 today (the committed baseline has 81 `not-measured`
+and 1 `fail`), and a run of the stubs alone ends with 3, never 0. The report
+lists each stub among the blind spots. `test/atlas-stub-never-passes.test.mjs`
+holds that: each stub phase on its own, the real runner on the four together,
+and a positive control (a stub written to record `pass` is caught by the same
+check). When a stub is built, its file stops importing `stub.mjs` and its entry
+leaves `cmStubs` in the parity list in the same commit. The questions the four
+phases ask are set with the sister house when they are built; the stub files
+promise no particular measurement.
 
 ## Keeping it honest over time
 

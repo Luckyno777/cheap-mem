@@ -100,6 +100,35 @@ mem_own_ships() {
   return 1
 }
 
+# mem_code_clean - makes CHEAP_MEM_CODE safe to use and to print (shim-rest-cm, 2026-10-17).
+#   The value comes from the first line of the installed shim (`export CHEAP_MEM_CODE='...'`) or, for a
+#   shim started by hand, from the environment. Two things were never checked:
+#   - a control character in it (a line break, a tab, an escape). The start hook prints the value into the
+#     session's context (`CHEAP_MEM_CODE=<value> ...`), where a line break starts a line of the attacker's
+#     choosing, and the missing-tool message put it into a JSON line. Such a value is REJECTED: loudly (one
+#     stderr line, and MEM_CODE_REJECTED carries a printable form so the missing-tool message and the start
+#     hook can say it), without a crash: CHEAP_MEM_CODE is unset, and the shim goes on with the tool next
+#     to it, or says so. A hook must never break the session.
+#   - a trailing separator (`/opt/cheap-mem/`): CLEANED, so the paths built from it have one slash.
+#   Idempotent. Sets MEM_CODE_REJECTED (exported) to '' or the printable form of the rejected value.
+mem_code_clean() {
+  local c="${CHEAP_MEM_CODE:-}"
+  # Nothing set (or already rejected by an earlier call): MEM_CODE_REJECTED stays as it is.
+  [ -n "$c" ] || return 0
+  MEM_CODE_REJECTED=""
+  case "$c" in
+    *[[:cntrl:]]*)
+      printf -v MEM_CODE_REJECTED '%q' "$c"
+      export MEM_CODE_REJECTED
+      unset CHEAP_MEM_CODE
+      printf 'cheap-mem: CHEAP_MEM_CODE rejected: it contains a control character (value: %s)\n' "$MEM_CODE_REJECTED" >&2
+      return 0 ;;
+  esac
+  while [ "${#c}" -gt 1 ] && [ "${c%/}" != "$c" ]; do c="${c%/}"; done
+  [ "$c" = "${CHEAP_MEM_CODE:-}" ] || CHEAP_MEM_CODE="$c"
+  return 0
+}
+
 # mem_pick_tool ROOT REL [SELF] - which copy of REL (e.g. bin/mem-retrieve) to run.
 #   Sets mem_picked (the path, '' when none) and MEM_OWN_SKIPPED (1 when a copy
 #   from the memory was passed over because it is not trusted - the caller says so).
@@ -110,6 +139,7 @@ mem_own_ships() {
 mem_pick_tool() {
   local root="$1" rel="$2" self="${3:-}" trusted=0 c
   mem_picked=""; MEM_OWN_SKIPPED=0
+  mem_code_clean
   mem_own_tool_trusted "$root" && trusted=1
   if [ "$trusted" = 1 ] && [ -f "$root/$rel" ]; then mem_picked="$root/$rel"; return 0; fi
   [ ! -f "$root/$rel" ] || MEM_OWN_SKIPPED=1

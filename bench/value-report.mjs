@@ -41,7 +41,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { performance } from 'node:perf_hooks';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { environment, pct, mem } from './atlas/core.mjs';
 import { buildCorpus, QUERIES as SCALE_QUERIES } from './scale.mjs';
 import { loadCases, loadWorld, askOne, judge } from './gold-compare.mjs';
@@ -49,6 +49,7 @@ import { loadIndex, search } from '../src/search.mjs';
 import * as memory from '../src/memory.mjs';
 import * as raw from '../src/raw.mjs';
 import { redact } from '../src/redaction.mjs';
+import { isMain } from '../src/ismain.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const REPO = path.resolve(HERE, '..');
@@ -988,6 +989,6 @@ async function main() {
   console.log(`wrote ${path.relative(REPO, reportPath)} and the raw JSON files in ${path.relative(REPO, outDir)}`);
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+if (isMain(import.meta.url)) {
   main().catch((e) => { process.stderr.write(`${e.stack || e.message}\n`); process.exit(1); });
 }

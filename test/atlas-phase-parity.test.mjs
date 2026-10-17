@@ -12,6 +12,9 @@
 //   - a phase there that this house lacks, and that is not in `lmOnly`
 //   - a phase there that is new (`newInLm`) without a reason
 //   - an `idMap` entry whose target the list does not carry
+//   - a `luckyMemPending` id the list does not carry, or a phase this house
+//     builds as a stub (a file importing bench/atlas/stub.mjs) that `cmStubs`
+//     does not name, or the other way round
 //
 // The list is fixed on purpose: the sister house is not a dependency of this
 // repository, and a test that reads someone else's checkout passes or fails
@@ -38,11 +41,20 @@ function cmPhaseIds() {
   return [...table.matchAll(/^\s*\['([a-z][a-z0-9-]*)',\s*'\.\/atlas\/phase-[a-z0-9-]+\.mjs'/gm)].map((m) => m[1]);
 }
 
+/** The phase ids whose file is a stub: it imports ./stub.mjs, so it measures nothing and says so. */
+function cmStubIds() {
+  const dir = path.join(REPO, 'bench', 'atlas');
+  return fs.readdirSync(dir).filter((f) => /^phase-.*\.mjs$/.test(f))
+    .filter((f) => /from '\.\/stub\.mjs'/.test(fs.readFileSync(path.join(dir, f), 'utf8')))
+    .map((f) => f.slice(6, -4)).sort();
+}
+
 /**
  * Compare a list of this house's phase ids with the fixed parity list.
  * Returns the problems, as sentences; an empty array is parity.
+ * `stubIds` (optional): the ids whose phase file is a stub, compared with `cmStubs`.
  */
-export function compare(cmIds, parity) {
+export function compare(cmIds, parity, stubIds = null) {
   const problems = [];
   const lm = new Set(parity.luckyMemPhases);
   const idMap = parity.idMap ?? {};
@@ -76,6 +88,18 @@ export function compare(cmIds, parity) {
   }
   for (const id of cmOnly.keys()) if (!cmIds.includes(id)) problems.push(`cmOnly names "${id}", which this house does not have`);
   for (const id of lmOnly.keys()) if (!lm.has(id)) problems.push(`lmOnly names "${id}", which the sister list does not carry`);
+  for (const id of Object.keys(parity.luckyMemPending ?? {})) {
+    if (!lm.has(id)) problems.push(`luckyMemPending names "${id}", which the sister list does not carry`);
+  }
+  const declared = (parity.cmStubs ?? []).map((e) => e.id).sort();
+  for (const e of parity.cmStubs ?? []) {
+    if (typeof e.reason !== 'string' || e.reason.trim().length < 20) problems.push(`stub "${e.id}" has no reason`);
+    if (!cmIds.includes(e.id)) problems.push(`cmStubs names "${e.id}", which this house does not have`);
+  }
+  if (stubIds) {
+    for (const id of stubIds) if (!declared.includes(id)) problems.push(`phase "${id}" is a stub (its file imports stub.mjs) but cmStubs does not name it`);
+    for (const id of declared) if (!stubIds.includes(id)) problems.push(`cmStubs names "${id}", whose file is not a stub (it does not import stub.mjs)`);
+  }
   for (const [from, to] of Object.entries(idMap)) {
     if (!cmIds.includes(from)) problems.push(`idMap names "${from}", which this house does not have`);
     if (!lm.has(to)) problems.push(`idMap maps "${from}" to "${to}", which the sister list does not carry`);
@@ -91,22 +115,37 @@ test('every phase file has a row in bench/atlas.mjs and the other way round', ()
 });
 
 test('the phase ids of the two atlases line up, or every difference is named with a reason', () => {
-  const problems = compare(cmPhaseIds(), PARITY);
+  const problems = compare(cmPhaseIds(), PARITY, cmStubIds());
   assert.deepEqual(problems, [], `\n${problems.join('\n')}\nUpdate test/atlas-phase-parity.json in the same commit as the phase change.`);
 });
 
-test('the scale phase has the same id in both houses and the three phases named in two languages are mapped', () => {
+test('every phase has one id in both houses: the three that had two names are equal now, and no mapping is left', () => {
   const ids = cmPhaseIds();
   assert.ok(ids.includes('skala') && PARITY.luckyMemPhases.includes('skala'));
-  for (const [here, there] of [['identifiers', 'kennungen'], ['bridge', 'bruecke'], ['silent-errors', 'stille-fehler']]) {
-    assert.equal(PARITY.idMap[here], there);
-    assert.ok(ids.includes(here) && PARITY.luckyMemPhases.includes(there), `${here} / ${there}`);
+  for (const id of ['identifiers', 'bridge', 'silent-errors', 'dashboard', 'cost', 'digest', 'net-tempo']) {
+    assert.ok(ids.includes(id) && PARITY.luckyMemPhases.includes(id), id);
   }
+  assert.deepEqual(PARITY.idMap, {});
+  for (const old of ['kennungen', 'bruecke', 'stille-fehler', 'netz-tempo']) assert.ok(!PARITY.luckyMemPhases.includes(old), `${old} is the old German id`);
+});
+
+test('the phases not yet on the sister house\'s main branch are named with their branch, and nothing else is', () => {
+  const pending = PARITY.luckyMemPending;
+  assert.deepEqual(Object.keys(pending).sort(), ['bridge', 'cost', 'dashboard', 'digest', 'identifiers', 'net-tempo', 'silent-errors']);
+  for (const [id, why] of Object.entries(pending)) {
+    assert.match(why, /agent\/atlas-rahmen-lm/, `${id}: the pending note names no branch`);
+    assert.ok(PARITY.luckyMemPhases.includes(id), `${id} is pending but not in the list`);
+  }
+});
+
+test('the phases this house names but has not built are exactly the stub files', () => {
+  assert.deepEqual(PARITY.cmStubs.map((e) => e.id).sort(), ['cost', 'dashboard', 'digest', 'net-tempo']);
+  assert.deepEqual(cmStubIds(), PARITY.cmStubs.map((e) => e.id).sort());
 });
 
 test('every phase only the sister house has is listed with a reason, and the ones this house lacks are exactly those', () => {
   const lmOnly = new Set(PARITY.lmOnly.map((e) => e.id));
-  for (const id of ['wiederherstellung', 'lesekreis', 'weiche', 'netz-tempo', 'partition', 'nutzung', 'guard']) {
+  for (const id of ['wiederherstellung', 'lesekreis', 'weiche', 'partition', 'nutzung', 'guard']) {
     assert.ok(lmOnly.has(id), `${id} is not in lmOnly`);
     assert.ok(PARITY.lmOnly.find((e) => e.id === id).reason.length >= 60, `${id}: the reason is too short to be one`);
   }
@@ -122,6 +161,11 @@ test('positive control: an invented phase here, and a missing one, turn the comp
   assert.ok(noReason.some((p) => p.includes('no reason')), 'a difference without a reason must be named');
   const wrongMap = compare(real, { ...PARITY, idMap: { identifiers: 'nowhere' } });
   assert.ok(wrongMap.some((p) => p.includes('nowhere')), 'a mapping to an id the list lacks must be named');
+  const strayPending = compare(real, { ...PARITY, luckyMemPending: { ...PARITY.luckyMemPending, 'not-there': 'agent/x' } });
+  assert.ok(strayPending.some((p) => p.includes('"not-there"')), 'a pending id the list lacks must be named');
+  const stubs = cmStubIds();
+  assert.ok(compare(real, PARITY, [...stubs, 'load']).some((p) => p.includes('"load"') && p.includes('stub')), 'a stub file cmStubs does not name must be named');
+  assert.ok(compare(real, PARITY, stubs.slice(1)).some((p) => p.includes(`"${stubs[0]}"`)), 'a cmStubs entry whose file is no stub must be named');
 });
 
 test('a new phase in the sister house needs a reason, and with one it is accepted', () => {

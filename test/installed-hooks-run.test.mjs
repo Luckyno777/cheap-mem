@@ -382,7 +382,7 @@ test('control: the same bare run WITHOUT a code path is mute (the probe can fail
 function ps1Hooks() {
   const src = fs.readFileSync(INSTALL_PS1, 'utf8').replace(/\r\n/g, '\n');
   const out = {};
-  const re = /@"\n([\s\S]*?)\n"@ \| Set-Content -LiteralPath \$(\w+)Dst/g;
+  const re = /@"\n([\s\S]*?)\n"@ \| Out-HookScript \$(\w+)Dst/g;
   let m;
   while ((m = re.exec(src))) out[m[2]] = m[1];
   return { src, hooks: out };
@@ -396,9 +396,11 @@ const PS1_VAR = {
 test('windows.ps1: every hook it writes has the CHEAP_MEM_CODE way (static, all platforms)', () => {
   const { src, hooks } = ps1Hooks();
   // The baked paths sit in single-quoted strings: an apostrophe in a path
-  // has to be doubled, or the generated hook does not parse.
-  assert.match(src, /\$CodeHint = \$RepoRoot -replace "'", "''"/, 'the code hint is baked in without escaping an apostrophe');
-  assert.match(src, /\$RootHint = \$env:CHEAP_MEM_ROOT -replace "'", "''"/, 'the memory hint is baked in without escaping an apostrophe');
+  // has to be doubled, or the generated hook does not parse. PowerShell reads the curly
+  // single quotes U+2018..U+201B as quotes too, so all of them are doubled
+  // (test/shim-rest-cm.test.mjs holds the rule itself).
+  assert.match(src, /\$CodeHint = \$RepoRoot -replace \$SingleQuoteChars, '\$0\$0'/, 'the code hint is baked in without escaping an apostrophe');
+  assert.match(src, /\$RootHint = \$env:CHEAP_MEM_ROOT -replace \$SingleQuoteChars, '\$0\$0'/, 'the memory hint is baked in without escaping an apostrophe');
   for (const [name, v] of Object.entries(PS1_VAR)) {
     const body = hooks[v];
     assert.ok(body, `${name}: the here-string for ${v}Dst was not found - the extraction needs updating`);
@@ -446,9 +448,11 @@ test('windows.ps1: the installed .ps1 hooks, started bare, deliver (win32 with p
   for (const name of NAMES) {
     const file = path.join(home, '.claude', 'hooks', `cheap-mem-${name}.ps1`);
     // MEM_BEFORE_EDIT_TRACE: the before-edit lane names where it stopped on stderr (stdout, the contract, is untouched);
-    // runs 1066-1103 said only "ZERO bytes" here, and stderr was never shown.
+    // runs 1066-1103 said only "ZERO bytes" here, and stderr was never shown. MEM_CATCH_FAIL_TRACE and
+    // MEM_SUBAGENT_START_TRACE do the same for the two lanes run 1180 still saw mute with an empty stderr.
+    const trace = { MEM_BEFORE_EDIT_TRACE: '1', MEM_CATCH_FAIL_TRACE: '1', MEM_SUBAGENT_START_TRACE: '1' };
     const r = spawnSync(POWERSHELL, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', file], {
-      input: JSON.stringify(input[name]), encoding: 'utf8', timeout: 120000, env: bareEnv(home, { MEM_BEFORE_EDIT_TRACE: '1' }),
+      input: JSON.stringify(input[name]), encoding: 'utf8', timeout: 120000, env: bareEnv(home, trace),
     });
     try {
       assert.equal(r.status, 0, `${name}: rc ${r.status}\n${r.stderr}`);
