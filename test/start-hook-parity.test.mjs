@@ -35,7 +35,7 @@
 // `mem` directly). Reading the whole file would let those heredocs hide
 // a real SessionStart gap inside a bigger union, or manufacture a false
 // one. `startHookHeredoc()` isolates exactly the block that is piped
-// into `-LiteralPath $startHookDst`.
+// into `Out-HookScript $startHookDst`.
 //
 // **The exemption list stays empty.** Every one of the nine calls the
 // POSIX hook makes has a legitimate Windows equivalent — none of them
@@ -94,9 +94,9 @@ export function powershellCalls(rawText) {
   return out;
 }
 
-/** Just the heredoc piped into `-LiteralPath $startHookDst`. */
+/** Just the heredoc piped into `Out-HookScript $startHookDst`. */
 export function startHookHeredoc(installerText) {
-  const m = installerText.match(/@"[\s\S]*?"@\s*\|\s*Set-Content\s+-LiteralPath\s+\$startHookDst/);
+  const m = installerText.match(/@"[\s\S]*?"@\s*\|\s*Out-HookScript\s+\$startHookDst/);
   return m ? m[0] : '';
 }
 
