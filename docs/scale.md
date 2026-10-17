@@ -124,7 +124,7 @@ almost always the cheaper answer, and it is available today.
 
 This page answers one question — how big can one memory get — from
 `node bench/scale.mjs`, which measures the search path. The wider run is
-`npm run atlas`: every command executed as a process, 12 phases, four
+`npm run atlas`: every command executed as a process, 16 phases, four
 verdicts, and one JSON a later run is diffed against.
 
 Its ceiling phase re-measures the ladder above and then does the thing

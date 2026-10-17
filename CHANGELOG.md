@@ -14,6 +14,21 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Added - atlas frame: four named phases (stubs) and one id per phase in both houses (atlas-rahmen-cm)
+
+Plan step 3 (T3, part 1). No measuring run; the stubs measure nothing.
+- `bench/atlas.mjs` has four new rows: `dashboard`, `cost`, `digest`, `net-tempo` (files `bench/atlas/phase-*.mjs`, helper `bench/atlas/stub.mjs`).
+  A stub writes one `not-measured` record (`<id>.not-built`) and one named blind spot, never `pass`; a run of the stubs alone ends with exit code 3, never 0 (a real run ends with 1 or 3 already; the stubs add four fixed `not-measured` rows).
+  The atlas now has 16 phases (README number recounted).
+- `test/atlas-phase-parity.json`: `luckyMemPhases` is the list after the sister house's rename (`identifiers`, `bridge`, `silent-errors` instead of
+  `kennungen`, `bruecke`, `stille-fehler`; `net-tempo` instead of `netz-tempo`; names confirmed by the sister house) plus `dashboard`, `cost`, `digest`;
+  `idMap` is empty; `luckyMemPending` holds only what is not on the sister house's main yet, with its branch (`agent/atlas-rahmen-lm`);
+  new `cmStubs`; `netz-tempo` leaves `lmOnly`; `recordedOn` 2026-10-17.
+- `test/atlas-phase-parity.test.mjs` also checks `luckyMemPending` and that `cmStubs` equals the files that import `stub.mjs`.
+- `test/atlas-stub-never-passes.test.mjs` (4 tests): each stub on its own, the runner (exit 3, zero passes) and a positive control. Three mutants in
+  `bench/mutation.mjs` (a stub counts as passed; no blind spot; exit 0 instead of 3).
+- The phase comments of `bridge`, `identifiers`, `silent-errors` and `docs/benchmark-atlas.md` no longer speak of a mapping.
+
 ### Fixed - search: the MMR pool has a hard ceiling; the index state is taken from the bytes the build read; a second builder no longer causes a false failure (index-rest-cm; #48 port of lucky-mem `MMR_DECKEL_MAX`, merge 69defe480; #49 cheap-mem only so far, Parity lm=open)
 
 **1. MMR pool (#48).** `mem find --top N` asks the search for 3 x N hits and the MMR pool was ten times that, with no ceiling; `mmrRerank` costs O(pool x selection). Measured (6000 entries, a query that matches most of them, `mem find`, median of 3, load average 6 to 7 on 4 cores):

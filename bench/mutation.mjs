@@ -1990,6 +1990,23 @@ export const MUTANTS=[
    to:"'dry-run', 'allow-writes'  /* MUTANT */",
    tests:['test/bool-switch-help.test.mjs'] },
 
+// atlas-rahmen-cm: a phase that is only named never counts as passed, test/atlas-stub-never-passes.test.mjs
+ { name:"ATLAS-STUB a stub phase counts as passed",
+   file:"bench/atlas/stub.mjs",
+   from:"    verdict: VERDICT.NOT_MEASURED,",
+   to:"    verdict: VERDICT.PASS,  // MUTANT",
+   tests:['test/atlas-stub-never-passes.test.mjs'] },
+ { name:"ATLAS-STUB a stub phase leaves no blind spot",
+   file:"bench/atlas/stub.mjs",
+   from:"  atlas.blind(`phase \"${id}\" (${title})`,",
+   to:"  void (`phase \"${id}\" (${title})`,  // MUTANT",
+   tests:['test/atlas-stub-never-passes.test.mjs'] },
+ { name:"ATLAS-STUB a run with only unmeasured phases ends 0, not 3",
+   file:"bench/atlas.mjs",
+   from:"if (c['not-measured'] > 0) return 3;",
+   to:"if (c['not-measured'] > 0) return 0;  // MUTANT",
+   tests:['test/atlas-stub-never-passes.test.mjs'] },
+
  // index-schwelle-cm (2026-10-17): the absolute bound of the appended stack, the background rebuild with its lock, and the correction on the cache.
  { name:'ISC the absolute bound is off (a fifth only)',
    file:'src/search.mjs',

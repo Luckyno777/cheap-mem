@@ -3,9 +3,9 @@
 // bench/atlas/phase-bridge.mjs — what a connected foreign agent cannot do over
 // the MCP bridge, counted per door.
 //
-// **The phase id.** `bridge`. The sister house (lucky-mem) calls the same
-// phase `bruecke` ("bridge" in German); the mapping is recorded in
-// test/atlas-phase-parity.json.
+// **The phase id.** `bridge`. The sister house (lucky-mem) used to call it
+// `bruecke` and renames it to the same id before its first baseline; the
+// state of that rename is recorded in test/atlas-phase-parity.json.
 //
 // **The question (A1, A3, A4, A6, A12 of the security cross-check).** The
 // bridge (`bin/mem-mcp`) is the one door through which an agent this house
