@@ -39,6 +39,7 @@ import * as pointer from './pointer.mjs';
 import * as injection from './injection.mjs';
 import * as componentHook from './componenthook.mjs';
 import { maskOutput, maskText } from './outputguard.mjs';
+import { hookText } from './hookstdin.mjs';
 
 const ARROW = '↳';
 
@@ -153,7 +154,8 @@ async function pickLines(root, hooked, top) {
  * @param {(s: string) => void} [o.stderr]
  */
 export async function run(o = {}) {
-  const r = await runPlain(o);
+  // A byte order mark is not part of the hook JSON (src/hookstdin.mjs): the PowerShell 5.1 twin delivered one.
+  const r = await runPlain({ ...o, input: hookText(o.input) });
   // The last word: whatever the path of the touched file brings along (`.../ghp_<token>.sh`) is masked on the way out,
   // like every other output of this tool. The entries are masked where they are rendered; the QUERY is not an entry.
   if (r.stdout) r.stdout = maskOutput(r.stdout);

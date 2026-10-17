@@ -25,6 +25,7 @@
 
 import fs from 'node:fs';
 import { isMain } from './ismain.mjs';
+import { readHookStdin } from './hookstdin.mjs';
 import * as memory from './memory.mjs';
 import * as workflow from './workflow.mjs';
 import * as component from './component.mjs';
@@ -247,18 +248,11 @@ async function bashHookResult(root, rawJson, env = process.env) {
   return out;
 }
 
-function readStdin() {
-  return new Promise((resolve) => {
-    let d = '';
-    process.stdin.on('data', (c) => { d += c; }).on('end', () => resolve(d)).on('error', () => resolve(d));
-  });
-}
-
 // `node src/workflowdetect.mjs bash` — the hooks' entry (sh and ps1 alike).
 if (isMain(import.meta.url)) {
   const mode = process.argv[2];
   const root = process.env.CHEAP_MEM_ROOT;
-  readStdin().then(async (raw) => {
+  readHookStdin().then(async (raw) => {
     if (mode === 'bash' && root) {
       const out = await bashHookResult(root, raw);
       if (out) process.stdout.write(JSON.stringify(out));
