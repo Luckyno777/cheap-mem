@@ -46,6 +46,16 @@ are the day the work landed on `main`.
   `test/mutation-shard.test.mjs` holds the slices (every mutant exactly once, for n = 1..7), the skip verdict (sandboxed, a
   sentinel suite proves no full-suite run), bad slices refused with exit 2, and ci.yml's matrix against its `--shard` line.
   The argument check is the one of `agent/werkzeug-rest-cm` with `--shard` added.
+### Fixed - looking at the doctor writes nothing: the append-atomicity record is laid down only by `mem doctor --full` / `--strict` (alarm-record-cm; cheap-mem only)
+
+The record of alarm-tearing-cm was written after every finished measurement, and `doctor.checkAll(root)` measures by default (`full: true`), so collecting the
+agents view, the dashboard, `mem today` or the weekly instrument trace left `.pipeline/append-atomicity.json` behind; `test/agents-d5.test.mjs` probe 3
+("collecting the agents view writes nothing at all") found it (red on the chain before this change). `checkAll` and `environment.checkEnvironment` /
+`checkAppendAtomicity` take a new option `record` (default `false`); only `mem doctor --full` / `--strict` (`src/cli/commands/admin.mjs`) pass `record: true`.
+Every other caller measures as before and writes nothing. Checked by search: the callers of `checkAll` outside the command are `src/measurements.mjs` and the dashboard data
+(`src/dashboard-data.mjs` through `src/today.mjs`); none sets it. Tested in `test/alarm-tearing.test.mjs` (the default `checkAll` runs the probe once and leaves no file;
+the library calls without `record` leave none; `record: true` lays it down) and by three mutants (the default of `record` in the environment check and in `checkAll`
+set to true, and the command no longer asking for it). The effect for the banner is unchanged: the file still comes from `--full`.
 
 ### Fixed - dashboard: the small grey text reaches WCAG AA in both themes (quiet-aa-cm)
 
@@ -89,9 +99,9 @@ a record from another device or another named filesystem (the memory moved) is n
 one (not JSON, wrong shape, directory in its place) is its own note and never a throw. The file can be edited by anybody who can write the clone, so only
 validated fields are read, the time is re-formatted from the parsed number and the filesystem name shown is the live one. A measurement that did not
 finish (writers timed out) leaves the earlier record alone. No new environment variable.
-Who writes the record: every caller that measures, not only the `mem doctor --full` command. The dashboard (`src/dashboard-data.mjs`) and the weekly
-instrument trace (`src/measurements.mjs`) call `doctor.checkAll(root)`, whose library default is `full: true`, so they leave it too. Who removes a torn
-verdict: only a later clean measurement (`--full`, `--strict`, or one of those two callers) replaces it, and that is the only way out; a short clean run
+Who writes the record: only an explicit call, `mem doctor --full` / `--strict` (`doctor.checkAll(root, { record: true })`, default `false`; see the entry
+on alarm-record-cm above). The dashboard, `mem today` and the weekly instrument trace call `checkAll(root)` and measure as before but leave nothing behind. Who removes a torn
+verdict: only a later clean `--full` / `--strict` measurement replaces it, and that is the only way out; a short clean run
 shows that no tearing happened, not that none can, so a torn entry is not aged out and a clean record never alarms. The record is only read within a bound: it must
 be a plain file of at most 4096 bytes (it is about 250), checked with `stat` before it is opened and again on the bounded read; a device behind a symlink
 (a symlink to `/dev/zero` ran into `bad_alloc` under a memory limit in review), a pipe, a directory or an oversize file is not read and gets its own note

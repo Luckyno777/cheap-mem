@@ -416,12 +416,14 @@ function guardedAll(fnName, checks) {
 const DRAWER_MEMO_HEAP_DIVISOR = 10;
 export function drawerMemoBytes() { return v8.getHeapStatistics().heap_size_limit / DRAWER_MEMO_HEAP_DIVISOR; }
 
-export function checkAll(root, { memo = true, full = true } = {}) {
+export function checkAll(root, { memo = true, full = true, record = false } = {}) {
   // `full: false` leaves out the one measuring probe of the run, the concurrent-append writers
   // (`env/append-atomicity`), which then reports UNKNOWN with the way to run it, never `ok`
   // (cli-speed-cm TB7). The default measures, as before; `mem doctor` passes it from `--full`.
   // A verdict `--full` MEASURED earlier is kept in `.pipeline/append-atomicity.json` and read back here without
   // measuring: a torn one on the same mount stays an error (alarm-tearing-cm; src/environment.mjs `readAppendRecord`).
+  // `record: true` is what lays that file down after a finished measurement, and ONLY an explicit call sets it (`mem doctor
+  // --full/--strict`): looking (dashboard, `mem today`, the instrument trace, the agents view) writes nothing (alarm-record-cm).
   // One doctor run = one index context: the full index is built AT MOST
   // ONCE, however many findings read it (see `doctorIndex`), and every
   // drawer file is read and parsed ONCE however many findings walk it
@@ -430,12 +432,12 @@ export function checkAll(root, { memo = true, full = true } = {}) {
   RUN_INDEX = { root, result: null };
   try {
     return memo
-      ? drawermemo.runWithMemo({ maxBytes: drawerMemoBytes() }, () => checkAllCore(root, { full }))
-      : checkAllCore(root, { full });
+      ? drawermemo.runWithMemo({ maxBytes: drawerMemoBytes() }, () => checkAllCore(root, { full, record }))
+      : checkAllCore(root, { full, record });
   } finally { RUN_INDEX = before; }
 }
 
-function checkAllCore(root, { full = true } = {}) {
+function checkAllCore(root, { full = true, record = false } = {}) {
   const f = [];
   f.push(guarded('checkRoot', () => checkRoot(root)));
   f.push(guarded('checkConfig', () => checkConfig(root)));
@@ -483,7 +485,7 @@ function checkAllCore(root, { full = true } = {}) {
   f.push(guarded('checkEntryForm', () => checkEntryForm(root)));
   f.push(guarded('checkGitignoreEffective', () => checkGitignoreEffective(root)));
   f.push(guarded('checkRollback', () => checkRollback(root)));
-  f.push(...guardedAll('checkEnvironmentContract', () => checkEnvironmentContract(root, { full })));
+  f.push(...guardedAll('checkEnvironmentContract', () => checkEnvironmentContract(root, { full, record })));
   f.push(guarded('checkCorpusSize', () => checkCorpusSize(root)));
   f.push(guarded('checkAppendOnlyGit', () => checkAppendOnlyGit(root)));
   f.push(guarded('checkFindingParity', () => checkFindingParity(root)));
@@ -2600,9 +2602,9 @@ export function checkIntegrity(root) {
  * always returns — that result is simply not the one this function
  * reports under `env/clock`.
  */
-export function checkEnvironmentContract(root, { full = true } = {}) {
+export function checkEnvironmentContract(root, { full = true, record = false } = {}) {
   let checks;
-  try { checks = environment.checkEnvironment(root, { full }); }
+  try { checks = environment.checkEnvironment(root, { full, record }); }
   catch { return [finding('environment', LEVEL.UNKNOWN, 'environment could not be checked')]; }
 
   const mapped = checks.filter((c) => c.name !== 'clock').map((c) => {
