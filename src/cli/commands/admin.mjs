@@ -95,7 +95,7 @@ export const COMMANDS = {
     // `config: error` by itself — verified before this change.
     // The append probe runs on `--full`, and under `--strict`: there an unverifiable guarantee is a
     // failure, so leaving the probe out would turn the documented CI command red.
-    const result = doctor.checkAll(root, { full: Boolean(args.full || args.strict) });
+    const result = doctor.checkAll(root, { full: Boolean(args.full || args.strict), record: true });
 
     // The automatic tick (P21, 2026-09-20): every `mem doctor` run that
     // comes back with no ERROR advances the rollback watermark to the

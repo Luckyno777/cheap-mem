@@ -151,6 +151,7 @@ directory. The section number in brackets is where it is explained.
 | `guard.mjs` | a recorded error becomes a latch (10.2) |
 | `guardgaps.mjs` | ranks the errors that have NO guard (`mem guard gaps`): a guarded error is a filter, never a gap; repetition, an open duty and age only order the unguarded ones; reads, writes nothing |
 | `heartbeat.mjs` | running, or just nothing to do (10.3) |
+| `hookstdin.mjs` | the one stdin reader of the hook cores: bytes decoded once, a byte order mark and blanks in front dropped (Windows PowerShell 5.1 piped a UTF-8 BOM in front of the hook JSON; CI run 1141) |
 | `http-limits.mjs` | hard limits for every HTTP service that listens (`hardenServer`: head 10 s, request 30 s, 100 header lines, a check every 2 s, `maxConnections` per service) against slow headers, a dripping body and a connection flood; they bound only the receiving of a request, so a long answer is not cut (`docs/security-model.md`, "HTTP service limits") |
 | `hybrid.mjs` | BM25 and semantic recall, fused by RRF (2) |
 | `icon.mjs` | the mark, drawn in code |

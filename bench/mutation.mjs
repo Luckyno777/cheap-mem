@@ -296,9 +296,27 @@ export const MUTANTS=[
    to:'      void n;  // MUTANT: a file that grew after the look is taken as it is',
    tests:['test/alarm-tearing.test.mjs'] },
 
+ { name:'alarm-record: the record default of the environment check is true (a view writes the file)',
+   file:'src/environment.mjs',
+   from:'measure = true, record = false, ...probeOpts } = opts;',
+   to:'measure = true, record = true, ...probeOpts } = opts;  // MUTANT: looking writes',
+   tests:['test/alarm-tearing.test.mjs'] },
+
+ { name:'alarm-record: checkAll records by default (the dashboard and the instrument trace write the file)',
+   file:'src/doctor.mjs',
+   from:'export function checkAll(root, { memo = true, full = true, record = false } = {}) {',
+   to:'export function checkAll(root, { memo = true, full = true, record = true } = {}) {  // MUTANT',
+   tests:['test/alarm-tearing.test.mjs','test/agents-d5.test.mjs'] },
+
+ { name:'alarm-record: mem doctor --full does not ask for the record',
+   file:'src/cli/commands/admin.mjs',
+   from:'full: Boolean(args.full || args.strict), record: true });',
+   to:'full: Boolean(args.full || args.strict), record: false });  // MUTANT',
+   tests:['test/alarm-tearing.test.mjs'] },
+
  { name:'alarm-tearing: --full keeps no record',
    file:'src/environment.mjs',
-   from:'  if (probe.measured) writeAppendRecord(root, probe, { fsType });',
+   from:'  if (probe.measured && record) writeAppendRecord(root, probe, { fsType });',
    to:'  void writeAppendRecord;  // MUTANT: the verdict is not kept',
    tests:['test/alarm-tearing.test.mjs'] },
 
@@ -1355,19 +1373,19 @@ export const MUTANTS=[
    file:"assets/dashboard/dashboard.js",
    from:"(typeof state === 'string' && state !== 'set' ? `unknown (${state})` : ",
    to:"(false ? `unknown (${state})` : ",
-   tests:['test/card-byline-ui-cm-browser.test.mjs'] },
+   tests:['test/card-byline-ui-cm.test.mjs', 'test/card-byline-ui-cm-browser.test.mjs'] },
 
  { name:"BYLINE-UI the dashboard reads the rank from origin, not from the byline",
    file:"assets/dashboard/dashboard.js",
    from:"tier ${ce(rankWord(b.rank, b.rank_state))}",
    to:"tier ${ce(rankWord(o.rank))}",
-   tests:['test/card-byline-ui-cm-browser.test.mjs'] },
+   tests:['test/card-byline-ui-cm.test.mjs', 'test/card-byline-ui-cm-browser.test.mjs'] },
 
  { name:"BYLINE-UI the configured human's name drops the agent hint",
    file:"assets/dashboard/dashboard.js",
    from:"const note = o.rank === 'user' ? '' : ",
    to:"const note = o.rank === 'user' || b.name === 'user' ? '' : ",
-   tests:['test/card-byline-ui-cm-browser.test.mjs'] },
+   tests:['test/card-byline-ui-cm.test.mjs', 'test/card-byline-ui-cm-browser.test.mjs'] },
  { name:'K1 the question query cuts an identifier at the underscore again',
    file:'src/search.mjs',
    from:"    .split(/[^a-z0-9_\\u00e4\\u00f6\\u00fc\\u00df]+/)",
@@ -1807,6 +1825,63 @@ export const MUTANTS=[
    from:"  'Bash(*CHEAP_MEM_PROVISION*)',\n",
    to:"  // MUTANT\n",
    tests:['test/own-tool.test.mjs'] },
+
+ // quiet-aa-cm: the small grey text reaches WCAG AA (4.5:1) on every surface, light and dark.
+ { name:'quiet AA: the light theme gets its old --quiet back (#617869, 3.85 on a figure tile)',
+   file:'assets/dashboard/dashboard.css',
+   from:'--muted:#51695a;--quiet:#566a5d;',
+   to:'--muted:#51695a;--quiet:#617869;',
+   tests:['test/quiet-aa-cm-browser.test.mjs'] },
+ { name:'quiet AA: the dark theme gets its old --quiet back (#91a699, 4.30 on a figure tile)',
+   file:'assets/dashboard/dashboard.css',
+   from:'--muted:#a7b8ae;--quiet:#99aca0;',
+   to:'--muted:#a7b8ae;--quiet:#91a699;',
+   tests:['test/quiet-aa-cm-browser.test.mjs'] },
+ { name:'quiet AA: the light theme keeps the dark .content tint (page top grey, --muted 4.13)',
+   file:'assets/dashboard/dashboard.css',
+   from:'.light .content{background:none}',
+   to:'.light .content{}',
+   tests:['test/quiet-aa-cm-browser.test.mjs'] },
+ { name:'quiet AA: the dark fabric stage takes the light --quiet in the light theme (2.3 on the stage)',
+   file:'assets/dashboard/dashboard.css',
+   from:'.light .fabric-stage{--quiet:#99aca0}',
+   to:'.light .fabric-stage{}',
+   tests:['test/quiet-aa-cm-browser.test.mjs'] },
+ { name:"codex-cloud: a failed write takes back folders RECURSIVELY",
+   file:"src/codexcloud.mjs",
+   from:"try { fs.rmdirSync(p); }",
+   to:"try { fs.rmSync(p, { recursive: true }); }  /* MUTANT: deletes what is in it */ ",
+   tests:['test/codex-cloud-skill.test.mjs'] },
+ { name:"codex-cloud: the report says .gitignore was put back though it was never touched",
+   file:"src/codexcloud.mjs",
+   from:"const gi = !changed ? [] :",
+   to:"const gi = false ? [] :",
+   tests:['test/codex-cloud-skill.test.mjs'] },
+ { name:"codex-cloud: a failing restore after a failed skill write masks the first error",
+   file:"src/codexcloud.mjs",
+   from:"const notBack = changed ? tryRestoreGi() : null;",
+   to:"const notBack = changed ? (restoreGi(), null) : null;  // MUTANT: a throw here replaces the error",
+   tests:['test/codex-cloud-skill.test.mjs'] },
+ { name:"codex-cloud: a failing restore after a failed ignore check masks the first error",
+   file:"src/codexcloud.mjs",
+   from:"const notBack = tryRestoreGi();",
+   to:"const notBack = (restoreGi(), null);  // MUTANT: a throw here replaces the error",
+   tests:['test/codex-cloud-skill.test.mjs'] },
+ { name:"due-one-place: the pattern has no destructuring branch (`const { due } = d` is not found)",
+   file:"shared/calculations.jsonl",
+   from:"|\\\\{(?:[^{}]*,)?\\\\s*['\\\\\\\"]?(?:due|due_date|until|deadline)['\\\\\\\"]?\\\\s*(?:[:=][^{},]*)?(?:,[^{}]*)?\\\\}\\\\s*(?:=(?![=>])|of\\\\b|\\\\)\\\\s*=>)",
+   to:"",
+   tests:['test/due-core.test.mjs'] },
+ { name:"due-one-place: the pattern has no bracket-access branch (`d[\"due\"]` is not found)",
+   file:"shared/calculations.jsonl",
+   from:"|\\\\[\\\\s*['\\\\\\\"`](?:due|due_date|until|deadline)['\\\\\\\"`]\\\\s*\\\\]",
+   to:"",
+   tests:['test/due-core.test.mjs'] },
+ { name:"due-one-place: the pattern has no `due ?? by` branch (the alias fallback is not found)",
+   file:"shared/calculations.jsonl",
+   from:"|\\\\b(?:due|due_date|until|deadline)\\\\b\\\\s*(?:\\\\?\\\\?|\\\\|\\\\|)\\\\s*(?:\\\\w+\\\\??\\\\.)?by\\\\b",
+   to:"",
+   tests:['test/due-core.test.mjs'] },
  { name:"answer-budget: a part never steps down to its pointer",
    file:"src/answerbudget.mjs",
    from:"for (let f = 0; f < upto; f += 1) {",
@@ -1969,6 +2044,37 @@ export const MUTANTS=[
    from:". (Join-Path $PSScriptRoot '_headless.ps1')",
    to:"Invoke-Expression \". $PSScriptRoot\\_headless.ps1\"",
    tests:['test/shim-rest-cm.test.mjs'] },
+ // CI run 1141: Windows PowerShell 5.1 put a BOM in front of the hook JSON (src/hookstdin.mjs).
+ { name:'hookstdin: the byte order mark in front of the hook JSON is kept',
+   file:'src/hookstdin.mjs',
+   from:"  return typeof raw === 'string' ? raw.replace(/^[\\uFEFF\\s]+/, '') : '';",
+   to:"  return typeof raw === 'string' ? raw : '';  // MUTANT",
+   tests:['test/hook-stdin-bom.test.mjs'] },
+ { name:'hookstdin: stdin decoded chunk by chunk again (a cut character torn)',
+   file:'src/hookstdin.mjs',
+   from:"    const done = () => resolve(hookText(Buffer.concat(chunks).toString('utf8')));",
+   to:"    const done = () => resolve(hookText(chunks.join('')));  // MUTANT",
+   tests:['test/hook-stdin-bom.test.mjs'] },
+ { name:'subagentstart: hookResultFor parses the raw text with its BOM',
+   file:'src/subagentstart.mjs',
+   from:"    const j = JSON.parse(hookText(String(rawJson ?? ''))); // no BOM in front (src/hookstdin.mjs)",
+   to:"    const j = JSON.parse(String(rawJson ?? '')); // MUTANT",
+   tests:['test/hook-stdin-bom.test.mjs'] },
+ { name:'beforeedit: run() hands the input on with its BOM',
+   file:'src/beforeedit.mjs',
+   from:"  const r = await runPlain({ ...o, input: hookText(o.input) });",
+   to:"  const r = await runPlain(o);  // MUTANT",
+   tests:['test/hook-stdin-bom.test.mjs'] },
+ { name:'mem-catch-fail.ps1: the check snippet parses its stdin with the BOM',
+   file:'bin/mem-catch-fail.ps1',
+   from:'let j; try { j = JSON.parse(d.replace(/^[\\uFEFF\\s]+/, "")); } catch { process.exit(0); }',
+   to:'let j; try { j = JSON.parse(d); /* MUTANT */ } catch { process.exit(0); }',
+   tests:['test/hook-stdin-bom.test.mjs'] },
+ { name:'mem-before-edit.ps1: the console input encoding is fixed for the wrong code page',
+   file:'bin/mem-before-edit.ps1',
+   from:'try { if ([Console]::InputEncoding.CodePage -eq 65001 -and',
+   to:'try { if ([Console]::InputEncoding.CodePage -eq 1252 -and',
+   tests:['test/hook-stdin-bom.test.mjs'] },
 ];
 
 // The modules whose failure is a security or data-integrity failure. The
@@ -1980,6 +2086,45 @@ const SECURITY_MODULES = Object.freeze([
   'redaction', 'login', 'webauth', 'capability', 'chain', 'shred', 'append',
   'claim', 'writegate', 'pathcheck', 'filelock', 'inbox', 'guard', 'owntool',
 ].map((m) => `src/${m}.mjs`));
+
+// **Slices of the sweep (CI run 1141).** The whole catalogue, one mutant
+// after the other, ran past the guarantees job's 25-minute limit: 198
+// mutants in 16 minutes, with about 100 still to go. `--shard=i/n` sweeps
+// every n-th mutant starting at the i-th (round robin over the catalogue
+// order, AFTER `--only`/`--security`), so n jobs together sweep each mutant
+// exactly once, and the slow neighbours (a run of suites that each start
+// processes) are spread over all slices instead of landing in one.
+// `parseShard` returns null for anything that is not `i/n` with
+// 1 <= i <= n; the caller refuses that before anything runs.
+export function parseShard(text) {
+  const m = /^([1-9][0-9]*)\/([1-9][0-9]*)$/.exec(String(text ?? ''));
+  if (!m) return null;
+  const i = Number(m[1]), n = Number(m[2]);
+  return i <= n ? { i, n } : null;
+}
+export function shardOf(list, shard) {
+  return shard ? list.filter((_, k) => k % shard.n === shard.i - 1) : list;
+}
+
+// **A passing suite that skipped tests cannot judge a mutant (CI run 1141).**
+// Twice a mutant was checked only by a browser probe (runs 1103 and
+// 1141). The guarantees job has no Chromium, the probe skipped, its suite
+// passed, and the mutant looked like a survivor: the harness then re-ran
+// the WHOLE suite to find out whether anything else caught it - 7 to 8
+// minutes per mutant, where the browser probe skipped again - and the job
+// hit its limit before it could say anything. Now the harness reads the
+// TAP summary of the mutant's own run: not caught AND tests skipped means
+// "not judged here", reported with the first skip reason, counted like an
+// anchor that never applied (exit 1), and no full-suite run is spent on it.
+// The remedy is a suite that runs where the sweep runs (for a browser
+// probe: its logic half, as test/dash-later-once-cm.test.mjs and
+// test/card-byline-ui-cm.test.mjs are).
+export function skipsOf(tap) {
+  const text = String(tap ?? '');
+  const n = Number(/^# skipped (\d+)$/m.exec(text)?.[1] ?? 0);
+  const reason = /^\s*ok \d+ - .*?# SKIP\b ?(.*)$/m.exec(text)?.[1]?.trim() || null;
+  return { skipped: n, reason };
+}
 
 // **The catalogue is importable; none of the rest of this file is.**
 //
@@ -2007,13 +2152,59 @@ const RUN_AS_SCRIPT = process.argv[1]
 
 if (RUN_AS_SCRIPT) {
 
+// **Arguments are checked BEFORE anything runs.** This file used to know
+// two switches and ignore every other word, so `node bench/mutation.mjs
+// --help` was read as "no switch" and started the FULL sweep, which
+// rewrites source files in the working tree one mutant at a time. That
+// happened twice on 2026-10-17, to people who only wanted the usage text.
+// Now `--help`/`-h` prints the usage and exits 0 having touched nothing,
+// and anything this file does not know is refused loudly with exit 2,
+// also before anything is touched. The known switches are exactly the
+// three that are read below.
+{
+  const args=process.argv.slice(2);
+  if(args.includes('--help') || args.includes('-h')){
+    console.log([
+      'Usage: node bench/mutation.mjs [--security | --only=<file>[,<file>...]] [--shard=<i>/<n>]',
+      '',
+      '  (no switch)        sweep EVERY mutant, then run the full suite once per',
+      '                     survivor candidate. Slow. Rewrites source files in',
+      '                     the working tree one at a time and restores them.',
+      '  --security         sweep only the security-relevant modules',
+      '  --only=<files>     sweep only the mutants on these comma-separated',
+      '                     paths, e.g. --only=src/authority.mjs',
+      '  --shard=<i>/<n>    sweep only every n-th of those mutants, starting at',
+      '                     the i-th (1 <= i <= n); n runs together cover each',
+      '                     mutant once. CI runs the sweep as n such slices.',
+      '  --help, -h         print this text and exit; touches nothing',
+      '',
+      'Run it in your own working tree or a scratch copy. Exit codes: 0 all',
+      'mutants caught, 1 a mutant survived or did not run, 2 bad arguments.',
+    ].join('\n'));
+    process.exit(0);
+  }
+  const unknown=args.filter((a)=>a!=='--security' && !a.startsWith('--only=') && !a.startsWith('--shard='));
+  if(unknown.length){
+    console.error(`bench/mutation.mjs: unknown argument${unknown.length===1?'':'s'}: ${unknown.join(' ')}`);
+    console.error('Nothing was touched. Known: --security, --only=<files>, --shard=<i>/<n>, --help. Try --help.');
+    process.exit(2);
+  }
+  const shards=args.filter((a)=>a.startsWith('--shard='));
+  if(shards.length>1 || (shards.length===1 && !parseShard(shards[0].slice(8)))){
+    console.error(`bench/mutation.mjs: bad slice: ${shards.join(' ')} (wanted once: --shard=<i>/<n>, 1 <= i <= n)`);
+    console.error('Nothing was touched. Try --help.');
+    process.exit(2);
+  }
+}
+
 // `--security` or `--only=src/a.mjs,src/b.mjs`: sweep a subset, run only its
 // own suites. A survivor is then judged against ITS suites alone (no full
 // run to tell "caught elsewhere" from "survived"): it is reported as
 // SURVIVED and the person decides - a missing test, or an equivalent mutant.
 const ONLY=process.argv.includes('--security') ? SECURITY_MODULES
   : (process.argv.find((a)=>a.startsWith('--only='))?.slice(7).split(',').filter(Boolean) ?? null);
-const SWEEP=ONLY ? MUTANTS.filter((m)=>ONLY.includes(m.file)) : MUTANTS;
+const SHARD=parseShard(process.argv.find((a)=>a.startsWith('--shard='))?.slice(8));
+const SWEEP=shardOf(ONLY ? MUTANTS.filter((m)=>ONLY.includes(m.file)) : MUTANTS, SHARD);
 const perModule=new Map();
 
 // A mutant counts as caught when the tests fail. So on a suite that is
@@ -2024,7 +2215,9 @@ const perModule=new Map();
 // broken is worse than none.
 {
   const suites=[...new Set(SWEEP.flatMap((m)=>m.tests))];
-  try{ execFileSync('node',['--test',...suites],{cwd:ROOT,stdio:['ignore','pipe','pipe'],encoding:'utf8'}); }
+  // `--test-reporter=tap` on every run whose output is READ (here the `not ok` blocks, below the
+  // skip count of `skipsOf`): the default reporter is Node's choice and may change; TAP is named.
+  try{ execFileSync('node',['--test','--test-reporter=tap',...suites],{cwd:ROOT,stdio:['ignore','pipe','pipe'],encoding:'utf8'}); }
   catch(e){
     const out=String(e.stdout||'');
     // The TAP block under a failing test - location, error, the diff -
@@ -2066,7 +2259,7 @@ const perModule=new Map();
   }
 }
 
-let survived=0, skipped=0, ambiguous=0, misScoped=0;
+let survived=0, skipped=0, ambiguous=0, misScoped=0, notJudged=0;
 
 // A killed run used to leave the mutant on disk — the header claims every
 // file is restored "including on failure", and SIGINT is a failure. One
@@ -2101,14 +2294,22 @@ for(const m of SWEEP){
   if(hits>1){ ambiguous++; console.log(`${m.name.padEnd(48)} | ANCHOR AMBIGUOUS (${hits}x) — only the first would mutate`); continue; }
   inFlight={path:p, orig};
   fs.writeFileSync(p, orig.replace(m.from,m.to));
-  let failed=false, detail='';
+  let failed=false, detail='', own='';
   try{
-    execFileSync('node',['--test',...m.tests],{cwd:ROOT,stdio:['ignore','pipe','pipe'],encoding:'utf8'});
+    own=execFileSync('node',['--test','--test-reporter=tap',...m.tests],{cwd:ROOT,stdio:['ignore','pipe','pipe'],encoding:'utf8'});
   }catch(e){
     failed=true;
     const out=String(e.stdout||'');
     const n=(out.match(/^not ok /gm)||[]).length;
     detail=` (${n} test${n===1?'':'s'})`;
+  }
+  const skips=failed ? null : skipsOf(own);
+  if(skips && skips.skipped>0){
+    restore();
+    notJudged++;
+    console.log(`${m.name.padEnd(48)} | NOT JUDGED HERE — its suites passed with ${skips.skipped} test${skips.skipped===1?'':'s'} skipped`
+      + `${skips.reason?` (${skips.reason})`:''}; name a suite that runs here, NOT a pass`);
+    continue;
   }
   let elsewhere=false;
   if(!failed && !ONLY){
@@ -2124,8 +2325,9 @@ for(const m of SWEEP){
 }
 
 const applied=SWEEP.length-skipped-ambiguous;
-console.log(`\n${applied-survived}/${applied} applied mutants caught by tests`
-  + ` (of ${SWEEP.length} defined; ${skipped} anchor gone, ${ambiguous} ambiguous).`);
+console.log(`\n${applied-survived-notJudged}/${applied} applied mutants caught by tests`
+  + ` (of ${SWEEP.length} ${SHARD?`in slice ${SHARD.i}/${SHARD.n} of ${MUTANTS.length} `:''}defined;`
+  + ` ${skipped} anchor gone, ${ambiguous} ambiguous${notJudged?`, ${notJudged} not judged here`:''}).`);
 if(ONLY){
   console.log('\nCaught mutants per module (the measure that matters):');
   for(const [f,r] of [...perModule].sort()) console.log(`  ${f.padEnd(24)} ${r.caught}/${r.total}`);
@@ -2133,6 +2335,7 @@ if(ONLY){
 if(survived) console.log(`${survived} surviving mutant(s) = ${survived} guarantee(s) that exist only in documentation.`);
 if(skipped||ambiguous) console.log(`${skipped+ambiguous} mutant(s) did not run. An untested guarantee is not a kept one — re-anchor them.`);
 if(misScoped) console.log(`${misScoped} mutant(s) name the wrong suite: the guarantee is kept, the bookkeeping is not.`);
-if(survived||skipped||ambiguous) process.exitCode = 1;
+if(notJudged) console.log(`${notJudged} mutant(s) were not judged: their suites passed only by skipping. A skipped probe keeps no guarantee here.`);
+if(survived||skipped||ambiguous||notJudged) process.exitCode = 1;
 
 }

@@ -27,6 +27,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { tempDir } from './temp-dir.mjs';
+import { bashFile } from './helpers/bash-file.mjs';
 import * as memory from '../src/memory.mjs';
 import { waitForRebuildIdle } from '../src/component-table.mjs';
 
@@ -52,31 +53,36 @@ const WIN = process.platform === 'win32';
 // Every variable the lookups read: the probe sets them, nothing of the test run may decide them.
 const UNDER_TEST = ['HOME', 'CHEAP_MEM_ROOT', 'MEM_RETRIEVE_ROOTS', 'MEM_STOP_ROOTS'];
 
+/** The definition every hook carries, as the hooks write it (one backslash pattern). */
+const PRELUDE = `set -u\nto_slashes() { printf '%s' "\${1//\\\\//}"; }\n`;
+
+// The scripts go to bash as FILES (test/helpers/bash-file.mjs), the way a hook runs, never as `bash -c <script>`.
+// Windows (CI runs 1066-1141): through `-c` the MSYS runtime read the prelude's `\\` as one backslash, so to_slashes
+// deleted every slash, every root pointed nowhere, and the probe blamed HOME. The hooks themselves never meet this
+// (the END TO END probe below was green on the same runner). `the instrument` below holds it, on every platform.
+
 /**
  * Run a lookup snippet; returns what ROOT came out as.
  *
- * Windows (CI run 1074): Git Bash turns a Windows HOME into its POSIX form when it starts (the drive path of the
- * user temp directory came back as /tmp/x in the compile-cache probe), and started with nothing but PATH and HOME it found no memory under
- * that form - while the end-to-end run below, which keeps the test run's environment, found it from the same HOME.
- * So on Windows the shell gets the environment a hook really gets (the test run's, minus the variables under test),
- * and a ROOT that came out is handed back in the Windows form (`pwd -W`), so the caller can compare the DIRECTORY
- * (`same` below) instead of two spellings of it. Everywhere else: PATH only, and the string is compared as it is.
+ * Windows (CI run 1074): Git Bash turns a Windows HOME into its POSIX form when it starts, so on Windows the shell
+ * gets the environment a hook really gets (the test run's, minus the variables under test), and a ROOT that came out
+ * is handed back in the Windows form (`pwd -W`), so the caller can compare the DIRECTORY (`same` below) instead of two
+ * spellings of it. Everywhere else: PATH only, and the string is compared as it is.
  */
 function find(snippet, env) {
   const back = WIN ? '\n[ -n "$ROOT" ] && ROOT="$(cd "$ROOT" && pwd -W)"' : '';
-  const script = `set -u\nto_slashes() { printf '%s' "\${1//\\\\//}"; }\nROOT=""\n${snippet}${back}\nprintf '%s' "$ROOT"`;
+  const script = `${PRELUDE}ROOT=""\n${snippet}${back}\nprintf '%s' "$ROOT"`;
   const base = { PATH: process.env.PATH };
   if (WIN) {
     Object.assign(base, process.env);
     for (const k of Object.keys(base)) if (UNDER_TEST.includes(k.toUpperCase())) delete base[k];
   }
   const given = { ...env };
-  // Windows (CI run 1103): HOME and USERPROFILE name the same home on every Windows machine, and the hook gets them in
-  // the Windows spelling - exactly what the END TO END probe below hands over, and that one finds the memory from the
-  // same HOME. With HOME alone, in slashes, next to the runner's own USERPROFILE, these lookups found nothing (red
-  // since run 1066) - a world no hook runs in, not the finding this probe is about.
+  // Windows: HOME and USERPROFILE name the same home on every Windows machine, and a hook gets them in the Windows
+  // spelling - what the END TO END probe below hands over (CI run 1103). Kept: it is the world a hook runs in. It was
+  // not why these lookups found nothing - that was the instrument (see PRELUDE above).
   if (WIN && given.HOME && !given.HOME.startsWith('/')) given.HOME = given.USERPROFILE = path.win32.normalize(given.HOME);
-  const r = spawnSync('bash', ['-c', script], { encoding: 'utf8', env: { ...base, ...given } });
+  const r = bashFile(script, { env: { ...base, ...given } });
   assert.equal(r.status, 0, `${r.stderr}\n--- script ---\n${script}`);
   return r.stdout;
 }
@@ -117,8 +123,18 @@ for (const [name, rootsVar] of Object.entries(HOOKS)) {
   });
 }
 
+test('the instrument: the prelude reaches bash as written - to_slashes turns backslashes into slashes and keeps the slashes', () => {
+  const r = bashFile(`${PRELUDE}printf '%s' "$(to_slashes 'X:\\one\\a b/c')"`, { env: { PATH: process.env.PATH } });
+  assert.equal(r.status, 0, r.stderr);
+  // Through `bash -c` on Windows this came back as `X:\one\a bc` (the slash deleted): every probe here measured nothing.
+  assert.equal(r.stdout, 'X:/one/a b/c');
+});
+
 test('POSITIVE CONTROL: the OLD loop (unquoted $PROBE) does not find the memory in the same world', (t) => {
-  const { home } = world(t);
+  const { home, root } = world(t);
+  // The control is only worth something if the same instrument finds the memory with the loop as it is today.
+  const today = lookup(fs.readFileSync(path.join(REPO, 'bin', 'mem-retrieve'), 'utf8')).replace(/\n\s*trace "[^\n]*\n/g, '\n');
+  same(find(today, { HOME: sl(home) }), sl(root), 'the instrument does not find the memory with today\'s loop - the control below measures nothing');
   const old = `PROBE="\${MEM_RETRIEVE_ROOTS:-$HOME/cheap-mem}"\nfor k in "\${CHEAP_MEM_ROOT:-}" $PROBE; do\n  [ -z "$k" ] && continue\n  k="$(to_slashes "$k")"\n  [ -f "$k/.mem/config.json" ] && { ROOT="$k"; break; }\ndone`;
   assert.equal(find(old, { HOME: sl(home) }), '', 'the old loop found it - the scenario does not trigger the bug, the probe measures nothing');
   assert.equal(find(old, { HOME: '/nonexistent', MEM_RETRIEVE_ROOTS: '/x' }), '');
@@ -130,6 +146,8 @@ test('MUTATION: each hook with the loop made unquoted again fails the probe', (t
     const text = fs.readFileSync(path.join(REPO, 'bin', name), 'utf8');
     const loop = 'for k in "${CHEAP_MEM_ROOT:-}" ${PROBE_LIST[@]+"${PROBE_LIST[@]}"}; do';
     assert.equal(text.split(loop).length, 2, `${name}: the loop line the mutation hits moved`);
+    const unmutated = lookup(text).replace(/\n\s*trace "[^\n]*\n/g, '\n');
+    assert.notEqual(find(unmutated, { HOME: sl(home) }), '', `${name}: the unmutated loop finds nothing either - the mutation would prove nothing`);
     const mutated = lookup(text.replace(loop, 'for k in "${CHEAP_MEM_ROOT:-}" $PROBE; do')).replace(/\n\s*trace "[^\n]*\n/g, '\n');
     assert.equal(find(mutated, { HOME: sl(home) }), '', `${name}: the mutated (unquoted) loop still found the memory`);
     assert.ok(rootsVar);

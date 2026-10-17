@@ -477,7 +477,9 @@ enforced fails the build rather than waiting for someone to audit it.
 | `npm run atlas` | the full-surface run: every command executed as a process, 12 phases, four verdicts — including `not-measured`, which is not a pass |
 
 Each of these also refuses to pass for the wrong reason: mutation needs a
-green baseline and will not credit a mutant it could not apply, and every
+green baseline and will not credit a mutant it could not apply or whose
+suites passed only by skipping (CI sweeps it in four parallel slices,
+`node bench/mutation.mjs --shard=i/4`), and every
 adversarial bench asserts that its own fixture is non-degenerate before it
 reports anything. That is not decoration — wiring this into CI found three
 defects in the measuring instruments themselves, described in
