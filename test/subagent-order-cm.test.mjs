@@ -65,7 +65,7 @@ test('A1: holdBack - a form better than the last is taken only if the bytes stay
 
 // --- B. the start ------------------------------------------------------------------------------------------------
 
-function world(t, { procedures = 0, learnings = 12 } = {}) {
+function world(t, { procedures = 0, learnings = 12, repeat = 13 } = {}) {
   const root = tempDir('cm-vz-', t);
   const run = (...a) => {
     const r = spawnSync(process.execPath, [MEM, '--root', root, ...a], { encoding: 'utf8' });
@@ -73,7 +73,7 @@ function world(t, { procedures = 0, learnings = 12 } = {}) {
   };
   run('init');
   for (let i = 0; i < procedures; i += 1) {
-    run('log', 'procedure', '--title', `Rule number ${i}`, '--rule', `Rule ${i}: ${'keep the tree clean and the branch small. '.repeat(13)}`,
+    run('log', 'procedure', '--title', `Rule number ${i}`, '--rule', ruleText(i, repeat),
       '--issued-by', 'owner', '--tags', 'subagent-start', '--start-as', 'released');
   }
   for (let i = 0; i < learnings; i += 1) run('log', 'learning', '--title', `Learning ${i}`, '--text', 'some detail '.repeat(30));
@@ -81,8 +81,8 @@ function world(t, { procedures = 0, learnings = 12 } = {}) {
 }
 const card = () => workflowdetect.cardText({ id: 'wf000001', title: 'Release procedure', issued_by: 'owner', status: 'released',
   steps: Array.from({ length: 9 }, (_, i) => `Step ${i} ${'does a thing '.repeat(8)}`) });
-const ruleText = (i) => `Rule ${i}: ${'keep the tree clean and the branch small. '.repeat(13)}`.trimEnd();
-const wholeRules = (text, n) => Array.from({ length: n }, (_, i) => i).filter((i) => text.includes(ruleText(i)));
+function ruleText(i, repeat = 13) { return `Rule ${i}: ${'keep the tree clean and the branch small. '.repeat(repeat)}`.trimEnd(); }
+const wholeRules = (text, n, repeat = 13) => Array.from({ length: n }, (_, i) => i).filter((i) => text.includes(ruleText(i, repeat)));
 
 async function baseModules(t) {
   const old = tempDir('cm-vz-base-', t);
@@ -138,6 +138,46 @@ test('B3: many procedures: the first ones whole, the rest at least a pointer wit
   for (const c of procs.filter((x) => x.form === 1)) assert.ok(sel.text.includes(`mem show ${c.id}`), `the pointer of ${c.id} names its id`);
   assert.equal(cardPointer(sel.text), true);
   assert.match(sel.text, /component <path>/, 'the hint is in');
+});
+
+test('B3b: the card plus the rules fit but not the recap besides: the card steps down FIRST, the recap stands whole (RED at the old commit: the recap was lost)', async (t) => {
+  const root = world(t, { procedures: 2, repeat: 16 });
+  const sel = subagentstart.select(root, { workflowBlock: cardBlock() });
+  assert.ok(sel.bytes <= answerbudget.ANSWER_BYTES, `${sel.bytes} bytes`);
+  assert.deepEqual(wholeRules(sel.text, 2, 16), [0, 1]);
+  assert.equal(cardPointer(sel.text), true, 'the card gave way');
+  assert.match(sel.text, /cheap-mem context/, 'the recap stands');
+  assert.deepEqual(sel.omitted, [], 'nothing fell away');
+  const old = await baseModules(t);
+  const was = old.select(root, { workflowBlock: cardBlock() });
+  assert.equal(cardWhole(was.text), true, 'old: the card stood whole');
+  assert.doesNotMatch(was.text, /cheap-mem context/, 'old: the recap was lost behind it (the probe measures something)');
+});
+
+test('B3c: at the exact boundary the card is whole only if the WHOLE recap and the separator still fit (a sweep over the card size, byte by byte)', (t) => {
+  const root = world(t, { procedures: 2, repeat: 16 });
+  const at = (k) => {
+    const block = workflowdetect.cardText({ id: 'wf000001', title: `Release procedure${'x'.repeat(k)}`, issued_by: 'owner', status: 'released',
+      steps: Array.from({ length: 3 }, (_, i) => `Step ${i} ${'does a thing '.repeat(8)}`) });
+    const sel = subagentstart.select(root, { workflowBlock: `${subagentstart.WORKFLOW_LEAD}\n${block}` });
+    const asked = Number(/--- budget (\d+) chars/.exec(sel.text)?.[1]);
+    return { k, form: sel.chosen.find((c) => c.kind === 'workflow').form, bytes: sel.bytes, recapAsked: asked + k };
+  };
+  // The card is one byte longer for each k, and the recap's first ask shrinks by one character for each k (the old cap
+  // of 4,000 characters minus the card): while the whole recap is delivered `asked + k` is the same number.
+  assert.equal(at(0).form, 0, 'a small card is whole');
+  assert.equal(at(700).form, 1, 'a large card is its pointer');
+  let lo = 0;
+  let hi = 700; // at(lo) is whole, at(hi) is a pointer
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (at(mid).form === 0) lo = mid; else hi = mid; }
+  const natural = at(hi).recapAsked;
+  for (let k = Math.max(0, lo - 8); k <= hi + 3; k += 1) {
+    const r = at(k);
+    assert.ok(r.bytes <= answerbudget.ANSWER_BYTES, `k ${k}: ${r.bytes} bytes`);
+    assert.equal(r.form, k <= lo ? 0 : 1, `k ${k}: the card is whole up to the boundary, then its pointer`);
+    assert.equal(r.recapAsked, natural, `k ${k}: the recap is the whole one (it is never cut to make the card fit)`);
+  }
+  assert.ok(at(lo).bytes >= answerbudget.ANSWER_BYTES - 8, `the last whole card sits at the boundary: ${at(lo).bytes} bytes`);
 });
 
 test('B4: a start that fits is byte for byte the old one (card whole, nothing stepped down, no note)', async (t) => {
