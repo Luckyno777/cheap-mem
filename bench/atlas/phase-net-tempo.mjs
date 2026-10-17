@@ -12,7 +12,7 @@ import { runStub } from './stub.mjs';
 export function run(atlas) {
   runStub(atlas, {
     id: 'net-tempo',
-    title: 'Net speed: contexts, programs and model computations of the 3D net',
-    owes: 'The built phase is to count what the 3D net causes on build and reload (WebGL contexts, programs, model computations); time would be an accompanying value only.',
+    title: 'Id agreed with the sister house; the question is set when the phase is built',
+    owes: 'Id agreed with the sister house; the question is set when the phase is built.',
   });
 }

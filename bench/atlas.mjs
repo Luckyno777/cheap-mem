@@ -59,10 +59,10 @@ const PHASES = [
   ['silent-errors', './atlas/phase-silent-errors.mjs', 'Silent errors: a read that failed must not look like a read that found nothing'],
   // The next four are stubs: the id is agreed with the sister house, the phase is not built.
   // Each reports `not-measured` and a named blind spot, never `pass` (bench/atlas/stub.mjs).
-  ['dashboard', './atlas/phase-dashboard.mjs', 'The dashboard: what its pages serve and what they cost (not built yet)'],
-  ['cost', './atlas/phase-cost.mjs', 'Cost: what a call costs to run and to read (not built yet)'],
-  ['digest', './atlas/phase-digest.mjs', 'Digest: what the periodic digest reads and says (not built yet)'],
-  ['net-tempo', './atlas/phase-net-tempo.mjs', 'Net speed: contexts, programs and model computations of the 3D net (not built yet)'],
+  ['dashboard', './atlas/phase-dashboard.mjs', 'Id agreed with the sister house; the question is set when the phase is built (not built yet)'],
+  ['cost', './atlas/phase-cost.mjs', 'Id agreed with the sister house; the question is set when the phase is built (not built yet)'],
+  ['digest', './atlas/phase-digest.mjs', 'Id agreed with the sister house; the question is set when the phase is built (not built yet)'],
+  ['net-tempo', './atlas/phase-net-tempo.mjs', 'Id agreed with the sister house; the question is set when the phase is built (not built yet)'],
   ['register', './atlas/phase-register.mjs', 'The register prototype (sqlite+FTS5) against today\'s linear scan'],
   ['real', './atlas/phase-real.mjs', 'The same measurements against a real, grown memory'],
 ];

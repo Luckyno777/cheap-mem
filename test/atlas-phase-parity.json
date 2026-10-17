@@ -25,13 +25,13 @@
     "nutzung"
   ],
   "luckyMemPending": {
-    "identifiers": "being built in the sibling house on branch agent/atlas-rahmen-lm; it renames kennungen to this id before its first baseline",
-    "bridge": "being built in the sibling house on branch agent/atlas-rahmen-lm; it renames bruecke to this id before its first baseline",
-    "silent-errors": "being built in the sibling house on branch agent/atlas-rahmen-lm; it renames stille-fehler to this id before its first baseline",
-    "dashboard": "being built in the sibling house on branch agent/atlas-rahmen-lm; a new phase, the id is English and equal in both houses",
-    "cost": "being built in the sibling house on branch agent/atlas-rahmen-lm; a new phase, the id is English and equal in both houses",
-    "digest": "being built in the sibling house on branch agent/atlas-rahmen-lm; a new phase, the id is English and equal in both houses",
-    "net-tempo": "being built in the sibling house on branch agent/atlas-rahmen-lm; it renames netz-tempo to this id (assumed from the task; check against the branch once it is pushed)"
+    "identifiers": "branch agent/atlas-rahmen-lm, not pushed yet (as of 2026-10-17); names confirmed by the sister house; it renames kennungen to this id before its first baseline",
+    "bridge": "branch agent/atlas-rahmen-lm, not pushed yet (as of 2026-10-17); names confirmed by the sister house; it renames bruecke to this id before its first baseline",
+    "silent-errors": "branch agent/atlas-rahmen-lm, not pushed yet (as of 2026-10-17); names confirmed by the sister house; it renames stille-fehler to this id before its first baseline",
+    "dashboard": "branch agent/atlas-rahmen-lm, not pushed yet (as of 2026-10-17); names confirmed by the sister house; a new phase, the id is English and equal in both houses",
+    "cost": "branch agent/atlas-rahmen-lm, not pushed yet (as of 2026-10-17); names confirmed by the sister house; a new phase, the id is English and equal in both houses",
+    "digest": "branch agent/atlas-rahmen-lm, not pushed yet (as of 2026-10-17); names confirmed by the sister house; a new phase, the id is English and equal in both houses",
+    "net-tempo": "branch agent/atlas-rahmen-lm, not pushed yet (as of 2026-10-17); names confirmed by the sister house; it renames netz-tempo to this id (confirmed by the sister house)"
   },
   "idMap": {},
   "idMapReason": "Empty on purpose: from 2026-10-17 a phase has one id in both houses, and new ids are English in both. The three that had two names (identifiers, bridge, silent-errors) are being renamed in the sister house to the ids used here. `skala` is a name, not prose, and the English ratchet allows it.",

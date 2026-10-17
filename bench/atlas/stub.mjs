@@ -12,8 +12,9 @@
 // **What a stub measures: nothing, and says so.** It writes exactly one record,
 // `<id>.not-built`, with the verdict `not-measured` (the third state the atlas
 // already has for "could not look"), and one named blind spot. It never writes
-// `pass`. A run that includes a stub therefore ends with exit code 3, not 0:
-// "this was never looked at" must not read as green. Everything the stub says
+// `pass`. A run of stubs alone therefore ends with exit code 3, not 0 (a real
+// run ends with 1 or 3 already; the stubs add fixed rows): "this was never
+// looked at" must not read as green. Everything the stub says
 // about itself is a fixed sentence, not a measurement, and carries no number.
 //
 // **The guard.** test/atlas-stub-never-passes.test.mjs runs every phase file
@@ -25,8 +26,9 @@ import { VERDICT } from './core.mjs';
 /**
  * Record a phase that is not built yet.
  * @param {import('./core.mjs').Atlas} atlas
- * @param {{id: string, title: string, owes: string}} stub `owes`: what the
- *   built phase is meant to answer, in one sentence.
+ * @param {{id: string, title: string, owes: string}} stub `owes`: one neutral
+ *   sentence. A stub promises no particular measurement; the question is set
+ *   with the sister house when the phase is built.
  */
 export function runStub(atlas, { id, title, owes }) {
   atlas.phase(id, title, `**Not built yet.** ${owes}`);

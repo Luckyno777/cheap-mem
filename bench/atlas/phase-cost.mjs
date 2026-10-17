@@ -12,7 +12,7 @@ import { runStub } from './stub.mjs';
 export function run(atlas) {
   runStub(atlas, {
     id: 'cost',
-    title: 'Cost: what a call costs to run and to read',
-    owes: 'The built phase is to count what a call costs, by counters rather than by the clock.',
+    title: 'Id agreed with the sister house; the question is set when the phase is built',
+    owes: 'Id agreed with the sister house; the question is set when the phase is built.',
   });
 }

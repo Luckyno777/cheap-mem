@@ -12,7 +12,7 @@ import { runStub } from './stub.mjs';
 export function run(atlas) {
   runStub(atlas, {
     id: 'dashboard',
-    title: 'The dashboard: what its pages serve and what they cost',
-    owes: 'The built phase is to measure the dashboard server and its pages.',
+    title: 'Id agreed with the sister house; the question is set when the phase is built',
+    owes: 'Id agreed with the sister house; the question is set when the phase is built.',
   });
 }

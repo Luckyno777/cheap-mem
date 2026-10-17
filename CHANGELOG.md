@@ -18,10 +18,10 @@ are the day the work landed on `main`.
 
 Plan step 3 (T3, part 1). No measuring run; the stubs measure nothing.
 - `bench/atlas.mjs` has four new rows: `dashboard`, `cost`, `digest`, `net-tempo` (files `bench/atlas/phase-*.mjs`, helper `bench/atlas/stub.mjs`).
-  A stub writes one `not-measured` record (`<id>.not-built`) and one named blind spot, never `pass`; a run with a stub ends with exit code 3.
+  A stub writes one `not-measured` record (`<id>.not-built`) and one named blind spot, never `pass`; a run of the stubs alone ends with exit code 3, never 0 (a real run ends with 1 or 3 already; the stubs add four fixed `not-measured` rows).
   The atlas now has 16 phases (README number recounted).
 - `test/atlas-phase-parity.json`: `luckyMemPhases` is the list after the sister house's rename (`identifiers`, `bridge`, `silent-errors` instead of
-  `kennungen`, `bruecke`, `stille-fehler`; `net-tempo` instead of `netz-tempo`, the latter assumed from the task) plus `dashboard`, `cost`, `digest`;
+  `kennungen`, `bruecke`, `stille-fehler`; `net-tempo` instead of `netz-tempo`; names confirmed by the sister house) plus `dashboard`, `cost`, `digest`;
   `idMap` is empty; `luckyMemPending` holds only what is not on the sister house's main yet, with its branch (`agent/atlas-rahmen-lm`);
   new `cmStubs`; `netz-tempo` leaves `lmOnly`; `recordedOn` 2026-10-17.
 - `test/atlas-phase-parity.test.mjs` also checks `luckyMemPending` and that `cmStubs` equals the files that import `stub.mjs`.

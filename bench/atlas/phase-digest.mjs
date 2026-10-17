@@ -12,7 +12,7 @@ import { runStub } from './stub.mjs';
 export function run(atlas) {
   runStub(atlas, {
     id: 'digest',
-    title: 'Digest: what the periodic digest reads and says',
-    owes: 'The built phase is to check what the digest reads and what it reports.',
+    title: 'Id agreed with the sister house; the question is set when the phase is built',
+    owes: 'Id agreed with the sister house; the question is set when the phase is built.',
   });
 }

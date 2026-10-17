@@ -445,8 +445,8 @@ see the next section.)
 From 2026-10-17 a phase has the same id in both houses, and new ids are English
 in both. The sister house renames `kennungen`, `bruecke` and `stille-fehler` to
 `identifiers`, `bridge` and `silent-errors` before its first baseline, and its
-`netz-tempo` to `net-tempo` (the last is taken from the task; confirm it against
-the sister branch). So the `idMap` of `test/atlas-phase-parity.json` is empty.
+`netz-tempo` to `net-tempo` (names confirmed by the sister house, 2026-10-17;
+its branch `agent/atlas-rahmen-lm` was not pushed yet at that date). So the `idMap` of `test/atlas-phase-parity.json` is empty.
 `luckyMemPhases` is the list the sister house is building toward, and
 `luckyMemPending` names the ids of it that are not on the sister house's main
 branch yet, with the branch that carries them (`agent/atlas-rahmen-lm`).
@@ -454,9 +454,11 @@ branch yet, with the branch that carries them (`agent/atlas-rahmen-lm`).
 Four ids are in this atlas as **stubs** (`bench/atlas/stub.mjs`): `dashboard`,
 `cost`, `digest` and `net-tempo`. A stub measures nothing. It writes one record,
 `<id>.not-built`, with the verdict `not-measured`, and one named blind spot; it
-never writes `pass`. A run that includes a stub therefore ends with exit code 3
-(nothing failed, but something could not be measured), not 0, and the report
-lists the stub among the blind spots. `test/atlas-stub-never-passes.test.mjs`
+never writes `pass`. The stubs add four fixed `not-measured` rows and four blind
+spots to a run. They do not change the exit code on their own account: a real run
+already ends with 1 or 3 today (the committed baseline has 81 `not-measured`
+and 1 `fail`), and a run of the stubs alone ends with 3, never 0. The report
+lists each stub among the blind spots. `test/atlas-stub-never-passes.test.mjs`
 holds that: each stub phase on its own, the real runner on the four together,
 and a positive control (a stub written to record `pass` is caught by the same
 check). When a stub is built, its file stops importing `stub.mjs` and its entry
