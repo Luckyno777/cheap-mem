@@ -1553,10 +1553,12 @@ jobs:
   # ran test/writer-identity.test.mjs in 31.7 s against 15.5 s per mutant
   # in CI, factor 2.0): 51 mutants on test/own-tool.test.mjs at ~31 s,
   # 17 on test/answer-budget-cm.test.mjs at ~21 s, the rest small - about
-  # 36 minutes. All mutants together are about 52 minutes of CI time, one
-  # job in a row would need an hour. Four slices: ~13 minutes of mutants,
-  # plus the baseline and setup, ~16 minutes each. 30 minutes is that with
-  # room for a slower runner, not a number turned up until it passes.
+  # 36 minutes; the 9 alarm-tearing mutants on test/alarm-tearing.test.mjs
+  # (~20 s each) add ~3. All 306 together are about 55 minutes of CI time,
+  # one job in a row would need an hour. Four slices: ~14 minutes of
+  # mutants, plus the baseline and setup, ~17 minutes each. 30 minutes is
+  # that with room for a slower runner, not a number turned up until it
+  # passes.
   mutation:
     name: guarantees · mutation slice ${{ matrix.shard }}/4
     runs-on: ubuntu-latest
