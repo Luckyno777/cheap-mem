@@ -429,8 +429,8 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-numbers.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **88 CLI commands, 45 MCP tools, 220 modules, 5139
-tests**; as of 2026-09-20, about 91074 lines in `bin/` and `src/`, at
+As of 2026-09-26: **88 CLI commands, 45 MCP tools, 220 modules, 5148
+tests**; as of 2026-09-20, about 91098 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 
 ### Reading it with a model, or evaluating it properly
@@ -467,7 +467,7 @@ enforced fails the build rather than waiting for someone to audit it.
 
 | check | what a red run means |
 |---|---|
-| `bench/mutation.mjs` | one of 254 guarantees was broken on purpose and no test noticed |
+| `bench/mutation.mjs` | one of 259 guarantees was broken on purpose and no test noticed |
 | `bench/fuzz.mjs` | a crash, hang, unbounded growth, or a bypass |
 | `bench/composed.mjs` | seven attacks that are only dangerous in combination |
 | `bench/byzantine.mjs` | a flood of rule-abiding liars buried the genuine claim, or the conflict went unreported |
