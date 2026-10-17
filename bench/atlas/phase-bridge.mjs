@@ -66,7 +66,7 @@
 // read-only default, and the dashboard's start rule with its login counted).
 // Each owns a throwaway root, has a positive control, and takes the code tree
 // as a parameter so test/atlas-gaps-cm.test.mjs can remove one guarantee at
-// its shared source (bench/atlas/gap-mutants.mjs) and watch the record turn red.
+// its shared source (`GAP_MUTANTS` in bench/mutation.mjs) and watch the record turn red.
 //
 // **A control per group, and a group without its control says so.** If the
 // positive control of a group does not hold, every refusal record of the

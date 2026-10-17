@@ -3,7 +3,7 @@
 // test/atlas-gaps-bridge-cm.test.mjs — the gap groups sdk, bidi and card of the atlas phase `bridge` (bench/atlas/bridge-gaps.mjs)
 // on the live tree: every record is there, every one reads pass, and the numbers behind the verdicts are the numbers the
 // title promises. The red proof (one guarantee removed at its shared source, the record turns red) is
-// test/atlas-gaps-mutants-cm.test.mjs; the mutants of this suite are in bench/atlas/gap-mutants.mjs and in the catalogue of
+// test/atlas-gaps-mutants-cm.test.mjs; the mutants of this suite are in `GAP_MUTANTS` in bench/mutation.mjs and in the catalogue of
 // bench/mutation.mjs.
 import test from 'node:test';
 import assert from 'node:assert/strict';

@@ -5,7 +5,7 @@
 // What this proves, record by record. Each gap group of the phases `bridge` and `silent-errors`
 // (bench/atlas/bridge-gaps.mjs, bench/atlas/silent-errors-gaps.mjs) is asked twice: of an untouched scratch copy of the
 // code tree (every record `pass`: the positive control of the copy), and of the same copy with ONE guarantee removed at its
-// shared source (bench/atlas/gap-mutants.mjs). The table says which records must turn `fail`, which must stay `pass` (the
+// shared source (`GAP_MUTANTS` in bench/mutation.mjs). The table says which records must turn `fail`, which must stay `pass` (the
 // controls, and what the mutant does not touch) and which must read `not-measured` (their control fell, so they say so
 // instead of passing). A record no mutant turns red would be a record that cannot fail; the last test counts that.
 //
@@ -31,7 +31,7 @@ import { Atlas, VERDICT } from '../bench/atlas/core.mjs';
 import * as bridgeGaps from '../bench/atlas/bridge-gaps.mjs';
 import * as silentGaps from '../bench/atlas/silent-errors-gaps.mjs';
 import * as silent from '../bench/atlas/phase-silent-errors.mjs';
-import { GAP_MUTANTS } from '../bench/atlas/gap-mutants.mjs';
+import { GAP_MUTANTS } from '../bench/mutation.mjs';
 import { makeScratchTree } from './fixture/atlas-gap-tree.mjs';
 
 const GROUPS = {
@@ -123,5 +123,5 @@ test('every new record has a mutant that turns it red', { timeout: 240000 }, asy
   // only the `unreadable` row of the duties is a statement of this change, and a mutant turns it red).
   const exempt = (id) => id === 'bridge.bidi.world' || (/^silent-errors\.(cli|bridge)-(find|context|duties)\./.test(id) && !/-duties\.unreadable$/.test(id)) || /^silent-errors\.(readlog|visibility\.(ok|broken|unreadable)|task-lane\.(control|nothing-found|failed-lane))/.test(id);
   const uncovered = [...written].filter((id) => !covered.has(id) && !exempt(id));
-  assert.deepEqual(uncovered, [], 'these records have no mutant in bench/atlas/gap-mutants.mjs that turns them red');
+  assert.deepEqual(uncovered, [], 'these records have no mutant in `GAP_MUTANTS` in bench/mutation.mjs that turns them red');
 });

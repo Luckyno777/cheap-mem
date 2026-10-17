@@ -1,5 +1,5 @@
 // A scratch copy of the code tree, for proving that an atlas record turns red when ONE guarantee is removed
-// (test/atlas-gaps-mutants-cm.test.mjs, bench/atlas/gap-mutants.mjs).
+// (test/atlas-gaps-mutants-cm.test.mjs, `GAP_MUTANTS` in bench/mutation.mjs).
 //
 // What is copied: `bin/`, `src/`, `shared/`, `assets/`, `package.json` and `package-lock.json`. `node_modules` is linked
 // (a junction on Windows), never copied, so the copy resolves the same SDK. The copy lives under `os.tmpdir()` and is

@@ -10,7 +10,7 @@
 //
 // **The code tree is a parameter.** `tree` is the directory whose `bin/` and `src/` are asked (default: this
 // repository). That is what makes a record provable: test/atlas-gaps-cm.test.mjs copies the tree, removes ONE
-// guarantee at the shared source (bench/atlas/gap-mutants.mjs) and asks the same group again.
+// guarantee at the shared source (`GAP_MUTANTS` in bench/mutation.mjs) and asks the same group again.
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';

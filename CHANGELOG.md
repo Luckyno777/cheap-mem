@@ -31,7 +31,7 @@ Plan step 3 (T3, part 3). Measures what the sister house measures and these two 
   keeps answering when it cannot be read (3); E2 `mem doctor` tells the five states of a drawer apart (5); E3 the block of a subagent says the lookup failed with a real
   unreadable drawer, no injection (2); the duties surface over the CLI and the bridge in five states (10; broken and unreadable read `degraded`, like find and context: the
   skipped line is not mentioned, the error does not name the file). E4 has nothing to measure: `src/today.mjs` lists its review part as not built (blind spot says so).
-- **Red proof.** `bench/atlas/gap-mutants.mjs`: 42 mutants at the shared source (the limits constant of the card rules, the nine-control mask, the one start rule of
+- **Red proof.** `GAP_MUTANTS` in `bench/mutation.mjs`: 42 mutants at the shared source (the limits constant of the card rules, the nine-control mask, the one start rule of
   `src/webauth.mjs`, the visibility reader, the doctor drawer check, the subagent notice). `test/atlas-gaps-mutants-cm.test.mjs` applies each to a scratch copy and requires the
   listed records red, the controls green, the dependents of a fallen control `not-measured`, and that every new record has a mutant. A guarantee with two layers (the
   visibility journal) is removed in both. 41 mutants (one edit) are also in the catalogue of `bench/mutation.mjs`. Live suites: `test/atlas-gaps-{bridge,http,silent}-cm.test.mjs`.

@@ -39,9 +39,6 @@ function sandbox() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mutation-cli-'));
   fs.mkdirSync(path.join(dir, 'bench'), { recursive: true });
   fs.copyFileSync(path.join(REPO, 'bench', 'mutation.mjs'), path.join(dir, 'bench', 'mutation.mjs'));
-  // The catalogue also lists the mutants of the atlas gap groups, read from this data-only table (bench/atlas/gap-mutants.mjs).
-  fs.mkdirSync(path.join(dir, 'bench', 'atlas'), { recursive: true });
-  fs.copyFileSync(path.join(REPO, 'bench', 'atlas', 'gap-mutants.mjs'), path.join(dir, 'bench', 'atlas', 'gap-mutants.mjs'));
   // The script decides whether it was started as the program with src/ismain.mjs (CI run 1180), so the copy carries it.
   fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
   fs.copyFileSync(path.join(REPO, 'src', 'ismain.mjs'), path.join(dir, 'src', 'ismain.mjs'));

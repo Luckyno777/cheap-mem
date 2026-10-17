@@ -13,7 +13,7 @@
 // dashboard process), counts, and has a positive control. A refusal is only reported when the control holds; without
 // it the record is `not-measured` and names the control. The code tree is a parameter (`tree`, default: this
 // repository) so test/atlas-gaps-cm.test.mjs can point the same group at a scratch copy with one guarantee removed
-// (bench/atlas/gap-mutants.mjs says where). Counters, not clocks: refusals, rows written, processes up. The one time
+// (`GAP_MUTANTS` in bench/mutation.mjs says where). Counters, not clocks: refusals, rows written, processes up. The one time
 // in here is a stall guard for a process that neither starts nor exits.
 //
 // **A red here is a finding, not a bug of the phase.** The groups measure; they fix nothing in bin/mem-mcp or src/.

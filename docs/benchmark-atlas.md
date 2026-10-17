@@ -475,7 +475,7 @@ failing, not an injection).
 review as not built, so there is nothing to measure; the blind spot says so. A8 at start time: this house has no runtime check of the SDK
 version (the peer range in `package.json` is the guard); the sister house refuses a too-old SDK at start, and no record asks that here.
 
-**Red proof, record by record.** `bench/atlas/gap-mutants.mjs` holds 42 mutants, each at the SHARED source of its record: the limits constant,
+**Red proof, record by record.** `GAP_MUTANTS` in `bench/mutation.mjs` holds 42 mutants, each at the SHARED source of its record: the limits constant,
 the nine-control mask, the one start rule, the visibility reader. `test/atlas-gaps-mutants-cm.test.mjs` applies each to a scratch copy of the tree,
 asks the group again and requires the listed records to read `fail`, the controls to stay `pass` and the dependents of a fallen control to read
 `not-measured`; its last test counts that every new record has a mutant. Where a second layer stands behind the first (the visibility journal is
