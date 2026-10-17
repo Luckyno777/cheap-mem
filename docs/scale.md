@@ -63,7 +63,7 @@ So retrieval *quality* lags the newest entries slightly. Finding them
 does not — the documents are in the index immediately.
 
 The recall hook is held to a tighter bound than the terminal:
-`REBUILD_AFTER_APPENDED` = 100 lines (`min(a fifth, 100)`), and it never
+`REBUILD_AFTER_APPENDED` = 100 (`min(a fifth, 100)`), and it never
 pays for the rebuild itself. Past the bound it answers from the appended
 index and starts the full rebuild as a detached child, one at a time
 (`src/indexrebuild.mjs`; see "The appended stack, and when the full
