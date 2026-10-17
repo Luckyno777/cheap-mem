@@ -164,6 +164,10 @@ function bigMemory(n) {
   return w;
 }
 
+// Heap window, measured 2026-10-17 (task heap-margin-cm, Node 22.22, 4 cores at load 8-10, 120 000 entries):
+//   the new walk needs ~10-12 MiB (8: 0 of 3 run, 12: 10 of 10); the old one needs ~136-144 MiB (128: 0 of 10 run,
+//   136: 9 of 10, 144: 10 of 10). Cap 48: ~36 MiB of air below it, ~90 MiB above it. At the cap itself 10 of 10
+//   single and 10 of 10 four at a time, on both sides.
 const MIB_TIGHT = 48;
 const MIB_WIDE = 1024;
 function run(kind, root, mib) {

@@ -216,6 +216,12 @@ test('compact build: opens the biggest drawer exactly once (positive control: th
 
 // --- 3. bounded memory --------------------------------------------------------------
 
+// Heap window of this probe, measured 2026-10-17 (task heap-margin-cm, Node 22.22, 4 cores at load 8-10;
+// the sibling's equal probe had ~1 MB of air and failed 7 of 40 under load, here the air is wide):
+//   the pass needs ~18-20 MB (16: 0 of 4 run, 20: 10 of 10, also 4 at a time); holding every entry needs
+//   ~66-68 MB (64: 0 of 10 run, 68: 10 of 10). Cap 48 MB: ~28 MB of air below it, ~18-20 MB above it.
+//   At the cap itself 10 of 10 single and 10 of 10 four at a time, on both sides.
+
 test('pass: runs in a process with a 48 MB heap (positive control: holding every entry there does not)', () => {
   const { root } = synth(80000, { extraBytes: 300 });
   const run = (body) => {

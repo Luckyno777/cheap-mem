@@ -365,7 +365,7 @@ a failure — for CI, where refusing to determine a property *is* the defect.
 
 | guarantee | layer | how it is checked | if absent |
 |---|---|---|---|
-| `O_APPEND` atomicity | os/filesystem | filesystem type, plus a measured run of concurrent writers only with `mem doctor --full` or `--strict`; **UNKNOWN** when undeterminable or not measured. `--alarm` (the session-start banner) sees only the filesystem-name list, so it reports a documented-unsafe name (NFS) but never a torn line | concurrent writers may interleave (NFS) |
+| `O_APPEND` atomicity | os/filesystem | filesystem type, plus a measured run of concurrent writers only with `mem doctor --full` or `--strict`; **UNKNOWN** when undeterminable or not measured. A run with `--full` keeps its verdict in `.pipeline/append-atomicity.json` (time, device, filesystem name, node version, writers x lines; written by temp file and rename, git-ignored with the rest of `.pipeline/`). A run without it, `--alarm` (the session-start banner) included, measures nothing and reads that record back: a **torn** verdict on the same device is an error with the time of the measurement and the hint that `mem doctor --full` measures anew; a clean one stays **UNKNOWN** (it says no tearing happened, not that none can); a record from another device or filesystem (the memory was moved) is not used; an empty, damaged, oversize (over 4096 bytes) or non-plain-file record (a device behind a symlink, a pipe, a directory) is a note and is not read, never a crash. The record is written by every caller that measures: `mem doctor --full`/`--strict`, the dashboard and the weekly instrument trace (both call `checkAll(root)`, which measures by default). Only a later clean measurement replaces a torn entry, and that is the only way out: a short clean run proves little, so a torn entry never ages out and a clean record never alarms. Before the first `--full` the banner sees only the filesystem-name list (a documented-unsafe name such as NFS) | concurrent writers may interleave (NFS) |
 | `*.jsonl merge=union` | git | `.gitattributes` | a merge silently destroys entries |
 | pre-commit hook | git | `core.hooksPath` + file | secrets reach git |
 | clock | operational | newest `ts` vs. system clock | "newest" is wrong |
@@ -783,7 +783,7 @@ Answered by breaking each mechanism on purpose and checking that a test
 notices (`node bench/mutation.mjs`). A mutant that SURVIVES marks a
 guarantee that lives in documentation and nowhere else.
 
-**304 mutants, 304 caught.** Including: supersession always allowed,
+**306 mutants, 306 caught.** Including: supersession always allowed,
 `admits()` always true, the disputed filter removed, deduplication removed,
 resource limits ignored, the redaction class narrowed back to ASCII, broken
 lines silently skipped again, cycles never reported, the merge driver
