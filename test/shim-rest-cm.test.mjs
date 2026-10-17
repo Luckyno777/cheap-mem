@@ -10,7 +10,8 @@
 //     break starts a line of someone else's choosing. Loud (stderr, the missing-tool message), never a crash. A
 //     trailing separator is cleaned.
 //  3. The PowerShell twins call their helpers (_headless.ps1, the own-tool rule, the missing-tool helper) with
-//     separate arguments and -LiteralPath, never by assembling a command string. Static ratchet.
+//     separate arguments, never by assembling a command string. Static ratchet. (And, since ps1-pfade-cm: EVERY
+//     path cmdlet on EVERY line of every shipped .ps1 takes -LiteralPath, see below.)
 //  4. Typographic quotes. Windows PowerShell 5.1 reads a .ps1 without a byte-order mark as ANSI, and PowerShell
 //     itself takes U+2018 U+2019 U+201A U+201B as single quotes. Every shipped .ps1 is ASCII already (see
 //     test/powershell-ascii.test.mjs) - but the installer BAKES two paths into the shims it writes, and those
@@ -172,6 +173,39 @@ test('session-start.sh: the rejected value is not printed into the context - no 
   assert.equal(r.stdout.includes('(installed: not set)'), false, 'a rejected value must not read as "not set"');
 });
 
+// The hook is installed ALONE (~/.claude/hooks/session-start.sh); when cheap-mem-own-tool.sh is not next to it the
+// library never runs, mem_code_clean with it, and the raw CHEAP_MEM_CODE reached the session's context (ps1-pfade-cm).
+function runStartAlone(dir, script, code) {
+  const hooks = path.join(dir, 'hooks-alone');
+  fs.mkdirSync(hooks, { recursive: true });
+  const copy = path.join(hooks, 'session-start.sh');
+  fs.writeFileSync(copy, script);
+  const root = makeMemory(dir);
+  return spawnSync('bash', [copy], {
+    cwd: dir, encoding: 'utf8', input: '{}', env: envOf(dir, { CHEAP_MEM_ROOT: root, CHEAP_MEM_CODE: code }),
+  });
+}
+
+test('session-start.sh installed WITHOUT the own-tool library: the control value is rejected there too, not printed', () => {
+  const dir = temp('cm-shim-ssa-');
+  const script = read('install/hooks/session-start.sh');
+  // POSITIVE CONTROL 1: with the inline rejection cut out, the same run DOES put the value's own line into the context.
+  const cut = script.replace(/if ! type mem_code_clean[\s\S]*?\n {2}esac\nfi\n/, '');
+  assert.notEqual(cut, script, 'the inline rejection is not where the probe looks for it');
+  const old = runStartAlone(dir, cut, BAD_CODE);
+  assert.ok(old.stdout.split('\n').some((l) => l.startsWith('INJECTED LINE')), 'POSITIVE CONTROL: the old shape did not leak - the probe cannot see the defect');
+  // POSITIVE CONTROL 2: a harmless path is still printed, so the words could have been seen.
+  const plain = runStartAlone(dir, script, path.join(dir, 'gone', 'INJECTED LINE'));
+  assert.match(plain.stdout, /CHEAP_MEM_CODE=.*INJECTED LINE/);
+  const r = runStartAlone(dir, script, BAD_CODE);
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(!r.stdout.split('\n').some((l) => l.startsWith('INJECTED LINE')), 'a line of the value\'s own making in the context');
+  assert.ok(!RAW_CONTROL.test(r.stdout.replace(/\n/g, '')), 'a raw control character in the context');
+  assert.match(r.stdout, /was REJECTED: CHEAP_MEM_CODE holds a control character/);
+  assert.equal(r.stdout.includes('(installed: not set)'), false, 'a rejected value must not read as "not set"');
+  assert.match(r.stderr, /CHEAP_MEM_CODE rejected: it contains a control character/);
+});
+
 test('_owntool.sh: a trailing separator is cleaned, a good path is untouched, the tool is still found', () => {
   const dir = temp('cm-shim-trail-');
   const code = path.join(dir, 'code');
@@ -248,10 +282,82 @@ function helperCallProblems(rawLine) {
   if (/\bInvoke-Expression\b|\biex\b/i.test(line)) bad.push('Invoke-Expression');
   if (/-Command\b/i.test(line)) bad.push('-Command');
   if (/(^|[;{(|]\s*|^\s*)(&|\.)\s+["']/.test(line)) bad.push('call or dot-source of a string literal');
-  if (/\bTest-Path\b(?![^|;}]*-LiteralPath)/.test(line)) bad.push('Test-Path without -LiteralPath');
   if (/\bStart-Process\b[^\n]*-ArgumentList\s+["']/.test(line)) bad.push('Start-Process with an argument string');
   // A double-quoted string that carries a variable AND an option: an argument line put together by hand.
   if (/(^|[;{(|]\s*|^\s*)&[^\n]*"[^"\n]*\$[^"\n]*\s-{1,2}[A-Za-z][^"\n]*"/.test(line)) bad.push('an argument string assembled with an option in it');
+  return bad;
+}
+
+// ---- Every path cmdlet takes its path as -LiteralPath (ps1-pfade-cm, 2026-10-17) -------------------------------------
+// -Path (and the positional first argument) reads `[` and `]` as a wildcard class: a memory folder called
+// `notes [work]` is "not found", and a hook that cannot find its memory is silent. The cmdlets below all have
+// -LiteralPath. This reads EVERY line of EVERY shipped .ps1 (the installer's here-strings included, backticks
+// removed), not only the lines that name a helper.
+const PATH_CMDLETS = [
+  'Test-Path', 'Get-Item', 'Get-ChildItem', 'Get-Content', 'Set-Content', 'Add-Content', 'Clear-Content', 'Out-File',
+  'Remove-Item', 'Copy-Item', 'Move-Item', 'Rename-Item', 'Resolve-Path', 'Select-String', 'Set-Location',
+  'Push-Location', 'Get-ItemProperty', 'Set-ItemProperty', 'Import-Clixml', 'Export-Clixml', 'Get-FileHash',
+  'Unblock-File', 'Get-Acl', 'Set-Acl',
+];
+// Aliases count only where a command can stand (line start, after ; { ( | &), so a word in a string is not one.
+const PATH_ALIASES = ['ls', 'dir', 'gci', 'cat', 'gc', 'sc', 'ac', 'rm', 'ri', 'del', 'cp', 'copy', 'mv', 'move', 'sl', 'cd', 'pushd'];
+const PATH_CMD_RE = new RegExp(
+  `(?<![\\w$.:-])(${PATH_CMDLETS.join('|')})(?![\\w-])|(?:^|[;{(|&=]\\s*)(${PATH_ALIASES.join('|')})(?=\\s)`, 'gi');
+// Cmdlets deliberately NOT in the list: New-Item (and `md`/`mkdir`) have no -LiteralPath and take -Path as it
+// is - "Accept wildcard characters: False" in the cmdlet's own help; a directory is created, never searched for.
+// Allowed without -LiteralPath, each with its reason:
+const PATH_ALLOWED = [
+  // An environment variable reached through the Env: drive is a name, not a file path.
+  { why: 'Env: drive', re: /^[\w-]+\s+Env:/i },
+];
+
+/** True when `idx` of `line` lies inside a quoted string (single or double; a backtick escapes in a double one). */
+function inQuote(line, idx) {
+  let quote = '';
+  for (let i = 0; i < idx; i += 1) {
+    const ch = line[i];
+    if (quote) {
+      if (ch === '`' && quote === '"') { i += 1; continue; }
+      if (ch === quote) quote = '';
+    } else if (ch === '"' || ch === "'") quote = ch;
+  }
+  return quote !== '';
+}
+
+/** The text of the statement that starts at `from` in `line`: up to a pipe, `;`, `}` or the `)` that closes the caller. */
+function statementAfter(line, from) {
+  let depth = 0;
+  let quote = '';
+  for (let i = from; i < line.length; i += 1) {
+    const ch = line[i];
+    if (quote) {
+      if (ch === '`' && quote === '"') { i += 1; continue; }
+      if (ch === quote) quote = '';
+      continue;
+    }
+    if (ch === '"' || ch === "'") { quote = ch; continue; }
+    if (ch === '(') depth += 1;
+    else if (ch === ')') { if (depth === 0) return line.slice(from, i); depth -= 1; }
+    else if (depth === 0 && (ch === '|' || ch === ';' || ch === '}')) return line.slice(from, i);
+    else if (ch === '#' && /\s/.test(line[i - 1] ?? ' ')) return line.slice(from, i);
+  }
+  return line.slice(from);
+}
+
+/** The path cmdlets a line calls without -LiteralPath; [] when none. A statement that goes on in the next line (a trailing backtick) is joined. */
+function pathCallProblems(rawLine, nextLine = '') {
+  let line = rawLine.replace(/`(\$)/g, '$1');
+  if (/^\s*#/.test(line) || SAYS.test(line)) return [];
+  if (/`\s*$/.test(line)) line = `${line.replace(/`\s*$/, ' ')}${nextLine.replace(/`(\$)/g, '$1')}`;
+  const bad = [];
+  for (const m of line.matchAll(PATH_CMD_RE)) {
+    const name = m[1] ?? m[2];
+    if (m[2] && inQuote(line, m.index + m[0].length - name.length)) continue;
+    const body = statementAfter(line, m.index + m[0].length);
+    if (/(^|\s)-LiteralPath\b/i.test(body) || /(^|\s)-PSPath\b/i.test(body)) continue;
+    if (PATH_ALLOWED.some((a) => a.re.test(`${name} ${body.trim()}`))) continue;
+    bad.push(`${name} without -LiteralPath`);
+  }
   return bad;
 }
 
@@ -262,7 +368,6 @@ test('POSITIVE CONTROL: the helper-call detector fires on every bad shape and st
     '. "$PSScriptRoot\\_headless.ps1"',
     '& "$missing -Name x"',
     'powershell -Command ". $OwnToolLib"',
-    'if (Test-Path $OwnToolLib) { . $OwnToolLib }',
     '& node "$script:HeadlessHelper plan --cmd $Cmd"',
     'Start-Process -FilePath node -ArgumentList "$HeadlessHelper plan"',
   ];
@@ -279,7 +384,7 @@ test('POSITIVE CONTROL: the helper-call detector fires on every bad shape and st
   for (const l of good) assert.deepEqual(helperCallProblems(l), [], `flagged by mistake: ${l}`);
 });
 
-test('every PowerShell twin calls its helpers with separate arguments and -LiteralPath', () => {
+test('every line that names a helper is called with separate arguments (no assembled command string)', () => {
   const files = powershellScripts();
   let seen = 0;
   const found = [];
@@ -301,6 +406,67 @@ test('every PowerShell twin calls its helpers with separate arguments and -Liter
   for (const hook of [...SHIMS]) {
     assert.match(read(`install/hooks/${hook}.sh`), /exec bash "\$missing_helper" [a-z-]+ mem-[a-z-]+/, `${hook}.sh does not call the helper as arguments`);
   }
+});
+
+test('POSITIVE CONTROL: the path-cmdlet detector fires on every bare shape and stays quiet on -LiteralPath', () => {
+  const bad = [
+    'if (Test-Path $transcriptPath) { }',
+    "if (-not (Test-Path (Join-Path $Root '.mem'))) { }",
+    "  if (Test-Path (Join-Path `$candidate '.mem\\config.json')) { `$memRoot = `$candidate; break }",
+    '$n = (Get-Item $p).Length',
+    '$got = @(Get-Content $t -ErrorAction SilentlyContinue)',
+    'Remove-Item $GoldOut, $GoldErr -Force -ErrorAction SilentlyContinue',
+    'Add-Content -Path $LogPath -Value $line',
+    'Set-Content -Path $LockPath -Value $PID',
+    'Set-Location $root',
+    '& powershell -File $h 2>&1 | Out-File -Append -FilePath $log',
+    'if ((Test-Path -LiteralPath $a) -and (Test-Path $b)) { }',
+    '$x = gc $p',
+    'ls $dir',
+    'foreach ($f in (Get-ChildItem $dir)) { }',
+  ];
+  for (const l of bad) assert.notEqual(pathCallProblems(l).length, 0, `not flagged: ${l}`);
+  // A statement that goes on in the next line: the option sits there.
+  assert.deepEqual(pathCallProblems('Get-Content `', '  -LiteralPath $p'), []);
+  assert.notEqual(pathCallProblems('Get-Content `', '  -Raw').length, 0);
+  const good = [
+    'if (Test-Path -LiteralPath $transcriptPath) { }',
+    "if (-not (Test-Path -LiteralPath (Join-Path $Root '.mem'))) { }",
+    "  if (Test-Path -LiteralPath (Join-Path `$candidate '.mem\\config.json')) { `$memRoot = `$candidate; break }",
+    '$n = (Get-Item -LiteralPath $p).Length',
+    'Remove-Item -LiteralPath $GoldOut, $GoldErr -Force -ErrorAction SilentlyContinue',
+    '& powershell -File $h 2>&1 | Out-File -Append -LiteralPath $log',
+    'Remove-Item Env:\\MEM_HEADLESS -ErrorAction SilentlyContinue',
+    'New-Item -ItemType Directory -Force -Path $dir | Out-Null',
+    '# if (Test-Path $x) is a comment',
+    'Write-Host "  Get-Content $log -Tail 20 -Wait"',
+    'Note "run: Test-Path $x"',
+    '$s = "a cd to somewhere"',
+    "'Bash(rm -rf:*)', 'Bash(git push --force:*)',",
+    '$value = $env:CHEAP_MEM_ROOT -replace "dir", "x"',
+  ];
+  for (const l of good) assert.deepEqual(pathCallProblems(l), [], `flagged by mistake: ${l}`);
+});
+
+test('every line of every shipped .ps1 reads its paths with -LiteralPath (a folder called "notes [work]" is a folder)', () => {
+  const files = powershellScripts();
+  let seen = 0;
+  const found = [];
+  for (const { rel, text } of files) {
+    const lines = text.split('\n');
+    lines.forEach((line, i) => {
+      if (!/^\s*#/.test(line) && !SAYS.test(line)) seen += [...line.matchAll(PATH_CMD_RE)].length;
+      for (const p of pathCallProblems(line, lines[i + 1] ?? '')) found.push(`${rel}:${i + 1}: ${p}: ${line.trim().slice(0, 100)}`);
+    });
+  }
+  assert.deepEqual(found, []);
+  // A floor, not an equality: the walker reads the real scripts (about 120 path calls, the installer's here-strings included).
+  assert.ok(seen >= 100, `only ${seen} path-cmdlet calls seen - the probe reads the wrong thing`);
+  // The seven shim root searches and the facts file of the start hook: named, since they decide whether a hook is mute.
+  const win = read('install/windows.ps1');
+  assert.equal((win.match(/Test-Path -LiteralPath \(Join-Path `\$candidate '\.mem\\config\.json'\)\)/g) ?? []).length, 7);
+  assert.match(win, /Test-Path -LiteralPath `\$facts/);
+  assert.match(win, /Get-Content -LiteralPath `\$facts/);
 });
 
 // ---------------------------------------------------------------------------
