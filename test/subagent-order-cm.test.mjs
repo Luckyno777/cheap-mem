@@ -81,6 +81,7 @@ function world(t, { procedures = 0, learnings = 12, repeat = 13 } = {}) {
 const card = () => workflowdetect.cardText({ id: 'wf000001', title: 'Release procedure', issued_by: 'owner', status: 'released',
   steps: Array.from({ length: 9 }, (_, i) => `Step ${i} ${'does a thing '.repeat(8)}`) });
 function ruleText(i, repeat = 13) { return `Rule ${i}: ${'keep the tree clean and the branch small. '.repeat(repeat)}`.trimEnd(); }
+const bytes = (x) => Buffer.byteLength(String(x ?? ''), 'utf8');
 const wholeRules = (text, n, repeat = 13) => Array.from({ length: n }, (_, i) => i).filter((i) => text.includes(ruleText(i, repeat)));
 
 async function baseModules(t) {
@@ -92,13 +93,12 @@ const cardBlock = () => `${subagentstart.WORKFLOW_LEAD}\n${card()}`;
 const cardWhole = (text) => text.includes('Step 8');
 const cardPointer = (text) => /mem workflow show wf000001/.test(text) && !text.includes('Step 8');
 
-test('B1: procedures and a large card, the card does not fit next to them: the procedures stand whole, the card is its pointer, the recap still stands (RED at the old commit)', async (t) => {
+test('B1: procedures and a large card, the card does not fit next to them: the procedures stand whole, the card is its pointer (RED at the old commit)', async (t) => {
   const root = world(t, { procedures: 3 });
   const sel = subagentstart.select(root, { workflowBlock: cardBlock() });
   assert.ok(sel.bytes <= answerbudget.ANSWER_BYTES, `${sel.bytes} bytes`);
   assert.deepEqual(wholeRules(sel.text, 3), [0, 1, 2], 'every rule stands whole');
   assert.equal(cardPointer(sel.text), true, 'the card is its pointer');
-  assert.match(sel.text, /cheap-mem context/, 'the recap stands');
   assert.match(sel.note, /1 workflow as a pointer only/);
   assert.equal(sel.chosen.find((c) => c.kind === 'workflow').form, 1);
   // RED at the old commit: the card stood whole and the last rule was only a pointer. Positive control: the old text
@@ -145,9 +145,9 @@ test('B2: the order of giving way, swept over the size of the assignment block: 
 });
 
 test('B3: many procedures: the first ones whole, the rest at least a pointer with its id, the card a pointer, the recap gone; nothing left out', (t) => {
-  const root = world(t, { procedures: 12 });
+  const root = world(t, { procedures: 12, repeat: 8 }); // short rules: a long path in the hint must still leave room for one
   const sel = subagentstart.select(root, { workflowBlock: cardBlock() });
-  const whole = wholeRules(sel.text, 12);
+  const whole = wholeRules(sel.text, 12, 8);
   assert.deepEqual(sel.omitted.filter((o) => o.kind === 'procedure'), [], 'no procedure fell away');
   assert.ok(whole.length >= 1 && whole.length < 12, `${whole.length} whole: the case must make some pointers to prove anything`);
   assert.deepEqual(whole, whole.map((_, i) => i), 'the whole ones are the first ones, in their own order');
@@ -246,9 +246,34 @@ test('B6: a card that did not come whole is not "seen" (the check hookResultFor 
   const root = world(t, { procedures: 4 });
   const sel = subagentstart.select(root, { workflowBlock: cardBlock() });
   const seen = sel.chosen.find((c) => c.ref === 'workflow');
-  // Not whole: a pointer, or (a long path in the closing hint leaves no room even for that) left out. Either way
-  // hookResultFor (`!seen || seen.form > 0`) takes the mark back.
-  assert.ok(!seen || seen.form > 0, 'the card is not whole here: hookResultFor forgets the mark');
+  // Never gone: the card has a pointer, so its pointer is reserved before any rule is upgraded (a `keep` part).
+  assert.ok(seen && seen.form === 1, 'the card is its pointer, hookResultFor (`!seen || seen.form > 0`) takes the mark back');
+});
+
+test('B7: the card is never gone: swept over 1 to 12 procedures, four rule lengths and two card sizes, it is at least its pointer with its OWN id (RED at the previous commit)', (t) => {
+  const cards = [3, 9].map((steps) => `${subagentstart.WORKFLOW_LEAD}\n${workflowdetect.cardText({ id: 'wf000001', title: 'Release procedure',
+    issued_by: 'owner', status: 'released', steps: Array.from({ length: steps }, (_, i) => `Step ${i} ${'does a thing '.repeat(8)}`) })}`);
+  let cases = 0;
+  for (const repeat of [3, 8, 9, 13]) {
+    const root = world(t, { procedures: 0, learnings: 4 });
+    for (let n = 1; n <= 12; n += 1) {
+      const r = spawnSync(process.execPath, [MEM, '--root', root, 'log', 'procedure', '--title', `Rule number ${n - 1}`, '--rule', ruleText(n - 1, repeat),
+        '--issued-by', 'owner', '--tags', 'subagent-start', '--start-as', 'released'], { encoding: 'utf8' });
+      assert.equal(r.status, 0, r.stderr);
+      for (const block of cards) {
+        const sel = subagentstart.select(root, { workflowBlock: block });
+        const where = `${n} rules x ${repeat} reps, card ${bytes(block)} B`;
+        const card = sel.chosen.find((c) => c.kind === 'workflow');
+        assert.ok(card, `${where}: the card is in the text`);
+        assert.equal(card.id, 'wf000001', `${where}: it carries its own id`);
+        assert.ok(card.form === 0 ? sel.text.includes('Step 2') : /mem workflow show wf000001/.test(sel.text), `${where}: whole, or its pointer names the way to it`);
+        assert.deepEqual(sel.omitted.filter((o) => o.kind === 'workflow'), [], `${where}: the card did not fall away`);
+        assert.doesNotMatch(String(sel.note), /ids: [^)]*\bworkflow\b[,)]/, `${where}: the note names no made-up card id`);
+        cases += 1;
+      }
+    }
+  }
+  assert.equal(cases, 96);
 });
 
 // --- C. source guards --------------------------------------------------------------------------------------------

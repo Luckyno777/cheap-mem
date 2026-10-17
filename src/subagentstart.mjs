@@ -140,8 +140,12 @@ export function select(root, { n = 10, workflowBlock = null, taskBlock = null, t
     const ptr = wfpointer.pointerForm(raw);
     // The card is allocated AFTER the procedures and the assignment block and BEFORE the recap; `holdBack` makes it
     // give way before the recap is cut: whole only if the whole recap still fits next to it (set below).
-    parts.push({ id: 'workflow', kind: 'workflow', rank: RANK_WORKFLOW, order: 0, forms: [wf, ptr ? `${WORKFLOW_LEAD}\n${ptr}` : null],
-      how: 'mem workflow show <id>', ref: 'workflow' });
+    // A card that HAS a pointer is a `keep` part: its pointer is reserved before any procedure is upgraded to its full
+    // text, so the card never vanishes behind greedy procedures ("gives way FIRST" means pointer, not gone). The id is
+    // the card's own (read from its pointer), so a note that names it names something `mem workflow show` can load.
+    const cardId = ptr ? (/mem workflow show (\S+)/.exec(ptr)?.[1] ?? null) : null;
+    parts.push({ id: cardId, kind: 'workflow', rank: RANK_WORKFLOW, order: 0, keep: Boolean(ptr),
+      forms: [wf, ptr ? `${WORKFLOW_LEAD}\n${ptr}` : null], how: 'mem workflow show <id>', ref: 'workflow' });
   }
   if (hits.length) {
     hits.forEach((e, i) => parts.push({ id: e.id ?? null, kind: 'procedure', rank: RANK_PROCEDURE, order: 1 + i,
@@ -167,7 +171,7 @@ export function select(root, { n = 10, workflowBlock = null, taskBlock = null, t
   // With a workflow card that has a pointer, the recap is first asked at its natural size (the first ask, `legacyChars`):
   // the card is whole only if that text still fits next to it (`holdBack`), and the text is reused when it fits. Without
   // such a card the recap is asked exactly as it always was.
-  const card = parts.find((p) => p.id === 'workflow');
+  const card = parts.find((p) => p.ref === 'workflow');
   const holds = Boolean(card && card.forms.length > 1);
   let natural = null;
   const naturalRecap = () => { if (natural === null) natural = recapFor(root, n, Infinity, legacyChars); return natural; };
