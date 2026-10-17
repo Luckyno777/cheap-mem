@@ -83,6 +83,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as clihelp from '../src/clihelp.mjs';
+import { isMain } from '../src/ismain.mjs';
 
 export const DEFAULT_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -579,9 +580,7 @@ export async function updateNumbers({
   return { changes, missing, wrote };
 }
 
-const isMain = process.argv[1] && fs.existsSync(process.argv[1])
-  && fs.realpathSync(process.argv[1]) === fileURLToPath(import.meta.url);
-if (isMain) {
+if (isMain(import.meta.url)) {
   const rootFlag = process.argv.indexOf('--root');
   const onlyFlag = process.argv.indexOf('--only');
   const report = await updateNumbers({

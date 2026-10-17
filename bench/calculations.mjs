@@ -60,6 +60,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isMain } from '../src/ismain.mjs';
 
 export const CATALOGUE = path.join('shared', 'calculations.jsonl');
 
@@ -173,7 +174,7 @@ export function check(root, { catalogue = CATALOGUE, places = PLACES } = {}) {
 }
 
 // --- run as a tool -----------------------------------------------------
-if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+if (isMain(import.meta.url)) {
   const flag = (n, v) => {
     const i = process.argv.indexOf(`--${n}`);
     return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : v;

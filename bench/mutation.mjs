@@ -23,6 +23,7 @@ import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isMain } from '../src/ismain.mjs';
 const ROOT=path.resolve(fileURLToPath(new URL('.', import.meta.url)), '..');
 
 export const MUTANTS=[
@@ -1831,22 +1832,22 @@ export const MUTANTS=[
    file:'assets/dashboard/dashboard.css',
    from:'--muted:#51695a;--quiet:#566a5d;',
    to:'--muted:#51695a;--quiet:#617869;',
-   tests:['test/quiet-aa-cm-browser.test.mjs'] },
+   tests:['test/quiet-aa-cm.test.mjs', 'test/quiet-aa-cm-browser.test.mjs'] },
  { name:'quiet AA: the dark theme gets its old --quiet back (#91a699, 4.30 on a figure tile)',
    file:'assets/dashboard/dashboard.css',
    from:'--muted:#a7b8ae;--quiet:#99aca0;',
    to:'--muted:#a7b8ae;--quiet:#91a699;',
-   tests:['test/quiet-aa-cm-browser.test.mjs'] },
+   tests:['test/quiet-aa-cm.test.mjs', 'test/quiet-aa-cm-browser.test.mjs'] },
  { name:'quiet AA: the light theme keeps the dark .content tint (page top grey, --muted 4.13)',
    file:'assets/dashboard/dashboard.css',
    from:'.light .content{background:none}',
    to:'.light .content{}',
-   tests:['test/quiet-aa-cm-browser.test.mjs'] },
+   tests:['test/quiet-aa-cm.test.mjs', 'test/quiet-aa-cm-browser.test.mjs'] },
  { name:'quiet AA: the dark fabric stage takes the light --quiet in the light theme (2.3 on the stage)',
    file:'assets/dashboard/dashboard.css',
    from:'.light .fabric-stage{--quiet:#99aca0}',
    to:'.light .fabric-stage{}',
-   tests:['test/quiet-aa-cm-browser.test.mjs'] },
+   tests:['test/quiet-aa-cm.test.mjs', 'test/quiet-aa-cm-browser.test.mjs'] },
  { name:"codex-cloud: a failed write takes back folders RECURSIVELY",
    file:"src/codexcloud.mjs",
    from:"try { fs.rmdirSync(p); }",
@@ -2392,6 +2393,29 @@ export function skipsOf(tap) {
   return { skipped: n, reason };
 }
 
+// **Every mutant needs a probe that runs without a browser (CI run 1180).**
+// Run 1141 cured one mutant family (card-byline-ui) with a logic half; four
+// "quiet AA" mutants stood on the same bare browser probe and turned all
+// four slices red the same way. A test file is BROWSER-BOUND when its name
+// says "browser", or when it loads the browser fixture / playwright and is
+// not named in `mixed` (a file with module tests next to its browser tests,
+// each with the reason it counts). `browserOnly` names the mutants whose
+// every test file is browser-bound: the catalogue must hold none
+// (test/mutation-anchors.test.mjs). A pure function of the list and a
+// reader for the files, so a probe can feed it a made-up catalogue.
+export const MIXED_SUITES = {
+  'test/dash-confirm-fresh-cm.test.mjs': 'tests (1) and (1b) are module tests; only (2) and (3) start a browser or a view',
+};
+export function browserBound(file, read, mixed = MIXED_SUITES) {
+  if (/browser/i.test(path.basename(file))) return true;
+  if (Object.hasOwn(mixed, file)) return false;
+  const text = read(file);
+  return text !== null && /fixture\/browser\.mjs|\bplaywright\b/.test(text);
+}
+export function browserOnly(list, read, mixed = MIXED_SUITES) {
+  return list.filter((m) => (m.tests ?? []).length > 0 && m.tests.every((f) => browserBound(f, read, mixed))).map((m) => m.name);
+}
+
 // **The catalogue is importable; none of the rest of this file is.**
 //
 // `test/mutation-anchors.test.mjs` (and `test/readme-numbers.test.mjs`,
@@ -2413,8 +2437,7 @@ export function skipsOf(tap) {
 // it never asked for, and a transient flake in that baseline (see the
 // 2026-09-19 note below) could fail a test file with nothing to do with
 // mutation testing at all.
-const RUN_AS_SCRIPT = process.argv[1]
-  && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+const RUN_AS_SCRIPT = isMain(import.meta.url);
 
 if (RUN_AS_SCRIPT) {
 
