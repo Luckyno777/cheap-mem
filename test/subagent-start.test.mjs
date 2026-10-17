@@ -9,7 +9,7 @@
 //   1. any procedure a human tagged `subagent-start` — never invented
 //      here, only a human can issue one (procedure.mjs);
 //   2. a context recap, spent on whatever budget the procedures block
-//      left, capped in total (subagentstart.CAP_CHARS).
+//      left, capped in total (subagentstart.CAP_BYTES, the one budget of src/answerbudget.mjs).
 //
 // Retired procedures are excluded the same way `mem procedures` excludes
 // them (one reading of "in force"), and the whole block is silent about
@@ -133,16 +133,19 @@ test('buildContext: never exceeds its own cap, even with a very large procedures
   const r = memory();
   try {
     run(r, 'log', 'procedure', '--title', 'Huge',
-      '--rule', 'x'.repeat(subagentstart.CAP_CHARS * 2), '--issued-by', 'owner',
+      '--rule', 'x'.repeat(subagentstart.CAP_BYTES * 2), '--issued-by', 'owner',
       '--tags', 'subagent-start', '--start-as', 'released');
     const text = subagentstart.buildContext(r);
-    assert.ok(text.length <= subagentstart.CAP_CHARS * 2 + 500,
-      // The procedures block itself is never cut (a human's rule is not
-      // the part that gives way) — so with a rule this oversized the
-      // total is allowed to exceed CAP_CHARS. What must hold is that the
-      // hint is still appended and the recap contributed nothing.
-      `block: ${text.length} chars`);
+    // abruf-budget: the procedures block used to be "never cut" (a human's rule is not the part that gives way), so a
+    // rule this oversized pushed the total past the cap. Now ONE budget holds (src/answerbudget.mjs): a rule that cannot
+    // fit comes as a POINTER with its marking, its title and `mem show <id>`, and a note says so. What must still hold:
+    // the hint is appended, the recap contributed nothing, and the rule is not silently gone.
+    assert.ok(Buffer.byteLength(text, 'utf8') <= subagentstart.CAP_BYTES, `block: ${Buffer.byteLength(text, 'utf8')} bytes`);
     assert.match(text, /component <path>/);
+    assert.match(text, /Procedure, issued by owner/, 'the marking of the rule is still there');
+    assert.match(text, /\[pointer - the rule did not fit this block: mem show /);
+    assert.match(text, /Held to 3200 bytes/);
+    assert.ok(!text.includes('x'.repeat(200)), 'the oversized rule is not in the text');
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });
 

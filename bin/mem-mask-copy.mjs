@@ -29,8 +29,8 @@ import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 import { once } from 'node:events';
-import { fileURLToPath } from 'node:url';
 import { maskEntry, maskText } from '../src/outputguard.mjs';
+import { isMain } from '../src/ismain.mjs';
 
 const DIR_PREFIX = 'mem-reflect-';
 const FILE_NAME = 'transcript.jsonl';
@@ -46,10 +46,21 @@ function parseStructured(line) {
 // Consecutive lines that are no JSON object are masked as ONE block of text, not line by line: a secret that spans
 // lines (a PEM private key, a multi-line token in a pasted log) has no shape in any single one of its lines. The block
 // has a cost limit: it is cut at BLOCK_MAX_LINES lines or BLOCK_MAX_CHARS characters and the rest starts a new block,
-// so the work stays linear in the size of the file (every character is masked once). A secret longer than the limit
-// is the only thing a cut can split; a key is a few KB, the limit is 2 MiB.
+// so the work stays linear in the size of the file (every character is masked once). A cut can split a secret that
+// STRADDLES it: a key of a few KB that happens to begin just before the 2 MiB mark. So a cut never gives up an open
+// block (a `BEGIN` header with no `END` after it): the header is carried into the next block, which is masked as if the
+// header stood in front of it, for as long as no `END` is seen (fail closed: an open block is masked to its end, or to the
+// end of the file, rather than left in the clear; small-rest2).
 const BLOCK_MAX_LINES = 20000;
 const BLOCK_MAX_CHARS = 2 * 1024 * 1024;
+
+/** The header line of the last `BEGIN` in `text` that no `END` follows ('' when there is none or it is closed). */
+export function openBlockHeader(text) {
+  const at = text.lastIndexOf('-----BEGIN');
+  if (at < 0 || text.indexOf('-----END', at) >= 0) return '';
+  const m = /^-----BEGIN[^-]{0,40}-----/.exec(text.slice(at, at + 80));
+  return m ? m[0] : '';
+}
 
 /** True when `inner` is `outer` or lies below it (real paths; case-insensitive where the platform is). */
 function isInside(inner, outer) {
@@ -87,13 +98,19 @@ export async function makeCopy(source, root) {
     const rl = readline.createInterface({ input, crlfDelay: Infinity });
     let block = [];
     let blockChars = 0;
+    let carry = ''; // the header of a block a cut left open
     const put = async (text) => { if (!out.write(`${text}\n`)) await once(out, 'drain'); };
-    const flush = async () => {
+    const flush = async (cut = false) => {
       if (block.length === 0) return;
-      const text = maskText(block.join('\n'));
+      const prefix = carry ? `${carry}\n` : '';
+      const text = prefix + block.join('\n');
+      let masked = maskText(text);
+      // a carried header the mask did not take (the block ended before any key material) is not part of the copy
+      if (prefix && masked.startsWith(prefix)) masked = masked.slice(prefix.length);
+      carry = cut ? openBlockHeader(text) : '';
       block = [];
       blockChars = 0;
-      await put(text);
+      await put(masked);
     };
     for await (const line of rl) {
       const parsed = parseStructured(line);
@@ -103,7 +120,7 @@ export async function makeCopy(source, root) {
       } else {
         block.push(line);
         blockChars += line.length + 1;
-        if (block.length >= BLOCK_MAX_LINES || blockChars >= BLOCK_MAX_CHARS) await flush();
+        if (block.length >= BLOCK_MAX_LINES || blockChars >= BLOCK_MAX_CHARS) await flush(true);
       }
     }
     await flush();
@@ -142,7 +159,9 @@ export function cleanCopy(target) {
   return true;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+// Both sides as real paths (src/ismain.mjs): under a symlinked parent (a macOS temp dir) the text comparison was false,
+// the script printed nothing, and the reflector, which starts no model without the masked copy, never ran (CI run 1103).
+if (isMain(import.meta.url)) {
   const args = process.argv.slice(2);
   try {
     if (args[0] === '--clean') {

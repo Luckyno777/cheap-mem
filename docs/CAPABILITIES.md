@@ -151,6 +151,7 @@ directory. The section number in brackets is where it is explained.
 | `guard.mjs` | a recorded error becomes a latch (10.2) |
 | `guardgaps.mjs` | ranks the errors that have NO guard (`mem guard gaps`): a guarded error is a filter, never a gap; repetition, an open duty and age only order the unguarded ones; reads, writes nothing |
 | `heartbeat.mjs` | running, or just nothing to do (10.3) |
+| `http-limits.mjs` | hard limits for every HTTP service that listens (`hardenServer`: head 10 s, request 30 s, 100 header lines, a check every 2 s, `maxConnections` per service) against slow headers, a dripping body and a connection flood; they bound only the receiving of a request, so a long answer is not cut (`docs/security-model.md`, "HTTP service limits") |
 | `hybrid.mjs` | BM25 and semantic recall, fused by RRF (2) |
 | `icon.mjs` | the mark, drawn in code |
 | `inbox.mjs` | cross-session messages |
@@ -231,8 +232,11 @@ directory. The section number in brackets is where it is explained.
 | `statequestion.mjs` | freshness for questions that ask "what holds now": a state signal word ("current", "still", "latest", ...; file/config-extensible, English default) dampens older same-`topic` hits among a query's own results — the newest, and anything with no readable `ts`, untouched (M9 parity) |
 | `store.mjs` | generated files provable by hash, without bloating the repo |
 | `stores.mjs` | the usual places people keep files, found by name (10.11) |
-| `subagentstart.mjs` | the SubagentStart hook: any procedure tagged `subagent-start` (a norm only a human can issue) plus a context recap, capped, plus the block for the assignment (`subagenttask.mjs`) |
-| `subagenttask.mjs` | the assignment text of a subagent (read, fail-soft, from its own transcript; the hook input documents none) and the choice of what the memory hands it FOR THAT TASK: at most 4 hits and 1,500 bytes of errors (with their solution line), learnings, duties, procedures and skills, found by the files and content words of the task; nothing encrypted, `personal` or naming a person |
+| `subagentstart.mjs` | the SubagentStart hook: any procedure tagged `subagent-start` (a norm only a human can issue) plus a context recap plus the block for the assignment (`subagenttask.mjs`), put together by the one final selection under 3,200 bytes (`answerbudget.mjs`) |
+| `answerbudget.mjs` | the ONE final selection for what the prompt hook and the SubagentStart hook put into a context: one byte budget (3,200) for the whole text; parts are allocated in rank order and a part that does not fit steps down to a pointer (id and the command that loads it) instead of vanishing or being cut; one note says how many stepped down or fell away; every form is masked before it is measured |
+| `workflowpointer.mjs` | the pointer form of a workflow card or tie list, and taking back the "card shown" mark of a card the selection did not show whole |
+| `findcore.mjs` | the ranked search of `mem find`, as one function: `mem find` and the MCP tool `mem_find` both call it (exact lane, echo filter, MMR, retired/as-of gates, tie guard, answer gate), so the same question gives the same hits at both doors |
+| `subagenttask.mjs` | the assignment text of a subagent (read, fail-soft, from its own transcript; the hook input documents none) and the choice of what the memory hands it FOR THAT TASK: at most 4 hits and 1,500 bytes (a share of the one 3,200-byte budget of the start) of errors (with their solution line), learnings, duties, procedures and skills, found by the files and content words of the task; nothing encrypted, `personal` or naming a person |
 | `switches.mjs` | which switch names the CLI keeps for itself, and how close a typo may come |
 | `tasks.mjs` | long CLI work as tasks — progress/result/cancel over a real child process (E1.7, 7.4) |
 | `teach.mjs` | what the memory has to say to a newcomer, in five sections |
@@ -627,12 +631,12 @@ return, so a flood cannot become a denial of service or a context bill.
 | Hook | When | What |
 |---|---|---|
 | `SessionStart` | session begins | prints `FACTS.md` + recent context |
-| `UserPromptSubmit` | every message | recalls matching memory (no model, ~ms) and feeds it to the turn; refreshes the clone in the background, detached |
+| `UserPromptSubmit` | every message | recalls matching memory (no model, ~ms) and feeds it to the turn, the whole answer under one budget of 3,200 bytes (a hit, a workflow card or a skill hint that does not fit steps down to a pointer; a note says so); refreshes the clone in the background, detached |
 | `PreToolUse` (Edit/Write/NotebookEdit, and Bash when the command writes a file) | before a file changes | searches the memory for that PATH, literally, and shows errors, decisions and learnings naming it, plus open duties and released procedures for it — once per file per session |
 | `Stop` | after a turn | captures the transcript (model-free) and persists it; checks the last answer against patterns tied to a logged error (see `docs/answer-check.md`) |
 | `PostToolUse` (Bash only) | after a Bash call that exited 0 | when the call's own output carries a failure signature (`# fail 3`, `npm test \| tail`), recalls matching memory — the failure the exit code hid |
 | `PostToolUseFailure` (Bash, Edit, Write) | after a tool call that really failed | recalls earlier errors and learnings of the same class, once per failure per session |
-| `SubagentStart` | a subagent begins | shows the procedures tagged `subagent-start`, a context recap and — read from the subagent's own transcript — the errors, learnings, duties, procedures and skills that fit ITS TASK (4 hits, 1,500 bytes, nothing personal; `MEM_SUBAGENT_TASK_OFF=1`); a lane of that lookup that fails or runs out of time is said in one sentence, never read as "nothing known" — a subagent gets neither `SessionStart` nor `UserPromptSubmit` |
+| `SubagentStart` | a subagent begins | shows the procedures tagged `subagent-start`, a context recap and — read from the subagent's own transcript — the errors, learnings, duties, procedures and skills that fit ITS TASK (4 hits, nothing personal; `MEM_SUBAGENT_TASK_OFF=1`), all under one budget of 3,200 bytes with pointers for what does not fit; a lane of that lookup that fails or runs out of time is said in one sentence, never read as "nothing known" — a subagent gets neither `SessionStart` nor `UserPromptSubmit` |
 
 **Why the PreToolUse hook exists**, measured 2026-09-08: recall used to
 hang only on `UserPromptSubmit`, so it fired when the person typed and
@@ -717,7 +721,7 @@ its answer is, and a tile that could NOT be measured shows as
 installation steps has actually happened; `mem classes` is the error
 vocabulary and how much of this memory it covers.
 
-Every command takes `--help` (or `-h`, wherever a switch could stand; a `-h` that follows a parameter is that parameter's value). `mem doctor` is the self-check: it
+Every command takes `--help` (or `-h`, wherever a switch could stand; a `-h` that follows a parameter is that parameter's value, but never one that follows a yes/no switch: `--json -h`, `--force -h` and `--readonly -h` show the help). `mem doctor` is the self-check: it
 reports what is configured, what is missing, and what is merely
 unknown — UNKNOWN is a distinct result from OK and ERROR, on purpose.
 
@@ -743,7 +747,7 @@ Desktop). `bin/mem-mcp`, stdio (or `--http`).
 | `mem_source` | take in an address as a source (no local paths) |
 | `mem_bridge_report` | report which checkout this server is serving |
 | `mem_board` | the operating state on one screen |
-| `mem_find` | ranked search; optional `variants` (caller-written rewordings, rank-fused) |
+| `mem_find` | ranked search, the same core as `mem find` (`findcore.mjs`); `top` at most 25 (a larger number is cut and the answer says so); optional `variants` (caller-written rewordings, rank-fused) |
 | `mem_retrieve` | ranked retrieval returning structured claims |
 | `mem_show` | one entry in full |
 | `mem_links` | what an entry points at, and what points at it |

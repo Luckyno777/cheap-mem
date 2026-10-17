@@ -365,7 +365,7 @@ a failure — for CI, where refusing to determine a property *is* the defect.
 
 | guarantee | layer | how it is checked | if absent |
 |---|---|---|---|
-| `O_APPEND` atomicity | os/filesystem | filesystem type, plus a measured run of concurrent writers only with `mem doctor --full` or `--strict`; **UNKNOWN** when undeterminable or not measured. `--alarm` (the session-start banner) sees only the filesystem-name list, so it reports a documented-unsafe name (NFS) but never a torn line | concurrent writers may interleave (NFS) |
+| `O_APPEND` atomicity | os/filesystem | filesystem type, plus a measured run of concurrent writers only with `mem doctor --full` or `--strict`; **UNKNOWN** when undeterminable or not measured. A run with `--full` keeps its verdict in `.pipeline/append-atomicity.json` (time, device, filesystem name, node version, writers x lines; written by temp file and rename, git-ignored with the rest of `.pipeline/`). A run without it, `--alarm` (the session-start banner) included, measures nothing and reads that record back: a **torn** verdict on the same device is an error with the time of the measurement and the hint that `mem doctor --full` measures anew; a clean one stays **UNKNOWN** (it says no tearing happened, not that none can); a record from another device or filesystem (the memory was moved) is not used; an empty, damaged, oversize (over 4096 bytes) or non-plain-file record (a device behind a symlink, a pipe, a directory) is a note and is not read, never a crash. The record is written by every caller that measures: `mem doctor --full`/`--strict`, the dashboard and the weekly instrument trace (both call `checkAll(root)`, which measures by default). Only a later clean measurement replaces a torn entry, and that is the only way out: a short clean run proves little, so a torn entry never ages out and a clean record never alarms. Before the first `--full` the banner sees only the filesystem-name list (a documented-unsafe name such as NFS) | concurrent writers may interleave (NFS) |
 | `*.jsonl merge=union` | git | `.gitattributes` | a merge silently destroys entries |
 | pre-commit hook | git | `core.hooksPath` + file | secrets reach git |
 | clock | operational | newest `ts` vs. system clock | "newest" is wrong |
@@ -398,6 +398,7 @@ every fresh memory started without the guarantee its own design depends on.
 | **T3** | Trojan-Source bidi-override characters ([CVE-2021-42574](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2021-42574)) reorder how a body reads in a terminal or an agent's context | neutralised at DISPLAY time | `src/bidi.mjs` — a closed nine-codepoint list (U+202A-U+202E, U+2066-U+2069) | `bidi.visible()` in every render path: `display.compactLine` (`mem find`, `mem component`/pre-edit hook, `mem when`, board), `memory.context()` (SessionStart hook), `browse.fit()` (`mem browse`), and directly in `bin/mem-retrieve`'s per-turn hook (which reads the raw entry, not `compactLine`'s output) | the character is still ON DISK, unmarked, in any consumer that reads the JSONL directly instead of through one of these render paths — e.g. `git show`, a raw `cat`, or a future display path that forgets to call `bidi.visible()` |
 | **T9 model output** | digest emits `authority: user` | demoted to `inferred` | `authority_clamped_from` | write-path ceiling | a writer without the ceiling set is unconstrained |
 | **T10 hostile memory, unattended session** | a push into the memory adds `.claude/settings.json` (a hook) or `.mcp.json`; the next digest, mail-handler or reflector run starts the model command and runs it | the hook never runs, the server never connects | `test/headless-start.test.mjs` (planted hook + server, red on the first version and on the base) | EVERY command starts in a neutral empty directory outside the memory; a command recognised as `claude` also gets `--setting-sources user --strict-mcp-config`; an old claude is refused, never started open (section 11) | an alias or wrapper that runs claude under another name (neutral, but without the flags); a text scanner as ratchet; the memory's `CLAUDE.md` read as context |
+| **network client** (any process that reaches the port) | slow headers (Slowloris), a dripping body, silent connections, a connection flood against `mem serve` or `mem-mcp --http` | the connection is closed after the limit; the service keeps answering a normal client; surplus connections are dropped on accept *(measured, below)* | `test/http-limits.test.mjs`; the listener inventory in `test/serve-token-refuse-cm.test.mjs` demands the call of every listed service | `hardenServer` (`src/http-limits.mjs`): head 10 s, request 30 s, idle 5 s, 100 header lines, a check every 2 s, `maxConnections` per service (dashboard 512, MCP 256) | the seats can be refilled over and over (see "HTTP service limits"); no limit per peer; a slow READER of an answer is not limited |
 
 ### Closed in the final verification round
 
@@ -603,6 +604,79 @@ each was reproduced against a throwaway root here first.
 - **Checked and not a gap here:** an `In-Reply-To` letter never closes a request (the state is its own act, addressee
   only since B2, and `inbox.write` checks the direction); the dashboard's archive location (session + allowed bases) and
   the CLI (unchecked, the operator's own hand) split the way lucky-mem's does.
+
+### HTTP service limits (slow headers, dripping body, connection flood)
+
+**The threat.** The two services that listen over HTTP (`mem serve` = `bin/mem-serve`, and `mem-mcp --http` = `bin/mem-mcp`) ran
+with the Node defaults: request headers may take 60 s (in practice 90 s, because Node checks the time limits only every 30 s),
+a body 300 s, and the number of open connections is unlimited. A client that holds a few hundred connections open and sends one
+byte every second (Slowloris) occupies a service without ever finishing a request. Silent connections do the same, and with
+enough of them a service whose unit allows 1024 file descriptors runs out of descriptors, after which nothing connects until
+they are freed. Neither needs a credential: the limits act before the token is looked at.
+
+**The limits** (`src/http-limits.mjs`, one helper, called right after `http.createServer`, before `listen`):
+
+| limit | value | Node default | acts on |
+|---|--:|--:|---|
+| `headersTimeout` | 10 s | 60 s | the whole head (also a connection that sends nothing: Node answers 408) |
+| `requestTimeout` | 30 s | 300 s | head plus body |
+| `keepAliveTimeout` | 5 s | 5 s | idle time between two requests (written down on purpose) |
+| `maxHeadersCount` | 100 | unlimited | header lines per request (the head is capped at 16 KiB anyway) |
+| `connectionsCheckingInterval` | 2 s | 30 s | how often Node looks; without it a 10 s limit acts after up to 40 s |
+| `maxConnections` | dashboard 512, MCP 256 | unlimited | open connections; the rest is dropped on accept |
+
+The caps sit clearly below the 1024 descriptors a service unit usually has and leave room for files and child processes. They
+are never 0: Node drops EVERY connection at `maxConnections = 0`, so the helper ignores 0 (and any other non-positive or
+non-integer value) and leaves the cap unset (`test/http-limits.test.mjs`).
+
+**What is not limited, on purpose.** The limits bound only the RECEIVING of a request. The answer is untouched: there is
+no socket idle limit (`server.timeout` stays 0), so a long answer or a stream is not cut (probe "long answer": 12 s of events
+against a request limit of 10 s arrive whole). The dashboard does not stream (it polls), but the MCP bridge does: `GET /mcp`
+(Streamable HTTP, stateless) opens an SSE stream that sends `: keepalive` every 15 s and does not end by itself (measured on the
+shipped bridge: status 200, `text/event-stream`, still open after 35 s with keepalives at 15 s and 30 s). Such a stream is not cut
+by these limits, which is the point, and it is also the residual risk below.
+
+**Measured** (Node 22.22, Linux, loopback, a real service as a process, 8 slow connections sending one byte a second; 600 silent
+connections for the flood; the old stand is `kette/cm` at 04ca129):
+
+| | before | after |
+|---|--:|--:|
+| slow headers held, dashboard / MCP | 89.5 s / 89.9 s | 11.6 s / 11.8 s |
+| dripping body held, dashboard / MCP | 329.5 s / 329.8 s | 31.5 s / 31.9 s |
+| 600 silent connections: all freed after, dashboard / MCP | 89.4 s / 89.9 s | 11.6 s / 11.9 s |
+| 600 silent connections: dropped at once (cap) | 0 / 0 | 88 / 344 |
+| a normal request while the slow connections are open | 200 | 200 |
+
+While the cap is reached the service drops a real request as well (connection reset); one request after the seats are freed goes
+through. The caps are no wall: an attacker who refills the seats holds the service for as long as he keeps reconnecting, now
+at a cost of one connection per seat every ~12 s instead of one hang of 90 s that ended in an exhausted descriptor table.
+
+**The recall server** (`src/recallserver.mjs`) listens on a Unix socket (a named pipe on Windows) with a key file under a 0700
+directory, not on a port, so it has no HTTP limits. A client that connects and never finishes its line holds only its own socket:
+the idle limit of that socket is 30 s (`sock.setTimeout`), the answers are queued per complete line, and the next client is
+answered meanwhile (probe "group 4"). No cap on connections was added there: only the owner of the memory can reach the socket,
+a dropped connection would make the hook go direct, and a cap would be a second thing to tune with no attacker in view.
+The client (`bin/mem-retrieve-client.mjs`) gives up on its own clock, so a hanging recall server never blocks an agent's prompt.
+
+**Residual risk.**
+- A cap is a seat count, not a defence against someone who can reach the port: behind a tunnel or a reverse proxy every connection
+  comes from 127.0.0.1, so there is no limit per peer. Put rate limiting in the proxy.
+- **Every open GET stream of the MCP bridge holds one of its 256 seats for good** (`server.timeout` is 0, the stream has no end of
+  its own). Whoever holds 256 streams locks the bridge: new connections are dropped on accept until a stream closes. This needs the
+  bridge token, except under `--local-no-token` (`CHEAP_MEM_MCP_LOCAL_NO_TOKEN=1`) on loopback, where any local process can do it.
+  No code limits it (no cap per stream kind, no stream age limit): the fix would be a decision about streams, not a tuning of
+  numbers. Mitigation until then: keep the token set, and a reverse proxy in front may cap streams per client.
+- A slow READER (a client that takes an answer a byte at a time) holds its connection: `server.timeout` is 0 so that a stream never breaks.
+  Limiting it needs a decision about streams first.
+- If the event loop of the service itself hangs for longer than the head limit (a long synchronous call), Node cuts the
+  requests that started in that time with a 408. The services work in milliseconds to seconds; whoever builds something long and
+  synchronous into them has to know.
+- A request that needs more than 30 s to arrive (a large body over a slow line) is cut. No route has such a body (caps from 4 KiB
+  to 1 MiB); a new one passes `requestTimeoutMs` to `hardenServer`.
+- `keepAliveTimeout` stays 5 s (the Node default): a tunnel that reuses an idle connection can run into that window.
+- A new HTTP service has to call `hardenServer`. Two ratchets enforce it: `test/http-limits.test.mjs` counts `http.createServer(`
+  against `hardenServer(` under `bin/` and `src/`, and the listener inventory refuses a listed service without the call (with a
+  named cap).
 
 ### Unsolved, explicitly
 

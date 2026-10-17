@@ -32,6 +32,9 @@ const OLD = 'f9fd134003dbdec6e342066fbe21a060ba6bf5c5';
 // Measured 2026-10-06 on 100 000 entries of 40-60 words in ten drawers: the old
 // state dies below ~81-88 MiB, the new one finishes from ~17-24 MiB.
 // 48 keeps at least 24 MiB to either side.
+// Re-measured 2026-10-17 (task heap-margin-cm, Node 22.22, 4 cores at load 8-10): new from ~18 MiB (16: 0 of 10
+// run, 20: 10 of 10), old from ~88 MiB (84: 0 of 10 run, 88: 9 of 10, 92: 10 of 10), also four at a time.
+// Air at 48: ~28 MiB below, ~40 MiB above.
 const HEAP_MIB = 48;
 const N_BIG = 100000;
 
