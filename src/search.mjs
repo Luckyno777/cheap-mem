@@ -1411,21 +1411,32 @@ const MMR_TIE = 1e-12;
 
 /**
  * How many candidates the MMR pass gets: without MMR exactly `n`, with MMR
- * ten times `n`, at least 50. Ported 2026-09-29 from the sibling house
- * (its MMR cap, 2026-09-17). Before, `search()` handed EVERY hit above the
- * floor to `mmrRerank` — O(hits x top) similarity calls. Measured with the
- * options `mem find` uses (top 30, MMR 0.7), warm, load 0.95: 20k entries
- * 465 ms median, 200k entries 5624 ms; without MMR 43 ms / 620 ms. A hit
- * below rank 10 x top practically never wins an MMR round at lambda 0.7
- * (relevance is normalised to the top score), so the pool changes cost,
- * not the answer — test/mmr-pool.test.mjs holds both halves.
+ * ten times `n`, at least 50, at most `MMR_POOL_MAX` - but never fewer than
+ * `n` itself. Ported 2026-09-29 from the sibling house (its MMR cap,
+ * 2026-09-17); the hard ceiling ported 2026-10-17 from its `MMR_DECKEL_MAX`.
+ * Before, `search()` handed EVERY hit above the floor to `mmrRerank` -
+ * O(hits x top) similarity calls. Measured with the options `mem find`
+ * uses (top 30, MMR 0.7), warm, load 0.95: 20k entries 465 ms median,
+ * 200k entries 5624 ms; without MMR 43 ms / 620 ms. A hit below rank
+ * 10 x top practically never wins an MMR round at lambda 0.7 (relevance is
+ * normalised to the top score), so the pool changes cost, not the answer -
+ * test/mmr-pool.test.mjs holds both halves.
+ *
+ * **The factor alone was not a bound (2026-10-17).** `mem find --top N`
+ * asks the search for 3 x N, the pool was ten times that: 6000 entries,
+ * a query that matches most of them, median of 3 under load 7: top 10
+ * 0.58 s, top 200 9.3 s, top 1000 34 s, `--no-mmr` 0.67 s. 600 covers every
+ * `--top` up to 20 (plan 60 x 10) unchanged; above it MMR orders the first
+ * 600 and the rest follows in score order (`mmrSelect`). Cost: at most
+ * 600 x 600 similarities, whatever `top` is.
  */
 export const MMR_POOL_FACTOR = 10;
 export const MMR_POOL_MIN = 50;
+export const MMR_POOL_MAX = 600;
 export function mmrPoolFor(n, mmr) {
   if (n <= 0) return 0;
   if (!mmr) return n;
-  return Math.max(n * MMR_POOL_FACTOR, MMR_POOL_MIN);
+  return Math.max(n, Math.min(Math.max(n * MMR_POOL_FACTOR, MMR_POOL_MIN), MMR_POOL_MAX));
 }
 
 export function mmrRerank(candidates, { lambda = 0.7, top = 10, simOf } = {}) {
@@ -1518,6 +1529,22 @@ export function mmrRerank(candidates, { lambda = 0.7, top = 10, simOf } = {}) {
  * Search. Returns the best `top` hits, descending by score.
  */
 const TIERS_KNOWN = new Set(['user', 'system', 'agent', 'external', 'inferred', 'unknown']);
+
+/**
+ * The first `n` of a score-sorted list, ordered by MMR, with a hard pool
+ * (`MMR_POOL_MAX`). A caller who wants more than the pool (`mem find --top
+ * 1000` asks for 3000) gets the MMR-ordered pool and behind it the rest in
+ * score order: the list is sorted already, the count stays `n`. At most
+ * pool x min(n, pool) similarities, never more than `MMR_POOL_MAX` squared,
+ * however large `n` or the list is.
+ */
+export function mmrSelect(list, n, { lambda = 0.7, simOf } = {}) {
+  if (n <= 0) return [];
+  if (list.length <= 1) return list.slice(0, n);
+  const pool = Math.min(mmrPoolFor(n, true), MMR_POOL_MAX);
+  const head = mmrRerank(list.slice(0, pool), { lambda, top: Math.min(n, pool), simOf });
+  return n > pool ? [...head, ...list.slice(pool, n)] : head;
+}
 
 /**
  * May this document be returned AT ALL, whatever lane found it?
@@ -2112,10 +2139,10 @@ export function search(index, query, {
   hits.sort(byScoreThenIdentity);
   const maxScore = hits.length ? hits[0].score : 0;
   const kept = hits.filter((t) => maxScore === 0 || t.score / maxScore >= minScore);
-  // MMR sees a bounded pool, not every hit above the floor (mmrPoolFor).
+  // MMR sees a bounded pool, not every hit above the floor (mmrSelect).
   const norms = new Map();   // one ranking's norms, dropped with it (see docSimilarity)
   const out = (mmr && kept.length > 1)
-    ? mmrRerank(kept.slice(0, mmrPoolFor(top, true)), { lambda: mmrLambda, top, simOf: (a, b) => docSimilarity(a.__w, b.__w, norms) })
+    ? mmrSelect(kept, top, { lambda: mmrLambda, simOf: (a, b) => docSimilarity(a.__w, b.__w, norms) })
     : kept.slice(0, top);
   // The scored candidates were slim (score + document reference); only the
   // answer is turned into full hits, in the field order of old.
