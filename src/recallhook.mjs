@@ -52,6 +52,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { isMain } from './ismain.mjs';
+import { readHookStdin } from './hookstdin.mjs';
 import * as injection from './injection.mjs';
 import * as clonegate from './clonegate.mjs';
 import { visible as bidiVisible } from './bidi.mjs';
@@ -120,7 +121,9 @@ function booking(env, extra) {
 /** `signal` mode as a function; returns the verdict and books a "no". */
 export async function signal(root, prompt, env = process.env) {
   const verdict = await judge(prompt, {
-    loadIndex: async () => (await import('./search.mjs')).loadIndex(root),
+    // `allowStale`: the hook never sits through a full rebuild; past the bound it is done in the background
+    // (src/indexrebuild.mjs, index-schwelle-cm). The rare-word check needs only the document frequencies.
+    loadIndex: async () => (await import('./search.mjs')).loadIndex(root, { allowStale: true }),
   });
   if (!verdict.search && env.MEM_RH_SESSION) {
     injection.book(root, booking(env, {
@@ -405,17 +408,10 @@ export function catchFail(hitsJson, env = process.env, { attach = null } = {}) {
   };
 }
 
-function readStdin() {
-  return new Promise((resolve) => {
-    let d = '';
-    process.stdin.on('data', (c) => { d += c; }).on('end', () => resolve(d)).on('error', () => resolve(d));
-  });
-}
-
 if (isMain(import.meta.url)) {
   const mode = process.argv[2];
   const root = process.env.CHEAP_MEM_ROOT;
-  readStdin().then(async (raw) => {
+  readHookStdin().then(async (raw) => {
     if (mode === 'signal') {
       const v = await signal(root, raw);
       if (v.search) process.stdout.write('search');

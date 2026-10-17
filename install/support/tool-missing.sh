@@ -29,20 +29,34 @@
 # place. That case speaks even without CHEAP_MEM_CODE: the installer was never
 # run, and the hook would otherwise be silent on every prompt for a reason a
 # person can fix in one line.
+#
+# **A bad CHEAP_MEM_CODE is said, not shown (shim-rest-cm, 2026-10-17).** The shims reject a CHEAP_MEM_CODE
+# with a control character in it (bin/_owntool.sh, mem_code_clean) and hand the rejection on as
+# MEM_CODE_REJECTED; this helper speaks for it. A value that reaches here with control characters anyway
+# (started by hand) is shown in printf %q form - never raw, so it cannot move a terminal cursor or start
+# a new line in front of the person - and the whole message is JSON-escaped (every U+0000..U+001F).
 set -u
 name="${1:-hook}"
 tool="${2:-mem}"
 code="${CHEAP_MEM_CODE:-}"
 skipped="${MEM_OWN_SKIPPED:-0}"
-[ -n "$code" ] || [ "$skipped" = "1" ] || exit 0
+rejected="${MEM_CODE_REJECTED:-}"
+[ -n "$rejected" ] || [ -n "$code" ] || [ "$skipped" = "1" ] || exit 0
+# What a path looks like in the message: as it is, unless it holds a control character.
+shown_code="$code"
+case "$code" in *[[:cntrl:]]*) shown_code="$(printf '%q' "$code")" ;; esac
+case "$rejected" in *[[:cntrl:]]*) rejected="$(printf '%q' "$rejected")" ;; esac
+nocode="CHEAP_MEM_CODE is not set"
+[ -n "$rejected" ] && nocode="CHEAP_MEM_CODE was rejected because it contains a control character such as a line break, tab or escape; value: $rejected"
 if [ "$skipped" = "1" ]; then
   # Two different facts, said apart: the tool is MISSING, or it is THERE but lies in the memory and was passed over.
   why="the memory ships its own tool, which is not trusted"
-  if [ -z "$code" ]; then why="$why, and no installed tool is configured (CHEAP_MEM_CODE is not set)"
-  elif [ -f "$code/bin/$tool" ]; then why="$why; the installed tool (CHEAP_MEM_CODE=$code) lies inside the memory, so it counts as the memory's own and was passed over"
-  else why="$why, and the installed tool is missing (CHEAP_MEM_CODE=$code has no bin/$tool)"; fi
-elif [ ! -d "$code" ]; then why="CHEAP_MEM_CODE=$code does not exist"
-else why="CHEAP_MEM_CODE=$code has no bin/$tool"; fi
+  if [ -z "$code" ]; then why="$why, and no installed tool is configured ($nocode)"
+  elif [ -f "$code/bin/$tool" ]; then why="$why; the installed tool (CHEAP_MEM_CODE=$shown_code) lies inside the memory, so it counts as the memory's own and was passed over"
+  else why="$why, and the installed tool is missing (CHEAP_MEM_CODE=$shown_code has no bin/$tool)"; fi
+elif [ -z "$code" ]; then why="$nocode, so the hook has no installed tool"
+elif [ ! -d "$code" ]; then why="CHEAP_MEM_CODE=$shown_code does not exist"
+else why="CHEAP_MEM_CODE=$shown_code has no bin/$tool"; fi
 
 # The "at most every 30 minutes" marker lives in the USER's state directory, never in the memory.
 # It used to be <memory>/.pipeline/tool-missing-<hook>, written with `: >`, and a memory is a git
@@ -81,7 +95,24 @@ msg="cheap-mem: the $name hook is SILENT - it cannot find its tool ($why), so it
 [ "$skipped" = "1" ] && msg="$msg To run the memory's own tool instead: mem trust-own-tool (yourself, in a terminal; see docs/security-model.md)."
 msg="$msg Said at most every 30 minutes."
 printf '%s\n' "$msg" >&2
+# JSON string escape, by hand (a hook has no jq): backslash and quote first, then the five short forms, then every
+# other control character U+0000..U+001F (and DEL) as \u00XX. Without it a tab or a line break in a path made the
+# line invalid JSON, which Claude Code drops - the message this helper exists to deliver would vanish.
 esc="${msg//\\/\\\\}"
 esc="${esc//\"/\\\"}"
+esc="${esc//$'\t'/\\t}"
+esc="${esc//$'\n'/\\n}"
+esc="${esc//$'\r'/\\r}"
+esc="${esc//$'\b'/\\b}"
+esc="${esc//$'\f'/\\f}"
+case "$esc" in
+  *[[:cntrl:]]*)
+    for i in 1 2 3 4 5 6 7 11 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 127; do
+      printf -v oct '%03o' "$i"
+      printf -v ch "\\$oct"
+      printf -v uni '\\u%04x' "$i"
+      esc="${esc//"$ch"/$uni}"
+    done ;;
+esac
 printf '{"systemMessage":"%s"}\n' "$esc"
 exit 0
