@@ -138,9 +138,19 @@ test('the phases not yet on the sister house\'s main branch are named with their
   }
 });
 
-test('the phases this house names but has not built are exactly the stub files', () => {
-  assert.deepEqual(PARITY.cmStubs.map((e) => e.id).sort(), ['cost', 'dashboard', 'digest', 'net-tempo']);
+test('the phases this house names but has not built are exactly the stub files (none today: all four agreed ids are built)', () => {
+  assert.deepEqual(PARITY.cmStubs.map((e) => e.id).sort(), []);
   assert.deepEqual(cmStubIds(), PARITY.cmStubs.map((e) => e.id).sort());
+});
+
+test('the four ids agreed with the sister house are built phases, not stubs', () => {
+  const stubs = new Set(cmStubIds());
+  for (const id of ['dashboard', 'cost', 'digest', 'net-tempo']) {
+    assert.ok(cmPhaseIds().includes(id), `${id} has no row`);
+    assert.ok(!stubs.has(id), `${id} is still a stub`);
+    const src = fs.readFileSync(path.join(REPO, 'bench', 'atlas', `phase-${id}.mjs`), 'utf8');
+    assert.match(src, /atlas\.phase\('/, `${id} records no phase`);
+  }
 });
 
 test('every phase only the sister house has is listed with a reason, and the ones this house lacks are exactly those', () => {
@@ -165,7 +175,9 @@ test('positive control: an invented phase here, and a missing one, turn the comp
   assert.ok(strayPending.some((p) => p.includes('"not-there"')), 'a pending id the list lacks must be named');
   const stubs = cmStubIds();
   assert.ok(compare(real, PARITY, [...stubs, 'load']).some((p) => p.includes('"load"') && p.includes('stub')), 'a stub file cmStubs does not name must be named');
-  assert.ok(compare(real, PARITY, stubs.slice(1)).some((p) => p.includes(`"${stubs[0]}"`)), 'a cmStubs entry whose file is no stub must be named');
+  // A cmStubs entry whose file is no stub (made up here, so the control holds with no stub left in the tree).
+  const claimed = { ...PARITY, cmStubs: [...PARITY.cmStubs, { id: 'load', reason: 'claimed as a stub for the positive control only' }] };
+  assert.ok(compare(real, claimed, stubs).some((p) => p.includes('"load"') && p.includes('not a stub')), 'a cmStubs entry whose file is no stub must be named');
 });
 
 test('a new phase in the sister house needs a reason, and with one it is accepted', () => {

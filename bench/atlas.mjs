@@ -38,7 +38,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
-  Atlas, VERDICT, REPO, writeOut, nodeStartupMs,
+  Atlas, VERDICT, REPO, writeOut, nodeStartupMs, exitCodeOf,
 } from './atlas/core.mjs';
 
 // The phases, in the order they run. A phase is a module exporting
@@ -57,12 +57,11 @@ const PHASES = [
   ['identifiers', './atlas/phase-identifiers.mjs', 'Identifiers with underscores and umlauts: found at rank 3 or better, per path'],
   ['bridge', './atlas/phase-bridge.mjs', 'The MCP bridge: what a foreign agent cannot claim, refusals counted per door, each with a control'],
   ['silent-errors', './atlas/phase-silent-errors.mjs', 'Silent errors: a read that failed must not look like a read that found nothing'],
-  // The next four are stubs: the id is agreed with the sister house, the phase is not built.
-  // Each reports `not-measured` and a named blind spot, never `pass` (bench/atlas/stub.mjs).
-  ['dashboard', './atlas/phase-dashboard.mjs', 'Id agreed with the sister house; the question is set when the phase is built (not built yet)'],
-  ['cost', './atlas/phase-cost.mjs', 'Id agreed with the sister house; the question is set when the phase is built (not built yet)'],
-  ['digest', './atlas/phase-digest.mjs', 'Id agreed with the sister house; the question is set when the phase is built (not built yet)'],
-  ['net-tempo', './atlas/phase-net-tempo.mjs', 'Id agreed with the sister house; the question is set when the phase is built (not built yet)'],
+  // The next four were stubs (bench/atlas/stub.mjs) until atlas-neue-phasen-cm; ids are the sister house's. Counters, never a clock.
+  ['dashboard', './atlas/phase-dashboard.mjs', 'What the dashboard server reads per build and what a page load asks for: passes over the entry logs, /desk.json, requests'],
+  ['cost', './atlas/phase-cost.mjs', 'What one call costs: node starts per hook, modules per CLI start, opens per log, probe threads, journal bytes'],
+  ['digest', './atlas/phase-digest.mjs', 'What one digest tick costs: model calls (a stand-in), raw bytes handed over, ticks to drain, node starts'],
+  ['net-tempo', './atlas/phase-net-tempo.mjs', 'What the 3D network causes: builds, model computations, WebGL contexts and programs (counters)'],
   ['register', './atlas/phase-register.mjs', 'The register prototype (sqlite+FTS5) against today\'s linear scan'],
   ['real', './atlas/phase-real.mjs', 'The same measurements against a real, grown memory'],
 ];
@@ -283,14 +282,9 @@ async function main() {
     process.stdout.write(`baseline: ${path.relative(REPO, BASELINE)} (committed artefact, now this run)\n`);
   }
 
-  // Exit code carries meaning, like the rest of this CLI:
-  //   0  everything that ran, passed
-  //   1  something failed or degraded
-  //   3  nothing failed, but something could not be measured
+  // Exit code carries meaning, like the rest of this CLI (0 / 1 / 3, see exitCodeOf in ./atlas/core.mjs):
   // 3 is deliberately NOT 0. "I could not check" is its own answer.
-  if (c.fail > 0 || c.degraded > 0) return 1;
-  if (c['not-measured'] > 0) return 3;
-  return 0;
+  return exitCodeOf(c);
 }
 
 main().then((code) => { process.exitCode = code; }, (e) => {

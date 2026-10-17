@@ -1,29 +1,33 @@
 // test/atlas-stub-never-passes.test.mjs — a phase that is only named is never counted as passed.
 //
-// Four atlas phases (dashboard, cost, digest, net-tempo) hold an id agreed with
-// the sister house and measure nothing yet (bench/atlas/stub.mjs). The quiet
-// way for that to go wrong is a stub that records `pass`: the atlas would show
-// a green phase for something nobody looked at, and the next reader would take
-// the count at its word. This test pins the other outcome, three ways:
+// An atlas phase can hold an id agreed with the sister house before it measures
+// anything (bench/atlas/stub.mjs). The quiet way for that to go wrong is a stub
+// that records `pass`: the atlas would show a green phase for something nobody
+// looked at, and the next reader would take the count at its word. This test
+// pins the other outcome:
 //
-//   1. each stub phase, run on its own, writes no `pass` record, a `not-built`
-//      record with the verdict `not-measured`, and a blind spot naming it;
-//   2. the real runner (`node bench/atlas.mjs --phase <the stubs>`) ends with
-//      exit code 3 ("nothing failed, but something could not be measured") and
-//      counts zero passes -- not 0, which would read as green;
-//   3. positive control: a stub written the wrong way (`pass`) is caught by the
+//   1. a stub, written the way bench/atlas/stub.mjs writes it, records zero `pass`
+//      rows, one `<id>.not-built` row with the verdict `not-measured`, and a blind
+//      spot naming it;
+//   2. every phase FILE that imports stub.mjs (none since atlas-neue-phasen-cm
+//      built `dashboard`, `cost`, `digest` and `net-tempo`; the loop is kept for
+//      the next agreed id) passes the same check, and is named in `cmStubs` of the
+//      parity list;
+//   3. a run of stubs alone ends with exit code 3 ("nothing failed, but something
+//      could not be measured"), never 0 (`exitCodeOf` in bench/atlas/core.mjs, the
+//      function the runner ends with);
+//   4. positive control: a stub written the wrong way (`pass`) is caught by the
 //      same check that clears the real ones, so the check sees anything at all.
 //
-// Red proof: the mutant "stub: a stub counts as passed" in bench/mutation.mjs
-// turns 1 and 2 red.
+// Red proof: the mutants "stub: a stub counts as passed", "no blind spot" and
+// "exit 0 instead of 3" in bench/mutation.mjs turn 1 and 3 red.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { Atlas, VERDICT } from '../bench/atlas/core.mjs';
+import { Atlas, VERDICT, exitCodeOf } from '../bench/atlas/core.mjs';
+import { runStub } from '../bench/atlas/stub.mjs';
 
 const REPO = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const DIR = path.join(REPO, 'bench', 'atlas');
@@ -49,39 +53,43 @@ export function stubProblems(atlas, id) {
   return problems;
 }
 
-test('there are exactly four stubs, and each is a row of the atlas', () => {
-  assert.deepEqual(stubIds(), ['cost', 'dashboard', 'digest', 'net-tempo']);
+const PARITY = JSON.parse(fs.readFileSync(path.join(REPO, 'test', 'atlas-phase-parity.json'), 'utf8'));
+const STUB = { id: 'sample-stub', title: 'a stub made for the test', owes: 'Made for the test; no measurement is promised.' };
+
+test('the phase files that import stub.mjs are exactly the cmStubs of the parity list, and each is a row of the atlas', () => {
+  assert.deepEqual(stubIds(), PARITY.cmStubs.map((e) => e.id).sort());
   const table = fs.readFileSync(path.join(REPO, 'bench', 'atlas.mjs'), 'utf8');
   for (const id of stubIds()) assert.ok(table.includes(`['${id}', './atlas/phase-${id}.mjs'`), `${id} has no row in bench/atlas.mjs`);
 });
 
-test('each stub phase records one not-measured row and a blind spot, and never a pass', async () => {
+test('a stub writes one not-measured row and a blind spot, and never a pass', () => {
+  const atlas = new Atlas({ label: 'test' });
+  runStub(atlas, STUB);
+  assert.deepEqual(stubProblems(atlas, STUB.id), []);
+  const c = atlas.counts();
+  assert.equal(c.pass, 0, JSON.stringify(c));
+  assert.equal(c['not-measured'], 1);
+  assert.equal(atlas.blindSpots.length, 1);
+});
+
+test('each stub phase file in the tree does the same (none today)', async () => {
   for (const id of stubIds()) {
     const atlas = new Atlas({ label: 'test' });
     const m = await import(pathToFileURL(path.join(DIR, `phase-${id}.mjs`)).href);
     await m.run(atlas, { quick: true });
     assert.deepEqual(stubProblems(atlas, id), [], id);
-    const c = atlas.counts();
-    assert.equal(c.pass, 0, `${id}: counts ${JSON.stringify(c)}`);
-    assert.ok(c['not-measured'] >= 1, id);
+    assert.equal(atlas.counts().pass, 0, id);
   }
 });
 
-test('the runner ends a stub-only run with exit code 3 and zero passes', () => {
-  const out = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-stub-'));
-  try {
-    const r = spawnSync(process.execPath, [path.join(REPO, 'bench', 'atlas.mjs'), '--quick', '--phase', stubIds().join(','), '--out', out],
-      { cwd: REPO, encoding: 'utf8', timeout: 120000 });
-    assert.equal(r.status, 3, `exit ${r.status}\n${r.stdout}\n${r.stderr}`);
-    const result = JSON.parse(fs.readFileSync(path.join(out, 'atlas.json'), 'utf8'));
-    assert.equal(result.counts.pass, 0);
-    assert.equal(result.counts['not-measured'], stubIds().length);
-    assert.equal(result.blindSpots.length, stubIds().length);
-    assert.match(r.stdout, /4 NOT MEASURED/);
-    assert.match(r.stdout, /blind spot/);
-  } finally {
-    fs.rmSync(out, { recursive: true, force: true });
-  }
+test('a run of stubs alone ends with exit code 3, never 0; a failure ends it with 1', () => {
+  const atlas = new Atlas({ label: 'test' });
+  runStub(atlas, STUB);
+  runStub(atlas, { ...STUB, id: 'second-stub' });
+  assert.equal(exitCodeOf(atlas.counts()), 3);
+  assert.equal(exitCodeOf({ pass: 5, fail: 0, degraded: 0, 'not-measured': 0 }), 0, 'positive control: a clean run is 0');
+  assert.equal(exitCodeOf({ pass: 5, fail: 1, degraded: 0, 'not-measured': 2 }), 1);
+  assert.equal(exitCodeOf({ pass: 5, fail: 0, degraded: 1, 'not-measured': 0 }), 1);
 });
 
 test('positive control: a stub that counts as passed is caught by the same check', () => {

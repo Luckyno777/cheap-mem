@@ -1057,6 +1057,20 @@ export class Atlas {
   }
 }
 
+/**
+ * The exit code of a run, from its counts:
+ *   0  everything that ran, passed
+ *   1  something failed or degraded
+ *   3  nothing failed, but something could not be measured
+ * 3 is deliberately NOT 0. "I could not check" is its own answer. (Lives here, not in
+ * bench/atlas.mjs, so a test can ask it without running the whole atlas.)
+ */
+export function exitCodeOf(counts) {
+  if (counts.fail > 0 || counts.degraded > 0) return 1;
+  if (counts['not-measured'] > 0) return 3;
+  return 0;
+}
+
 // --- environment -------------------------------------------------------
 //
 // A benchmark number without the machine it was taken on is not
