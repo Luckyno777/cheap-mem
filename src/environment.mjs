@@ -503,7 +503,7 @@ export function readAppendRecord(root, { fsType = null } = {}) {
  * does not make the verdict any less strict.
  */
 export function checkAppendAtomicity(root, opts = {}) {
-  const { probe: probeFn = runAppendAtomicityProbe, fsTypeOf = null, measure = true, ...probeOpts } = opts;
+  const { probe: probeFn = runAppendAtomicityProbe, fsTypeOf = null, measure = true, record = false, ...probeOpts } = opts;
   let fsType = null;
   try {
     if (fsTypeOf) {
@@ -564,8 +564,9 @@ export function checkAppendAtomicity(root, opts = {}) {
   }
 
   const probe = probeFn(root, probeOpts);
-  // The verdict of a finished measurement is kept for the runs that do not measure (see `readAppendRecord`).
-  if (probe.measured) writeAppendRecord(root, probe, { fsType });
+  // The verdict of a finished measurement is kept for the runs that do not measure (see `readAppendRecord`) - but only when
+  // the caller asked for it (`record: true`, from `mem doctor --full/--strict`): a view that merely collects writes nothing.
+  if (probe.measured && record) writeAppendRecord(root, probe, { fsType });
 
   if (!probe.measured) {
     return check('append-atomicity', LAYER.OS, null,
@@ -639,7 +640,7 @@ export function checkEnvironment(root, opts = {}) {
     checkMergeDriver(root),
     checkPreCommitHook(root),
     // `full: false` skips only the measuring probe (see checkAppendAtomicity); the default measures.
-    checkAppendAtomicity(root, { measure: opts.full !== false }),
+    checkAppendAtomicity(root, { measure: opts.full !== false, record: opts.record === true }),
     checkClock(root, opts),
   ];
 }

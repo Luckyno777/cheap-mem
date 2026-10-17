@@ -246,7 +246,7 @@ const PROBE_CLEAN = () => ({ measured: true, workers: 6, perWorker: 8, ok: true,
 test('(d) a finished measurement leaves the record: verdict, time, device, filesystem, node, writers and lines', (t) => {
   const root = world(t);
   const before = Date.now();
-  environment.checkAppendAtomicity(root, { probe: PROBE_TORN, fsTypeOf: () => 'ext4' });
+  environment.checkAppendAtomicity(root, { record: true, probe: PROBE_TORN, fsTypeOf: () => 'ext4' });
   const rec = JSON.parse(fs.readFileSync(recordPath(root), 'utf8'));
   assert.equal(rec.ok, false);
   assert.equal(rec.dev, devOf(root));
@@ -261,7 +261,7 @@ test('(d) a measurement that did not finish leaves the earlier record alone', (t
   const root = world(t);
   putRecord(root);
   const kept = fs.readFileSync(recordPath(root), 'utf8');
-  environment.checkAppendAtomicity(root, { probe: () => ({ measured: false, reason: '3/6 writer threads finished within 400ms' }) });
+  environment.checkAppendAtomicity(root, { record: true, probe: () => ({ measured: false, reason: '3/6 writer threads finished within 400ms' }) });
   assert.equal(fs.readFileSync(recordPath(root), 'utf8'), kept);
 });
 
@@ -270,7 +270,7 @@ test('(d) the record goes down atomically: a temp file next to it, then a rename
   const real = fs.renameSync;
   const seen = [];
   fs.renameSync = function patched(from, to) { seen.push([from, to]); return real.call(this, from, to); };
-  try { environment.checkAppendAtomicity(root, { probe: PROBE_CLEAN }); } finally { fs.renameSync = real; }
+  try { environment.checkAppendAtomicity(root, { record: true, probe: PROBE_CLEAN }); } finally { fs.renameSync = real; }
   assert.equal(seen.length, 1);
   assert.equal(seen[0][1], recordPath(root));
   assert.notEqual(seen[0][0], seen[0][1]);
@@ -280,9 +280,9 @@ test('(d) the record goes down atomically: a temp file next to it, then a rename
 
 test('(d) the loop: a torn measurement alarms the next banner; a later clean one takes the alarm away', (t) => {
   const root = world(t);
-  environment.checkAppendAtomicity(root, { probe: PROBE_TORN });
+  environment.checkAppendAtomicity(root, { record: true, probe: PROBE_TORN });
   assert.equal(atomicity(doctor.checkAll(root, { full: false })).level, doctor.LEVEL.ERROR);
-  environment.checkAppendAtomicity(root, { probe: PROBE_CLEAN });
+  environment.checkAppendAtomicity(root, { record: true, probe: PROBE_CLEAN });
   const f = atomicity(doctor.checkAll(root, { full: false }));
   assert.equal(f.level, doctor.LEVEL.UNKNOWN);
   assert.equal(lineOf(cli(t, root, ['--alarm'])), '');
@@ -319,7 +319,7 @@ test('the record sits under .pipeline/, which a memory ignores: writing it leave
   assert.equal(git('init', '-q', '-b', 'main').status, 0);
   assert.equal(git('add', '-A').status, 0);
   assert.equal(git('commit', '-q', '-m', 'state').status, 0);
-  environment.checkAppendAtomicity(root, { probe: PROBE_TORN });
+  environment.checkAppendAtomicity(root, { record: true, probe: PROBE_TORN });
   assert.ok(fs.existsSync(recordPath(root)));
   assert.equal(git('status', '--porcelain').stdout.trim(), '', 'the record must be ignored by git');
   assert.equal(git('check-ignore', '-q', RECORD.split(path.sep).join('/')).status, 0);
@@ -327,7 +327,7 @@ test('the record sits under .pipeline/, which a memory ignores: writing it leave
 
 test('a root that does not exist is not created by the record, and nothing throws', (t) => {
   const gone = path.join(tempDir('cm-alarm-tearing-gone-', t), 'nope');
-  assert.doesNotThrow(() => environment.checkAppendAtomicity(gone, { probe: PROBE_TORN }));
+  assert.doesNotThrow(() => environment.checkAppendAtomicity(gone, { record: true, probe: PROBE_TORN }));
   assert.ok(!fs.existsSync(gone));
 });
 
@@ -336,3 +336,53 @@ test('a documented-unsafe filesystem is still answered first, without the record
   putRecord(root, { ok: true, torn: 0, missing: 0, duplicates: 0 });
   assert.equal(environment.checkAppendAtomicity(root, { measure: false, fsTypeOf: () => 'nfs' }).ok, false);
 });
+
+// --- looking writes nothing (alarm-record-cm) ----------------------------------------------------------------------
+//
+// The dashboard, `mem today`, the weekly instrument trace and the agents view call `doctor.checkAll(root)`, whose library
+// default measures. Only an explicit call (`mem doctor --full/--strict`, `record: true`) lays the record down:
+// test/agents-d5.test.mjs probe 3 holds "collecting the view writes nothing at all".
+
+test('looking writes nothing: checkAll by default measures (the probe ran) and leaves no record', (t) => {
+  const root = world(t);
+  // A loaded machine may let the writers time out ("could not measure"); then nothing is kept in any case. Up to six tries
+  // to get a run whose probe finished - that is the run in which a writing default would show.
+  let finished = false;
+  for (let i = 0; i < 6 && !finished; i += 1) {
+    let result;
+    const started = probesDuring(() => { result = doctor.checkAll(root); });
+    assert.equal(started, 1, 'control: the default run did measure');
+    finished = !/could not measure/.test(atomicity(result).text);
+    assert.ok(!fs.existsSync(recordPath(root)), 'a view that only collects must not write the record');
+  }
+});
+
+test('looking writes nothing: the library call without record, with a finished probe, leaves no file', (t) => {
+  const root = world(t);
+  environment.checkAppendAtomicity(root, { probe: PROBE_TORN });
+  assert.ok(!fs.existsSync(recordPath(root)));
+  environment.checkEnvironment(root, { full: true });
+  assert.ok(!fs.existsSync(recordPath(root)));
+});
+
+test('record: true through checkAll lays the record down when the probe finished', (t) => {
+  const root = world(t);
+  let measured = false;
+  for (let i = 0; i < 6 && !measured; i += 1) {
+    const f = atomicity(doctor.checkAll(root, { record: true }));
+    measured = !/could not measure/.test(f.text);
+    assert.equal(fs.existsSync(recordPath(root)), measured, `record present must equal "the probe finished" (${f.text})`);
+  }
+});
+
+/** How many append probes started while `fn` ran. */
+function probesDuring(fn) {
+  const real = fs.mkdtempSync;
+  let n = 0;
+  fs.mkdtempSync = function patched(prefix, ...rest) {
+    if (typeof prefix === 'string' && path.basename(prefix).startsWith('.append-atomicity-')) n += 1;
+    return real.call(this, prefix, ...rest);
+  };
+  try { fn(); } finally { fs.mkdtempSync = real; }
+  return n;
+}
