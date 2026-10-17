@@ -997,7 +997,7 @@ test('windows.ps1: all seven generated hooks use the rule; the memory\'s bin is 
   assert.match(text, /foreach \(\$tool in @\('Write', 'Edit'\)\) \{ \$denyNeeded \+= "\$tool\(\/\$swPosix\/\*\*\)" \}/);
   assert.match(text, /\(\[string\]\$_\)\.Replace\('\\', '\/'\) -ne \$stale/, 'the stale entry goes in its backslash spelling too');
   // The tool-missing marker is in the user's state directory, never written through the memory.
-  const tm = text.slice(text.indexOf('param([string]$Name'), text.indexOf("'@ | Set-Content -LiteralPath $missingHookDst"));
+  const tm = text.slice(text.indexOf('param([string]$Name'), text.indexOf("'@ | Out-HookScript $missingHookDst"));
   assert.doesNotMatch(tm, /\$Root '\.pipeline'|Join-Path \(Join-Path \$Root|\.pipeline'\)/, 'tool-missing still writes into the memory');
   assert.match(tm, /Join-Path \$base 'cheap-mem'/, 'the marker directory is the user\'s');
   assert.match(tm, /\$env:LOCALAPPDATA/);
@@ -1026,7 +1026,7 @@ test('bin/_owntool.ps1: balanced, ASCII, the functions the hooks call', () => {
   assert.match(text, /if \(\$trusted\) \{ \$res\.Path = \$own; return \$res \}\s+\$res\.Skipped = \$true/, 'the memory\'s own copy only when trusted, else reported as passed over');
   assert.match(text, /if \(\(-not \$trusted\) -and \(Test-OwnToolInside \(Split-Path -Parent \$c\) \$Root\)\)/, 'a candidate inside the memory counts as the memory\'s own');
   assert.match(text, /\(\$d \+ '\/'\)\.StartsWith\(\(\$r \+ '\/'\), \[System\.StringComparison\]::Ordinal\)/, 'inside = a path prefix at a separator, not a string prefix');
-  assert.match(text, /if \(\$env:CHEAP_MEM_CODE\) \{ \$cands \+= \(Join-Path \$env:CHEAP_MEM_CODE \$Rel\) \}/, 'the installed tool is a candidate');
+  assert.match(text, /if \(\$env:CHEAP_MEM_CODE -and \$env:CHEAP_MEM_CODE -notmatch '\[\\x00-\\x1f\\x7f\]'\) \{ \$cands \+= \(Join-Path \$env:CHEAP_MEM_CODE \$Rel\) \}/, 'the installed tool is a candidate (unless its path holds a control character)');
   // The key rule is the node module's: forward slashes, lower-case on Windows only.
   assert.match(text, /\.Replace\('\\', '\/'\)/);
   assert.match(text, /DirectorySeparatorChar -eq '\\'\) \{ \$k = \$k\.ToLowerInvariant/);
