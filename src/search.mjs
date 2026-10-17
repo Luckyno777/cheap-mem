@@ -41,6 +41,7 @@ import * as raw from './raw.mjs';
 import * as archive from './archive.mjs';
 import { deriveState } from './state.mjs';
 import * as indexcache from './indexcache.mjs';
+import * as indexrebuild from './indexrebuild.mjs';
 import * as expand from './expand.mjs';
 import * as statequestion from './statequestion.mjs';
 import { dateAnchors } from './timeexpr.mjs';
@@ -833,6 +834,11 @@ function buildLexicon(rawEntries, langPack) {
   return set;
 }
 
+let fullBuilds = 0;
+
+/** How many full builds (`buildIndex`) this process has run: a probe's way to tell a cold build from a cache load. */
+export function fullBuildCount() { return fullBuilds; }
+
 /**
  * Build the index. Reads all JSONL files, tokenizes, collects document
  * frequencies. Two passes, because the compound lexicon only comes into
@@ -849,7 +855,8 @@ function buildLexicon(rawEntries, langPack) {
  * already read — but which pack actually tokenises a given document is
  * now decided PER DOCUMENT, by `detectEntryLanguage` below.
  */
-export function buildIndex(root, { types = null, language = 'en' } = {}) {
+export function buildIndex(root, { types = null, language = 'en', snapshot = null } = {}) {
+  fullBuilds += 1;
   const lang = pack(language);
   const targetTypes = types ?? memory.SEARCH_TYPES;
   const rawEntries = [];
@@ -873,7 +880,10 @@ export function buildIndex(root, { types = null, language = 'en' } = {}) {
         }
         continue;
       }
-      const lines = memory.withoutBom(fs.readFileSync(p, 'utf8')).split('\n');
+      // The bytes of ONE read; with a `snapshot` the state of this file is taken from them (see `snapshotOfBytes`).
+      const bytes = fs.readFileSync(p);
+      if (snapshot) snapshot.logs.set(memory.asSource(root, p), { ...snapshotOfBytes(bytes), type, project });
+      const lines = memory.withoutBom(bytes.toString('utf8')).split('\n');
       for (let i = 0; i < lines.length; i += 1) {
         if (!lines[i].trim()) continue;
         // Unreadable OR wrongly shaped (an object in a text field) stays out of the index: the doctor reports it.
@@ -979,7 +989,13 @@ export function buildIndex(root, { types = null, language = 'en' } = {}) {
   // quiet. This is the number to ask for first.
   profile.measure('index', 'raw', () => {
     let n = 0;
-    for (const doc of rawDocuments(root, lexicons)) { addDoc(doc); n += 1; }
+    // With a snapshot the list is taken HERE, once, and the state records exactly the captures this build read.
+    let listed = null;
+    if (snapshot) {
+      try { listed = raw.listCaptures(root); } catch { listed = []; }
+      snapshot.captures = new Set(listed);
+    }
+    for (const doc of rawDocuments(root, lexicons, listed)) { addDoc(doc); n += 1; }
     return n;
   }, { count: (n) => n });
 
@@ -1404,21 +1420,33 @@ const MMR_TIE = 1e-12;
 
 /**
  * How many candidates the MMR pass gets: without MMR exactly `n`, with MMR
- * ten times `n`, at least 50. Ported 2026-09-29 from the sibling house
- * (its MMR cap, 2026-09-17). Before, `search()` handed EVERY hit above the
- * floor to `mmrRerank` — O(hits x top) similarity calls. Measured with the
- * options `mem find` uses (top 30, MMR 0.7), warm, load 0.95: 20k entries
- * 465 ms median, 200k entries 5624 ms; without MMR 43 ms / 620 ms. A hit
- * below rank 10 x top practically never wins an MMR round at lambda 0.7
- * (relevance is normalised to the top score), so the pool changes cost,
- * not the answer — test/mmr-pool.test.mjs holds both halves.
+ * ten times `n`, at least 50, at most `MMR_POOL_MAX` - but never fewer than
+ * `n` itself. Ported 2026-09-29 from the sibling house (its MMR cap,
+ * 2026-09-17); the hard ceiling ported 2026-10-17 from its `MMR_DECKEL_MAX`.
+ * Before, `search()` handed EVERY hit above the floor to `mmrRerank` -
+ * O(hits x top) similarity calls. Measured with the options `mem find`
+ * uses (top 30, MMR 0.7), warm, load 0.95: 20k entries 465 ms median,
+ * 200k entries 5624 ms; without MMR 43 ms / 620 ms. A hit below rank
+ * 10 x top practically never wins an MMR round at lambda 0.7 (relevance is
+ * normalised to the top score), so the pool changes cost, not the answer -
+ * test/mmr-pool.test.mjs holds both halves. Since the cap of 600 below this
+ * holds only up to `--top 60`; above it the answer can differ (CHANGELOG).
+ *
+ * **The factor alone was not a bound (2026-10-17).** `mem find --top N`
+ * asks the search for 3 x N, the pool was ten times that: 6000 entries,
+ * a query that matches most of them, median of 3 under load 7: top 10
+ * 0.58 s, top 200 9.3 s, top 1000 34 s, `--no-mmr` 0.67 s. 600 covers every
+ * `--top` up to 20 (plan 60 x 10) unchanged; above it MMR orders the first
+ * 600 and the rest follows in score order (`mmrSelect`). Cost: at most
+ * 600 x 600 similarities, whatever `top` is.
  */
 export const MMR_POOL_FACTOR = 10;
 export const MMR_POOL_MIN = 50;
+export const MMR_POOL_MAX = 600;
 export function mmrPoolFor(n, mmr) {
   if (n <= 0) return 0;
   if (!mmr) return n;
-  return Math.max(n * MMR_POOL_FACTOR, MMR_POOL_MIN);
+  return Math.max(n, Math.min(Math.max(n * MMR_POOL_FACTOR, MMR_POOL_MIN), MMR_POOL_MAX));
 }
 
 export function mmrRerank(candidates, { lambda = 0.7, top = 10, simOf } = {}) {
@@ -1511,6 +1539,22 @@ export function mmrRerank(candidates, { lambda = 0.7, top = 10, simOf } = {}) {
  * Search. Returns the best `top` hits, descending by score.
  */
 const TIERS_KNOWN = new Set(['user', 'system', 'agent', 'external', 'inferred', 'unknown']);
+
+/**
+ * The first `n` of a score-sorted list, ordered by MMR, with a hard pool
+ * (`MMR_POOL_MAX`). A caller who wants more than the pool (`mem find --top
+ * 1000` asks for 3000) gets the MMR-ordered pool and behind it the rest in
+ * score order: the list is sorted already, the count stays `n`. At most
+ * pool x min(n, pool) similarities, never more than `MMR_POOL_MAX` squared,
+ * however large `n` or the list is.
+ */
+export function mmrSelect(list, n, { lambda = 0.7, simOf } = {}) {
+  if (n <= 0) return [];
+  if (list.length <= 1) return list.slice(0, n);
+  const pool = Math.min(mmrPoolFor(n, true), MMR_POOL_MAX);
+  const head = mmrRerank(list.slice(0, pool), { lambda, top: Math.min(n, pool), simOf });
+  return n > pool ? [...head, ...list.slice(pool, n)] : head;
+}
 
 /**
  * May this document be returned AT ALL, whatever lane found it?
@@ -2105,10 +2149,10 @@ export function search(index, query, {
   hits.sort(byScoreThenIdentity);
   const maxScore = hits.length ? hits[0].score : 0;
   const kept = hits.filter((t) => maxScore === 0 || t.score / maxScore >= minScore);
-  // MMR sees a bounded pool, not every hit above the floor (mmrPoolFor).
+  // MMR sees a bounded pool, not every hit above the floor (mmrSelect).
   const norms = new Map();   // one ranking's norms, dropped with it (see docSimilarity)
   const out = (mmr && kept.length > 1)
-    ? mmrRerank(kept.slice(0, mmrPoolFor(top, true)), { lambda: mmrLambda, top, simOf: (a, b) => docSimilarity(a.__w, b.__w, norms) })
+    ? mmrSelect(kept, top, { lambda: mmrLambda, simOf: (a, b) => docSimilarity(a.__w, b.__w, norms) })
     : kept.slice(0, top);
   // The scored candidates were slim (score + document reference); only the
   // answer is turned into full hits, in the field order of old.
@@ -2159,6 +2203,11 @@ function tailHash(file, upto) {
     fd = fs.openSync(file, 'r');
     fs.readSync(fd, buf, 0, len, from);
   } catch { return null; } finally { if (fd !== undefined) try { fs.closeSync(fd); } catch { /* fine */ } }
+  return tailHashOfBytes(buf);
+}
+
+/** The tail hash of the last bytes of a range (`tailHash` reads them from the file, the snapshot has them in memory). */
+function tailHashOfBytes(buf) {
   // FNV-1a: no dependency, and collisions here cost a needless rebuild,
   // never a wrong answer.
   let h = 0x811c9dc5;
@@ -2166,7 +2215,7 @@ function tailHash(file, upto) {
     h ^= buf[i];
     h = Math.imul(h, 0x01000193) >>> 0;
   }
-  return `${len}:${h.toString(36)}`;
+  return `${buf.length}:${h.toString(36)}`;
 }
 
 /**
@@ -2201,6 +2250,27 @@ export function fullHash(file, upto) {
     }
   } catch { return null; } finally { if (fd !== undefined) try { fs.closeSync(fd); } catch { /* fine */ } }
   return `${upto}:${h.digest('hex').slice(0, 32)}`;
+}
+
+/**
+ * What the state records about a log file, derived from the bytes one read returned and from nothing else: size, lines, the
+ * tail hash and the whole-range hash (`tailHash` / `fullHash` over the same bytes). Index-snapshot-cm (2026-10-17): the full
+ * build used to stat the files BEFORE it read them and count lines, tail and hash AFTER, from the file as it was by then;
+ * an entry written in between was in the index and not in the recorded size (indexed twice by the next append), and the
+ * lines of later entries were off by the lines in between.
+ */
+function snapshotOfBytes(buf) {
+  let lines = 0;
+  if (buf.length) {
+    for (let at = buf.indexOf(10); at !== -1; at = buf.indexOf(10, at + 1)) lines += 1;
+    if (buf[buf.length - 1] !== 10) lines += 1;
+  }
+  return {
+    bytes: buf.length,
+    lines,
+    tail: buf.length ? tailHashOfBytes(buf.subarray(Math.max(0, buf.length - TAIL_BYTES))) : '0',
+    full: buf.length ? `${buf.length}:${createHash('sha256').update(buf).digest('hex').slice(0, 32)}` : '0',
+  };
 }
 
 /** Every file the index is built from, with its current size. */
@@ -2283,6 +2353,34 @@ export function corpusStamp(root) {
  * the index immediately.
  */
 export const REBUILD_AFTER_FRACTION = 0.2;
+
+/**
+ * The ABSOLUTE bound of the appended stack for the recall hook (index-schwelle-cm, port of the sibling house's
+ * `NEUBAU_AB_NACHTRAG`, 2026-10-16).
+ *
+ * **Why the fifth alone does not do.** At N = 7,000 a fifth is 1,400 lines. Appending costs, on every load and in
+ * every hook process, about 0.5 ms per line (sibling house, measured: 47 ms at 0 lines, 165 at 100, 366 at 500, 558 at
+ * 1,000; roughly ten times that on the busy machines of the field journal), and the sibling's journal never saw the
+ * fifth reached: every recall ran on a stack, none got to the rebuild. 100 keeps the load near 0.6 s there instead of 1.6
+ * to 3.8 s, with room under the hook's 5 s cap, and means about one rebuild a day at 100 new entries a day.
+ *
+ * It is `min(fraction, 100)`: a memory under 500 entries keeps its fifth unchanged. Only the recall hook
+ * (`loadIndex(root, { allowStale: true })`, which `mem find --recall` passes) uses the absolute bound; a plain
+ * `mem find` in a terminal still waits for the rebuild only at a fifth, so nobody sits in front of a full build because of the
+ * new bound. The hook never waits for the rebuild either: it answers from the appended index and starts the rebuild
+ * detached (`src/indexrebuild.mjs`).
+ */
+export const REBUILD_AFTER_APPENDED = 100;
+
+/**
+ * Has the stack of appended lines grown so far that a rebuild is due? `baseN` = documents of the last full build,
+ * `nowN` = documents after appending. `absolute: false` leaves only the fifth (the terminal).
+ */
+export function appendedTooMany(baseN, nowN, { absolute = true } = {}) {
+  const added = nowN - baseN;
+  const bound = absolute ? Math.min(baseN * REBUILD_AFTER_FRACTION, REBUILD_AFTER_APPENDED) : baseN * REBUILD_AFTER_FRACTION;
+  return added > bound;
+}
 
 /**
  * How many new log bytes may accumulate before the cache file is written
@@ -2885,7 +2983,18 @@ function loadMemoized(root, opts) {
     const now = indexedFiles(root);
     let grown = null;
     try { grown = appendToIndex(root, m.base, m.files, now); } catch { grown = null; }
-    const tooBig = grown && m.base.N > m.fullAt * (1 + REBUILD_AFTER_FRACTION);
+    let tooBig = grown && m.base.N > m.fullAt * (1 + REBUILD_AFTER_FRACTION);
+    if (grown && opts.allowStale) {
+      // The recall hook (index-schwelle-cm): the memo is NOT dropped at a fifth. Dropping it loaded the cache again on
+      // every question while the rebuild runs (and during its backoff), because `m.fullAt` stays old until the child
+      // has replaced the cache. Past the absolute bound the rebuild is started here too; once a child has ended well,
+      // the memo is dropped ONCE and the next load takes the new cache.
+      tooBig = false;
+      if (appendedTooMany(m.fullAt, m.base.N)) {
+        if (m.kickedAt && indexrebuild.rebuiltSince(root, m.kickedAt)) tooBig = true;
+        else if (['started', 'running'].includes(indexrebuild.kickIndexRebuild(root, { language: pack(language).name }))) m.kickedAt ??= Date.now();
+      }
+    }
     if (!grown || tooBig) {
       memo.delete(key);   // rewritten, shrunk, deleted, or too far behind: the normal way
       m = null;
@@ -2902,12 +3011,14 @@ function loadMemoized(root, opts) {
   }
 
   if (!m) {
-    const r = loadIndexCached(root, { language, wantState: true, derivedState: opts.derivedState });
+    const loadedAt = Date.now();
+    const r = loadIndexCached(root, { language, wantState: true, derivedState: opts.derivedState, allowStale: Boolean(opts.allowStale) });
     const { state, ...base } = r;
     m = {
       root, base, files: state.files, fullAt: state.fullAt, gen: 0,
       hasEnc: base.documents.some((d) => d.enc),
       revealed: null, revealedGen: -1, revealedKey: null,
+      kickedAt: r.rebuild === 'started' || r.rebuild === 'running' ? loadedAt : null,
     };
     if (memo.size >= MEMO_MAX_ENTRIES) memo.delete(memo.keys().next().value);
     memo.set(key, m);
@@ -2995,7 +3106,36 @@ export function loadIndex(root, opts = {}) {
   return index;
 }
 
-function loadIndexCached(root, { fresh = false, language = 'en', wantState = false, derivedState = null } = {}) {
+/**
+ * The full build, written to the cache, and nothing else: what the detached child of `src/indexrebuild.mjs` runs. The same
+ * `fresh` path `loadIndex(root, { fresh: true })` takes, without the per-load attachments. Throws what the build throws.
+ */
+export function rebuildIndexCache(root, { language = 'en' } = {}) {
+  const built = loadIndexCached(root, { fresh: true, language, wantState: true });
+  assertCacheLanded(root, language, built.state.fullAt);
+}
+
+/**
+ * `writeIndexCache` swallows its own failures (an unwritable cache costs speed, not correctness), which is right for a load and
+ * wrong for a rebuild whose only job is the cache. Read it back whole (every shard against its hash) and throw if it is not the
+ * build that was just made: the child then books a failure and the backoff holds in.
+ */
+export function assertCacheLanded(root, language, fullAt, { pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) } = {}) {
+  const read = () => indexcache.readIndexCache(path.join(root, CACHE_DIR + expand.cacheSuffix()), {
+    expectedVersion: CACHE_VERSION,
+    expectedLanguage: pack(language).name,
+  });
+  // A second builder may have swapped its own, valid cache in between our write and this read: a cache of a LATER or equal
+  // build is as good as ours (`<`, not `!==`), and one read can fall into the gap of that swap (no manifest, a torn
+  // shard). So a first miss is looked at once more after a short wait before it counts as a failure; otherwise the
+  // child books a failure and the backoff holds in for a cache that is in fact there.
+  let res = read();
+  if (!res.ok || !(res.fullAt >= fullAt)) { pause(50); res = read(); }
+  if (!res.ok) throw new Error(`the rebuilt search index did not land in the cache (${res.reason})`);
+  if (!(res.fullAt >= fullAt)) throw new Error(`the cache holds a build of ${res.fullAt} documents, not the ${fullAt} just made`);
+}
+
+function loadIndexCached(root, { fresh = false, language = 'en', wantState = false, derivedState = null, allowStale = false } = {}) {
   // With MEM_EXPAND=1 the index carries `asked_as`: its own cache directory.
   const cacheDir = path.join(root, CACHE_DIR + expand.cacheSuffix());
   const legacyCachePath = path.join(root, CACHE_FILE);
@@ -3025,25 +3165,56 @@ function loadIndexCached(root, { fresh = false, language = 'en', wantState = fal
   // unpacked from the cache against what the cache itself claims they
   // should add up to.
   const now = indexedFiles(root);
-  const stateOf = (files, lines, docCounts) => {
+  const stateOf = (files, lines, docCounts, snap = null) => {
     const out = {};
     for (const [rel, info] of files) {
+      const taken = snap?.logs.get(rel) ?? null;
       out[rel] = {
-        bytes: info.bytes,
-        mtimeMs: info.mtimeMs,
-        ctimeMs: info.ctimeMs,
+        bytes: taken ? taken.bytes : info.bytes,
+        ...(taken ? settledTimes(rel, info, taken.bytes) : { mtimeMs: info.mtimeMs, ctimeMs: info.ctimeMs }),
         kind: info.kind,
         type: info.type,
         project: info.project,
-        lines: lines ? (lines.get(rel) ?? 0) : countLines(root, rel),
-        tail: tailHash(piecePath(root, rel), info.bytes),
+        lines: taken ? taken.lines : lines ? (lines.get(rel) ?? 0) : countLines(root, rel),
+        tail: taken ? taken.tail : tailHash(piecePath(root, rel), info.bytes),
         // O3: whole-file hash, the only way to prove on growth that
         // nothing further up was rewritten (see fullHash).
-        full: info.kind === 'log' ? fullHash(piecePath(root, rel), info.bytes) : null,
+        full: taken ? taken.full : info.kind === 'log' ? fullHash(piecePath(root, rel), info.bytes) : null,
+        docs: docCounts ? (docCounts.get(rel) ?? 0) : 0,
+      };
+    }
+    // What the build read and the stat before it did not list: a log written for the first time, or a capture that
+    // landed, while the build ran. Without them here the next load would read them again as new (every document twice).
+    for (const [rel, taken] of snap?.logs ?? []) {
+      if (out[rel]) continue;
+      const st = statOrNull(rel);
+      out[rel] = {
+        bytes: taken.bytes, mtimeMs: st?.mtimeMs ?? null, ctimeMs: st?.ctimeMs ?? null, kind: 'log', type: taken.type,
+        project: taken.project, lines: taken.lines, tail: taken.tail, full: taken.full,
+        docs: docCounts ? (docCounts.get(rel) ?? 0) : 0,
+      };
+    }
+    for (const rel of snap?.captures ?? []) {
+      if (out[rel]) continue;
+      const st = statOrNull(rel);
+      if (!st) continue;
+      out[rel] = {
+        bytes: st.size, mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs, kind: 'raw', type: undefined, project: undefined,
+        lines: countLines(root, rel), tail: tailHash(piecePath(root, rel), st.size), full: null,
         docs: docCounts ? (docCounts.get(rel) ?? 0) : 0,
       };
     }
     return out;
+  };
+  const statOrNull = (rel) => { try { return fs.statSync(piecePath(root, rel)); } catch { return null; } };
+  // The times that go with a size the build READ: those of the file as it stands when it still has that size (an append
+  // between the read and now would otherwise make the very next load see a different time at an equal size and rebuild
+  // for nothing), else the ones from the stat before the read (older, so a doubt costs a rebuild, never a wrong answer).
+  const settledTimes = (rel, before, bytesRead) => {
+    const st = statOrNull(rel);
+    return st && st.size === bytesRead
+      ? { mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs }
+      : { mtimeMs: before.mtimeMs, ctimeMs: before.ctimeMs };
   };
 
   // **`cacheStatus`, distinct from `fromCache`.** `fromCache` (returned
@@ -3102,7 +3273,14 @@ function loadIndexCached(root, { fresh = false, language = 'en', wantState = fal
         }
         // Rebuild rather than append once enough of the corpus is new that
         // the lexicon and the learned graphs would be measurably behind.
-        if (grown && index.N <= fullAt * (1 + REBUILD_AFTER_FRACTION)) {
+        //
+        // **The recall hook (`allowStale`) never rebuilds here (index-schwelle-cm).** It answers from the appended index
+        // however far the stack has grown and, once it passes the absolute bound (`appendedTooMany`), starts the
+        // rebuild detached (`indexrebuild.kickIndexRebuild`: one at a time, a lock, a backoff after a failure). The
+        // cache is then left to that child (writing the appended one here would be a second, wasted write). Everyone
+        // else (the terminal, the writers) keeps the fifth and rebuilds in the process, as before.
+        const tooMany = appendedTooMany(fullAt, index.N, { absolute: allowStale });
+        if (grown && (allowStale || !tooMany)) {
           let grownState = null;
           if (grown.newBytes >= CACHE_WRITE_AFTER_BYTES || wantState) {
             const files = stateOf(now, grown.lastLines, sourceDocCounts(index.documents));
@@ -3111,8 +3289,9 @@ function loadIndexCached(root, { fresh = false, language = 'en', wantState = fal
               if (files[rel] && !grown.lastLines.has(rel)) files[rel].lines = old.lines ?? files[rel].lines;
             }
             grownState = { files, fullAt };
-            if (grown.newBytes >= CACHE_WRITE_AFTER_BYTES) writeCache(index, files, fullAt);
+            if (grown.newBytes >= CACHE_WRITE_AFTER_BYTES && !tooMany) writeCache(index, files, fullAt);
           }
+          const rebuild = allowStale && tooMany ? indexrebuild.kickIndexRebuild(root, { language: lang.name }) : null;
           // The learned graphs are NOT extended by an append — see
           // appendToIndex. They are exactly the ones the last full build
           // produced, so ranking lags behind the newest entries even
@@ -3125,6 +3304,7 @@ function loadIndexCached(root, { fresh = false, language = 'en', wantState = fal
             appended: grown.added,
             graphsStale: grown.added > 0,
             cacheStatus: 'hit',
+            ...(rebuild ? { stale: 'appended-too-many', rebuild } : {}),
             ...(wantState ? { state: grownState } : {}),
           };
         }
@@ -3162,7 +3342,9 @@ function loadIndexCached(root, { fresh = false, language = 'en', wantState = fal
   // `memory.retiredMap` to exactly those entries. Re-deriving the same
   // answer from the same file would be the second reading of one truth,
   // and it would cost every cold start a log re-read for nothing.
-  const index = buildIndex(root, { language });
+  // The state is taken from the bytes THIS build read (`snapshotOfBytes`), not from a stat before and a second read after.
+  const snapshot = { logs: new Map(), captures: null };
+  const index = buildIndex(root, { language, snapshot });
   // **Migration (decided, not defaulted): discard, never convert-in-place.**
   // A pre-B8 single-file cache at `legacyCachePath` is never read by the
   // code above — different path (`CACHE_DIR` vs. `CACHE_FILE`), different
@@ -3180,7 +3362,7 @@ function loadIndexCached(root, { fresh = false, language = 'en', wantState = fal
   // present — is the "half old, half new" shape this round was told to
   // rule out, so it does not get to exist even briefly on disk.
   try { fs.rmSync(legacyCachePath, { force: true }); } catch { /* nothing to remove */ }
-  const builtFiles = stateOf(now, null, sourceDocCounts(index.documents));
+  const builtFiles = stateOf(now, null, sourceDocCounts(index.documents), snapshot);
   writeCache(index, builtFiles, index.N);
   return {
     ...index, fromCache: false, appended: 0, graphsStale: false, cacheStatus,

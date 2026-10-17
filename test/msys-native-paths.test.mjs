@@ -21,9 +21,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { tempDir } from './temp-dir.mjs';
+import { bashFile } from './helpers/bash-file.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const sl = (p) => p.replaceAll('\\', '/');
@@ -54,13 +54,16 @@ function run(file, assignment, name, { gitBash, env = {} }) {
   const script = [
     "to_slashes() { printf '%s' \"${1//\\\\//}\"; }",
     gitBash ? FAKE_PWD : '',
-    // BASH_SOURCE[0] is the script itself in a sourced/run file; here it has to be set by hand.
+    // BASH_SOURCE[0] (and $0) is the script itself in a sourced/run file; here it has to be set by hand.
     `BASH_SOURCE_0=${JSON.stringify(sl(path.join(REPO, file)))}`,
-    assignment.replace('${BASH_SOURCE[0]}', '$BASH_SOURCE_0'),
+    assignment.replace('${BASH_SOURCE[0]}', '$BASH_SOURCE_0').replace('"$0"', '"$BASH_SOURCE_0"'),
     `printf '%s' "$${name}"`,
   ].join('\n');
-  const r = spawnSync('bash', ['-c', script, sl(path.join(REPO, file))], {
-    encoding: 'utf8', cwd: REPO, env: { PATH: process.env.PATH, HOME: process.env.HOME || '', ...env },
+  // From a file, not `bash -c`: on Windows the MSYS runtime read the `\\` of to_slashes as one backslash through `-c`,
+  // to_slashes deleted every slash, `dirname` gave `.` and `cd .` the right answer for the wrong reason
+  // (test/helpers/bash-file.mjs).
+  const r = bashFile(script, {
+    cwd: REPO, env: { PATH: process.env.PATH, HOME: process.env.HOME || '', ...env },
   });
   assert.equal(r.status, 0, `${file} ${name}: ${r.stderr}`);
   return r.stdout;

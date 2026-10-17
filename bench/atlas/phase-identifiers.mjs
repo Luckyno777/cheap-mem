@@ -3,11 +3,9 @@
 // bench/atlas/phase-identifiers.mjs — is an identifier with an underscore, or
 // with an umlaut, still found when somebody types it?
 //
-// **The phase id.** `identifiers`. The sister house (lucky-mem) calls the same
-// phase `kennungen` (German for "identifiers"); this house keeps the English
-// word, and the mapping between the two ids is recorded in
-// test/atlas-phase-parity.json. (Contrast with `skala`, which both houses
-// use as it stands: see bench/atlas/phase-skala.mjs.)
+// **The phase id.** `identifiers`. The sister house (lucky-mem) used to call
+// it `kennungen` and renames it to the same id before its first baseline; the
+// state of that rename is recorded in test/atlas-phase-parity.json.
 //
 // **The question (K1).** The anchors every other atlas phase plants are plain
 // ASCII words (`anchorphrase3zzq`). Real memories are full of names like

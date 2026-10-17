@@ -151,11 +151,13 @@ directory. The section number in brackets is where it is explained.
 | `guard.mjs` | a recorded error becomes a latch (10.2) |
 | `guardgaps.mjs` | ranks the errors that have NO guard (`mem guard gaps`): a guarded error is a filter, never a gap; repetition, an open duty and age only order the unguarded ones; reads, writes nothing |
 | `heartbeat.mjs` | running, or just nothing to do (10.3) |
+| `hookstdin.mjs` | the one stdin reader of the hook cores: bytes decoded once, a byte order mark and blanks in front dropped (Windows PowerShell 5.1 piped a UTF-8 BOM in front of the hook JSON; CI run 1141) |
 | `http-limits.mjs` | hard limits for every HTTP service that listens (`hardenServer`: head 10 s, request 30 s, 100 header lines, a check every 2 s, `maxConnections` per service) against slow headers, a dripping body and a connection flood; they bound only the receiving of a request, so a long answer is not cut (`docs/security-model.md`, "HTTP service limits") |
 | `hybrid.mjs` | BM25 and semantic recall, fused by RRF (2) |
 | `icon.mjs` | the mark, drawn in code |
 | `inbox.mjs` | cross-session messages |
 | `indexcache.mjs` | the search index cache as shards, never as one JSON string — the old cache broke past ~978,000 entries |
+| `indexrebuild.mjs` | the full rebuild of the search index in the background: the recall hook answers from the cached index plus the appended lines and, past `min(a fifth, 100)` of them, starts a detached child that rebuilds the cache; one at a time (lock file), a lock of a dead child is taken over by age, a failed rebuild holds the next one back for ten minutes |
 | `injection.mjs` | the journal of what the hook put into a turn, and what it did not |
 | `integrity.mjs` | what is wrong with the log itself (4) |
 | `ismain.mjs` | "was this module started as the program?" by real path, so an entry point under a symlinked directory (every macOS temp dir) still runs instead of silently doing nothing |

@@ -191,7 +191,9 @@ export const COMMANDS = {
         '             is not searched; with MEM_RETRIEVE_TIE=0.01 (off by default) a hit within',
         '             1 % of the last one shown comes along (at most one more than --top).',
         '             Switch for the frame: MEM_RETRIEVE_REQUEST_FRAME. A plain `mem find',
-        '             --top N` stays exactly N.',
+        '             --top N` stays exactly N. The index comes from the cache plus the lines',
+        '             appended since; past 100 of them the full rebuild runs in the',
+        '             background (one at a time) and this call is not held up by it.',
         `  --type     one of ${memory.SEARCH_TYPES.join(', ')} (cards are not searched: mem card list)`,
         '  --category only entries whose topic is assigned to this category',
         '             (confirmed or proposal; see `mem category list`)',
@@ -227,7 +229,8 @@ export const COMMANDS = {
     // search): `--content-words` used to load it for the shortening and `find` again for the search.
     let opened = null;
     const openIndex = () => {
-      opened ??= search.loadIndex(root, { fresh: Boolean(args.fresh), language: cfg.language });
+      // `--recall` is the hook: it answers from the appended index and has the rebuild done in the background (index-schwelle-cm).
+      opened ??= search.loadIndex(root, { fresh: Boolean(args.fresh), language: cfg.language, allowStale: Boolean(args.recall) });
       return opened;
     };
     if (args['content-words']) {
