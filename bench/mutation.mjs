@@ -1697,6 +1697,42 @@ const RUN_AS_SCRIPT = process.argv[1]
 
 if (RUN_AS_SCRIPT) {
 
+// **Arguments are checked BEFORE anything runs.** This file used to know
+// two switches and ignore every other word, so `node bench/mutation.mjs
+// --help` was read as "no switch" and started the FULL sweep, which
+// rewrites source files in the working tree one mutant at a time. That
+// happened twice on 2026-10-17, to people who only wanted the usage text.
+// Now `--help`/`-h` prints the usage and exits 0 having touched nothing,
+// and anything this file does not know is refused loudly with exit 2,
+// also before anything is touched. The known switches are exactly the two
+// that are read below.
+{
+  const args=process.argv.slice(2);
+  if(args.includes('--help') || args.includes('-h')){
+    console.log([
+      'Usage: node bench/mutation.mjs [--security | --only=<file>[,<file>...]]',
+      '',
+      '  (no switch)        sweep EVERY mutant, then run the full suite once per',
+      '                     survivor candidate. Slow. Rewrites source files in',
+      '                     the working tree one at a time and restores them.',
+      '  --security         sweep only the security-relevant modules',
+      '  --only=<files>     sweep only the mutants on these comma-separated',
+      '                     paths, e.g. --only=src/authority.mjs',
+      '  --help, -h         print this text and exit; touches nothing',
+      '',
+      'Run it in your own working tree or a scratch copy. Exit codes: 0 all',
+      'mutants caught, 1 a mutant survived or did not run, 2 bad arguments.',
+    ].join('\n'));
+    process.exit(0);
+  }
+  const unknown=args.filter((a)=>a!=='--security' && !a.startsWith('--only='));
+  if(unknown.length){
+    console.error(`bench/mutation.mjs: unknown argument${unknown.length===1?'':'s'}: ${unknown.join(' ')}`);
+    console.error('Nothing was touched. Known: --security, --only=<files>, --help. Try --help.');
+    process.exit(2);
+  }
+}
+
 // `--security` or `--only=src/a.mjs,src/b.mjs`: sweep a subset, run only its
 // own suites. A survivor is then judged against ITS suites alone (no full
 // run to tell "caught elsewhere" from "survived"): it is reported as
