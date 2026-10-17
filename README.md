@@ -830,6 +830,9 @@ is allowed without asking. Details: [docs/security-model.md](docs/security-model
   or personal). The whole start answers under one budget of 3,200 bytes, as
   does the `UserPromptSubmit` answer: what does not fit steps down to a
   pointer (id and `mem show <id>`) and one note says what was left out.
+  The order of giving way: the procedures get their full text first (each
+  stays at least a pointer with its id), then the assignment block; the
+  workflow card steps down to its pointer BEFORE the recap is shortened.
 - Below an error the recall hooks show, one line gives its newest valid
   solution (`↳ Solution <id>: ...`); a skill offer brings two lines of its
   experience account.
