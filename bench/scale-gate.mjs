@@ -102,6 +102,7 @@ import { summariseRecall } from './value-report.mjs';
 import { loadIndex, search } from '../src/search.mjs';
 import * as memory from '../src/memory.mjs';
 import * as place from '../src/recallserver-place.mjs';
+import { isMain } from '../src/ismain.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..');
@@ -947,7 +948,7 @@ function onSignal(sig) {
   for (const c of children) { try { c.kill('SIGKILL'); } catch { /* gone */ } }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isMain(import.meta.url)) {
   const argv = process.argv.slice(2);
   if (argv[0] === '--child-warm') {
     childWarm(argv[1], argv[2]).catch((e) => { process.stderr.write(`${e.stack || e.message}\n`); process.exit(1); });

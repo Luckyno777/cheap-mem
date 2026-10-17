@@ -39,6 +39,9 @@ function sandbox() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mutation-cli-'));
   fs.mkdirSync(path.join(dir, 'bench'), { recursive: true });
   fs.copyFileSync(path.join(REPO, 'bench', 'mutation.mjs'), path.join(dir, 'bench', 'mutation.mjs'));
+  // The script decides whether it was started as the program with src/ismain.mjs (CI run 1180), so the copy carries it.
+  fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+  fs.copyFileSync(path.join(REPO, 'src', 'ismain.mjs'), path.join(dir, 'src', 'ismain.mjs'));
   for (const f of new Set(MUTANTS.map((m) => m.file))) {
     fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true });
     fs.copyFileSync(path.join(REPO, f), path.join(dir, f));
