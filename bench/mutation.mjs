@@ -814,8 +814,8 @@ export const MUTANTS=[
 
  { name:'redaction: the bare word pins is a counter key',
    file:'src/redaction.mjs',
-   from:"w.length > 4 && w.endsWith('s') && isExtraWord",
-   to:"w.length > 3 && w.endsWith('s') && isExtraWord",
+   from:"const isPinPlural = (w) => w.length > 4 && w.endsWith('s')",
+   to:"const isPinPlural = (w) => w.length > 3 && w.endsWith('s')",
    tests:['test/redaction-object-keys.test.mjs'] },
 
  { name:'answercheck: the continuation reason asks for a fix, not for the whole answer again',
@@ -870,7 +870,7 @@ export const MUTANTS=[
    file:'bin/mem-mask-copy.mjs',
    from:'const BLOCK_MAX_LINES = 20000;',
    to:'const BLOCK_MAX_LINES = 1;  // MUTANT',
-   tests:['test/reflect-masked-copy.test.mjs'] },
+   tests:['test/reflect-masked-copy.test.mjs','test/small-rest2-cm.test.mjs'] },
 
  { name:'mask-copy: a bare number or string line is read as a JSON structure',
    file:'bin/mem-mask-copy.mjs',
@@ -880,9 +880,33 @@ export const MUTANTS=[
 
  { name:'mask-copy: a line that is no JSON is copied unmasked',
    file:'bin/mem-mask-copy.mjs',
-   from:"      const text = maskText(block.join('\\n'));",
-   to:"      const text = block.join('\\n');  // MUTANT",
+   from:"      let masked = maskText(text);",
+   to:"      let masked = text;  // MUTANT",
    tests:['test/reflect-masked-copy.test.mjs'] },
+
+ { name:'mask-copy: a cut gives up a PEM block that is still open (no END yet): the rest of the key stays in the clear',
+   file:'bin/mem-mask-copy.mjs',
+   from:"      carry = cut ? openBlockHeader(text) : '';",
+   to:"      carry = '';  // MUTANT",
+   tests:['test/small-rest2-cm.test.mjs'] },
+
+ { name:'redaction: the short last line of a PEM key (an open block, or one past the 8 KB bound) stays in the clear',
+   file:'src/redaction.mjs',
+   from:"(?:[A-Za-z0-9+/=]{1,19}(?=[ \\t]*(?:\\r?\\n|\\\\[nr]|$|[\"']|-----END)))?/g],",
+   to:"/g],  // MUTANT",
+   tests:['test/small-rest2-cm.test.mjs'] },
+
+ { name:'redaction: blanks at the end of the short last line of a PEM key save it',
+   file:'src/redaction.mjs',
+   from:"{1,19}(?=[ \\t]*(?:\\r?\\n|",
+   to:"{1,19}(?=(?:\\r?\\n|",
+   tests:['test/small-rest2-cm.test.mjs'] },
+
+ { name:'redaction: pinhashes (the plural of pinhash, in one word) is no counter key',
+   file:'src/redaction.mjs',
+   from:"|| (w.endsWith('hashes') && isExtraWord(w.slice(0, -2)))",
+   to:"|| false",
+   tests:['test/small-rest2-cm.test.mjs'] },
 
  { name:'mask-copy: --clean removes a directory it did not make',
    file:'bin/mem-mask-copy.mjs',
