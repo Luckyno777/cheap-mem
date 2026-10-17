@@ -194,6 +194,13 @@ function compare(oldPath, current) {
 async function main() {
   const opt = parseArgs(process.argv.slice(2));
   if (opt.help) { process.stdout.write(HELP); return 0; }
+  // A phase id this atlas does not have is refused, not run as "nothing": `--phase tippfehler` used to end with 0 pass, 0 fail, exit 0.
+  const known = PHASES.map(([id]) => id);
+  const unknown = opt.phases.filter((id) => !known.includes(id));
+  if (unknown.length) {
+    process.stderr.write(`atlas: unknown phase${unknown.length === 1 ? '' : 's'}: ${unknown.join(', ')}\nvalid phases: ${known.join(', ')}\n`);
+    return 2;
+  }
 
   const atlas = new Atlas({ label: opt.label });
 

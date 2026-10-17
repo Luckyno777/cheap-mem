@@ -25,6 +25,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Atlas, VERDICT, exitCodeOf } from '../bench/atlas/core.mjs';
 import { runStub } from '../bench/atlas/stub.mjs';
@@ -90,6 +91,7 @@ test('a run of stubs alone ends with exit code 3, never 0; a failure ends it wit
   assert.equal(exitCodeOf({ pass: 5, fail: 0, degraded: 0, 'not-measured': 0 }), 0, 'positive control: a clean run is 0');
   assert.equal(exitCodeOf({ pass: 5, fail: 1, degraded: 0, 'not-measured': 2 }), 1);
   assert.equal(exitCodeOf({ pass: 5, fail: 0, degraded: 1, 'not-measured': 0 }), 1);
+  assert.equal(exitCodeOf({ pass: 0, fail: 0, degraded: 0, 'not-measured': 0 }), 3, 'a run in which no record ran looked at nothing: not 0');
 });
 
 test('positive control: a stub that counts as passed is caught by the same check', () => {
@@ -106,4 +108,22 @@ test('positive control: a stub that counts as passed is caught by the same check
   quiet.phase('dashboard', 't');
   quiet.record({ id: 'dashboard.not-built', title: 't', verdict: VERDICT.NOT_MEASURED });
   assert.ok(stubProblems(quiet, 'dashboard').some((p) => p.includes('blind spot')));
+});
+
+test('an unknown phase id is refused with the list of valid ids and exit 2, before anything runs', () => {
+  const run = (...args) => spawnSync(process.execPath, [path.join(REPO, 'bench', 'atlas.mjs'), ...args], { cwd: REPO, encoding: 'utf8', timeout: 120000 });
+  const r = run('--quick', '--phase', 'tippfehler');
+  assert.equal(r.status, 2, `${r.stdout}\n${r.stderr}`);
+  assert.match(r.stderr, /unknown phase: tippfehler/);
+  assert.match(r.stderr, /valid phases: .*\bsurface\b.*\bdashboard\b.*\bnet-tempo\b/);
+  assert.ok(!/atlas quick:/.test(r.stdout), 'nothing was run');
+  // one valid and one unknown id: still refused (a typo next to a good id must not run the good one alone)
+  const mixed = run('--quick', '--phase', 'digest,tippfehler');
+  assert.equal(mixed.status, 2);
+  assert.match(mixed.stderr, /unknown phase: tippfehler/);
+  assert.ok(!/phase digest/.test(mixed.stderr), 'the good id did not run either');
+  // positive control: a valid id is not refused (it runs, and ends with 0, 1 or 3 - never the refusal's 2)
+  const ok = run('--quick', '--phase', 'digest');
+  assert.notEqual(ok.status, 2, ok.stderr);
+  assert.match(ok.stderr, /atlas: phase digest \.\.\./);
 });
