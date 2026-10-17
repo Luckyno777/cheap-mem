@@ -13,8 +13,8 @@
 // Expected change:  the plan lines / the path of the masked copy, exactly as through the real path.
 // Abort criterion:  an entry point that is silent through the link.
 //
-// The ratchet below holds every entry point in bin/ and src/ to the shared test: no second inline comparison of
-// argv[1] with import.meta.url. Red proof: both probes fail on 9a10bf6 (the CHANGELOG entry of CI run 1103 names it).
+// The ratchet below holds every entry point in bin/ and src/ to the shared test (per file: argv[1] plus its own path
+// means isMain). Red proof: both probes fail on 9a10bf6 (the CHANGELOG entry of CI run 1103 names it).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -64,7 +64,15 @@ test('bin/mem-mask-copy.mjs started through a symlinked directory makes the mask
   assert.equal(fs.existsSync(copy), false, 'and --clean through the link removes it');
 });
 
-test('ratchet: no entry point in bin/ or src/ compares argv[1] with import.meta.url itself (src/ismain.mjs does)', () => {
+// The rule is per FILE, not per line: a test split over two lines, `import.meta.url.endsWith(entry)` and
+// `import.meta.filename` all escaped a line-by-line search. A file in bin/ or src/ that reads `process.argv[1]` and
+// `import.meta.url` or `import.meta.filename` must call `isMain(`; src/ismain.mjs is the one place that may compare.
+const EXCEPTIONS = {
+  // A `node -e` child script: argv[1] there is the memory root handed to buildTimeTracks, not the program's own path,
+  // and import.meta.url only locates the module directory. No "am I the program" test is made.
+  'src/timetrack.mjs': 'node -e child script: argv[1] is a data argument, not an entry-point test',
+};
+function sourceFiles(base) {
   const files = [];
   for (const d of ['bin', 'src']) {
     const walk = (p) => {
@@ -74,16 +82,39 @@ test('ratchet: no entry point in bin/ or src/ compares argv[1] with import.meta.
         else if (/\.(mjs|js|cjs)$/.test(e.name) || (d === 'bin' && !e.name.includes('.'))) files.push(f);
       }
     };
-    walk(path.join(REPO, d));
+    if (fs.existsSync(path.join(base, d))) walk(path.join(base, d));
   }
-  const offenders = [];
-  for (const f of files) {
-    if (path.basename(f) === 'ismain.mjs') continue;
-    fs.readFileSync(f, 'utf8').split('\n').forEach((l, i) => {
-      if (/^\s*(\/\/|\*|#)/.test(l)) return;
-      if (/argv\s*\[\s*1\s*\]|\bargv1\b/.test(l) && /import\.meta\.url|metaUrl/.test(l)) offenders.push(`${path.relative(REPO, f).split(path.sep).join('/')}:${i + 1}: ${l.trim()}`);
-    });
+  return files;
+}
+function offenders(base) {
+  const out = [];
+  for (const f of sourceFiles(base)) {
+    const rel = path.relative(base, f).split(path.sep).join('/');
+    if (rel === 'src/ismain.mjs' || EXCEPTIONS[rel]) continue;
+    const text = fs.readFileSync(f, 'utf8');
+    if (/process\.argv\s*\[\s*1\s*\]/.test(text) && /import\.meta\.(url|filename)/.test(text) && !/\bisMain\(/.test(text)) out.push(rel);
   }
-  assert.ok(files.length > 50, `the walk found ${files.length} files: it looks in the wrong place`);
-  assert.deepEqual(offenders, [], 'an inline entry-point test is false under a symlinked parent; use isMain from src/ismain.mjs');
+  return out;
+}
+
+test('ratchet: a file in bin/ or src/ that reads argv[1] and its own path calls isMain (src/ismain.mjs decides)', () => {
+  assert.ok(sourceFiles(REPO).length > 50, 'the walk found too few files: it looks in the wrong place');
+  assert.deepEqual(offenders(REPO), [], 'an own entry-point test is false under a symlinked parent; use isMain from src/ismain.mjs');
+  for (const [rel, why] of Object.entries(EXCEPTIONS)) {
+    assert.ok(fs.existsSync(path.join(REPO, rel)) && why.length > 20, `exception ${rel}: the file is gone or the reason is empty - drop the entry`);
+  }
+});
+
+test('POSITIVE CONTROL: the ratchet sees the two-line test, endsWith and import.meta.filename (scratch tree)', () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-ismain-rat-'));
+  made.push(base);
+  fs.mkdirSync(path.join(base, 'src'));
+  fs.mkdirSync(path.join(base, 'bin'));
+  const put = (rel, text) => fs.writeFileSync(path.join(base, rel), text);
+  put('src/twoline.mjs', "const direct = process.argv[1]\n  && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);\n");
+  put('src/endswith.mjs', 'const entry = process.argv[1];\nif (import.meta.url.endsWith(entry)) main();\n');
+  put('bin/filename', '#!/usr/bin/env node\nif (process.argv[1] === import.meta.filename) main();\n');
+  put('src/good.mjs', "import { isMain } from './ismain.mjs';\nif (isMain(import.meta.url)) main(process.argv[1]);\n");
+  put('src/ismain.mjs', 'export const isMain = (u, a = process.argv[1]) => a === import.meta.url;\n');
+  assert.deepEqual(offenders(base).sort(), ['bin/filename', 'src/endswith.mjs', 'src/twoline.mjs']);
 });

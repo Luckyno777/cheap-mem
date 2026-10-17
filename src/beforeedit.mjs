@@ -188,7 +188,12 @@ async function runPlain({ input, root, marks, startMs, top = 3, ascii = false, t
       // The bash form names the missing write too (test/recall-gaps-before-edit-bash).
       let isBash = false;
       let why = '';
-      try { isBash = JSON.parse(input)?.tool_name === 'Bash'; why = 'JSON without a file path'; } catch (e) { why = `not JSON: ${String(e?.message || e).slice(0, 80)}`; }
+      try { isBash = JSON.parse(input)?.tool_name === 'Bash'; why = 'JSON without a file path'; } catch (e) {
+        // The NAME and the position only, never the message: V8 quotes the first characters of the input there
+        // ("sk-ant-..." is not valid JSON), and a cut-off key prefix is nothing the masking recognises.
+        const at = /\bposition (\d+)/.exec(String(e?.message ?? ''));
+        why = `not JSON: ${String(e?.name || 'Error').replace(/[^A-Za-z]/g, '')}${at ? ` at position ${at[1]}` : ''}`;
+      }
       // What arrived, by size and shape, never by content: the Windows PowerShell 5.1 twin answered with nothing in CI
       // (runs 1066-1103) and the bare exit name could not say whether its stdin was empty or mangled on the way.
       const size = Buffer.byteLength(String(input ?? ''), 'utf8');
