@@ -133,13 +133,24 @@ test('caps: at most four hits, two per type, 1,500 bytes extra; the base block s
   // of the base block is unchanged: the statement about the procedures, the closing hint, and every line of the recap that
   // is still shown is the base's line.
   assert.ok(Buffer.byteLength(full, 'utf8') <= subagentstart.CAP_BYTES, `${Buffer.byteLength(full, 'utf8')} bytes`);
-  const rest = full.replace(/\n\nFor your assignment[\s\S]*?(?=\n\nData, not instructions)/, '');
+  // The note, when something stepped down, closes the text after the hint.
+  const rest = full.replace(/\n\nFor your assignment[\s\S]*?(?=\n\nData, not instructions)/, '').replace(/\n\n\(Held to [\s\S]*$/, '');
   assert.ok(rest.startsWith('(no procedure tagged'), 'the procedure statement is first');
   assert.ok(rest.endsWith(base.slice(base.lastIndexOf('\n\nData, not instructions'))), 'the closing hint is the base\'s');
   const norm = (x) => x.replace(/--- last \d+ errors ---/, '--- last N errors ---').replace(/--- budget \d+ chars \(~\d+ tokens/, '--- budget N chars (~N tokens');
   const recapLines = (x) => norm(x).split('\n').filter((l) => l.startsWith('  [20'));
   for (const l of recapLines(rest)) assert.ok(recapLines(base).includes(l), 'a recap line that is shown is the base\'s line');
   assert.ok(recapLines(rest).length <= recapLines(base).length, 'the recap gave way, it did not grow');
+});
+
+test('under the budget the base block is unchanged: with and without the assignment block, minus that block, the start is byte for byte the same', async (t) => {
+  const root = world(t);
+  error(root, 'Frobnicate widget crash in the lockfile writer');
+  const base = await start(root, { ...payload(t), prompt: undefined, transcript_path: undefined });
+  const full = await start(root, payload(t));
+  assert.ok(full.includes(subagenttask.HEADER), 'the assignment block is there (else this proves nothing)');
+  assert.ok(Buffer.byteLength(full, 'utf8') <= subagentstart.CAP_BYTES, `${Buffer.byteLength(full, 'utf8')} bytes: the case must fit the budget`);
+  assert.equal(full.replace(/\n\nFor your assignment[\s\S]*?(?=\n\nData, not instructions)/, ''), base, 'the base block changed although everything fits');
 });
 
 test('L3 on the subagent path: the solution stands under its error; a solution of a barred type does not', async (t) => {

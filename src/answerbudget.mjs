@@ -22,8 +22,9 @@
  *     POINTER — a short line with the id and how to fetch the rest — then nothing. A part takes
  *     the best form that still fits; so a card that does not fit steps down to its pointer
  *     instead of vanishing, and instead of being cut mid-sentence.
- *  3. A `fixed` part is always in (a statement of fact, the closing hint, the header). Only fixed
- *     parts may push the text over the budget, and only if they alone are bigger than it.
+ *  3. A `fixed` part is always in (a statement of fact, the closing hint, the header), and a `keep` part is always in
+ *     at least as its pointer. Only these may push the text over the budget (`over`), and only if they alone are bigger
+ *     than it; everything else gives way to them.
  *  4. An `elastic` part (`fill(room)`) takes what is left after the parts allocated before it, the
  *     way the subagent's recap always did.
  *  5. When anything stepped down or fell away, ONE note says how many and how to fetch them
@@ -39,7 +40,7 @@
  * skipped.
  */
 
-import { maskText } from './outputguard.mjs';
+import { maskText, cutMasked } from './outputguard.mjs';
 
 /** The budget for the whole answer of the prompt hook and of the subagent start, in bytes. */
 export const ANSWER_BYTES = 3200;
@@ -55,6 +56,8 @@ const bytes = (s) => Buffer.byteLength(String(s ?? ''), 'utf8');
  *   forms  the texts, best first; a form after the first counts as a step down (a pointer)
  *   fill   elastic: gets the bytes left (`room`), returns text that fits in `room` BYTES (or '')
  *   fixed  always included (first form)
+ *   keep   never falls away: at the least its LAST form (its pointer) is in, whatever else gives way; it is upgraded to a
+ *          better form in rank order when there is room (a procedure: a human's rule is never silently missing)
  *   sep    what stands between this part and the one before it (default: `join`)
  *   how    how to fetch what is missing ("mem show <id>"), named in the note
  *   ref    anything the caller wants back in `chosen` / `pointers` / `omitted` (an index, the entry)
@@ -72,40 +75,52 @@ export function compose(parts, { budget = ANSWER_BYTES, join = '\n\n', sanitize 
     forms: prepared(p.forms, sanitize),
   })).filter((p) => p.forms.length > 0 || typeof p.fill === 'function');
   const sepOf = (p) => (typeof p.sep === 'string' ? p.sep : join);
+  const byOrder = (a, b) => (a[0].order - b[0].order) || (a[0].seq - b[0].seq);
+
+  // The exact size of a choice: the texts in text order, each part but the first with its own separator in front.
+  const measure = (picked) => {
+    let n = 0;
+    [...picked.entries()].sort(byOrder).forEach(([p, got], i) => { n += bytes(got.text) + (i === 0 ? 0 : bytes(sepOf(p))); });
+    return n;
+  };
 
   const run = (reserve) => {
+    const limit = budget - reserve;
     const picked = new Map(); // part -> { form, text }
-    let used = 0;
-    let first = true;
-    const cost = (p, text) => bytes(text) + (first ? 0 : bytes(sepOf(p)));
-    // Fixed parts first, in text order: they are in whatever happens.
-    for (const p of [...list].filter((x) => x.fixed).sort((a, b) => a.order - b.order)) {
+    // Fixed parts are in whatever happens; a `keep` part is in at its LAST form (its pointer) whatever happens and
+    // is upgraded below when there is room. Both are placed before anything else is allocated.
+    for (const p of list.filter((x) => x.fixed)) {
       const text = p.forms[0] ?? safeFill(p, Infinity, sanitize);
-      if (text === null || text === undefined || text === '') continue;
-      picked.set(p, { form: 0, text });
-      used += bytes(text) + (picked.size > 1 ? bytes(sepOf(p)) : 0);
+      if (text !== null && text !== undefined && text !== '') picked.set(p, { form: 0, text });
     }
-    first = picked.size === 0;
+    for (const p of list.filter((x) => !x.fixed && x.keep && x.forms.length)) {
+      picked.set(p, { form: p.forms.length - 1, text: p.forms[p.forms.length - 1] });
+    }
     const rest = list.filter((x) => !x.fixed).sort((a, b) => (a.rank - b.rank) || (a.order - b.order) || (a.seq - b.seq));
     for (const p of rest) {
-      const room = budget - reserve - used;
-      let got = null;
+      const without = new Map(picked);
+      without.delete(p);
+      const tryWith = (form, text) => {
+        const trial = new Map(without);
+        trial.set(p, { form, text });
+        return measure(trial) <= limit ? trial : null;
+      };
       if (typeof p.fill === 'function') {
-        const sepB = first ? 0 : bytes(sepOf(p));
-        const text = safeFill(p, room - sepB, sanitize);
-        if (text && bytes(text) + sepB <= room) got = { form: 0, text };
-      } else {
-        for (let f = 0; f < p.forms.length; f += 1) {
-          if (cost(p, p.forms[f]) <= room) { got = { form: f, text: p.forms[f] }; break; }
-        }
+        // Room for the text: what is left, less the longest separator this part could bring.
+        const room = limit - measure(without) - bytes(sepOf(p));
+        const text = safeFill(p, room, sanitize);
+        const trial = text ? tryWith(0, text) : null;
+        if (trial) picked.set(p, trial.get(p));
+        continue;
       }
-      if (got) {
-        picked.set(p, got);
-        used += cost(p, got.text);
-        first = false;
+      // A `keep` part only looks for a better form than its pointer; any other part may also fall away.
+      const upto = p.keep ? p.forms.length - 1 : p.forms.length;
+      for (let f = 0; f < upto; f += 1) {
+        const trial = tryWith(f, p.forms[f]);
+        if (trial) { picked.set(p, trial.get(p)); break; }
       }
     }
-    return { picked, used };
+    return picked;
   };
 
   const describe = (picked) => {
@@ -113,33 +128,40 @@ export function compose(parts, { budget = ANSWER_BYTES, join = '\n\n', sanitize 
     const omitted = [];
     for (const p of list) {
       const got = picked.get(p);
-      if (!got) omitted.push({ id: p.id ?? null, kind: p.kind ?? 'part', how: p.how ?? null, ref: p.ref });
-      else if (got.form > 0) pointers.push({ id: p.id ?? null, kind: p.kind ?? 'part', how: p.how ?? null, ref: p.ref });
+      const row = { id: p.id ?? null, kind: p.kind ?? 'part', how: p.how ?? null, ref: p.ref };
+      if (!got) omitted.push(row);
+      else if (got.form > 0) pointers.push(row);
     }
     return { pointers, omitted };
   };
 
-  let { picked } = run(0);
+  let picked = run(0);
   let d = describe(picked);
   let note = null;
   if (d.pointers.length || d.omitted.length) {
-    // The note counts in the budget: allocate again with room for the longest note this part list could need.
-    const every = list.filter((p) => !p.fixed).map((p) => ({ kind: p.kind ?? 'part', how: p.how ?? null }));
-    const worst = noteText({ pointers: every, omitted: every }, budget, sanitize); // each part in both lists: longer than any real note
-    ({ picked } = run(bytes(noteSep) + bytes(worst)));
-    d = describe(picked);
-    note = noteText(d, budget, sanitize);
+    // The note counts in the budget, and so do the ids it names: allocate again with room for the note of the
+    // previous round until the note fits what it was given (it grows with what fell away, never without bound: the ids
+    // it names are capped).
+    let reserve = bytes(noteSep) + bytes(noteText(d, budget, sanitize));
+    for (let round = 0; round < 6; round += 1) {
+      picked = run(reserve);
+      d = describe(picked);
+      note = noteText(d, budget, sanitize);
+      const need = bytes(noteSep) + bytes(note);
+      if (need <= reserve) break;
+      reserve = need;
+    }
+    if (bytes(noteSep) + bytes(note) > reserve) note = noteText(d, budget, sanitize, { ids: false });
   }
-  const ordered = [...picked.entries()].sort((a, b) => a[0].order - b[0].order || a[0].seq - b[0].seq);
+  const ordered = [...picked.entries()].sort(byOrder);
   let text = '';
   ordered.forEach(([p, got], i) => { text += (i === 0 ? '' : sepOf(p)) + got.text; });
   if (note) text += (text ? noteSep : '') + note;
-  const fixedBytes = bytes([...picked.entries()].filter(([p]) => p.fixed).map(([, g]) => g.text).join(join));
   return {
     text, bytes: bytes(text),
     chosen: ordered.map(([p, got]) => ({ id: p.id ?? null, kind: p.kind ?? 'part', form: got.form, ref: p.ref })),
     pointers: d.pointers, omitted: d.omitted, note,
-    over: fixedBytes > budget,
+    over: bytes(text) > budget,
   };
 }
 
@@ -166,8 +188,14 @@ function safeFill(p, room, sanitize) {
 
 const plural = (n, kind) => (n === 1 ? kind : (/s$/.test(kind) ? kind : `${kind}s`));
 
-/** The one note: how many stepped down, how many fell away, and how to fetch them. */
-export function noteText({ pointers = [], omitted = [] }, budget = ANSWER_BYTES, sanitize = maskText) {
+/** At most this many ids of parts that fell away are named in the note; the rest is counted. */
+const NOTE_IDS_MAX = 12;
+
+/**
+ * The one note: how many stepped down, how many fell away (with the ids of those, so they can be fetched), and how to
+ * fetch them. `{ ids: false }` leaves the ids out (the last resort when even that note would not fit).
+ */
+export function noteText({ pointers = [], omitted = [] }, budget = ANSWER_BYTES, sanitize = maskText, { ids = true } = {}) {
   const count = (list) => {
     const by = new Map();
     for (const x of list) by.set(x.kind, (by.get(x.kind) ?? 0) + 1);
@@ -175,8 +203,25 @@ export function noteText({ pointers = [], omitted = [] }, budget = ANSWER_BYTES,
   };
   const parts = [];
   if (pointers.length) parts.push(`${count(pointers)} as a pointer only`);
-  if (omitted.length) parts.push(`${count(omitted)} left out`);
+  if (omitted.length) {
+    const named = ids ? omitted.map((x) => x.id).filter((id) => typeof id === 'string' && id) : [];
+    // mask-ok: a list of ids (an array cut), the note itself passes `sanitize` whole
+    const shown = named.slice(0, NOTE_IDS_MAX);
+    const more = named.length > shown.length ? ` +${named.length - shown.length} more` : '';
+    parts.push(`${count(omitted)} left out${shown.length ? ` (ids: ${shown.join(', ')}${more})` : ''}`);
+  }
   const how = [...new Set([...pointers, ...omitted].map((x) => x.how).filter(Boolean))];
   const fetch = how.length ? ` Fetch: ${how.join('; ')}.` : '';
   return sanitize(`(Held to ${budget} bytes: ${parts.join('; ')}.${fetch})`);
+}
+
+/**
+ * Shorten `text` to at most `max` characters for a pointer line: mask FIRST, then cut the masked text
+ * (`cutMasked`: never inside a `[REDACTED:...]` marker), white space squeezed, an ellipsis when something was cut.
+ * A key that crosses the cut can not leave a stump no pattern knows any more.
+ */
+export function shorten(text, max) {
+  const flat = maskText(String(text ?? '')).replace(/\s+/g, ' ').trim();
+  if (flat.length <= max) return flat;
+  return `${cutMasked(flat, Math.max(1, max - 1)).trimEnd()}…`;
 }

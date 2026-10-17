@@ -169,6 +169,12 @@ function sizePointerText(entry, size) {
     + `too long for this block. Full card: mem workflow show ${entry.id}`;
 }
 
+/** The repeat of {@link sizePointerText}: no claim that the card was seen. */
+function sizePointerRepeatText(entry, size) {
+  return `Workflow '${entry.title ?? entry.id}' (${entry.id}) matches again; only its pointer was shown so far, `
+    + `the card is ${size} bytes, too long for this block. Full card: mem workflow show ${entry.id}`;
+}
+
 /** The card the first time in a session, then the pointer (unless the card changed). */
 function cardOrPointer(root, entry, session, env = process.env, maxBytes = Infinity) {
   const full = () => cardText(entry);
@@ -177,7 +183,11 @@ function cardOrPointer(root, entry, session, env = process.env, maxBytes = Infin
   const level = pointer.watermark(root).bytes;
   const where = wfpointer.markFile(root, session, entry.id, env);
   const mark = pointer.readMark(where);
-  if (pointer.decide({ mark, levelNow: level }).action === pointer.ACTION.POINTER) return pointerText(entry);
+  if (pointer.decide({ mark, levelNow: level }).action === pointer.ACTION.POINTER) {
+    // A card that is over its limit was only ever shown as a pointer: say so (the usual wording claims the card was seen).
+    const size = Buffer.byteLength(full(), 'utf8');
+    return size > maxBytes ? sizePointerRepeatText(entry, size) : pointerText(entry);
+  }
   const text = full();
   const size = Buffer.byteLength(text, 'utf8');
   const fp = pointer.fingerprint(text);

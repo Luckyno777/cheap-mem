@@ -112,6 +112,7 @@ export function taskFrom(j) {
   try {
     if (!j || typeof j !== 'object') return null;
     const field = j.prompt ?? j.user_prompt;
+    // mask-ok: the assignment text is only SEARCHED (a bound on the work); the block that is shown is built from entries and masked
     if (typeof field === 'string' && field.trim()) return field.trim().slice(0, TASK_MAX_CHARS);
     const file = transcriptPath(j);
     if (!file) return null;
@@ -126,6 +127,7 @@ export function taskFrom(j) {
         try { o = JSON.parse(line); } catch { continue; } // also the cut last line
         if (!o || o.type !== 'user' || o.isMeta) continue;
         const t = textOf(o.message?.content).trim();
+        // mask-ok: same bound on the searched assignment text, never shown
         if (t) return t.slice(0, TASK_MAX_CHARS);
       }
       return null;
@@ -146,6 +148,7 @@ export function filesIn(text, max = 3) {
   const seen = new Set();
   for (const m of String(text ?? '').matchAll(FILE_PATTERN)) {
     let p = m[1].replace(/^~\//, '').replace(/^\.\//, '');
+    // mask-ok: three characters looked at to tell a URL from a path, never shown
     const before = String(text).slice(Math.max(0, m.index - 3), m.index);
     if (before.endsWith('://') || /^(?:[a-z0-9-]+\.)+(?:com|org|net|io|de|ai|dev)\//i.test(p)) continue;
     // Absolute machine paths shorten to the memory's spelling (src/..., bin/...).

@@ -746,7 +746,7 @@ Desktop). `bin/mem-mcp`, stdio (or `--http`).
 | `mem_source` | take in an address as a source (no local paths) |
 | `mem_bridge_report` | report which checkout this server is serving |
 | `mem_board` | the operating state on one screen |
-| `mem_find` | ranked search, the same core as `mem find` (`findcore.mjs`); optional `variants` (caller-written rewordings, rank-fused) |
+| `mem_find` | ranked search, the same core as `mem find` (`findcore.mjs`); `top` at most 25 (a larger number is cut and the answer says so); optional `variants` (caller-written rewordings, rank-fused) |
 | `mem_retrieve` | ranked retrieval returning structured claims |
 | `mem_show` | one entry in full |
 | `mem_links` | what an entry points at, and what points at it |

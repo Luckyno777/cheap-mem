@@ -80,10 +80,11 @@ test('A2: over the budget the part allocated LAST steps down first; a pointer, t
   assert.match(sel.note, /mem workflow show <id>/);
   assert.ok(sel.text.endsWith(sel.note), 'the note closes the text');
   // Even smaller: pointers fall away too, and the note counts them as left out.
-  const tiny = answerbudget.compose(parts, { budget: 150, sanitize: plain });
-  assert.ok(tiny.bytes <= 150 + bytes('HEAD'), `${tiny.bytes} bytes`);
+  const longPtr = parts.map((p) => (p.forms ? { ...p, forms: [p.forms[0], `ptr ${p.id} ${'p'.repeat(120)}`] } : p));
+  const tiny = answerbudget.compose(longPtr, { budget: 500, sanitize: plain });
   assert.ok(tiny.omitted.length >= 1, 'something fell away');
   assert.match(tiny.note, /left out/);
+  assert.ok(tiny.omitted.every((o) => !o.id || tiny.note.includes(o.id)), 'the note names the id of every part that fell away');
 });
 
 test('A3: a fixed part is always in; only fixed parts can push the text over the budget', () => {
@@ -234,18 +235,33 @@ test('B4: the journal line says what was DELIVERED: hits as pointers count (thei
     const env2 = { ...env, MEM_RH_SESSION: 's-ab4b', MEM_RH_TURNS: path.join(root, 'turns2') };
     const wide = JSON.stringify({ hits: Array.from({ length: 60 }, (_, i) => hitFor(i, { size: 120 })) });
     const r2 = recallhook.recall(root, wide, env2, {});
-    const text2 = ctx(r2);
+    const full2 = ctx(r2);
+    const text2 = full2.split('(Held to')[0]; // the note names the ids that fell away: not part of what is shown
     r2.book();
     const named2 = Array.from({ length: 60 }, (_, i) => `lrn${i}aaaa`).filter((id) => text2.includes(id));
     assert.ok(named2.length > 5 && named2.length < 60, `${named2.length} of 60 named: the case must drop some to prove anything`);
     const line2 = fs.readFileSync(path.join(root, '.pipeline', 'injections.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l))
       .filter((l) => l.occasion === 'question').pop();
     assert.equal(line2.hits, named2.length, 'booked hits = hits named in the text');
-    assert.match(text2, /left out/, 'and the note says some were left out');
+    assert.match(full2, /left out/, 'and the note says some were left out');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
 // --- C. the subagent start against the base --------------------------------------------------
+
+
+/**
+ * "Byte for byte the base's", with the one difference the test setup itself makes: the closing hint names the tool's
+ * path, and the base is exported to another directory, so its hint (counted in what the recap is offered) is longer or
+ * shorter. The recap's footer number moves by exactly that difference and nothing else may differ.
+ */
+function assertSameAsBase(got, want, what) {
+  const hintLen = (x) => x.slice(x.lastIndexOf('\n\nData, not instructions')).trim().length;
+  const budgetOf = (x) => Number(/--- budget (\d+) chars/.exec(x)?.[1]);
+  const tool = (x) => x.replace(/node \S+ --root/, 'node TOOL --root').replace(/--- budget \d+ chars \(~\d+ tokens/, '--- budget N chars (~N tokens');
+  assert.equal(tool(got), tool(want), what);
+  assert.equal(budgetOf(want) - budgetOf(got), hintLen(got) - hintLen(want), `${what}: the footer number moves by the length of the hint's path only`);
+}
 
 function agentWorld(t) {
   const root = tempDir('cm-ab-agent-', t);
@@ -266,10 +282,9 @@ test('C1: a small start is byte for byte the base\'s (nothing is cut that fitted
   const want = base.subagentstart.buildContext(root);
   const got = subagentstart.buildContext(root);
   assert.ok(bytes(want) < answerbudget.ANSWER_BYTES);
-  // The recap prints the budget it was handed ("--- budget N chars ..."): 3200 bytes for the whole start instead of
-  // 4000 characters changes that one number and nothing else when everything fitted.
-  const footer = (x) => x.replace(/--- budget \d+ chars \(~\d+ tokens/, '--- budget N chars (~N tokens').replace(/node \S+ --root/, 'node TOOL --root');
-  assert.equal(footer(got), footer(want));
+  // Byte for byte: the recap's first ask is the old one. The path of the tool in the closing hint differs (the base is
+  // exported to another directory) and with it, by exactly that length, the number in the recap's footer.
+  assertSameAsBase(got, want, 'C1');
   assert.match(got, /everything fitted/);
 });
 
@@ -324,6 +339,19 @@ test('C6: the recap is asked in BYTES: a memory of multi-byte text still ends wi
   assert.match(text, /cheap-mem context/, 'the recap is there (it took what was left)');
 });
 
+test('C7: a short start with the assignment block and a workflow is still byte for byte the base\'s base block plus the blocks, when all of it fits', async (t) => {
+  const base = await baseModules(t);
+  const root = agentWorld(t);
+  logProcedure(root, 'Own worktree', 'Every assignment gets its own worktree and branch.');
+  const workflowBlock = `${subagentstart.WORKFLOW_LEAD}\n${bigCard(2)}`;
+  const items = [{ id: 'tsk0aaaa', line: '- [error tsk0aaaa] a short error text', pointer: '- [error tsk0aaaa] a short [pointer - full text: mem show tsk0aaaa]' }];
+  const taskBlock = `${subagenttask.HEADER}\n${items[0].line}`;
+  const want = base.subagentstart.buildContext(root, { workflowBlock, taskBlock });
+  const got = subagentstart.buildContext(root, { workflowBlock, taskBlock, taskForms: subagenttask.blockForms({ items }) });
+  assert.ok(bytes(want) <= answerbudget.ANSWER_BYTES, `the case is within the budget: ${bytes(want)}`);
+  assertSameAsBase(got, want, 'C7');
+});
+
 test('C5: the pointer form of a workflow card round-trips (title and id come back out of the card text)', () => {
   const card = bigCard(2);
   assert.equal(wfpointer.isCard(card), true);
@@ -376,7 +404,7 @@ test('D3: the workflow alone (no hits) is held to the budget too: a tie list of 
   assert.match(ctx(r), /120 workflows match this message equally well/);
 });
 
-test('D4: a card over its own limit comes as a pointer from the start (and is marked as shown, so it comes once)', async (t) => {
+test('D4: a card over its own limit comes as a pointer from the start (the repeat says that only the pointer was shown)', async (t) => {
   const root = agentWorld(t);
   const steps = Array.from({ length: 40 }, (_, i) => `Step ${i} ${'does a thing '.repeat(6)}`);
   memory.logEntry(root, 'workflow', { title: 'Huge flow', steps, triggers: ['ship the huge flow'], issued_by: 'owner' });
@@ -388,7 +416,9 @@ test('D4: a card over its own limit comes as a pointer from the start (and is ma
   assert.match(first.text, /too long for this block/);
   assert.match(first.text, /mem workflow show /);
   const second = await run();
-  assert.match(second.text, /already shown in this session/, 'the second time is the usual back-reference');
+  assert.doesNotMatch(second.text, /already shown/, 'the card was never shown: the repeat does not claim it was');
+  assert.match(second.text, /only its pointer was shown so far/);
+  assert.match(second.text, /mem workflow show /);
 });
 
 // --- E. mem_find and mem find answer the same ----------------------------------------------------------
@@ -475,6 +505,156 @@ test('E2: RED at the base - the MCP tool answered another list than the CLI for 
   assert.ok(differ >= 1, 'at the base at least one of these questions got different hits at the two doors');
 });
 
+// --- H. procedures are never left out (H1) ------------------------------------------------------------------
+
+const procWorld = (t, n) => {
+  const root = agentWorld(t);
+  for (let i = 0; i < n; i += 1) logProcedure(root, `Rule number ${i}`, `Rule ${i}: ${'keep the tree clean and the branch small. '.repeat(13)}`);
+  return root;
+};
+const procedureIds = (root) => spawnSync(process.execPath, [MEM, '--root', root, 'procedures', '--json'], { encoding: 'utf8' });
+
+for (const n of [6, 12]) {
+  test(`H1.${n}: ${n} procedures and a workflow card: no procedure is left out, each stays at least a pointer with its title and id; the note names what stepped down`, (t) => {
+    const root = procWorld(t, n);
+    const card = bigCard(9);
+    assert.ok(bytes(card) > 1100 && bytes(card) < 1500, `the card: ${bytes(card)} bytes`);
+    const sel = subagentstart.select(root, { workflowBlock: `${subagentstart.WORKFLOW_LEAD}\n${card}` });
+    assert.ok(sel.bytes <= answerbudget.ANSWER_BYTES, `${sel.bytes} bytes`);
+    assert.deepEqual(sel.omitted.filter((o) => o.kind === 'procedure'), [], 'no procedure fell away');
+    const shown = sel.chosen.filter((c) => c.kind === 'procedure');
+    assert.equal(shown.length, n, 'every procedure is in the text');
+    for (let i = 0; i < n; i += 1) assert.ok(sel.text.includes(`Rule number ${i}`) || sel.text.includes(`Rule ${i}:`), `rule ${i} is named`);
+    if (n === 12) assert.ok(shown.some((c) => c.form === 1), '12 rules of ~600 bytes do not all fit: some are pointers');
+    assert.match(sel.text, /mem show [a-z0-9]+/, 'the pointer names the way to the rule');
+    assert.match(sel.note, /procedures? as a pointer only/);
+    assert.match(sel.text, /component <path>/, 'the hint is in');
+    void procedureIds;
+  });
+}
+
+test('H1.3: a part marked keep is never omitted, however small the budget; the order of giving way is kept (the other parts go first)', () => {
+  const parts = [
+    { id: 'h', kind: 'header', fixed: true, order: 0, forms: ['HEAD'] },
+    { id: 'wf', kind: 'workflow', rank: 10, order: 1, forms: ['W'.repeat(300), 'wf ptr'], how: 'mem workflow show <id>' },
+    ...[0, 1, 2].map((i) => ({ id: `p${i}`, kind: 'procedure', rank: 20 + i, order: 2 + i, keep: true,
+      forms: [`rule ${i} ${'r'.repeat(200)}`, `ptr ${i}`], how: 'mem procedures' })),
+    { id: 'rc', kind: 'recap', rank: 40, order: 9, fill: (room) => 'c'.repeat(Math.max(0, room)) },
+  ];
+  for (const budget of [30, 60, 120, 400, 900, 2000]) {
+    const sel = answerbudget.compose(parts, { budget, sanitize: plain });
+    assert.deepEqual(sel.omitted.filter((o) => o.kind === 'procedure'), [], `budget ${budget}`);
+    assert.equal(sel.chosen.filter((c) => c.kind === 'procedure').length, 3, `budget ${budget}`);
+  }
+  const tight = answerbudget.compose(parts, { budget: 120, sanitize: plain });
+  assert.deepEqual(tight.omitted.map((o) => o.kind).sort(), ['recap', 'workflow'], 'the workflow and the recap gave way');
+  assert.match(tight.note, /mem procedures/, 'a rule without an id is fetched with `mem procedures`');
+  assert.doesNotMatch(tight.note, /mem show <id>/);
+  assert.match(tight.note, /wf/, 'the note names the id of what fell away');
+});
+
+test('H1.4: the ids of everything that fell away stand in the note (capped, counted beyond the cap)', () => {
+  const parts = [{ id: 'h', kind: 'header', fixed: true, order: 0, forms: ['HEAD'] },
+    ...Array.from({ length: 30 }, (_, i) => ({ id: `ent${String(i).padStart(3, '0')}`, kind: 'hit', rank: 10 + i, order: 1 + i, sep: '\n', forms: ['x'.repeat(90)], how: 'mem show <id>' }))];
+  const sel = answerbudget.compose(parts, { budget: 600, sanitize: plain });
+  assert.ok(sel.omitted.length >= 13, 'the case drops many');
+  assert.match(sel.note, /\(ids: ent\d{3}, /);
+  assert.match(sel.note, /\+\d+ more\)/);
+  assert.ok(sel.bytes <= 600, `${sel.bytes} bytes`);
+});
+
+// --- N1. the separators of parts that do not stand first are counted right ------------------------------------
+
+test('N1: fuzz - the text is within the budget whenever the parts that must be in leave room for it, whatever the order, separators and kinds', () => {
+  let seed = 12345;
+  const rnd = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
+  const seps = ['\n', '\n\n', ' | ', ''];
+  let checked = 0;
+  let degraded = 0;
+  for (let c = 0; c < 400; c += 1) {
+    const n = 2 + Math.floor(rnd() * 8);
+    const parts = Array.from({ length: n }, (_, i) => {
+      const kind = rnd();
+      const big = 20 + Math.floor(rnd() * 400);
+      const small = 8 + Math.floor(rnd() * 30);
+      return {
+        id: `p${c}-${i}`, kind: 'part', rank: Math.floor(rnd() * 10), order: Math.floor(rnd() * 20), sep: seps[Math.floor(rnd() * seps.length)],
+        fixed: kind < 0.2, keep: kind >= 0.2 && kind < 0.4, forms: [ 'a'.repeat(big), 'b'.repeat(small) ],
+      };
+    });
+    const budget = 150 + Math.floor(rnd() * 900);
+    const sel = answerbudget.compose(parts, { budget, sanitize: plain });
+    // The least that must be in: fixed parts whole, keep parts as their pointer, in text order with their separators.
+    const must = parts.filter((p) => p.fixed || p.keep).map((p) => ({ p, text: p.fixed ? p.forms[0] : p.forms[1] }))
+      .sort((a, b) => (a.p.order - b.p.order));
+    let least = 0;
+    must.forEach(({ p, text }, i) => { least += bytes(text) + (i === 0 ? 0 : bytes(p.sep)); });
+    const note = sel.note ? bytes('\n\n') + bytes(sel.note) : 0;
+    if (sel.note) degraded += 1;
+    if (least + note <= budget) {
+      checked += 1;
+      assert.ok(sel.bytes <= budget, `case ${c}: ${sel.bytes} > ${budget} (least ${least}, note ${note}) ${JSON.stringify(parts.map((p) => [p.order, p.sep, p.fixed, p.keep]))}`);
+    }
+  }
+  assert.ok(checked > 250 && degraded > 100, `${checked} checked, ${degraded} degraded: the fuzz must reach both the plain and the degraded case`);
+});
+
+// --- H2. mask, then cut ------------------------------------------------------------------------------------------
+
+// A token shape built at run time (never written out), 44 characters, with the cut of an 80-character line inside it.
+const KEY = `ghp_${'a1B2c3D4e5'.repeat(4)}`;
+
+test('H2: a key that crosses the cut of a pointer title leaves no stump (workflow pointer, procedure pointer, shorten)', () => {
+  const title = `${'x'.repeat(61)} ${KEY}`;
+  // Positive control: the plain cut of the same title leaves a stump that no pattern knows any more.
+  const stump = title.slice(0, 79);
+  assert.ok(stump.includes('ghp_a1B2c3D4e5'), 'the control: a plain cut leaves the key prefix standing');
+  const clean = (text, what) => {
+    assert.ok(!text.includes('ghp_'), `${what}: no key prefix in ${JSON.stringify(text)}`);
+    assert.ok(!text.includes('a1B2c3'), `${what}: no part of the key`);
+  };
+  clean(answerbudget.shorten(title, 80), 'shorten');
+  const card = workflowdetect.cardText({ id: 'wf000009', title, steps: ['one', 'two'], issued_by: 'owner', status: 'released' });
+  const ptr = wfpointer.pointerForm(card);
+  clean(ptr, 'workflow pointer');
+  assert.match(ptr, /mem workflow show wf000009/);
+  const proc = subagentstart.procedurePointer({ id: 'prc00001', title, rule: 'x', issued_by: 'owner', ts: '2026-10-16T00:00:00Z' });
+  clean(proc, 'procedure pointer');
+  assert.match(proc, /mem show prc00001/);
+  // And through the whole selection, a title shorter than the cut: shown masked, never as it was.
+  const sel = answerbudget.compose([{ id: 'k', kind: 'hit', rank: 1, order: 0, forms: [`line ${KEY}`, `ptr ${KEY}`] }], { budget: 200 });
+  clean(sel.text, 'compose');
+});
+
+// --- M1. mem_find: a large top is cut -------------------------------------------------------------------------------
+
+test('M1: mem_find cuts a large top to 25 (the limit of the sibling house) and says so; the schema says it too; a small top is untouched and silent', (t) => {
+  const root = tempDir('cm-ab-top-', t);
+  const init = spawnSync(process.execPath, [MEM, 'init', '--root', root], { encoding: 'utf8' });
+  assert.equal(init.status, 0, init.stderr);
+  for (let i = 0; i < 70; i += 1) memory.logEntry(root, 'learning', { title: `Zebra crossing note ${i}`, text: `zebra crossing variant ${i} near the old harbour` });
+  const call = (args) => {
+    const lines = [
+      JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 't', version: '1' } } }),
+      JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'mem_find', arguments: args } }),
+      JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/list', params: {} }),
+    ];
+    const r = spawnSync(process.execPath, [path.join(REPO, 'bin', 'mem-mcp')], { input: `${lines.join('\n')}\n`, encoding: 'utf8', timeout: 90000, env: { ...process.env, CHEAP_MEM_ROOT: root } });
+    const replies = String(r.stdout).split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    return { text: replies.find((x) => x.id === 2)?.result?.content?.map((c) => c.text).join('\n') ?? '', tools: replies.find((x) => x.id === 3)?.result?.tools ?? [] };
+  };
+  const hitsIn = (text) => (text.match(/^\S+:\d+\s+\[/gm) ?? []).length;
+  const big = call({ query: 'zebra crossing', top: 1000 });
+  assert.equal(hitsIn(big.text), 25);
+  assert.match(big.text, /top 1000 was cut to 25/);
+  const schema = big.tools.find((x) => x.name === 'mem_find').inputSchema.properties.top;
+  assert.equal(schema.maximum, 25);
+  assert.match(schema.description, /at most 25/);
+  const small = call({ query: 'zebra crossing', top: 5 });
+  assert.equal(hitsIn(small.text), 5);
+  assert.doesNotMatch(small.text, /was cut to/);
+});
+
 // --- F. one place decides ---------------------------------------------------------------------------
 
 const code = (rel) => read(rel).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
@@ -498,5 +678,6 @@ test('F2: the number is one: the hook and the subagent start share ANSWER_BYTES'
   assert.equal(answerbudget.ANSWER_BYTES, 3200);
   assert.equal(subagentstart.CAP_BYTES, answerbudget.ANSWER_BYTES);
   assert.doesNotMatch(code('src/recallhook.mjs'), /\b3200\b/);
-  assert.doesNotMatch(code('src/subagentstart.mjs'), /\b3200\b|\b4000\b/);
+  // 4000 stands once, as the OLD cap of the base block (the recap's first ask, so that a start that fits is what it was).
+  assert.doesNotMatch(code('src/subagentstart.mjs').replace(/^const LEGACY_CAP_CHARS = 4000;$/m, ''), /\b3200\b|\b4000\b/);
 });

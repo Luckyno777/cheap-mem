@@ -76,16 +76,23 @@ function hint(root) {
     + 'A new project only via `mem project new <name> --title ... --reason ...`, never a folder by hand.';
 }
 
-/** The pointer form of a procedure: its marking, its title, and where the rule stands. */
-function procedurePointer(e) {
-  const title = String(e.title ?? '').replace(/\s+/g, ' ').trim();
-  const short = title.length > 80 ? `${title.slice(0, 79)}…` : title;
+/**
+ * The pointer form of a procedure: its marking, its title (masked, then cut: `answerbudget.shorten`), and where the
+ * rule stands. A procedure is never left out of the start (a human's rule is not silently missing), so this is the
+ * least it can be; without an id the way to the rule is `mem procedures`.
+ */
+export function procedurePointer(e) {
+  const short = answerbudget.shorten(e.title, 80);
   return `${procedure.mark(e)}${short ? `\n${short}` : ''}\n  [pointer - the rule did not fit this block: ${e.id ? `mem show ${e.id}` : 'mem procedures'}]`;
 }
 
-/** The recap for `room` BYTES: `memory.context` budgets in characters, so a multi-byte text is asked again smaller. */
-function recapFor(root, n, room) {
-  let chars = Math.floor(room);
+/**
+ * The recap for `room` BYTES. `memory.context` budgets in characters, so a multi-byte text is asked again smaller. The
+ * first ask is the old one (`legacyChars`: what the cap of 4,000 characters left after the other parts), so that a start
+ * that fits the budget is byte for byte what it was; only when that does not fit the room is it asked smaller.
+ */
+function recapFor(root, n, room, legacyChars) {
+  let chars = Math.floor(legacyChars);
   for (let i = 0; i < 4 && chars >= memory.MIN_CONTEXT_CHARS; i += 1) {
     let recap = '';
     try { recap = memory.context(root, { n, maxChars: chars }); } catch { return ''; }
@@ -95,6 +102,9 @@ function recapFor(root, n, room) {
   }
   return '';
 }
+
+/** The old cap of the base block (recap and procedures), in characters; the recap's first ask is measured against it. */
+const LEGACY_CAP_CHARS = 4000;
 
 /**
  * The final selection for this start: `answerbudget.compose` over the parts. Never throws outward — the pieces
@@ -115,7 +125,7 @@ export function select(root, { n = 10, workflowBlock = null, taskBlock = null, t
   }
   if (hits.length) {
     hits.forEach((e, i) => parts.push({ id: e.id ?? null, kind: 'procedure', rank: 20 + i, order: 1 + i,
-      forms: [procedure.display(e), procedurePointer(e)], how: 'mem show <id>', ref: 'procedure' }));
+      forms: [procedure.display(e), procedurePointer(e)], keep: true, how: e.id ? 'mem show <id>' : 'mem procedures', ref: 'procedure' }));
   } else {
     // Silence would look the same as "nobody has anything to add" and "the tag was never armed": a stated fact, always in.
     parts.push({ id: 'no-procedure', kind: 'statement', fixed: true, order: 1,
@@ -130,8 +140,12 @@ export function select(root, { n = 10, workflowBlock = null, taskBlock = null, t
     parts.push({ id: 'assignment', kind: 'assignment block', rank: 30, order: 200, forms: [String(taskBlock).trim()],
       how: 'mem find "<assignment words>"', ref: 'assignment' });
   }
-  parts.push({ id: 'recap', kind: 'recap', rank: 40, order: 100, fill: (room) => recapFor(root, n, room), how: 'mem context', ref: 'recap' });
-  parts.push({ id: 'hint', kind: 'hint', fixed: true, order: 1000, forms: [hint(root)] });
+  const hintLine = hint(root);
+  const procedureChars = hits.length ? hits.map((e) => procedure.display(e)).join('\n\n').length
+    : parts.find((p) => p.id === 'no-procedure').forms[0].length;
+  const legacyChars = LEGACY_CAP_CHARS - ((wf ? wf.length + 2 : 0) + procedureChars + hintLine.length + 4);
+  parts.push({ id: 'recap', kind: 'recap', rank: 40, order: 100, fill: (room) => recapFor(root, n, room, legacyChars), how: 'mem context', ref: 'recap' });
+  parts.push({ id: 'hint', kind: 'hint', fixed: true, order: 1000, forms: [hintLine] });
   return answerbudget.compose(parts, { budget: CAP_BYTES, sanitize: maskText });
 }
 

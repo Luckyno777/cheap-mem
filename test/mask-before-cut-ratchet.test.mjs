@@ -66,6 +66,9 @@ export const WATCHED = Object.freeze([
   // the card work (H11) and the card rule: new text surfaces
   'src/cardrule.mjs', 'src/cardrules.mjs', 'src/cardstore.mjs', 'src/cardfeed.mjs', 'src/decisioncard.mjs', 'src/addressee.mjs',
   'src/humandecisions.mjs',
+  // the answer budget (abruf-budget): pointer lines cut titles, so every cut there is masked first
+  'src/answerbudget.mjs', 'src/workflowpointer.mjs', 'src/subagentstart.mjs', 'src/subagenttask.mjs', 'src/findcore.mjs',
+  'src/workflowdetect.mjs', 'src/recallrender.mjs', 'src/recallhook.mjs',
 ]);
 
 export { unguardedCuts };

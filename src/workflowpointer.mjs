@@ -12,6 +12,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { shorten } from './answerbudget.mjs';
 
 const SHOW_ID = /mem workflow show ([A-Za-z0-9_.-]+) loads it again\)\s*$/;
 
@@ -43,8 +44,8 @@ export function pointerForm(text) {
   if (tie) return `${tie[1]} workflows match this message equally well; titles: mem workflow list`;
   const m = SHOW_ID.exec(t);
   if (!m) return null;
-  const title = (t.split('\n')[1] ?? '').replace(/\s+/g, ' ').trim();
-  const short = title.length > 80 ? `${title.slice(0, 79)}…` : title;
+  // Mask first, then cut (answerbudget.shorten): a key that crosses the cut must not leave a stump.
+  const short = shorten(t.split('\n')[1] ?? '', 80);
   return `Workflow${short ? ` '${short}'` : ''} (${m[1]}) matches; its card did not fit this block. Full card: mem workflow show ${m[1]}`;
 }
 
