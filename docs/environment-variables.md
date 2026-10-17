@@ -89,6 +89,7 @@ A variable that is not in the table is not a switch: there is none.
 | `MEM_CAPTURE_MIN` | 4096 | Smallest transcript, in bytes, the capture hook keeps (Windows hook). |
 | `MEM_CATCH_FAIL_MIN` | 2.0 | Score a hit needs before the swallowed-failure hook shows it. |
 | `MEM_CATCH_FAIL_TOP` | 3 | How many hits the swallowed-failure hook shows at most. |
+| `MEM_CATCH_FAIL_TRACE` | off | With `1` the swallowed-failure hook (Windows twin) says on stderr where it exited: lengths and exit codes, never content. |
 | `MEM_CORRECTION_RARE_DF` | 3 | Document frequency at or below which a word counts as rare in the correction warning. |
 | `MEM_DIGEST_AGE_RESERVE_PCT` | 25 | Share of a digest batch reserved for the oldest captures. |
 | `MEM_DIGEST_AGE_WITHOUT_BELL_H` | not set (the due check's own default, 24 hours) | AU4: without a bell, hours the OLDEST open capture may wait before a digest is due (besides the 500 KB volume rule). |
@@ -120,6 +121,7 @@ A variable that is not in the table is not a switch: there is none.
 | `MEM_RULE_DRAFT_TIMEOUT` | 120 | AU6: seconds the weekly rule-draft step of the digest tick may take. |
 | `MEM_SKILLUSAGE_DAYS` | 30 | Days of capture coverage `mem skills usage` needs before it gives a verdict. |
 | `MEM_SKILLUSAGE_TIME_MS` | 8000 | Time cap, in milliseconds, for reading the captures. |
+| `MEM_SUBAGENT_START_TRACE` | off | With `1` the sub-agent start hook (Windows twin) says on stderr where it exited: lengths and exit codes, never content. |
 | `MEM_SUBAGENT_TASK_SECONDS` | 2 seconds | Time budget of the sub-agent start block for the assignment; past it the base block comes with one sentence saying the lookup did not finish (the POSIX hook runs a first, tighter pass and falls back). |
 | `MEM_TODAY_SECONDS` | 5 | Session-start hook: seconds `mem today --line` may take. |
 | `MEM_WATCH_BROKEN_WAIT` | 60 | Seconds the watcher waits after a failed poll. |

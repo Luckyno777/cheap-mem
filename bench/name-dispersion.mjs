@@ -37,7 +37,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { pathToFileURL } from 'node:url';
+import { isMain } from '../src/ismain.mjs';
 const argv = process.argv.slice(2);
 const flag = (n, d = null) => { const i = argv.indexOf(`--${n}`); return i >= 0 ? argv[i + 1] : d; };
 
@@ -132,7 +132,7 @@ export function dispersion({ counter }) {
 
 // --- as a command ------------------------------------------------------
 
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+if (isMain(import.meta.url)) {
   const ROOT = path.resolve(flag('root') ?? process.env.CHEAP_MEM_ROOT ?? process.cwd());
   const FIELD = flag('field') ?? 'tags';
   const v = values(ROOT, FIELD);

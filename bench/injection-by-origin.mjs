@@ -19,6 +19,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { read } from '../src/injection.mjs';
 import { originNormal } from '../src/origin.mjs';
+import { isMain } from '../src/ismain.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -84,7 +85,7 @@ function parseArgs(argv) {
   return a;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   const A = parseArgs(process.argv.slice(2));
   const { lines, broken, present } = read(path.resolve(typeof A.root === 'string' ? A.root : REPO));
   if (!present) { console.error('no injection journal found (unknown, not zero)'); process.exitCode = 2; }

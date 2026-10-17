@@ -1,6 +1,6 @@
 {
-  "about": "The atlas phase ids of the sister house (lucky-mem), as a fixed list, and every deliberate difference between the two atlases. test/atlas-phase-parity.test.mjs compares bench/atlas.mjs against it. Update it in the same commit that adds, renames or removes a phase in either house; a difference that is not listed here, with a reason, turns the test red.",
-  "recordedOn": "2026-10-11",
+  "about": "The atlas phase ids of the sister house (lucky-mem), as a fixed list, and every deliberate difference between the two atlases. test/atlas-phase-parity.test.mjs compares bench/atlas.mjs against it. Update it in the same commit that adds, renames or removes a phase in either house; a difference that is not listed here, with a reason, turns the test red. `luckyMemPhases` is the list the sister house is building toward (ids English and equal in both houses); `luckyMemPending` names the ids of it that are not yet on the sister house's main branch, with the branch that carries them. `cmStubs` are phases this house names but has not built.",
+  "recordedOn": "2026-10-17",
   "luckyMemPhases": [
     "surface",
     "load",
@@ -11,34 +11,30 @@
     "real",
     "guard",
     "skala",
-    "kennungen",
-    "bruecke",
-    "stille-fehler",
+    "identifiers",
+    "bridge",
+    "silent-errors",
+    "dashboard",
+    "cost",
+    "digest",
+    "net-tempo",
     "wiederherstellung",
     "lesekreis",
     "weiche",
-    "netz-tempo",
     "partition",
     "nutzung"
   ],
   "luckyMemPending": {
-    "skala": "being built in the sibling house on branch agent/atlas-skala-lm; the id is the one this house uses",
-    "kennungen": "being built in the sibling house on branch agent/atlas-skala-lm; this house calls it identifiers",
-    "bruecke": "being built in the sibling house (T3 part 2); this house calls it bridge",
-    "stille-fehler": "being built in the sibling house (T3 part 2); this house calls it silent-errors",
-    "wiederherstellung": "planned in the sibling house (T3); see lmOnly",
-    "lesekreis": "planned in the sibling house (T3); see lmOnly",
-    "weiche": "planned in the sibling house (T3); see lmOnly",
-    "netz-tempo": "planned in the sibling house after the merge of agent/netz-tempo-lm; see lmOnly",
-    "partition": "planned in the sibling house (T3); see lmOnly",
-    "nutzung": "planned in the sibling house (T3); see lmOnly"
+    "identifiers": "branch agent/atlas-rahmen-lm, not pushed yet (as of 2026-10-17); names confirmed by the sister house; it renames kennungen to this id before its first baseline",
+    "bridge": "branch agent/atlas-rahmen-lm, not pushed yet (as of 2026-10-17); names confirmed by the sister house; it renames bruecke to this id before its first baseline",
+    "silent-errors": "branch agent/atlas-rahmen-lm, not pushed yet (as of 2026-10-17); names confirmed by the sister house; it renames stille-fehler to this id before its first baseline",
+    "dashboard": "branch agent/atlas-rahmen-lm, not pushed yet (as of 2026-10-17); names confirmed by the sister house; a new phase, the id is English and equal in both houses",
+    "cost": "branch agent/atlas-rahmen-lm, not pushed yet (as of 2026-10-17); names confirmed by the sister house; a new phase, the id is English and equal in both houses",
+    "digest": "branch agent/atlas-rahmen-lm, not pushed yet (as of 2026-10-17); names confirmed by the sister house; a new phase, the id is English and equal in both houses",
+    "net-tempo": "branch agent/atlas-rahmen-lm, not pushed yet (as of 2026-10-17); names confirmed by the sister house; it renames netz-tempo to this id (confirmed by the sister house)"
   },
-  "idMap": {
-    "identifiers": "kennungen",
-    "bridge": "bruecke",
-    "silent-errors": "stille-fehler"
-  },
-  "idMapReason": "Three phases have one name per house because the houses speak different languages (this one ships English only): identifiers/kennungen, bridge/bruecke, silent-errors/stille-fehler. The scale phase has the same id in both houses, `skala`: it is a name, not prose, and the English ratchet allows it (checked 2026-10-11).",
+  "idMap": {},
+  "idMapReason": "Empty on purpose: from 2026-10-17 a phase has one id in both houses, and new ids are English in both. The three that had two names (identifiers, bridge, silent-errors) are being renamed in the sister house to the ids used here. `skala` is a name, not prose, and the English ratchet allows it.",
   "cmOnly": [
     {
       "id": "register",
@@ -63,10 +59,6 @@
       "reason": "No counterpart in cm. The sister house walks the states of its own `beendet` switch (true, false, missing, broken). This house has no field or switch of that name (searched src/ and bin/ on 2026-10-11); its three-state rule for reads is asked by silent-errors."
     },
     {
-      "id": "netz-tempo",
-      "reason": "No counterpart in cm yet. The sister house counts contexts, programs and model calls of its network-speed branch (agent/netz-tempo-lm), which exists only there; there is nothing in this house to count until a counterpart is built."
-    },
-    {
       "id": "partition",
       "reason": "Not built in cm. The sister house deletes an occupied index partition and expects a throw (its R1). This house's index cache is built in shards (src/indexcache.mjs); a probe that deletes an occupied shard is not part of the robust phase yet, so the question is open, not answered."
     },
@@ -75,5 +67,23 @@
       "reason": "Not built in cm. The sister house counts the journal lines one recall reads and checks that the incremental fold equals the full one (its R5). No phase here counts journal reads per recall; the skala phase counts reads of the entry logs and the index only."
     }
   ],
-  "newInLm": []
+  "newInLm": [],
+  "cmStubs": [
+    {
+      "id": "dashboard",
+      "reason": "The id is agreed with the sister house; this house has not built the phase. It reports `not-measured` and a named blind spot, never `pass` (bench/atlas/stub.mjs)."
+    },
+    {
+      "id": "cost",
+      "reason": "The id is agreed with the sister house; this house has not built the phase. It reports `not-measured` and a named blind spot, never `pass` (bench/atlas/stub.mjs)."
+    },
+    {
+      "id": "digest",
+      "reason": "The id is agreed with the sister house; this house has not built the phase. It reports `not-measured` and a named blind spot, never `pass` (bench/atlas/stub.mjs)."
+    },
+    {
+      "id": "net-tempo",
+      "reason": "The id is agreed with the sister house; this house has not built the phase. It reports `not-measured` and a named blind spot, never `pass` (bench/atlas/stub.mjs)."
+    }
+  ]
 }

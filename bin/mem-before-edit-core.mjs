@@ -21,16 +21,18 @@
 // than none. No process.exit(): the journal line must be written out.
 
 import { run } from '../src/beforeedit.mjs';
-import { readHookStdinSync } from '../src/hookstdin.mjs';
+import { readHookStdinRawSync } from '../src/hookstdin.mjs';
 
 const root = process.env.CHEAP_MEM_ROOT || '';
-// Without a byte order mark in front: Windows PowerShell 5.1 put one on the pipe (src/hookstdin.mjs, CI run 1141).
-const input = readHookStdinSync();
+// Windows PowerShell 5.1 put a byte order mark on the pipe (src/hookstdin.mjs, CI run 1141). `run` takes it off; the
+// size and the mark are read here, from the bytes as they came, so the diagnosis can still say "bom=yes".
+const { text: input, shape } = readHookStdinRawSync();
 
 if (root) {
   const top = process.env.MEM_BEFORE_EDIT_TOP;
   const { stdout } = await run({
     input,
+    shape,
     root,
     marks: process.env.MEM_BEFORE_EDIT_MARKS || undefined,
     startMs: Number(process.env.MEM_BE_START_MS),

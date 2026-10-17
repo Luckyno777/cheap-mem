@@ -15,6 +15,7 @@
 //                at most mmrPoolFor(top). The corpus is checked to make
 //                that a real difference, and a code guard pins the slice.
 //                RED on 9041b39: the guard fails (no slice before MMR).
+//                (2026-10-17: the slice moved into mmrSelect; the guard follows it.)
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -72,5 +73,7 @@ test('capped MMR returns the same answer as the uncapped code, and its pool is s
 
 test('search() hands mmrRerank the capped pool (code guard)', () => {
   const code = fs.readFileSync(path.join(ROOT, 'src', 'search.mjs'), 'utf8');
-  assert.match(code, /^\s+\? mmrRerank\(kept\.slice\(0, mmrPoolFor\(top, true\)\),/m);
+  // Since 2026-10-17 the slice lives in mmrSelect (hard ceiling MMR_POOL_MAX, test/mmr-pool-max.test.mjs).
+  assert.match(code, /^\s+\? mmrSelect\(kept, top,/m);
+  assert.match(code, /mmrRerank\(list\.slice\(0, pool\),/);
 });
