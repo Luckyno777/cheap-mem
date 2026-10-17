@@ -85,6 +85,19 @@ for own_lib in "$SS_HERE/cheap-mem-own-tool.sh" "$SS_HERE/../../bin/_owntool.sh"
   [ -f "$own_lib" ] && { . "$own_lib"; break; }
 done
 unset own_lib
+# The library is what cleans CHEAP_MEM_CODE (mem_code_clean, called inside mem_pick_tool). A hook installed
+# WITHOUT cheap-mem-own-tool.sh next to it never calls it, and the raw value - a line break in it starts a line
+# of someone else's choosing - went into the session's context below (ps1-pfade-cm, 2026-10-17). Inline twin of
+# the rejection in bin/_owntool.sh `mem_code_clean`: same test, same words, same variable.
+if ! type mem_code_clean >/dev/null 2>&1 && [ -n "${CHEAP_MEM_CODE:-}" ]; then
+  case "$CHEAP_MEM_CODE" in
+    *[[:cntrl:]]*)
+      printf -v MEM_CODE_REJECTED '%q' "$CHEAP_MEM_CODE"
+      export MEM_CODE_REJECTED
+      unset CHEAP_MEM_CODE
+      printf 'cheap-mem: CHEAP_MEM_CODE rejected: it contains a control character (value: %s)\n' "$MEM_CODE_REJECTED" >&2 ;;
+  esac
+fi
 mem_picked=""; MEM_OWN_SKIPPED=0
 if type mem_pick_tool >/dev/null 2>&1; then
   mem_pick_tool "$CHEAP_MEM_ROOT" bin/mem "$SS_HERE"

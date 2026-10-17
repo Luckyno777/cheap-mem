@@ -263,7 +263,7 @@ on 2026-09-05 they cost far more than the tool itself:
 
 | you want | install | cost |
 |---|---|---|
-| the MCP server (`mem-mcp`) | `npm i -g "@modelcontextprotocol/sdk@^1.30.0"` | 28 MB, 91 packages |
+| the MCP server (`mem-mcp`) | `npm i -g "@modelcontextprotocol/sdk@^1.31.0"` | 28 MB, 91 packages |
 | semantic search (`mem embed`) | `npm i -g better-sqlite3 sqlite-vec` | 14 MB, 40 packages |
 
 Together those are 43 MB around a download of a couple of MB (the row at the top). They used to be installed
@@ -467,7 +467,7 @@ enforced fails the build rather than waiting for someone to audit it.
 
 | check | what a red run means |
 |---|---|
-| `bench/mutation.mjs` | one of 399 guarantees was broken on purpose and no test noticed |
+| `bench/mutation.mjs` | one of 405 guarantees was broken on purpose and no test noticed |
 | `bench/fuzz.mjs` | a crash, hang, unbounded growth, or a bypass |
 | `bench/composed.mjs` | seven attacks that are only dangerous in combination |
 | `bench/byzantine.mjs` | a flood of rule-abiding liars buried the genuine claim, or the conflict went unreported |

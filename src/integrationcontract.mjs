@@ -384,6 +384,21 @@ export function detectClients({ settingsPaths = [], matrix = MATRIX } = {}) {
   return { clients: found ? [CLIENT.CLAUDE_CODE] : [], readable, commands };
 }
 
+// U+0000..U+001F and DEL: the class the shims reject in CHEAP_MEM_CODE (bin/_owntool.sh, the PowerShell twins).
+// eslint-disable-next-line no-control-regex -- the control characters are exactly what this pattern matches
+const CONTROL_CHAR = /[\x00-\x1f\x7f]/g;
+const CONTROL_CHAR_ONE = new RegExp(CONTROL_CHAR.source);
+const hasControlChar = (v) => CONTROL_CHAR_ONE.test(String(v ?? ''));
+/** A value out of a file, safe to print: every control character as \n, \t or \xNN, so no line of its own making. */
+function printable(v) {
+  return String(v ?? '').replace(CONTROL_CHAR, (ch) => {
+    if (ch === '\n') return '\\n';
+    if (ch === '\r') return '\\r';
+    if (ch === '\t') return '\\t';
+    return `\\x${ch.charCodeAt(0).toString(16).padStart(2, '0')}`;
+  });
+}
+
 /**
  * Every shim the settings files register (`cheap-mem-<name>.sh|.ps1`), read as text: `script`, `text`, `isPs`, and
  * the memory root and code path baked into it (`undefined` when the shim does not say). The two checks below read it.
@@ -409,7 +424,8 @@ function installedShims(settingsPaths = []) {
           try { text = fs.readFileSync(native(script), 'utf8'); } catch { continue; }
           const sh = {
             root: /^export CHEAP_MEM_ROOT='(.*)'$/m.exec(text)?.[1],
-            code: /^export CHEAP_MEM_CODE='(.*)'$/m.exec(text)?.[1],
+            // [^'] takes a line break too: a value that spans lines is read (and then shown masked), not skipped.
+            code: /^export CHEAP_MEM_CODE='((?:[^']|'\\'')*)'$/m.exec(text)?.[1],
           };
           const ps = {
             root: /^\$hint = '((?:[^']|'')*)'$/m.exec(text)?.[1],
@@ -445,10 +461,15 @@ function silentHooks(settingsPaths = []) {
     // Only a shim that says where its code is can be judged; a hook
     // of another make, or an older shim, is not accused.
     if (code === undefined) continue;
+    // A code path with a control character is REJECTED by every shim (bin/_owntool.sh `mem_code_clean`): it is never
+    // a tool, whatever sits at that path. It is also never printed raw - it is file content, and this line is shown.
+    const rejected = hasControlChar(code);
     const has = (d) => d && fs.existsSync(path.join(d, 'bin', 'mem'));
     // The memory's own tool counts only when the user trusted it (src/owntool.mjs):
     // otherwise the shim passes it over, and a shim with nothing else is silent.
-    if (!has(code) && !(has(root) && ownTool.isTrusted(root))) out.push({ hook: path.basename(script), code });
+    if ((rejected || !has(code)) && !(has(root) && ownTool.isTrusted(root))) {
+      out.push({ hook: path.basename(script), code: printable(code), rejected });
+    }
   }
   return out;
 }
@@ -507,7 +528,7 @@ export function judge({ codeRoot = CODE_ROOT, settingsPaths = [], matrix = MATRI
     return {
       level: 'error',
       text: `${silent.length} registered hook(s) are SILENT, the code path baked into them has no tool: `
-        + silent.slice(0, 4).map((x) => `${x.hook} (CHEAP_MEM_CODE=${x.code})`).join('; ')
+        + silent.slice(0, 4).map((x) => `${x.hook} (CHEAP_MEM_CODE=${x.code}${x.rejected ? ', REJECTED: it holds a control character' : ''})`).join('; ')
         + (silent.length > 4 ? ` (+${silent.length - 4})` : ''),
       advice: 'The checkout the installer pointed at was moved or deleted, so recall does not run (a memory\'s own bin/ is not used '
         + 'unless you ran `mem trust-own-tool` for it). '
