@@ -100,6 +100,12 @@ if (-not $Module) { exit 0 }
 # (src/workflowdetect.mjs, as in bin/mem-subagent-start).
 $In = ''
 if ([Console]::IsInputRedirected) { $In = [Console]::In.ReadToEnd() }
+# stdin to node (CI run 1141, src/hookstdin.mjs says why): Windows PowerShell 5.1 opens a native command's stdin in
+# [Console]::InputEncoding and writes its preamble first - under code page 65001 a UTF-8 BOM before the hook JSON, and
+# the core's JSON.parse failed in silence. Same code page without a preamble; what PowerShell writes into the pipe as
+# UTF-8 without a BOM (or a non-ASCII path arrives as '?'). No console to set it on: the cores strip a BOM themselves.
+try { if ([Console]::InputEncoding.CodePage -eq 65001 -and [Console]::InputEncoding.GetPreamble().Length -gt 0) { [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false) } } catch { }
+$OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 
 # A native Windows path breaks `import()` (Node reads the drive letter
 # as a URL scheme) - the same trap mem-before-edit.ps1 already carries
