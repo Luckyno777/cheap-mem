@@ -198,6 +198,8 @@ function sliceViolations(ci) {
   if (JSON.stringify([...listed].sort((a, b) => a - b)) !== JSON.stringify(want)) out.push(`matrix ${JSON.stringify(listed)} is not 1..${n}`);
   if (/fail-fast:\s*true/.test(j) || !/fail-fast:\s*false/.test(j)) out.push('fail-fast is not false: one red slice would cancel the others');
   if (!/git status --porcelain/.test(j)) out.push('no "no mutant left behind" step');
+  // The job's name says the same n (CI run 1205 moved 4 to 6): a page that reads "slice 4/4" over a sweep of sixths misleads.
+  if (!j.includes(`name: guarantees · mutation slice \${{ matrix.shard }}/${n}\n`)) out.push(`the job name does not say /${n}`);
   return out;
 }
 
@@ -216,6 +218,7 @@ test('C sabotage: a missing slice, a wrong n, or fail-fast is caught', () => {
   assert.notDeepEqual(sliceViolations(ci.replace(j, j.replace('fail-fast: false', 'fail-fast: true'))), [], 'fail-fast');
   assert.notDeepEqual(sliceViolations(ci.replace(j, j.replace(/\n\s+- name: no mutant left behind[\s\S]*$/, '\n'))), [], 'no clean-tree step');
   assert.notDeepEqual(sliceViolations(ci.replace('\n  mutation:\n', '\n  mutation-gone:\n')), [], 'no job');
+  assert.notDeepEqual(sliceViolations(ci.replace(j, j.replace(/(mutation slice \$\{\{ matrix\.shard \}\}\/)(\d+)/, (_, a, n) => a + (Number(n) - 1)))), [], 'a stale n in the job name');
 });
 
 test('C `npm run verify` is the sweep plus exactly the script the guarantees job runs', () => {

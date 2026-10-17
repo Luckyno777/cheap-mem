@@ -478,8 +478,8 @@ enforced fails the build rather than waiting for someone to audit it.
 
 Each of these also refuses to pass for the wrong reason: mutation needs a
 green baseline and will not credit a mutant it could not apply or whose
-suites passed only by skipping (CI sweeps it in four parallel slices,
-`node bench/mutation.mjs --shard=i/4`), and every
+suites passed only by skipping (CI sweeps it in six parallel slices,
+`node bench/mutation.mjs --shard=i/6`), and every
 adversarial bench asserts that its own fixture is non-degenerate before it
 reports anything. That is not decoration — wiring this into CI found three
 defects in the measuring instruments themselves, described in

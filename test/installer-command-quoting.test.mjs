@@ -168,7 +168,21 @@ test('a second install makes no second entry, and replaces an entry in the old d
     const cfg = readSettings(w);
     const mine = commandsOf(cfg).filter((c) => c.includes('cheap-mem-user-prompt.sh'));
     assert.equal(mine.length, 1, `entries for the prompt hook: ${JSON.stringify(mine)}`);
-    assert.ok(!mine[0].includes('"'), `still the old double-quote form: ${mine[0]}`);
+    const old = seeded.hooks.UserPromptSubmit[0].hooks[0].command;
+    assert.notEqual(mine[0], old, `the seeded entry was kept as it was: ${mine[0]}`);
+    // The entry is the one THIS run wrote: two shell words, the second the installed script.
+    const words = shellWords(mine[0], w.cwd);
+    assert.equal(words.length, 2, `the shell splits ${mine[0]} into ${JSON.stringify(words)}`);
+    assert.ok(fs.existsSync(words[1]), `${words[1]} is not a file (command ${mine[0]})`);
+    if (WIN) {
+      // A Windows path keeps the double quotes for white space - that IS the current form there (see `q` in the
+      // installer), and the bash path itself has one (`C:\Program Files\Git\...`). The old entry is recognised by the
+      // script name, whatever spelling its path had (CI run 1205: 8.3 name and backslashes in the seed, the long
+      // `C:/...` form from this run), and replaced: one entry, not the seeded one.
+      assert.match(mine[0], /^("[^"]+"|[^"\s]+) "[^"]+\/cheap-mem-user-prompt\.sh"$/, `not the Windows form: ${mine[0]}`);
+    } else {
+      assert.ok(!mine[0].includes('"'), `still the old double-quote form: ${mine[0]}`);
+    }
     for (const file of ['session-start', 'session-stop', 'pre-edit', 'catch-fail', 'after-failure', 'subagent-start']) {
       const n = commandsOf(cfg).filter((c) => c.includes(`cheap-mem-${file}.sh`)).length;
       assert.equal(n, 1, `${file}: ${n} entries after two runs`);
