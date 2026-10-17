@@ -1429,7 +1429,8 @@ const MMR_TIE = 1e-12;
  * 200k entries 5624 ms; without MMR 43 ms / 620 ms. A hit below rank
  * 10 x top practically never wins an MMR round at lambda 0.7 (relevance is
  * normalised to the top score), so the pool changes cost, not the answer -
- * test/mmr-pool.test.mjs holds both halves.
+ * test/mmr-pool.test.mjs holds both halves. Since the cap of 600 below this
+ * holds only up to `--top 60`; above it the answer can differ (CHANGELOG).
  *
  * **The factor alone was not a bound (2026-10-17).** `mem find --top N`
  * asks the search for 3 x N, the pool was ten times that: 6000 entries,
