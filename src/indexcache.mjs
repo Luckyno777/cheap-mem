@@ -308,7 +308,7 @@ export function writeIndexCache(cacheDir, { version, language, files, fullAt, in
  * looked at (same name up to `.stale.`), and a failure to remove one is never an error. Removing a parked cache that a
  * live writer still wants is harmless as well: its put-back then fails and the next load rebuilds.
  */
-export const STALE_LEFTOVER_MS = 10 * 60 * 1000;
+const STALE_LEFTOVER_MS = 10 * 60 * 1000;
 
 /** Remove this cache's `.stale.*` siblings older than `STALE_LEFTOVER_MS`; returns how many went. Never throws. */
 export function sweepStaleLeftovers(cacheDir, { now = Date.now(), olderThanMs = STALE_LEFTOVER_MS } = {}) {

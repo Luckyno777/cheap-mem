@@ -2078,7 +2078,8 @@ export const MUTANTS=[
    tests:['test/index-bound-cm.test.mjs'] },
  { name:'ISC a cache of another build counts as the one just made',
    file:'src/search.mjs',
-   from:'if (res.fullAt !== fullAt) throw',
+   // Re-anchored 2026-10-17 (index-rest-cm): the check is `!(res.fullAt >= fullAt)` now (a later build is as good as ours).
+   from:'if (!(res.fullAt >= fullAt)) throw',
    to:'if (false) throw',
    tests:['test/index-bound-cm.test.mjs'] },
  { name:'ISC a failed rebuild leaves no failure note',
