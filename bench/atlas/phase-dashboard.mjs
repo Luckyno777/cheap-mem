@@ -212,7 +212,7 @@ export async function run(atlas, opt = {}) {
 
   const counted = [cold, twice, warmBase, rebuilt, desk1, desk2].every((s) => s.reads !== null);
   if (!counted) {
-    const why = 'the server ended without writing its counters (a platform that kills a process outright, as Windows does, never runs the exit hook); a missing counter is not a zero';
+    const why = 'the server ended without writing its counters (0 counter rows: a platform that kills a process outright, as Windows does on a signal, never runs the exit hook); a missing counter is not a zero';
     notMeasured(atlas, IDS.filter((i) => i !== 'requests'), why);
     atlas.blind('dashboard: the server rows', why);
   } else {

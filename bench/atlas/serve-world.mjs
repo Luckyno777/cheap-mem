@@ -14,10 +14,11 @@
 // **Counting inside the server.** With `reads: true` the child loads
 // bench/atlas/io-counter.mjs, which appends one line per process (and per
 // worker thread: the full build runs in a worker) when the child ends. The child
-// is ended with SIGTERM, which a wrapper turns into `process.exit(0)` so the
-// counter's exit hook runs. Where the signal cannot be handled (Windows kills the
-// process outright) the rows are missing and `stop()` says `null`: the caller
-// reports `not-measured`, never zero.
+// is ended with a `stop` message over an IPC channel (works on Windows too) and
+// with SIGTERM as the fallback; a wrapper turns both into `process.exit(0)` so the
+// counter's exit hook runs. Where neither gets through (Windows kills a process
+// outright on a signal) the file stays empty: an empty file is a counter that never
+// wrote, so `stop()` says `null` and the caller reports `not-measured`, never zero.
 //
 // **The browser** is Playwright's Chromium with software GL, found the way
 // test/fixture/browser.mjs finds it (the module, then /opt/pw-browsers). No
@@ -61,8 +62,9 @@ export async function startServer(root, { reads = false, env = {}, outDir } = {}
   delete childEnv.CHEAP_MEM_SERVE_TOKEN;
   const counterUrl = `${pathToFileURL(IO_COUNTER).href}?root=${encodeURIComponent(root)}&out=${encodeURIComponent(out)}`;
   const code = `process.on('SIGTERM', () => process.exit(0));\n`
+    + `process.on('message', (m) => { if (m === 'stop') process.exit(0); });\n`
     + `import(${JSON.stringify(pathToFileURL(path.join(REPO, 'bin', 'mem-serve')).href)}).then((m) => m.serve(${JSON.stringify(root)}, process.env));`;
-  const child = spawn(process.execPath, [...(reads ? [`--import=${counterUrl}`] : []), '-e', code], { env: childEnv, stdio: ['ignore', 'ignore', 'pipe'] });
+  const child = spawn(process.execPath, [...(reads ? [`--import=${counterUrl}`] : []), '-e', code], { env: childEnv, stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });
   let err = '';
   child.stderr.on('data', (b) => { err = (err + b).slice(-4000); });
   let exited = false;
@@ -83,13 +85,18 @@ export async function startServer(root, { reads = false, env = {}, outDir } = {}
     stderr: () => err,
     async stop() {
       if (!exited) {
-        try { child.kill('SIGTERM'); } catch { /* gone */ }
+        // The IPC message ends the child through its exit hook on every platform; SIGTERM is the fallback.
+        try { child.send('stop'); } catch { try { child.kill('SIGTERM'); } catch { /* gone */ } }
         await Promise.race([gone, sleep(15000)]);
+        if (!exited) { try { child.kill('SIGTERM'); } catch { /* gone */ } await Promise.race([gone, sleep(5000)]); }
       }
-      return { rows: reads ? readRows(out) : null };
+      return { rows: reads ? rowsOrNull(readRows(out)) : null };
     },
   };
 }
+
+/** The counter file is made empty before the child starts, so "no rows" means the counter never wrote: not a zero. */
+export function rowsOrNull(rows) { return rows === null || rows === undefined || rows.length === 0 ? null : rows; }
 
 /** Playwright's Chromium with software GL, or `{ browser: null, reason }`. */
 export async function startBrowser() {
@@ -110,7 +117,7 @@ export async function startBrowser() {
 
 /** Sum a counter file's rows: lines of the entry logs read, bytes of them, bytes of everything else. */
 export function sumReads(rows) {
-  if (rows === null || rows === undefined) return null;
+  if (rowsOrNull(rows) === null) return null;
   const t = { lines: 0, corpusBytes: 0, otherBytes: 0, rows: rows.length };
   for (const r of rows) {
     t.lines += r.linesRead ?? 0;
