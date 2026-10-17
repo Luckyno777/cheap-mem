@@ -29,6 +29,39 @@ Not ported, with the reason: the sibling's `zeiger_ids` journal field and the da
 
 Proof (`test/subagent-order-cm.test.mjs`, 11 probes; red against the pinned old commit `71be9cf`): 9 of the 11 red with the old `subagentstart.mjs` and `answerbudget.mjs` (the other 2 guard what must not move: a start that fits is byte-equal, and no procedure is lost behind many); B7 (the card is never gone) is also red against the first version of this change (`cec2e34`). The sizes are not tuned to one machine: the closing hint carries the memory's path, so the probes sweep sizes or compare relatively and were run with a 120- and a 300-character `TMPDIR`. Eight mutants in `bench/mutation.mjs` (card ranked first again, card pointer not reserved, assignment behind the card, recap first, no holdBack, half holdBack, `holdBack` ignored, `holdBack` on the pointer).
 
+### Fixed - CI run 1141: http-limits red on Node 20 and Node 22.23, the guarantees job cancelled after 25 minutes
+
+- **Node 22.23.3: "header lines: 300 lines -> the server reads at most maxHeadersCount".** From 22.23.2 on (CVE-2026-58044,
+  "http: reject requests exceeding max header count") Node answers a request with more than `maxHeadersCount` header lines
+  with `431` instead of handing the first 100 to the handler. The limit acts either way; the probe assumed one Node line's
+  way. `test/http-limits.test.mjs` now accepts either effect (truncated to <= 100, or 431 before the handler ran) and pins
+  the mutation without the limit to status 200, so a 431 can only come from `maxHeadersCount`. No product fault.
+- **Node 20.20: "a raw maxConnections = 0 drops every connection" got 200.** Node 20 reads 0 as "no cap"; dropping
+  everything at 0 came with Node 21 (nodejs/node#48276, semver-major). `hardenServer` never sets 0, so no product fault; the
+  control branches on the major version with an assertion on both sides, and a new control (cap 1, its seat taken) proves
+  on every line that the probe sees a dropped connection at all. The comment in `src/http-limits.mjs` and
+  `docs/security-model.md` say what each line does. Reproduced locally with Node 20.20.0 and a downloaded 22.23.3 (red on `2f0981b`,
+  green now; also green on 22.22.0).
+- **The guarantees job hit its 25-minute limit inside `bench/mutation.mjs`.** Not a hang: the mutant after "WRITER the
+  bridge card list ..." was "BYLINE-UI the dashboard shows a missing rank as a plain tier", checked only by a Chromium probe.
+  The job has no browser, the probe skipped, and the harness spent a full-suite run on it (CI's full suite: 11 minutes) -
+  the same trap as run 1103. Three fixes:
+  1. `test/card-byline-ui-cm.test.mjs`, the logic half: the original `cardOriginHtml` and `rankWord` cut out of the page,
+     fed with cards `src/decisioncard.mjs` builds. Red on `9a10bf6` and on each of the three BYLINE-UI mutants.
+  2. The harness no longer spends a full-suite run on a mutant whose own suites passed with tests skipped: "NOT JUDGED
+     HERE", with the skip reason, counted like an anchor that never applied (exit 1). A third browser-only mutant costs
+     seconds and says why.
+  3. The sweep left the guarantees job: `--shard=i/n` (round robin, after `--only`/`--security`) and a `mutation` job with
+     four slices, `fail-fast: false`, each with its own clean-tree check. `npm run verify` is `bench/mutation.mjs` plus the
+     new `npm run verify:benches`, which is what the guarantees job runs now (timeout 10 minutes, was 25).
+  The sum, measured: the first 198 mutants took 16.0 minutes in CI; the other 99 about 36 more (timed by their suites,
+  local/CI factor 2.0 from `test/writer-identity.test.mjs`; 51 mutants on `test/own-tool.test.mjs` alone are ~26), and the
+  16 mutants merged from kette/cm since (alarm-tearing, codex-cloud, due-one-place) ~6: about 58 minutes for all 313. Even
+  without the browser trap one job needed about an hour. Four slices: ~18 minutes each with baseline and setup; timeout 30.
+  `test/mutation-shard.test.mjs` holds the slices (every mutant exactly once, for n = 1..7), the skip verdict (sandboxed, a
+  sentinel suite proves no full-suite run), bad slices refused with exit 2, and ci.yml's matrix against its `--shard` line.
+  The argument check is the one of `agent/werkzeug-rest-cm` with `--shard` added.
+
 ### Fixed - looking at the doctor writes nothing: the append-atomicity record is laid down only by `mem doctor --full` / `--strict` (alarm-record-cm; cheap-mem only)
 
 The record of alarm-tearing-cm was written after every finished measurement, and `doctor.checkAll(root)` measures by default (`full: true`), so collecting the
