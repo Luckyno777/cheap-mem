@@ -175,4 +175,3 @@ test('delta: differences per counter, and a counter that is not installed stays 
   assert.deepEqual(delta({ contexts: null, programs: null, builds: null, models: null }, { contexts: null, programs: null, builds: null, models: null }), { contexts: null, programs: null, builds: null, models: null });
   assert.equal(delta({ contexts: 1, programs: 1, builds: null, models: 1 }, { contexts: 1, programs: 1, builds: 3, models: 1 }).builds, null);
 });
-
