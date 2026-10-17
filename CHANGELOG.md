@@ -14,6 +14,25 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Security - MCP SDK raised to 1.32.1, floor 1.31.0 (GHSA-6qxp-vccf-f47h)
+
+- **The optional MCP SDK's range admitted releases with a known advisory.** [GHSA-6qxp-vccf-f47h](https://github.com/advisories/GHSA-6qxp-vccf-f47h)
+  (high, reviewed 2026-10-06): the SDK's OAuth client in `@modelcontextprotocol/sdk` 1.12.0 through 1.30.1 sends stored
+  OAuth credentials (refresh token, client secret) to whichever authorization server the MCP server names; 1.31.0 is the
+  first fixed release. MCP servers built with the SDK and stdio clients are not affected. cheap-mem uses no OAuth client:
+  `bin/mem-mcp` is a server (stdio and `--http`), and the dashboard's probe (`src/mcplive.mjs`) connects to the local
+  bridge with a static bearer header, no `authProvider`. So cheap-mem itself was not exposed, but its peer range
+  `^1.30.0` let an install pair it with an affected release. Peer and dev range are now `^1.31.0` (package.json and the
+  lock's root entry), the lock pins 1.32.1 (the newest 1.x on the registry, 2026-10-17), and every install line
+  (`bin/mem-mcp`, `mem setup`, `docs/mcp-setup.md`, README) names `^1.31.0`. Between 1.30.0 and 1.32.1 the declarations
+  cheap-mem imports (`server/index`, `server/stdio`, `server/streamableHttp`, `client/index`, `types`) are unchanged; the
+  two behaviour changes do not reach it: the streamable HTTP server's new 4 MiB body cap is skipped when the caller
+  passes a parsed body (the bridge does, after its own 1 MiB limit), and the HTTP client now follows redirects only
+  within the origin (the probe talks to a fixed local address). The MCP probes (`test/*mcp*`, tool-count-doc, setup,
+  output-guard) are green against 1.32.1 and against the floor 1.31.0. `test/mcp-sdk-floor-cm.test.mjs` gains a guard:
+  neither range nor the lock may admit a release before 1.31.0 (red on `f059670`; red when the peer range or only the
+  lock is set back). The tarball is unchanged in content (2,056,533 bytes packed, cap 2.1 MB); the SDK is not in it.
+
 ### Fixed - CI run 1141 (Windows): the PowerShell twins' hook JSON arrived with a byte order mark, a Git Bash probe measured nothing, a refused read counted as a gap
 
 - **Windows PowerShell 5.1: every twin that hands the hook JSON to node answered with nothing.** The twin's trace on the
