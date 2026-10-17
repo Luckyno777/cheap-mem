@@ -27,20 +27,23 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { tempDir } from './temp-dir.mjs';
 import { exportCommit } from './helpers/export-commit.mjs';
 import * as memory from '../src/memory.mjs';
-import { hookText, readHookStdin } from '../src/hookstdin.mjs';
+import { hookText, hookShape, readHookStdin } from '../src/hookstdin.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MEM = path.join(REPO, 'bin', 'mem');
 // main at CI run 1141: the last commit without the repair.
 const BASE = '2f0981b0a6992fc7402b088653253642ce5d3a18';
+// The commit this follow-up starts from (ci-1141b-cm, README numbers recounted): the last one that trimmed every blank in
+// front of the input and counted trimmed bytes. A FIXED hash on purpose - a moving merge-base would drag the red proof along.
+const PRIOR = 'a2c91e5bd542912183dc46c57d5727a3dd1d39f6';
 
 /** What PowerShell 5.1 delivered: the mark in front, the line end it appends to every piped string behind. */
 const asPs51 = (text) => `\uFEFF${text}\r\n`;
 
 /** The base commit's src/ and bin/ in a directory of this test (red proof). */
-function base(t) {
+function base(t, commit = BASE) {
   const dir = tempDir('cm-bom-base-', t);
-  exportCommit(REPO, BASE, ['src', 'bin', 'package.json'], dir);
+  exportCommit(REPO, commit, ['src', 'bin', 'package.json'], dir);
   return dir;
 }
 
@@ -49,6 +52,11 @@ function world(t) {
   assert.equal(spawnSync(process.execPath, [MEM, 'init', '--root', root], { encoding: 'utf8', input: '' }).status, 0);
   memory.logEntry(root, 'error', { class: 'race', title: 'lockfile race - two runs overwrote install/claude-code.sh',
     text: 'install/claude-code.sh: two test runs overwrote the same lock file at once' });
+  // For the two Bash cores: an error that carries a command pattern, and a workflow that carries a tool pattern.
+  memory.logEntry(root, 'error', { class: 'mishandling', title: 'pkill with a pattern took down a foreign process', why: 'test',
+    command_pattern: 'pkill' });
+  memory.logEntry(root, 'workflow', { issued_by: 'owner', title: 'Publish by the book', tool_patterns: ['npm publish'],
+    steps: ['BASH-STEP one', 'BASH-STEP two'] });
   return root;
 }
 
@@ -95,11 +103,25 @@ const CORES = [
     input: () => JSON.stringify({ session_id: 'bom-3', tool_name: 'Bash', tool_input: { command: 'npm test' }, error: 'lockfile race: two runs overwrote the lock file' }),
     env: (root) => ({ CHEAP_MEM_ROOT: root }),
   },
+  {
+    name: 'command guard (src/commandguard.mjs bash)', rel: 'src/commandguard.mjs', args: ['bash'],
+    input: () => JSON.stringify({ session_id: 'bom-6', tool_name: 'Bash', tool_input: { command: 'pkill -f chrome' } }),
+    env: (root, t) => ({ CHEAP_MEM_ROOT: root, MEM_COMMAND_GUARD_MARKS: tempDir('cm-bom-cg-', t) }),
+  },
+  {
+    name: 'workflow detect (src/workflowdetect.mjs bash)', rel: 'src/workflowdetect.mjs', args: ['bash'],
+    input: () => JSON.stringify({ session_id: 'bom-7', tool_name: 'Bash', tool_input: { command: 'cd pkg && npm publish --access public' } }),
+    env: (root, t) => ({ CHEAP_MEM_ROOT: root, MEM_WORKFLOW_MARKS: tempDir('cm-bom-wf-', t) }),
+  },
 ];
 
-test('hookText: the marks and the blanks in front go, nothing else; what is not a string reads as empty', () => {
+test('hookText: only the marks in front go - not the blanks behind them (the prompt of a plain-text mode is the user\'s); what is not a string reads as empty', () => {
   assert.equal(hookText('\uFEFF{"a":1}\r\n'), '{"a":1}\r\n');
-  assert.equal(hookText('\uFEFF\uFEFF \r\n\t{"a":1}'), '{"a":1}');
+  assert.equal(hookText('\uFEFF\uFEFF \r\n\t{"a":1}'), ' \r\n\t{"a":1}');
+  assert.equal(hookText('  \n  question text'), '  \n  question text', 'blanks without a mark are content');
+  assert.equal(hookText('\u00a0\u2003x'), '\u00a0\u2003x', 'a Unicode blank is content, too');
+  // JSON takes the blanks it is left with as they are.
+  assert.deepEqual(JSON.parse(hookText('\uFEFF \r\n\t{"a":1}')), { a: 1 });
   assert.equal(hookText('{"a":"\uFEFF x"}'), '{"a":"\uFEFF x"}', 'a mark inside the document is content');
   assert.equal(hookText(''), '');
   for (const v of [undefined, null, 7, {}, Buffer.from('x')]) assert.equal(hookText(v), '');
@@ -118,6 +140,74 @@ test('readHookStdin: bytes, decoded once - a character cut by a chunk boundary s
   let d = '';
   for (const c of [bytes.subarray(0, cut), bytes.subarray(cut)]) d += c;
   assert.notEqual(d.replace(/^\uFEFF/, ''), text);
+});
+
+test('hookShape: raw byte count and the mark, by shape - the bytes as they came, not the text left over', () => {
+  const body = '{"a":"caf\u00e9"}'; // 10 + 1 extra byte for the e-acute
+  const plain = Buffer.from(body, 'utf8');
+  assert.deepEqual(hookShape(plain), { bytes: plain.length, bom: false });
+  assert.deepEqual(hookShape(Buffer.concat([Buffer.from([0xEF, 0xBB, 0xBF]), plain, Buffer.from('\r\n')])), { bytes: plain.length + 5, bom: true });
+  assert.deepEqual(hookShape(asPs51(body)), { bytes: plain.length + 5, bom: true }, 'a string counts as its UTF-8 bytes');
+  assert.deepEqual(hookShape(Buffer.from([0xEF, 0xBB])), { bytes: 2, bom: false }, 'two thirds of a mark is no mark');
+  assert.deepEqual(hookShape(''), { bytes: 0, bom: false });
+  assert.deepEqual(hookShape(undefined), { bytes: 0, bom: false });
+  // The trimmed text could not say it: that is why the shape is taken first.
+  assert.equal(hookText(asPs51(body)).length, body.length + 2);
+});
+
+/** The prompt modes of recallhook read plain text, not JSON: start `signal` with `prompt` on stdin. */
+function signalMode(tree, prompt, root) {
+  return spawnSync(process.execPath, [path.join(tree, 'src', 'recallhook.mjs'), 'signal'], {
+    input: prompt, encoding: 'utf8', timeout: 60000, env: { ...process.env, CHEAP_MEM_ROOT: root, MEM_RH_SESSION: '', MEM_HOOK_OFF: '' },
+  });
+}
+
+test('plain-text modes: the blanks in front of a prompt are the prompt\'s (judged with their length), the mark is not; the base cut both', (t) => {
+  const root = world(t);
+  // Ten blanks and two letters: twelve characters, which is the bar for "long enough to search" - as typed. With the
+  // blanks cut, two letters are left and the same prompt is "no signal".
+  const typed = `${' '.repeat(10)}ab`;
+  const say = (tree, text) => signalMode(tree, text, root);
+  assert.equal(say(REPO, typed).stdout, 'search', 'as typed, twelve characters long');
+  assert.equal(say(REPO, `\uFEFF${typed}`).stdout, 'search', 'a mark in front changes nothing');
+  assert.equal(say(REPO, 'ab').stdout, '', 'positive control: two letters alone are no signal');
+  // RED PROOF: the base cut every blank in front.
+  const old = base(t, PRIOR);
+  assert.equal(say(old, 'ab').stdout, '', 'positive control at the base');
+  assert.equal(say(old, typed).stdout, '', 'the base already kept the blanks in front of a plain prompt');
+});
+
+/** The before-edit core with the diagnosis on: what it says on stderr when it cannot read a path out of `stdin`. */
+function diagnosis(tree, stdin, t) {
+  const r = spawnSync(process.execPath, [path.join(tree, 'bin', 'mem-before-edit-core.mjs')], {
+    input: stdin, encoding: 'utf8', timeout: 60000,
+    env: { ...process.env, CHEAP_MEM_ROOT: tempDir('cm-bom-diag-', t), MEM_BE_ASCII: '1', MEM_BEFORE_EDIT_TRACE: '1', MEM_BEFORE_EDIT_OFF: '', MEM_HOOK_OFF: '' },
+  });
+  assert.equal(r.status, 0, r.stderr);
+  return r.stderr;
+}
+
+test('before-edit diagnosis counts the bytes that arrived and names the mark: "input N bytes ... bom=yes|no", lengths only', (t) => {
+  const json = '{"session_id":"bom-8"}'; // valid JSON, no file path: the "no-readable-path" exit
+  const rawBytes = (s) => Buffer.byteLength(s, 'utf8');
+  const cases = [
+    { name: 'PowerShell 5.1 bytes', stdin: asPs51(json), bytes: rawBytes(json) + 5, bom: 'yes' },
+    { name: 'the same without the mark', stdin: json, bytes: rawBytes(json), bom: 'no' },
+    { name: 'the mark alone', stdin: '\uFEFF', bytes: 3, bom: 'yes' },
+  ];
+  for (const c of cases) {
+    const err = diagnosis(REPO, c.stdin, t);
+    assert.match(err, new RegExp(`no-readable-path \\(input ${c.bytes} bytes, .*bom=${c.bom}\\)`), `${c.name}:\n${err}`);
+    assert.ok(!err.includes('bom-8'), `${c.name}: the trace carries a piece of the input:\n${err}`);
+  }
+  // Empty stdin: nothing arrived, said so.
+  assert.match(diagnosis(REPO, '', t), /no-readable-path \(input 0 bytes, bom=no\)/);
+  // RED PROOF: the base counted the trimmed text, so the mark could not be seen (and 27 became 22).
+  const old = base(t, PRIOR);
+  const was = diagnosis(old, asPs51(json), t);
+  assert.match(was, /no-readable-path \(input \d+ bytes/, 'positive control at the base: the diagnosis line ran');
+  assert.doesNotMatch(was, /bom=/, 'the base already names the mark');
+  assert.doesNotMatch(was, new RegExp(`input ${rawBytes(json) + 5} bytes`), 'the base already counted the raw bytes');
 });
 
 for (const c of CORES) {
@@ -179,8 +269,8 @@ test('every hook core that reads stdin reads it through src/hookstdin.mjs, and k
   const STDIN_CORES = ['bin/mem-before-edit-core.mjs', 'src/recallhook.mjs', 'src/afterfailure.mjs', 'src/commandguard.mjs', 'src/workflowdetect.mjs'];
   for (const rel of STDIN_CORES) {
     const text = fs.readFileSync(path.join(REPO, ...rel.split('/')), 'utf8');
-    assert.match(text, /import \{ readHookStdin(?:Sync)? \} from '\.\.?\/(?:src\/)?hookstdin\.mjs';/, `${rel} does not read through hookstdin`);
-    assert.match(text, /readHookStdin(?:Sync)?\(\)/, `${rel} imports the reader but does not call it`);
+    assert.match(text, /import \{ readHookStdin(?:Sync|RawSync)? \} from '\.\.?\/(?:src\/)?hookstdin\.mjs';/, `${rel} does not read through hookstdin`);
+    assert.match(text, /readHookStdin(?:Sync|RawSync)?\(\)/, `${rel} imports the reader but does not call it`);
     assert.doesNotMatch(text, /process\.stdin\.on\(|readFileSync\(0\b/, `${rel} reads stdin past hookstdin again`);
   }
   // The two that take the raw text through a function the twin's snippet calls.

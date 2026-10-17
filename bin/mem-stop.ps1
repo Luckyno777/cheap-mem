@@ -146,11 +146,13 @@ foreach ($c in @($(if ($OwnToolTrusted) { Join-Path $Root 'src/answercheck.mjs' 
 }
 if ($Checker -and $StdinJson) {
   $CheckerUrl = ([System.Uri]::new($Checker)).AbsoluteUri
+  # No double quote in a `node -e` snippet: Windows PowerShell 5.1 passes the inner ones unescaped and node cuts the
+  # snippet apart at them (CI run 1180, bin/mem-catch-fail.ps1; the rule: test/ps51-node-snippet.test.mjs).
   $CheckScript = @'
-let raw = ""; process.stdin.on("data", (d) => { raw += d; });
-process.stdin.on("end", () => {
+let raw = ''; process.stdin.on('data', (d) => { raw += d; });
+process.stdin.on('end', () => {
   import(process.argv[1]).then((m) => {
-    let input = null; try { input = JSON.parse(raw.replace(/^[\uFEFF\s]+/, "")); } catch { return; }
+    let input = null; try { input = JSON.parse(raw.replace(/^[\uFEFF\s]+/, '')); } catch { return; }
     const r = m.checkStop(process.env.CHEAP_MEM_ROOT, input);
     if (r) process.stdout.write(JSON.stringify(r));
   }).catch(() => {});
@@ -179,10 +181,10 @@ if (-not $AnswerJson -and $StdinJson) {
   if ($Reporter) {
     $ReporterUrl = ([System.Uri]::new($Reporter)).AbsoluteUri
     $ReportScript = @'
-let raw = ""; process.stdin.on("data", (d) => { raw += d; });
-process.stdin.on("end", () => {
+let raw = ''; process.stdin.on('data', (d) => { raw += d; });
+process.stdin.on('end', () => {
   import(process.argv[1]).then((m) => {
-    let input = null; try { input = JSON.parse(raw.replace(/^[\uFEFF\s]+/, "")); } catch { return; }
+    let input = null; try { input = JSON.parse(raw.replace(/^[\uFEFF\s]+/, '')); } catch { return; }
     const r = m.stopReport(process.env.CHEAP_MEM_ROOT, input);
     if (r) process.stdout.write(JSON.stringify(r));
   }).catch(() => {});

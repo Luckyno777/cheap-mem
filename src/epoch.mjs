@@ -44,7 +44,7 @@ import * as memory from './memory.mjs';
 import * as integrity from './integrity.mjs';
 import * as drawermemo from './drawermemo.mjs';
 import * as semantics from './semantics.mjs';
-import { writeAtomic } from './atomicwrite.mjs';
+import { writeAtomic, readStateFile } from './atomicwrite.mjs';
 
 export const EPOCH_FILE = path.join('.mem', 'epoch.json');
 export const EPOCH_VERSION = 1;
@@ -102,13 +102,25 @@ export function observe(root) {
   };
 }
 
-export function readEpoch(root) {
-  const p = path.join(root, EPOCH_FILE);
-  if (!fs.existsSync(p)) return null;
+/**
+ * The mark in three states: `{ state: 'ok', mark }`, `{ state: 'missing' }` (no file: the first observation) and
+ * `{ state: 'unreadable', error }` (a file that is there and could not be read - on Windows a refusal that did not let
+ * up while a writer replaced it). A refusal is tried again first (`readStateFile`). Content that is not a mark of this
+ * version (broken JSON, an older version) reads as `missing`, as it always did: the next record replaces it.
+ */
+export function readEpochState(root, opt = {}) {
+  const r = readStateFile(path.join(root, EPOCH_FILE), opt);
+  if (r.state !== 'ok') return r;
   try {
-    const e = JSON.parse(fs.readFileSync(p, 'utf8'));
-    return e && e.version === EPOCH_VERSION ? e : null;
-  } catch { return null; }
+    const e = JSON.parse(r.text);
+    return e && e.version === EPOCH_VERSION ? { state: 'ok', mark: e } : { state: 'missing' };
+  } catch { return { state: 'missing' }; }
+}
+
+/** The mark, or `null` (missing, unreadable, not this version) - `readEpochState` tells the cases apart. */
+export function readEpoch(root, opt = {}) {
+  const r = readEpochState(root, opt);
+  return r.state === 'ok' ? r.mark : null;
 }
 
 /**
@@ -116,13 +128,18 @@ export function readEpoch(root) {
  *
  * Returns `{ status, ... }` where status is one of:
  *   `first`     no mark yet — this observation becomes it
+ *   `unreadable` a mark is there and could not be read: NOT `first` - the mark is not replaced on a guess
  *   `ahead`     the memory grew, as it should
  *   `same`      nothing changed
  *   `rollback`  claims disappeared, or retirements were undone
  */
-export function checkEpoch(root, now = null) {
+export function checkEpoch(root, now = null, opt = {}) {
   const cur = now ?? observe(root);
-  const mark = readEpoch(root);
+  const found = readEpochState(root, opt);
+  if (found.state === 'unreadable') {
+    return { status: 'unreadable', current: cur, mark: null, resurrected: [], detail: found.code || found.error };
+  }
+  const mark = found.mark;
   if (!mark) return { status: 'first', current: cur, mark: null, resurrected: [] };
   if (!semantics.comparable(mark.semantics)) {
     return { status: 'semantics-changed', current: cur, mark, resurrected: [],
@@ -153,9 +170,14 @@ export function checkEpoch(root, now = null) {
  * that decision is a deliberate act rather than a side effect of running
  * a read command.
  */
-export function recordEpoch(root, { force = false } = {}) {
-  const state = checkEpoch(root);
+export function recordEpoch(root, { force = false, ...opt } = {}) {
+  const state = checkEpoch(root, null, opt);
   if (state.status === 'rollback' && !force) {
+    return { written: false, ...state };
+  }
+  // A mark that is there but cannot be read right now is not a mark that is not there: writing over it on a guess
+  // could lower the high-water mark. Only an explicit force replaces it.
+  if (state.status === 'unreadable' && !force) {
     return { written: false, ...state };
   }
   const p = path.join(root, EPOCH_FILE);

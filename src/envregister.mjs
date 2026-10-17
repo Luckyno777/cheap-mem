@@ -160,6 +160,8 @@ export const REGISTER = Object.freeze([
   sw('MEM_AFTER_FAILURE_TOP', TUNING, '3', 'How many hits the after-failure hook shows at most.'),
   sw('MEM_CATCH_FAIL_MIN', TUNING, '2.0', 'Score a hit needs before the swallowed-failure hook shows it.'),
   sw('MEM_CATCH_FAIL_TOP', TUNING, '3', 'How many hits the swallowed-failure hook shows at most.'),
+  sw('MEM_CATCH_FAIL_TRACE', TUNING, 'off', 'With `1` the swallowed-failure hook (Windows twin) says on stderr where it exited: lengths and exit codes, never content.'),
+  sw('MEM_SUBAGENT_START_TRACE', TUNING, 'off', 'With `1` the sub-agent start hook (Windows twin) says on stderr where it exited: lengths and exit codes, never content.'),
   sw('MEM_BEFORE_EDIT_TOP', TUNING, '3', 'How many hits the before-edit hook shows at most.'),
   sw('MEM_BEFORE_EDIT_TRACE', TUNING, 'off', 'With `1` the before-edit hook says on stderr where it exited.'),
   sw('MEM_CAPTURE_MIN', TUNING, '4096', 'Smallest transcript, in bytes, the capture hook keeps (Windows hook).'),
