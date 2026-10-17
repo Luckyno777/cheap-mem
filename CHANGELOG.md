@@ -53,6 +53,24 @@ are the day the work landed on `main`.
   prefix built at run time, red on the first form of this diagnosis), the twin says how many characters it read from
   stdin, and the installed-hooks probe shows stderr - the next Windows run says on which side of the pipe to node it is lost.
 
+### Changed - the dashboard's card origin line names the author with name AND rank, in the words of `mem today`
+
+The origin line of a decision card ("Written by X · tier Y") now reads the card's `byline` (`src/decisioncard.mjs`) and says a rank the line does not carry the way `authority.rankWord` does:
+`tier unknown (missing)`, `tier unknown (empty)` or `tier unknown (broken)` instead of one bare `tier unknown` for all three. The hint "Written by an agent, not checked by you" still goes by the
+rank alone: the configured human's name at tier agent keeps it, a card of rank `user` carries none (`origin.by_human` implies rank `user`, so the old `rank === 'user' || by_human` was the rank check).
+`test/card-byline-ui-cm-browser.test.mjs` (real Chromium, 390 px light and dark): red on `9a10bf6`; three mutants in `bench/mutation.mjs`.
+
+### Fixed - `-h` after a yes/no switch is a help request, not the switch's value (help-after-bool-cm)
+
+The parser reads `--key next` as "key is next" unless next starts with `--`, and it did not know which names are switches. So `-h` right after one (`mem init --force -h`, `mem serve --readonly -h`,
+`mem epoch --force -h`, `mem raw delete <p> --yes -h`, `mem suggest rules --write -h`, `mem log ... --shred -h`, `mem find x --json -h`) was taken as the VALUE of the switch: the command ran (wrote,
+or started the server) instead of showing help. The sibling case, a bare `-h`, was closed on 2026-10-13.
+- **One register, one place:** `BOOL_SWITCHES` in `src/cli/shell.mjs` (it takes in the `mem log` switches `shred`, `automatic`, `without-scaffold`, `no-broadcast`). The parser never gives `-h` to a listed name.
+  Every other reading is as before: `--text -h` still writes the text "-h", `--top 5` and `--root x` are untouched, any other word after a switch is still its value (so `serve --allow-writes maybe` and
+  `--as-me <word>` are still refused, not silently dropped). `quiet` (a number in `digest due`) and `human` (a name in `init`) are left out on purpose, so `mem doctor --quiet -h` still runs the doctor.
+- **Guard:** `test/bool-switch-help.test.mjs` reads every (command, switch) pair out of the `checkFlags` declarations (plus the `appointment` table and 5 for `mem log`) and runs `<cmd> --<switch> -h` against an initialised scratch memory: help, exit 0,
+  memory and HOME byte-for-byte unchanged. Another test keeps the register honest against the source: no listed name is read as a text or number, and a switch that is only ever yes/no but is not listed is a failure.
+  Red on `9a10bf6` (the parser eats `-h`; with only that one parser line reverted, 58 of the 136 pairs of the first version fail - a `serve --readonly -h` that never ends, refusals instead of help - and the scratch memory changes on top: `.mem/epoch.json`, `.agents/skills/mem/SKILL.md`, hooks).
 ### Security - hard HTTP limits for the dashboard server and the MCP bridge (slow headers, dripping body, connection flood)
 
 `mem serve` and `mem-mcp --http` ran with the Node defaults: headers could take 90 s in practice (60 s, checked every 30 s), a body 330 s,

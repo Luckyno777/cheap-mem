@@ -1293,6 +1293,25 @@ export const MUTANTS=[
    from:"tier ${authority.rankWord(k.rank, k.rank_state)}, ",
    to:"tier ${k.rank}, ",
    tests:['test/writer-identity.test.mjs'] },
+
+ // card-byline-ui-cm: the dashboard's origin line reads the card's byline in the words of rankWord.
+ { name:"BYLINE-UI the dashboard shows a missing rank as a plain tier",
+   file:"assets/dashboard/dashboard.js",
+   from:"(typeof state === 'string' && state !== 'set' ? `unknown (${state})` : ",
+   to:"(false ? `unknown (${state})` : ",
+   tests:['test/card-byline-ui-cm-browser.test.mjs'] },
+
+ { name:"BYLINE-UI the dashboard reads the rank from origin, not from the byline",
+   file:"assets/dashboard/dashboard.js",
+   from:"tier ${ce(rankWord(b.rank, b.rank_state))}",
+   to:"tier ${ce(rankWord(o.rank))}",
+   tests:['test/card-byline-ui-cm-browser.test.mjs'] },
+
+ { name:"BYLINE-UI the configured human's name drops the agent hint",
+   file:"assets/dashboard/dashboard.js",
+   from:"const note = o.rank === 'user' ? '' : ",
+   to:"const note = o.rank === 'user' || b.name === 'user' ? '' : ",
+   tests:['test/card-byline-ui-cm-browser.test.mjs'] },
  { name:'K1 the question query cuts an identifier at the underscore again',
    file:'src/search.mjs',
    from:"    .split(/[^a-z0-9_\\u00e4\\u00f6\\u00fc\\u00df]+/)",
@@ -1678,6 +1697,23 @@ export const MUTANTS=[
    from:"  'Bash(*CHEAP_MEM_PROVISION*)',\n",
    to:"  // MUTANT\n",
    tests:['test/own-tool.test.mjs'] },
+
+// help-after-bool-cm: `-h` after a yes/no switch is a help request, test/bool-switch-help.test.mjs
+ { name:"HELP-BOOL the parser gives -h to a listed yes/no switch again",
+   file:"src/cli/shell.mjs",
+   from:" && !(next === '-h' && BOOL_SWITCHES.has(key))",
+   to:"  // MUTANT: the register is not asked",
+   tests:['test/bool-switch-help.test.mjs'] },
+ { name:"HELP-BOOL `sync` (appointment tick) is not in the register",
+   file:"src/cli/shell.mjs",
+   from:"'suggested', 'sync', 'table'",
+   to:"'suggested', 'table'  /* MUTANT */",
+   tests:['test/bool-switch-help.test.mjs'] },
+ { name:"HELP-BOOL `readonly` (serve) is not in the register",
+   file:"src/cli/shell.mjs",
+   from:"'dry-run', 'readonly', 'allow-writes'",
+   to:"'dry-run', 'allow-writes'  /* MUTANT */",
+   tests:['test/bool-switch-help.test.mjs'] },
 ];
 
 // The modules whose failure is a security or data-integrity failure. The
