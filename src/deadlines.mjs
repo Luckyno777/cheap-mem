@@ -101,7 +101,7 @@ export function part(fold, { human = null, humanReason = null, now = Date.now(),
   const byId = new Map();
   const want = new Set(shown.map((r) => r.id));
   for (const d of fold.open) if (d && want.has(d.id) && !byId.has(d.id)) byId.set(d.id, d);
-  const list = shown.map(({ id, due: value, day, state, since }) => ({
+  const list = shown.map(({ id, dueAt: value, day, state, since }) => ({
     id, title: titleOf(byId.get(id)), due: value === null ? null : safeText(value, 40), day, state, since: since ?? null,
   }));
   return {

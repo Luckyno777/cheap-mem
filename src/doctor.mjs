@@ -1164,7 +1164,7 @@ export function checkDeadlines(root, now = new Date()) {
   if (!stale.length && !unreadable.length && !aliased.length) return finding('deadlines', LEVEL.GOOD, core);
   const hints = [];
   if (stale.length) {
-    const { id, due: value } = stale[0]; // the core's row, not a read of a duty's field
+    const { id, dueAt: value } = stale[0];
     hints.push(`the longest overdue: ${id} (due ${value}) — do it and close it (mem duties close ${id}), or move the date `
       + `(mem correction duty ${id} --due YYYY-MM-DD; only the author or a higher tier may)`);
   }
