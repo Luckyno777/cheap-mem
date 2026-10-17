@@ -2068,13 +2068,13 @@ export const MUTANTS=[
    tests:['test/index-bound-cm.test.mjs'] },
  { name:'ISC the child leaves no note of a good end',
    file:'src/indexrebuild.mjs',
-   from:"n.noteRebuild(process.argv[1], { ok: true });",
-   to:"/* MUTANT */",
+   from:"    noteRebuild(root, { ok: true });\n    return true;",
+   to:"    return true;  // MUTANT",
    tests:['test/index-bound-cm.test.mjs'] },
  { name:'ISC the child leaves its lock behind',
    file:'src/indexrebuild.mjs',
-   from:".catch(() => {}).finally(() => { try { require('node:fs').rmSync(process.argv[3], { force: true }); } catch {} });",
-   to:".catch(() => {}).finally(() => {});  // MUTANT",
+   from:"if (fs.readFileSync(process.argv[3], 'utf8').trim() === process.argv[4]) fs.rmSync(process.argv[3], { force: true });",
+   to:"/* MUTANT */",
    tests:['test/index-bound-cm.test.mjs'] },
 ];
 

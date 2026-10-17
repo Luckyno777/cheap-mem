@@ -241,8 +241,11 @@ depends on who asks:
   `appendedTooMany`) it starts the full rebuild **detached** (`src/indexrebuild.mjs`) and returns. The load result carries
   `stale: 'appended-too-many'` and `rebuild: 'started' | 'running' | 'backoff' | 'error'`. The hook's text says nothing about it:
   the appended lines are in the answer, only the ranking statistics are a little behind.
+- **The warm server** (process memo) keeps serving its in-memory index for a hook caller while a rebuild runs; it starts the rebuild
+  at the same bound and takes the new cache once, after a rebuild has ended well. The hook's signal check (`src/recallhook.mjs`)
+  loads the index the same way.
 - **One rebuild at a time.** The lock is `.mem/locks/search-index-rebuild.lock`, created with link/`O_EXCL`; of two processes that ask
-  at the same moment one starts the child, the other sees `running`. The child removes the lock when it ends. A child that is killed
+  at the same moment one starts the child, the other sees `running`. The child removes the lock when it ends, if it is still its own, and reads the cache back to be sure it landed (a failure is a note and the backoff). A child that is killed
   leaves it, and it is taken over **by age** (900 s, through the takeover bar of `src/filelock.mjs`: the PID in the file is the
   asker's, gone a moment later, so only the age can decide). After a failed rebuild a note (`search-index-rebuild.note.json`) holds
   the next one back for 600 s.
