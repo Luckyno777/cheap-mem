@@ -40,7 +40,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { writeAtomic } from './atomicwrite.mjs';
+import { writeAtomic, readStateFile } from './atomicwrite.mjs';
 
 /** What to do. Closed list. */
 export const ACTION = Object.freeze({
@@ -111,9 +111,15 @@ export function decide({ mark = null, levelNow = 0, newFingerprint = null } = {}
   return { action: ACTION.FRESH, why: 'content-differs' };
 }
 
-/** Read a mark. Unreadable or broken yields `null` — see fail-closed. */
-export function readMark(where) {
-  try { return JSON.parse(fs.readFileSync(where, 'utf8')); }
+/**
+ * Read a mark. Missing, unreadable or broken yields `null` — see fail-closed (`decide` shows on a null mark, the
+ * expensive side). A refusal Windows gives while a writer replaces the file is tried again first (`readStateFile`),
+ * so a mark that is there is not read as "never shown". `opt` is `readStateFile`'s (platform/read/pause), for probes.
+ */
+export function readMark(where, opt = {}) {
+  const r = readStateFile(where, opt);
+  if (r.state !== 'ok') return null;
+  try { return JSON.parse(r.text); }
   catch { return null; }
 }
 

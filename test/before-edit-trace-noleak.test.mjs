@@ -43,6 +43,6 @@ for (const [name, input] of [
     for (const piece of [prefix.slice(0, 6), prefix.slice(3, 10), 'Q7wZ']) {
       assert.ok(!err.includes(piece), `the trace carries "${piece}" of the input:\n${err}`);
     }
-    assert.match(err, /not JSON: SyntaxError( at position \d+)?\)/, 'the shape is named by the error name (and position) only');
+    assert.match(err, /not JSON: SyntaxError( at position \d+)?(, bom=(yes|no))?\)/, 'the shape is named by the error name (and position) only');
   });
 }

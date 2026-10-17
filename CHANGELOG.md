@@ -14,6 +14,26 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Fixed - the state-mark readers took a refused open for "no file" (Windows); hook stdin kept its blanks; the before-edit diagnosis names the mark
+
+- **A refusal is not a gap.** `writeAtomic` replaces a state file by `rename`; on Windows the OPEN of a reader answers
+  EPERM / EACCES / EBUSY while that happens, and `pointer.readMark`, `clonegate.readCache`, `epoch.readEpoch` and
+  `runningmark.readMarker` read every failure as "no such file". One helper, `readStateFile` (`src/atomicwrite.mjs`):
+  ENOENT is `missing`; on win32 the three codes are tried again with the writer's pauses (6 opens, 75 ms at most);
+  what still fails is `unreadable`, never folded into `missing`. The dangerous reader was the epoch watermark: read as
+  "first", `recordEpoch` wrote over it. Now `checkEpoch` answers `unreadable` and `recordEpoch` leaves the file alone
+  unless `--force`; `mem doctor` and `mem epoch` say "could not be read" instead of "no watermark yet", and the running
+  code check says so for a start marker. `test/state-read-retry.test.mjs` plays Windows on any machine (injected
+  platform; a child process that makes the real `fs.readFileSync` refuse) and runs the same child against the base.
+- **Hook stdin: only the byte order mark goes.** `hookText` also dropped every blank in front (`/^[\uFEFF\s]+/`). JSON does
+  not need that (`JSON.parse` takes leading space, tab, CR, LF), but the prompt modes of `recallhook.mjs` (signal,
+  machine, workflow) read plain text: the user's leading blanks were cut, the length judged without them, the kept
+  question text shortened - and the sh twin passes them on. The twins now agree.
+- **The before-edit diagnosis counted the trimmed text**, so the BOM case of CI run 1141 could not be seen any more. It
+  counts the bytes that arrived and says `bom=yes|no` (`input 27 bytes, JSON without a file path, bom=yes`); lengths and
+  a yes/no, never content.
+- Tests: BOM + CR LF process tests for `commandguard bash` and `workflowdetect bash` joined the others in
+  `test/hook-stdin-bom.test.mjs`.
 ### Fixed - CI run 1180 (Windows): the catch-fail and subagent-start twins handed node a snippet Windows PowerShell 5.1 mangles (ci-1180b-cm; cheap-mem only, the sibling has no PowerShell twins)
 
 `test/installed-hooks-run.test.mjs` on windows-latest (node 20 and 22): after the byte order mark repair of run 1141, user-prompt, pre-edit and after-failure delivered, but `[catch-fail] PostToolUse delivered ZERO bytes` and `[subagent-start] SubagentStart delivered ZERO bytes`, each with an empty stderr. Compared line for line with the three that work, the shims (one pattern in `install/windows.ps1`), the stdin read and the encoding order are the same. One thing differs: the three that work pipe into a node FILE, the two mute ones into `node -e <snippet>`, and both snippets carried double quotes. Windows PowerShell 5.1 (the host `install/windows.ps1` registers) wraps a native argument with a blank in double quotes and does not escape the double quotes inside it; node's C runtime command-line split reads them as quote toggles, so `let d = "";` arrived as `let d = ";`, node stopped at a SyntaxError (exit 1), the twin threw stderr away (`2>$null`) and exited 0 with nothing. PowerShell 7.3+ escapes them, which is why nothing showed outside 5.1.
