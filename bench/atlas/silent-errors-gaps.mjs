@@ -239,4 +239,3 @@ export async function gapGroups(atlas, { tree = REPO } = {}) {
   ];
   for (const [fn, ids] of list) await guard(atlas, ids, () => fn(atlas, { tree }));
 }
-

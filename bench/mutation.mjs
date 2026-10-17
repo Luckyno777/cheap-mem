@@ -2431,8 +2431,8 @@ export const GAP_MUTANTS = Object.freeze([
     name: 'atlas bridge A8: the SDK peer range falls back to ^1.0.0',
     edits: [{
       file: 'package.json',
-      from: '"@modelcontextprotocol/sdk": "^1.30.0",\n    "better-sqlite3": "^11.0.0",',
-      to: '"@modelcontextprotocol/sdk": "^1.0.0",\n    "better-sqlite3": "^11.0.0",',
+      from: '"peerDependencies": {\n    "@modelcontextprotocol/sdk": "^',
+      to: '"peerDependencies": {\n    "@modelcontextprotocol/sdk": ">=1.0.0 <2", "x-was": "^',
     }],
     red: ['bridge.sdk.range'], green: ['bridge.sdk.installed'], unmeasured: [],
   },
@@ -2441,8 +2441,8 @@ export const GAP_MUTANTS = Object.freeze([
     name: 'atlas bridge A8: the SDK peer range demands a major that is not installed',
     edits: [{
       file: 'package.json',
-      from: '"@modelcontextprotocol/sdk": "^1.30.0",\n    "better-sqlite3": "^11.0.0",',
-      to: '"@modelcontextprotocol/sdk": "^9.0.0",\n    "better-sqlite3": "^11.0.0",',
+      from: '"peerDependencies": {\n    "@modelcontextprotocol/sdk": "^',
+      to: '"peerDependencies": {\n    "@modelcontextprotocol/sdk": "^9.0.0", "x-was": "^',
     }],
     red: ['bridge.sdk.range', 'bridge.sdk.installed'], green: [], unmeasured: [],
   },
