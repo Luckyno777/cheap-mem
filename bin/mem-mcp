@@ -100,10 +100,9 @@ import * as appointmentTime from '../src/appointment-time.mjs';
 import * as board from '../src/board.mjs';
 import * as webauth from '../src/webauth.mjs';
 import * as agentledger from '../src/agentledger.mjs';
-import * as variantsMod from '../src/variants.mjs';
+import * as findcore from '../src/findcore.mjs';
 import * as mcpvisibility from '../src/mcpvisibility.mjs';
 import * as injection from '../src/injection.mjs';
-import * as levers from '../src/searchlevers.mjs';
 import * as errorfixes from '../src/errorfixes.mjs';
 import * as bridgefields from '../src/bridgefields.mjs';
 import * as cardrule from '../src/cardrule.mjs';
@@ -141,6 +140,8 @@ shred.refuseDecryption(process.env.CHEAP_MEM_MCP_DECRYPT !== '1');
  * no tier gets the write path's default, like the CLI (O1: one path).
  */
 const BRIDGE_MAX_AUTHORITY = 'agent';
+/** Most hits `mem_find` returns (the re-rank is quadratic in what it fetches; the server answers synchronously). */
+const MCP_FIND_TOP_MAX = 25;
 
 function bridgeAuthority(data) {
   if (data.authority === undefined || data.authority === null || String(data.authority).trim() === '') {
@@ -550,7 +551,7 @@ const TOOLS = [
         type: { type: 'string', enum: Object.keys(memory.TYPES) },
         project: { type: 'string' },
         since: { type: 'string', description: 'ISO time or relative: 7d, 24h, 30m' },
-        top: { type: 'number', description: 'How many hits (default 10)' },
+        top: { type: 'number', maximum: 25, description: 'How many hits (default 10, at most 25: a larger number is cut to 25 and the answer says so)' },
         literal: { type: 'boolean', description: 'Plain substring search instead' },
         weak: { type: 'boolean', description: 'Show the hits even when none is confident (a flat field of weak matches is withheld otherwise)' },
         variants: {
@@ -1696,24 +1697,21 @@ async function handleCall(name, args) {
         mq = resolved.query;
         extraTerms = resolved.extraTerms;
       }
-      const findOpt = {
-        top: top ?? 10, type: type ?? null, project: project ?? null,
-        capability: findCapability,
-        since: s, language: cfg.language, extraTerms,
-        withCoverage: levers.active('h3'),
-      };
-      // `variants`: rewordings the calling agent supplies (src/variants.mjs)
-      // - no model here; without them this is the plain search as before.
-      const listed = Array.isArray(variants) && variants.length
-        ? variantsMod.searchWithVariants(index, mq, variants, findOpt)
-        : search.search(index, mq, findOpt);
-      // H3 (Block H): the same answer gate as `mem find` — a flat field of
-      // weak hits, none clearly ahead, is withheld and said so. One rule,
-      // in src/searchlevers.mjs, for both doors.
-      const withheld = !weak && levers.active('h3')
-        && !levers.answerHolds(listed, { occasion: 'find', bar: levers.findBar(index.statsN ?? index.N) }) ? listed.length : 0;
-      for (const h of listed) delete h.covered;   // the gate's input, not part of the answer
-      const ranked = withheld ? [] : listed;
+      // The ranked search is `src/findcore.mjs` — the SAME function `mem find` calls (abruf-budget): the exact lane,
+      // the echo filter, MMR, the retired gate and the H3 answer gate. This door used to carry its own copy without
+      // the first four and with the query pinned to the memory's configured language.
+      // `variants`: rewordings the calling agent supplies (src/variants.mjs) - no model here; without them this is
+      // the plain search.
+      // The MMR re-rank is quadratic in the number it fetches (top x 3) and this server answers synchronously: top 200 took
+      // 6.1 s and top 1000 16.6 s where 0.8 s and 0.9 s before the shared core. At most MCP_FIND_TOP_MAX, and it says so.
+      const asked = Number.isInteger(top) && top >= 1 ? top : 10;
+      const wanted = Math.min(asked, MCP_FIND_TOP_MAX);
+      const capped = asked > wanted ? `\n(top ${asked} was cut to ${wanted}: ask for fewer, or narrow with type, project or since.)` : '';
+      const { hits: ranked, withheld } = findcore.rankedFind({
+        index, query: mq, askedAs: String(q), wanted, type: type ?? null, project: project ?? null,
+        capability: findCapability, since: s, extraTerms,
+        variants: Array.isArray(variants) ? variants : [], weak: Boolean(weak), env: process.env,
+      });
       // Book into the injection journal like the hook does: occasion
       // `mcp-question`, length/hits/sources/duration, NEVER the question
       // text. A measurement must not hold the answer up: book() never throws.
@@ -1733,10 +1731,10 @@ async function handleCall(name, args) {
       } catch { /* a measurement, not an operation */ }
       if (!ranked.length && withheld) {
         return textResult(`Nothing confident for '${q}' (${index.N} entries): ${withheld} weak `
-          + `match${withheld === 1 ? '' : 'es'} withheld, none clearly ahead. weak:true shows them.`);
+          + `match${withheld === 1 ? '' : 'es'} withheld, none clearly ahead. weak:true shows them.${capped}`);
       }
       if (!ranked.length) {
-        return textResult(`No hits for '${q}' (${index.N} entries). Try literal:true.`);
+        return textResult(`No hits for '${q}' (${index.N} entries). Try literal:true.${capped}`);
       }
       return textResult(ranked.map((h) => {
         const mark = h.raw ? (h.pending ? '  [raw, not yet digested]' : '  [raw]') : '';
@@ -1745,7 +1743,7 @@ async function handleCall(name, args) {
           : shortLine(h.entry);
         return `${h.source}:${h.line}  [${h.entry.ts ?? '?'}]  ${h.score.toFixed(2)}${mark}\n`
           + `  ${maskText(String(preview)).replace(/\s+/g, ' ').slice(0, 200)}`;
-      }).join('\n'));
+      }).join('\n') + capped);
     }
 
     case 'mem_duties': {

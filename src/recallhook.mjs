@@ -56,7 +56,9 @@ import * as injection from './injection.mjs';
 import * as clonegate from './clonegate.mjs';
 import { visible as bidiVisible } from './bidi.mjs';
 import { maskText } from './outputguard.mjs';
-import { renderHits, lazyAttach, clears, RECALL_MIN } from './recallrender.mjs';
+import { renderHits, renderPointer, lazyAttach, clears, RECALL_MIN } from './recallrender.mjs';
+import * as answerbudget from './answerbudget.mjs';
+import * as wfpointer from './workflowpointer.mjs';
 import { judge, isForeignTurn } from './recallsignal.mjs';
 import * as levers from './searchlevers.mjs';
 
@@ -149,6 +151,29 @@ function workflowBlock(env) {
   return t ? `${WORKFLOW_HEADER}\n${t}` : null;
 }
 
+/**
+ * The workflow block as a part of the final selection (src/answerbudget.mjs): the card, or its pointer when the
+ * card does not fit. `null` when the hook handed over no workflow.
+ */
+function workflowPart(env, extra = {}) {
+  const wf = workflowBlock(env);
+  if (!wf) return null;
+  const ptr = wfpointer.pointerForm(String(env.MEM_RH_WORKFLOW).trim());
+  return { id: 'workflow', kind: 'workflow', rank: 50, order: 110, forms: [wf, ptr ? `${WORKFLOW_HEADER}\n${ptr}` : null],
+    how: 'mem workflow show <id>', ref: 'workflow', ...extra };
+}
+
+/** Did the selection show the workflow's CARD whole? (A card turned into a pointer, or left out, was not seen.) */
+function cardLost(env, sel) {
+  const seen = sel.chosen.find((c) => c.ref === 'workflow');
+  return wfpointer.isCard(env.MEM_RH_WORKFLOW) && (!seen || seen.form > 0);
+}
+
+/** Take back the mark of a card the selection did not show whole (see {@link cardLost}). */
+function forgetCard(root, env) {
+  wfpointer.forgetMark(root, env.MEM_RH_WORKFLOW, { session: env.MEM_RH_SESSION || null, env });
+}
+
 /** Claim the turn for `text` (see `recall`). `false` = somebody else delivered it. */
 function claimTurn(env, text) {
   if (!(env.MEM_RH_SESSION && env.MEM_RH_TURNS)) return true;
@@ -168,11 +193,14 @@ function claimTurn(env, text) {
  * null`, `hits` = workflows shown) — a search miss of the same turn is
  * booked by its own line, so the miss stays visible to `mem asked-learn`.
  */
-function workflowOnly(root, env = process.env) {
-  const wf = workflowBlock(env);
-  if (!wf) return { out: null, book: () => {} };
-  const text = visible(wf);
-  if (!claimTurn(env, text)) return { out: null, book: () => {} };
+function workflowOnly(root, env = process.env, { lead = null } = {}) {
+  const part = workflowPart(env, { rank: 0, order: 1 });
+  if (!part) return { out: null, book: () => {} };
+  // `lead`: the text of a miss that already carries an answer (the skill offer); the block joins it, in the same budget.
+  const sel = answerbudget.compose([...(lead ? [{ id: 'lead', kind: 'lead', fixed: true, order: 0, forms: [lead] }] : []), part],
+    { sanitize: visible });
+  const text = sel.text;
+  if (!text || !claimTurn(env, text)) return { out: null, book: () => {} };
   const out = { suppressOutput: true, hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: text } };
   const json = JSON.stringify(out);
   // A tie lists N titles (workflowdetect.tieText); otherwise one card or pointer.
@@ -180,9 +208,12 @@ function workflowOnly(root, env = process.env) {
   const shown = tie ? Number(tie[1]) : 1;
   return {
     out,
-    book: () => { if (env.MEM_RH_SESSION) {
-      injection.book(root, booking(env, { reason: null, bytes: Buffer.byteLength(json, 'utf8'), hits: shown, searched: null }));
-    } },
+    book: () => {
+      if (env.MEM_RH_SESSION) {
+        injection.book(root, booking(env, { reason: null, bytes: Buffer.byteLength(json, 'utf8'), hits: shown, searched: null }));
+      }
+      if (cardLost(env, sel)) forgetCard(root, env);
+    },
   };
 }
 
@@ -210,11 +241,13 @@ export function recall(root, hitsJson, env = process.env, { offer = null, attach
   const book = (extra) => booking(env, { questionHits: hits ?? undefined, ...extra });
   const min = num(env.MEM_RH_MIN, RECALL_MIN);
   // The skill offer: one line naming released skills, booked as `skill-offer`.
-  const bookOffer = () => {
+  // `form` 1: only the first line (without the experience account) was delivered.
+  const bookOffer = (form = 0) => {
     if (offer && env.MEM_RH_SESSION) {
+      const line = form === 0 ? offer.line : String(offer.line).split('\n')[0];
       injection.book(root, booking(env, { occasion: injection.OCCASION.SKILL_OFFER, questionText: undefined, reason: null,
-        bytes: Buffer.byteLength(offer.line, 'utf8'), hits: offer.ids.length, searched: null, sources: offer.ids,
-        ...(offer.accountIds?.length ? { ids: [...offer.ids, ...offer.accountIds] } : {}),
+        bytes: Buffer.byteLength(line, 'utf8'), hits: offer.ids.length, searched: null, sources: offer.ids,
+        ...(form === 0 && offer.accountIds?.length ? { ids: [...offer.ids, ...offer.accountIds] } : {}),
         recallPath: undefined, pathReason: undefined }));
     }
   };
@@ -232,12 +265,9 @@ export function recall(root, hitsJson, env = process.env, { offer = null, attach
   // With a skill offer the miss already carries an answer (the offer
   // line): the workflow block joins it instead of replacing it.
   const withWorkflow = (miss) => {
-    const wf = workflowOnly(root, env);
+    const wf = workflowOnly(root, env, { lead: miss.out ? miss.out.hookSpecificOutput.additionalContext : null });
     if (!wf.out) return miss;
-    if (!miss.out) return { out: wf.out, book: () => { miss.book(); wf.book(); } };
-    const both = visible(`${miss.out.hookSpecificOutput.additionalContext}\n\n${wf.out.hookSpecificOutput.additionalContext}`);
-    const out = { suppressOutput: true, hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: both } };
-    return { out, book: () => { miss.book(); wf.book(); } };
+    return { out: wf.out, book: () => { miss.book(); wf.book(); } };
   };
   if (hits === null) return withWorkflow(nothing(injection.REASON.ERROR));
   const shown = shownHits(hits, { env });
@@ -248,17 +278,41 @@ export function recall(root, hitsJson, env = process.env, { offer = null, attach
   // (`attach`, worked out by `recallWith` before this synchronous renderer runs).
   const r = short
     ? levers.coreLines(shown.filter((h) => clears(h, min)), { attach })
-    : renderHits(shown, { min, attach });
+    : renderHits(shown, { min, attach, withUnits: true });
   if (!r.lines.length) {
     return withWorkflow(nothing(hits.length || parseWithheld(hitsJson)
       ? injection.REASON.TOO_WEAK : injection.REASON.EMPTY));
   }
-  const wf = workflowBlock(env);
   // The gate "which clone answered" (src/clonegate.mjs): one line under the header, only when the clone is STALE.
   const cloneLine = (clone === undefined ? clonegate.gate(root, { env }) : clone).line;
-  const text = visible(`${RECALL_HEADER}${short ? levers.H5_HEADER_NOTE : ''}\n${cloneLine ? `${cloneLine}\n` : ''}${r.lines.join('\n')}`
-    + `${offer ? `\n\n${offer.line}` : ''}${wf ? `\n\n${wf}` : ''}`);
+  // ONE final selection under ONE byte budget (src/answerbudget.mjs): header and clone line are in whatever
+  // happens; the hits come in rank order and step down to a pointer, then the skill offer, then the workflow
+  // block (a card steps down to its pointer). A note says what stepped down or fell away.
+  const header = `${RECALL_HEADER}${short ? levers.H5_HEADER_NOTE : ''}`;
+  const units = r.units ?? [];
+  const parts = [{ id: 'header', kind: 'header', fixed: true, order: 0, forms: [header] }];
+  if (cloneLine) parts.push({ id: 'clone', kind: 'clone line', fixed: true, order: 1, sep: '\n', forms: [cloneLine] });
+  units.forEach((u, i) => {
+    const ptr = u.id ? renderPointer(u.hit) : null;
+    parts.push({ id: u.id, kind: 'hit', rank: 10 + i, order: 10 + i, sep: '\n', forms: [u.line, ptr], how: 'mem show <id>', ref: i });
+  });
+  if (offer) {
+    const first = String(offer.line).split('\n')[0];
+    parts.push({ id: 'offer', kind: 'skill hint', rank: 60, order: 100, forms: [offer.line, first], how: 'mem_skill_fetch <name>', ref: 'offer' });
+  }
+  const wfPart = workflowPart(env);
+  if (wfPart) parts.push(wfPart);
+  const sel = answerbudget.compose(parts, { sanitize: visible });
+  const text = sel.text;
   const out = { suppressOutput: true, hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: text } };
+  // What was really delivered: a hit as a full line or as a pointer counts as shown (its id stands in the text);
+  // one that fell away does not.
+  const delivered = sel.chosen.filter((c) => typeof c.ref === 'number').map((c) => ({ u: units[c.ref], form: c.form }));
+  const shownIds = delivered.flatMap(({ u, form }) => [...(u.id ? [u.id] : []), ...(form === 0 && u.attached ? [u.attached] : [])]);
+  const shownSources = delivered.map(({ u }) => u.source);
+  // A workflow card the selection turned into a pointer, or left out, was NOT seen: take its mark back.
+  const wfCardLost = Boolean(wfPart) && cardLost(env, sel);
+  const offerSeen = sel.chosen.find((c) => c.ref === 'offer');
 
   // The claim, over the finished block: session + block. A second
   // registration of the same turn makes a byte-identical block and is
@@ -273,9 +327,10 @@ export function recall(root, hitsJson, env = process.env, { offer = null, attach
     book: () => {
       injection.book(root, book({
         reason: null, bytes: Buffer.byteLength(json, 'utf8'),
-        hits: r.lines.length, searched: null, sources: r.sources, ids: [...r.ids, ...r.attached],
+        hits: delivered.length, searched: null, sources: shownSources, ids: shownIds,
       }));
-      bookOffer();
+      if (offerSeen) bookOffer(offerSeen.form);
+      if (wfCardLost) forgetCard(root, env);
     },
   };
 }
