@@ -48,6 +48,16 @@ are the day the work landed on `main`.
   `.mem/search-index` on cleanup. The recall hook in those scenes starts the detached index rebuild (shown locally: its
   note is written); the file now removes its trees with `removeTree`, which waits for that rebuild.
 
+### Fixed - PowerShell paths read as wildcards, and two places that printed CHEAP_MEM_CODE raw (ps1-pfade-cm; port to lucky-mem: no, it has no PowerShell twins for the first; the other two open)
+
+Review of shim-rest-cm left three findings, each with a red proof against its base `077b7e1`.
+
+1. **`Test-Path`, `Get-Content`, `Remove-Item`, `Set-Location` ... without `-LiteralPath` (defect, the hook path included).** `-Path` reads `[` and `]` as a wildcard class, so a memory folder called `notes [work]` is "not found". The seven installed shims search the memory root with `Test-Path (Join-Path $candidate '.mem\config.json')`: a hit on none of the candidates means the hook says "no memory found" and the session starts without it. The same in the start hook's `FACTS.md` read, in `mem-capture`, `mem-reflect`, `mem-watch` (lock, handler, the job's `Set-Location` and `Out-File`), `mem-digest` and the installer: 40 lines in five scripts, all on `-LiteralPath` now. `New-Item -Path` stays (its own help: wildcards are not accepted; it creates, it never searches). The text ratchet in `test/shim-rest-cm.test.mjs` now reads EVERY line of EVERY shipped `.ps1` (it read only lines that named a helper), with a positive control for every bare shape; its title no longer claims "every twin ... -LiteralPath" for the helper lines only. Red: 80 hits on the base, the real scan red.
+2. **A start hook installed without `cheap-mem-own-tool.sh` printed a raw `CHEAP_MEM_CODE` into the session's context (defect).** The rejection lives in the library (`bin/_owntool.sh`, run when the hook picks its tool); with the library missing next to the hook it was never called, and a line break in the value started a line of its own making in the context (and in the hint lines `$CHEAP_MEM_CODE/bin/mem ...`). `install/hooks/session-start.sh` now carries an inline twin of the rejection. Red: the base hook, run alone with a value holding a line break, prints `INJECTED LINE` as a line of its own seven times; the new one rejects, says so on stderr and in the context.
+3. **The doctor printed the baked code path raw (defect).** `src/integrationcontract.mjs` put the value read out of the shim file into the `SILENT` finding unchanged, and a value with a line break was not even read (`.` does not match it), so such a shim was not judged at all. Now it is read, shown with every control character as `\n`, `\t` or `\xNN`, marked `REJECTED`, and counted as no tool whatever sits at that path (the shims never use it). Red: 3 of 3 new probes red on the base.
+
+Not shown by anything here, since there is no `pwsh` on the build machine: that the PowerShell parser accepts the edited lines and that `-LiteralPath` behaves as read in the help for `Out-File -Append` and `Get-Item`. The Windows CI is the first to run them.
+
 ### Fixed - the state-mark readers took a refused open for "no file" (Windows); hook stdin kept its blanks; the before-edit diagnosis names the mark
 
 - **A refusal is not a gap.** `writeAtomic` replaces a state file by `rename`; on Windows the OPEN of a reader answers
