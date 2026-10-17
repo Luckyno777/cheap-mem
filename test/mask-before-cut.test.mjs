@@ -459,8 +459,8 @@ add({ id: 'B appointment-today.today: duty title (120)', cut: 120,
     await plant(tree, root, 'duty', { title: b.text, owner: 'human', due: '2020-01-01' });
     const at = await imp(tree, 'src/appointment-today.mjs');
     const r = at.today(root, { now: Date.parse('2026-10-13T10:00:00Z') });
-    assert.equal(r.duties?.due?.length, 1, `positive control: the duty is due: ${J(r.duties)}`);
-    return J(r.duties.due);
+    assert.equal(r.duties?.dueList?.length, 1, `positive control: the duty is due: ${J(r.duties)}`);
+    return J(r.duties.dueList);
   } });
 
 add({ id: 'B appointment-today.today: letter subject (100)', cut: 100,

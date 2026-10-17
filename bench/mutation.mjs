@@ -1618,6 +1618,21 @@ export const MUTANTS=[
    from:"  'Bash(*CHEAP_MEM_PROVISION*)',\n",
    to:"  // MUTANT\n",
    tests:['test/own-tool.test.mjs'] },
+ { name:"due-one-place: the pattern has no destructuring branch (`const { due } = d` is not found)",
+   file:"shared/calculations.jsonl",
+   from:"|\\\\{(?:[^{}]*,)?\\\\s*['\\\\\\\"]?(?:due|due_date|until|deadline)['\\\\\\\"]?\\\\s*(?:[:=][^{},]*)?(?:,[^{}]*)?\\\\}\\\\s*(?:=(?![=>])|of\\\\b|\\\\)\\\\s*=>)",
+   to:"",
+   tests:['test/due-core.test.mjs'] },
+ { name:"due-one-place: the pattern has no bracket-access branch (`d[\"due\"]` is not found)",
+   file:"shared/calculations.jsonl",
+   from:"|\\\\[\\\\s*['\\\\\\\"`](?:due|due_date|until|deadline)['\\\\\\\"`]\\\\s*\\\\]",
+   to:"",
+   tests:['test/due-core.test.mjs'] },
+ { name:"due-one-place: the pattern has no `due ?? by` branch (the alias fallback is not found)",
+   file:"shared/calculations.jsonl",
+   from:"|\\\\b(?:due|due_date|until|deadline)\\\\b\\\\s*(?:\\\\?\\\\?|\\\\|\\\\|)\\\\s*(?:\\\\w+\\\\??\\\\.)?by\\\\b",
+   to:"",
+   tests:['test/due-core.test.mjs'] },
 ];
 
 // The modules whose failure is a security or data-integrity failure. The

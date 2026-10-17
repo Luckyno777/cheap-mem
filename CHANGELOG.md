@@ -14,6 +14,14 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Changed - the one-place latch for the due date now sees destructuring, bracket access and the `due ?? by` idiom
+
+`due-one-place` (`shared/calculations.jsonl`, owner `src/due.mjs`) only knew the property read `x.due`. A reader could take the field with `const { due } = d`, `d["due"]` or `d['deadline']` and the latch stayed green. The core had left the destructuring open on purpose, because its own results were called `due` too (`const { due: dueNow } = s`), so a destructuring of a result could not be told from a read of a duty.
+- **The core's results no longer carry the raw field's name.** `situationFromOpen` returns the count of the state as `dueNow` (was `due`) and a row's text as `dueAt` (was `due`); the day list of `appointment-today` is `dueList` (was `due`, the machine form `duties.due` is unchanged). `mem deadlines --json`, `mem_deadlines` and the day list JSON keep the public key `due`: `rowForOutput` gives a row its public name back in the same place.
+- **The pattern has four branches now:** property read (as before), destructuring that is assigned to, iterated or taken as a parameter (`{ due }`, `{ due: x }`, `{ due = null }`, quoted keys), bracket access with a literal name (also a template key) and the alias fallback `due ?? x.by`. An object literal `{ due: x }` is no read. A bare `.by` is not searched: it is the author field of claims, appointments and deletions; the only duty reader of `by` is the core.
+- **Two new `except` entries, each with its reason in the `why`:** `src/questiontext.mjs` (an options parameter `{ since, until }`, a time window) and `src/today.mjs` (renders the rows of the deadline and decision parts, whose public key is `due`; it reads no duty).
+- Proofs: `test/due-core.test.mjs` is red on the base in four places (the result names, the day list, the positive control with readers e to k, the line-by-line pattern probe). `bench/mutation.mjs`: three new mutants on `shared/calculations.jsonl` (no destructuring branch, no bracket branch, no `due ?? by` branch), 3/3 caught. Parity: the sibling house has the same gap (`frist-zustand` knows only `.frist`) and its rows are called `frist`; that port is open.
+
 ### Security - unattended model sessions no longer read a project's settings or `.mcp.json` (digest, mail handler, reflector)
 
 Without `--bare`, `claude -p` runs the hooks of the `.claude/settings.json` of its working directory and connects the servers of its `.mcp.json`, in a folder nobody trusted and with no dialog
