@@ -47,6 +47,36 @@ are the day the work landed on `main`.
   budget, anything else fails; the codes seen are in every message. D drives the classification on all three
   platforms. Not reproduced here: which code the 738 were, the next Windows run names.
 
+### Tests - the heap-cap probes measured: every one has a wide window (heap-margin-cm; counterpart of the sibling's heap-marge fix, Parity lm=yes)
+
+The sibling's `dash-tempo2-lm` memory probe had ~1 MB between "the bounded path fits" and "the unbounded path does not" and failed 7 of 40 runs under load. The five equal-shaped probes here were measured
+the same way (Node 22.22, 4 cores at load 8-10; the smallest heap at which a side runs, bracketed with 10 runs four at a time): none is tight, so no world size or cap changed.
+- `atlas-pass-cm` (cap 48 MB, 80 000 rows): the pass runs from ~20 MB, holding every entry from ~68 MB (air ~28 below, ~18 above). `find-stream` (cap 48 MiB): new from ~12, old from ~140 (~36 / ~90).
+  `startblock-slim` (cap 48 MiB): new from ~20, old from ~88 (~28 / ~40). `net-derive-bounded-cm` (cap 128 MiB): new from ~32, old from ~416 (~96 / ~270).
+  `doctor-bounded` (cap 128 MiB): new from ~88, old and the lifted-guard run only at 1024 (~40 / more than 500).
+- At the cap itself every side was 40 of 40 on the right side four at a time (and 10 of 10 single). The numbers now stand as a comment at each probe; no product code and no assertion changed.
+### Fixed - `mem doctor --alarm` sees a tearing that `mem doctor --full` measured (alarm-tearing-cm; cheap-mem only)
+
+Since cli-speed-cm TB7 the session-start banner (`mem doctor --alarm`, no `--full`) leaves out the concurrent-append probe and sees only the
+filesystem-name list, so a mount on which `--full` had MEASURED torn lines raised no alarm any more. `mem doctor --full` (and `--strict`) now keeps
+the verdict of a finished measurement in `.pipeline/append-atomicity.json` (ok/torn, time, device, filesystem name, node version, writers, lines;
+temp file and rename; `.pipeline/` is already git-ignored as a whole, so no new rule). A run without `--full` reads it back and measures nothing:
+a **torn** verdict on the same device is `env/append-atomicity` at level ERROR with the time of the measurement and "`mem doctor --full` measures anew",
+so `--alarm` prints it and exits non-zero; a clean verdict stays UNKNOWN (naming the time; a measurement can only falsify, so never `ok` from a record);
+a record from another device or another named filesystem (the memory moved) is not used and says so; a missing record changes nothing; an empty or damaged
+one (not JSON, wrong shape, directory in its place) is its own note and never a throw. The file can be edited by anybody who can write the clone, so only
+validated fields are read, the time is re-formatted from the parsed number and the filesystem name shown is the live one. A measurement that did not
+finish (writers timed out) leaves the earlier record alone. No new environment variable.
+Who writes the record: every caller that measures, not only the `mem doctor --full` command. The dashboard (`src/dashboard-data.mjs`) and the weekly
+instrument trace (`src/measurements.mjs`) call `doctor.checkAll(root)`, whose library default is `full: true`, so they leave it too. Who removes a torn
+verdict: only a later clean measurement (`--full`, `--strict`, or one of those two callers) replaces it, and that is the only way out; a short clean run
+shows that no tearing happened, not that none can, so a torn entry is not aged out and a clean record never alarms. The record is only read within a bound: it must
+be a plain file of at most 4096 bytes (it is about 250), checked with `stat` before it is opened and again on the bounded read; a device behind a symlink
+(a symlink to `/dev/zero` ran into `bad_alloc` under a memory limit in review), a pipe, a directory or an oversize file is not read and gets its own note
+("is not a plain file of at most 4096 bytes and was not read"), level UNKNOWN. Tested with an oversize file and a symlink to a large file in the scratch, never to a device.
+Time: `mem doctor --alarm` adds one `stat` and the read of a file of about 200 bytes; `mem doctor --alarm` on a scratch memory, 40 fresh processes each, interleaved, wall time on a loaded host (load 11 to 18): median 425 -> 437 ms and 448 -> 441 ms in two runs, i.e. no measurable difference (the probe itself, 167 to 445 ms, stays behind `--full`). `test/alarm-tearing.test.mjs` (torn record alarms and starts no probe, clean record stays
+unknown, other device and other filesystem not used, six damaged shapes, the record written by `--full` and atomically, the loop torn -> alarm -> clean measurement -> no alarm, a git tree
+stays clean) and nine mutants in `bench/mutation.mjs` hold it.
 ### Changed - search: the parts of an identifier with an underscore in a question are searched, while the index does not hold the whole word (k1-subword-cm; port of lucky-mem `k1-teilwort-lm`, merge eea4d4f8d)
 
 K1 (below, abruf-stamm-cm) searches `socket_closed_by_peer` as ONE word because the index holds `a_b` as one term, and named its price: the entry "the peer closed the socket" was no longer found by the after-failure hook's question. Now `search()` adds the parts (`socket`, `closed`, `peer`; parts of three letters or more, no filler) next to the whole word: **weight 0.6 if the index holds the whole word NOWHERE, 0 (none) if it does** (`session_id` must not pull in every `session` entry: that was K1). The whole word keeps 1.0; the parts never outweigh a typed word and are searched per language pack with MAX, like the typed forms; a word covered only through its parts counts HALF in the coordination factor and in the answer gate's `covered` (like a bridged word); a part that is also typed is not counted twice. A part that two identifiers of the question share counts once (the highest weight per distinct part, like the typed terms; two unknown identifiers with one common part scored 11.54 against 8.77 for one before this was fixed). "Holds" means the raw document frequency (`index.docFreq`): discarded or superseded entries and raw captures count as holding the word, as in the sibling house. The hyphen is untouched (the question already types the whole and the parts). Both doors go through `search()`, so `mem find`, `mem_find`, the hook calls (`--content-words`, `--recall`) and the H1 split all see it. The constants stay inside `src/search.mjs` (not exported; no environment variable). Docs: `docs/architecture.md`, "Identifiers with an underscore in a question".
