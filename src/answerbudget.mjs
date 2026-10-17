@@ -58,6 +58,10 @@ const bytes = (s) => Buffer.byteLength(String(s ?? ''), 'utf8');
  *   fixed  always included (first form)
  *   keep   never falls away: at the least its LAST form (its pointer) is in, whatever else gives way; it is upgraded to a
  *          better form in rank order when there is room (a procedure: a human's rule is never silently missing)
+ *   holdBack  bytes the parts allocated AFTER this one must still find: a form better than the part's last one (its
+ *          pointer) is taken only if that much stays free (the pointer and a part's only form are not held back). It lets a
+ *          part with a pointer give way BEFORE a later elastic part is cut (the subagent start: the workflow card steps down
+ *          to its pointer first, and only then is the recap shortened)
  *   sep    what stands between this part and the one before it (default: `join`)
  *   how    how to fetch what is missing ("mem show <id>"), named in the note
  *   ref    anything the caller wants back in `chosen` / `pointers` / `omitted` (an index, the entry)
@@ -100,10 +104,10 @@ export function compose(parts, { budget = ANSWER_BYTES, join = '\n\n', sanitize 
     for (const p of rest) {
       const without = new Map(picked);
       without.delete(p);
-      const tryWith = (form, text) => {
+      const tryWith = (form, text, held = 0) => {
         const trial = new Map(without);
         trial.set(p, { form, text });
-        return measure(trial) <= limit ? trial : null;
+        return measure(trial) <= limit - held ? trial : null;
       };
       if (typeof p.fill === 'function') {
         // Room for the text: what is left, less the longest separator this part could bring.
@@ -115,8 +119,10 @@ export function compose(parts, { budget = ANSWER_BYTES, join = '\n\n', sanitize 
       }
       // A `keep` part only looks for a better form than its pointer; any other part may also fall away.
       const upto = p.keep ? p.forms.length - 1 : p.forms.length;
+      const hold = Number.isFinite(p.holdBack) && p.holdBack > 0 ? p.holdBack : 0;
       for (let f = 0; f < upto; f += 1) {
-        const trial = tryWith(f, p.forms[f]);
+        // A form better than the last one is taken only if `holdBack` bytes stay free for the parts that follow.
+        const trial = tryWith(f, p.forms[f], f < p.forms.length - 1 ? hold : 0);
         if (trial) { picked.set(p, trial.get(p)); break; }
       }
     }
