@@ -1252,7 +1252,7 @@ export const MUTANTS=[
    from:"const note = o.rank === 'user' ? '' : ",
    to:"const note = o.rank === 'user' || b.name === 'user' ? '' : ",
    tests:['test/card-byline-ui-cm-browser.test.mjs'] },
- { name:'K1the question query cuts an identifier at the underscore again',
+ { name:'K1 the question query cuts an identifier at the underscore again',
    file:'src/search.mjs',
    from:"    .split(/[^a-z0-9_\\u00e4\\u00f6\\u00fc\\u00df]+/)",
    to:"    .split(/[^a-z0-9\\u00e4\\u00f6\\u00fc\\u00df]+/)  // MUTANT: `a_b` falls apart again",
