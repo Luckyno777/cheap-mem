@@ -29,6 +29,13 @@ The script read two switches (`--security`, `--only=`) and ignored every other w
 - **Guard:** `test/mutation-cli.test.mjs` never runs the script in the repository. It builds a sandbox in the OS temp directory (a copy of the script, the source files the catalogue mutates, a passing stand-in for each suite it names), so a script that ignored the argument would really start mutating, but only there, and a 5 s timeout ends it. It checks exit codes, usage text, run time and a checksum of the sandbox before and after, plus a positive control (`--only=` with an unknown path is not refused). Red on the previous script: `--help`, `-h`, `--security --help` and the unknown arguments all run into the timeout (the sweep had started); green: the four tests take about 4 s together.
 - **No mutant for this:** the script cannot mutate itself in a way the sweep can anchor, because every anchor string it would need also appears in its own catalogue (the `from:` text), which makes the anchor ambiguous.
 
+### Changed - the dashboard's card origin line names the author with name AND rank, in the words of `mem today`
+
+The origin line of a decision card ("Written by X · tier Y") now reads the card's `byline` (`src/decisioncard.mjs`) and says a rank the line does not carry the way `authority.rankWord` does:
+`tier unknown (missing)`, `tier unknown (empty)` or `tier unknown (broken)` instead of one bare `tier unknown` for all three. The hint "Written by an agent, not checked by you" still goes by the
+rank alone: the configured human's name at tier agent keeps it, a card of rank `user` carries none (`origin.by_human` implies rank `user`, so the old `rank === 'user' || by_human` was the rank check).
+`test/card-byline-ui-cm-browser.test.mjs` (real Chromium, 390 px light and dark): red on `9a10bf6`; three mutants in `bench/mutation.mjs`.
+
 ### Fixed - `-h` after a yes/no switch is a help request, not the switch's value (help-after-bool-cm)
 
 The parser reads `--key next` as "key is next" unless next starts with `--`, and it did not know which names are switches. So `-h` right after one (`mem init --force -h`, `mem serve --readonly -h`,
