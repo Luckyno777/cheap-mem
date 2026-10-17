@@ -44,6 +44,8 @@ finding is fixed.
 - Tests: `test/atlas-counters-probe.test.mjs`, `test/atlas-digest-probe.test.mjs`, `test/atlas-cost-probe.test.mjs` + `-logic`, `test/atlas-dashboard-probe.test.mjs`
   + `-logic`, `test/atlas-net-tempo-probe.test.mjs` (browser half, skipped as a whole where there is no Chromium: the four rows then say `not-measured`)
   + `-logic` (judge on doctored results, the page-side counter in a vm). 21 mutants in `bench/mutation.mjs` ("ATLAS-..."), none of which needs a browser.
+- `test/serve-token-refuse-cm.test.mjs`: `bench/atlas/serve-world.mjs` is a named exemption of the listener inventory, like `bench/board-tempo.mjs` (it binds `127.0.0.1:0` for an
+  instant to find a free port and serves nothing; the server it starts is `bin/mem-serve` itself, loopback-only). The tor found it on the first run.
 - `docs/benchmark-atlas.md`: the section on the four phases (what is counted, threshold and why, blind spot, red proof, findings). Against the base commit
   of this change each of the four ids is one `not-measured` stub row.
 
