@@ -14,6 +14,12 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Fixed - CI run 1238 (Windows): an empty counter file was read as "0 lines", and a test made a directory name Windows refuses (ci-1238-cm; bench and tests only, no `src/` or `bin/`)
+
+- `bench/atlas/serve-world.mjs` makes the counter file empty before the server starts, so a server that was ended without its exit hook (Windows kills a child outright on a signal) left `[]`, not `null`; the dashboard phase then counted "0 counter rows" and recorded `fail` (build-reads, desk) instead of `not-measured`. An empty file now reads as `null` (`rowsOrNull`, also in `sumReads`): the four server rows say `not-measured` with the reason, never fail on 0 and never pass. The server is also ended with an IPC `stop` message first (SIGTERM stays the fallback), which runs the exit hook on Windows as well. `test/atlas-dashboard-probe.test.mjs`: POSIX still demands `pass`; win32 accepts either `pass` or `not-measured` with that reason; a new test pins that no rows is `null`.
+- `test/integration-contract.test.mjs`: "a rejected code path is silent even when a tool sits at that very path" built a directory with a TAB in its name, which Windows refuses (every character below 0x20). It now runs per character: POSIX TAB and DEL, win32 DEL (0x7f, a legal name character that the rule rejects too), each with a positive control that the tool really sits at the path.
+- Not changed, diagnosed: `test/before-edit-golden.test.mjs` "a broken log" (node 22 on Windows only, 22.5 s against 8.8 s on node 20): the new hook's whole-run cap (`capped 8` in `bin/mem-before-edit`) fired after the mark was written and the output printed, which books `search-failed` (the trace differs, the answer does not). The node 22 job ran about 2.5 times slower than node 20 throughout; no code was changed for it, the next CI shows whether it recurs.
+
 ### Added - the four named atlas phases are built: `dashboard`, `cost`, `digest`, `net-tempo`, and the counters behind them (atlas-neue-phasen-cm)
 
 Plan step 3 (T3, part 2). The stubs of the atlas frame become measuring phases; the sister house's ids are kept. Every phase leads with a count

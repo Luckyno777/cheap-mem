@@ -221,21 +221,28 @@ for (const ps of [false, true]) {
   });
 }
 
-test('doctor: a rejected code path is silent even when a tool sits at that very path (the shims never use it)', () => {
-  const dir = temp();
-  const bad = path.join(dir, 'code\tdir');
-  fs.mkdirSync(path.join(bad, 'bin'), { recursive: true });
-  fs.writeFileSync(path.join(bad, 'bin', 'mem'), '# tool\n');
-  const r = c.judge({ codeRoot: REPO, settingsPaths: [shimWithCode(temp(), bad)] });
-  assert.equal(r.level, 'error', r.text);
-  assert.match(r.text, /REJECTED/);
-  // And the same path without the control character is a tool: the verdict is not "error" for the silent reason.
-  const fine = path.join(dir, 'code-dir');
-  fs.mkdirSync(path.join(fine, 'bin'), { recursive: true });
-  fs.writeFileSync(path.join(fine, 'bin', 'mem'), '# tool\n');
-  const ok = c.judge({ codeRoot: REPO, settingsPaths: [shimWithCode(temp(), fine)] });
-  assert.doesNotMatch(ok.text, /SILENT/, ok.text);
-});
+// The rule rejects control characters; the tool has to SIT at the rejected path, so the path must be creatable. A TAB is
+// not a legal file name character on Windows (every character below 0x20 is refused there: ENOENT), DEL (0x7f) is, and the
+// rule rejects it too. POSIX runs both.
+const REJECTED_NAME_CHARS = process.platform === 'win32' ? ['\x7f'] : ['\t', '\x7f'];
+for (const ch of REJECTED_NAME_CHARS) {
+  test(`doctor: a rejected code path (U+${ch.charCodeAt(0).toString(16).padStart(4, "0")}) is silent even when a tool sits at that very path (the shims never use it)`, () => {
+    const dir = temp();
+    const bad = path.join(dir, `code${ch}dir`);
+    fs.mkdirSync(path.join(bad, 'bin'), { recursive: true });
+    fs.writeFileSync(path.join(bad, 'bin', 'mem'), '# tool\n');
+    assert.ok(fs.existsSync(path.join(bad, 'bin', 'mem')), 'positive control: the tool really sits at the rejected path');
+    const r = c.judge({ codeRoot: REPO, settingsPaths: [shimWithCode(temp(), bad)] });
+    assert.equal(r.level, 'error', r.text);
+    assert.match(r.text, /REJECTED/);
+    // And the same path without the control character is a tool: the verdict is not "error" for the silent reason.
+    const fine = path.join(dir, 'code-dir');
+    fs.mkdirSync(path.join(fine, 'bin'), { recursive: true });
+    fs.writeFileSync(path.join(fine, 'bin', 'mem'), '# tool\n');
+    const ok = c.judge({ codeRoot: REPO, settingsPaths: [shimWithCode(temp(), fine)] });
+    assert.doesNotMatch(ok.text, /SILENT/, ok.text);
+  });
+}
 
 // --- the map: same numbers in both languages -------------------------------
 

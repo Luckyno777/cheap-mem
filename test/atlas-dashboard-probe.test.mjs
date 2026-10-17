@@ -27,7 +27,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { Atlas, VERDICT } from '../bench/atlas/core.mjs';
 import * as phase from '../bench/atlas/phase-dashboard.mjs';
-import { startBrowser } from '../bench/atlas/serve-world.mjs';
+import { startBrowser, sumReads, rowsOrNull } from '../bench/atlas/serve-world.mjs';
 import { takeLock } from './fixture/browser.mjs';
 
 const VERDICTS = Object.values(VERDICT);
@@ -43,6 +43,11 @@ const runOnce = () => (cached ??= (async () => {
   await phase.run(atlas, { quick: true });
   return atlas;
 })());
+// A platform that ends the server child without its exit hook leaves the counter file empty: the four server rows then read
+// not-measured with that reason (never fail on 0, never pass). Only win32 may do so; POSIX must measure.
+const NO_COUNTER = /0 counter rows/;
+const unmeasured = (r) => r.verdict === VERDICT.NOT_MEASURED && NO_COUNTER.test(r.evidence);
+const mayBeUnmeasured = process.platform === 'win32';
 const records = (atlas) => atlas.phases.find((p) => p.id === 'dashboard').records;
 
 test('the phase records its five rows, each with the four fields, and names what it cannot see', async () => {
@@ -59,6 +64,10 @@ test('the phase records its five rows, each with the four fields, and names what
 
 test('the server rows: a build reads each line a bounded number of times, a warm load reads none, one new entry costs a rebuild', async () => {
   const by = Object.fromEntries(records(await runOnce()).map((r) => [r.id, r]));
+  if (mayBeUnmeasured && unmeasured(by['dashboard.build-reads'])) {
+    for (const id of ['dashboard.build-reads', 'dashboard.warm-load', 'dashboard.write-rebuild', 'dashboard.desk']) assert.ok(unmeasured(by[id]), `${id}: ${by[id].verdict} ${by[id].evidence}`);
+    return;
+  }
   for (const id of ['dashboard.build-reads', 'dashboard.warm-load', 'dashboard.write-rebuild']) assert.equal(by[id].verdict, VERDICT.PASS, `${id}: ${by[id].actual}`);
   const b = by['dashboard.build-reads'].measured;
   assert.ok(b.lines > 0, 'positive control: the counter saw the build');
@@ -72,6 +81,7 @@ test('the server rows: a build reads each line a bounded number of times, a warm
 
 test('FINDING (pinned): /desk.json rebuilds on every call — the second call reads as much as the first', async () => {
   const r = records(await runOnce()).find((x) => x.id === 'dashboard.desk');
+  if (mayBeUnmeasured && unmeasured(r)) return;
   assert.equal(r.verdict, VERDICT.FAIL, `fixed? then change this pin: ${r.actual}`);
   assert.ok(r.measured.first > 0, 'positive control: the first call read lines');
   assert.ok(r.measured.share >= 0.95 && r.measured.share <= 1.05, `share ${r.measured.share}`);
@@ -106,4 +116,13 @@ test('requests: with Chromium the home view asks appointments.json twice (pinned
   assert.deepEqual(views['#knowledge/entries'].duplicates, []);
   assert.deepEqual(views['#home'].failed, []);
   assert.ok(views['#home'].total >= 10 && views['#knowledge/entries'].total >= 10, 'positive control: the page was watched');
+});
+
+test('a counter file that stayed empty is not a zero: no rows reads as null, never as 0 lines', () => {
+  assert.equal(rowsOrNull([]), null);
+  assert.equal(rowsOrNull(null), null);
+  assert.equal(sumReads([]), null, 'the pre-made empty file of a server that was killed outright');
+  assert.deepEqual(sumReads([{ linesRead: 3, corpusBytesRead: 9 }]), {
+    lines: 3, corpusBytes: 9, otherBytes: 0, rows: 1,
+  });
 });
