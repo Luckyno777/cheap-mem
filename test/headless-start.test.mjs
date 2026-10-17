@@ -100,7 +100,7 @@ function hostileMemory(s, name = 'memory') {
   return { root, canary, canaryMcp };
 }
 
-// `.native`: on Windows the JS realpath keeps an 8.3 short name (C:\\Users\\RUNNER~1, the CI temp dir) while a started
+// `.native`: on Windows the JS realpath keeps an 8.3 short name (RUNNER~1 in the CI temp dir) while a started
 // process reports its directory in the long form (runneradmin) - two spellings of one place (CI run 1103).
 const real = (p) => fs.realpathSync.native(p);
 const inside = (child, parent) => { const r = path.relative(real(parent), real(child)); /* rel-ok: containment only, compared with '..' */ return r === '' || (!r.startsWith('..') && !path.isAbsolute(r)); };

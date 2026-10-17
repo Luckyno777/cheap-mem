@@ -48,7 +48,7 @@ process.on('exit', () => { for (const d of made) removeTree(d); });
 const temp = (p) => { const d = fs.mkdtempSync(path.join(os.tmpdir(), p)); made.push(d); return d; };
 const read = (f) => fs.readFileSync(path.join(REPO, f), 'utf8');
 // The spelling the installer writes into the rules: it resolves the memory with `pwd -W` under Git Bash, which gives
-// the LONG form of an 8.3 name (the CI temp dir is C:\Users\RUNNER~1, the rules say runneradmin; CI run 1103).
+// the LONG form of an 8.3 name (the CI temp dir holds RUNNER~1, the rules say runneradmin; CI run 1103).
 // Elsewhere `pwd` keeps the path as given, so it is compared as given.
 const spelled = (p) => (WIN ? fs.realpathSync.native(p) : p).replace(/\\/g, '/');
 

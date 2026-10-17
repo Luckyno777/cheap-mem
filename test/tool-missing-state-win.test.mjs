@@ -2,7 +2,7 @@
 // to XDG_STATE_HOME also when Git Bash hands that variable on in its Windows spelling (CI run 1103, Windows).
 //
 // **The finding.** MSYS2 converts only PATH, HOME and the temp variables to the POSIX form; XDG_STATE_HOME arrives as
-// `C:\Users\...\state`. The script took only a value starting with `/` as absolute, so on Windows the user's setting was
+// `<drive>:\...\state`. The script took only a value starting with `/` as absolute, so on Windows the user's setting was
 // passed over and the marker went to ~/.local/state ("tool-missing: a symlink in the memory ...", red on Windows with
 // ENOENT on <home>/state/cheap-mem). Elsewhere `C:/x` is a relative path and stays refused.
 //
@@ -33,8 +33,8 @@ function run(unameSays) {
   if (unameSays) fs.writeFileSync(path.join(shims, 'uname'), `#!/usr/bin/env bash\necho ${unameSays}\n`, { mode: 0o755 });
   const home = path.join(dir, 'home');
   fs.mkdirSync(home);
-  const xdgValue = WIN ? path.join(dir, 'state') : 'C:\\Users\\u\\state';
-  const xdgDir = WIN ? path.join(dir, 'state', 'cheap-mem') : path.join(dir, 'C:', 'Users', 'u', 'state', 'cheap-mem');
+  const xdgValue = WIN ? path.join(dir, 'state') : 'C:\\cm\\state';
+  const xdgDir = WIN ? path.join(dir, 'state', 'cheap-mem') : path.join(dir, 'C:', 'cm', 'state', 'cheap-mem');
   const r = spawnSync('bash', [SCRIPT, 'user-prompt', 'mem-retrieve'], {
     cwd: dir, encoding: 'utf8',
     env: { ...(WIN ? process.env : {}), PATH: `${shims}${path.delimiter}${process.env.PATH}`, HOME: home, CHEAP_MEM_ROOT: path.join(dir, 'mem'),

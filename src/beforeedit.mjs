@@ -192,7 +192,10 @@ async function runPlain({ input, root, marks, startMs, top = 3, ascii = false, t
       // What arrived, by size and shape, never by content: the Windows PowerShell 5.1 twin answered with nothing in CI
       // (runs 1066-1103) and the bare exit name could not say whether its stdin was empty or mangled on the way.
       const size = Buffer.byteLength(String(input ?? ''), 'utf8');
-      exitAt(`no-readable-path${isBash ? ' (bash: no written file)' : ` (input ${size} bytes${size ? `, ${why}` : ''})`}`);
+      // Only in the twin's ASCII mode (bin/mem-before-edit.ps1): the bash hook's trace stays byte for byte the v1 one
+      // (test/before-edit-golden.test.mjs).
+      const detail = ascii && !isBash ? ` (input ${size} bytes${size ? `, ${why}` : ''})` : '';
+      exitAt(`no-readable-path${isBash ? ' (bash: no written file)' : ''}${detail}`);
       return { stdout: '' };
     }
     target = reading;
