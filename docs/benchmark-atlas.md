@@ -531,9 +531,9 @@ topic and project and tab changes (also rebuilds), the size, and the picture
 (`test/atlas-net-cm.test.mjs`).
 
 **`cost`.** What one call costs. `cli-start` (TB4): a CLI start is one process and
-loads at most one command group (`--help` none), and loads at most 111 modules for
-`version` (101 measured), 71 for `--help` (61), 102 for `find` (92); a whole group
-is about 30 modules, so the headroom of 10 is below a regression. `hook.*` (TB5 and
+loads at most one command group (`--help` none), and loads at most this many
+modules (file count): `version` 111 (101 measured), `--help` 71 (61), `find` 102 (92); a whole
+command group is about thirty files, so the headroom of 10 is below a regression. `hook.*` (TB5 and
 the other five hooks): node processes started per hook call, on the second call
 (the component table built), the labelled rebuild child not counted: `before-edit`
 1, `subagent-start` 1, `retrieve` 4, `catch-fail` 4, `after-failure` 5, `stop` 5.
