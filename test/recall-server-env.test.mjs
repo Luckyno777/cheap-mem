@@ -161,7 +161,9 @@ test('an older client (no environment in the request) is still answered, as befo
 });
 
 test('the allowlist is the set of switches the find handler reads from the environment', () => {
-  const src = fs.readFileSync(path.join(CODE, 'src', 'cli', 'commands', 'search.mjs'), 'utf8');
+  // The ranked lane of `find` moved into src/findcore.mjs (abruf-budget: the MCP tool calls the same function), so the
+  // switches it reads from the caller's environment stand there now; the handler's own file is read as before.
+  const src = ['cli/commands/search.mjs', 'findcore.mjs'].map((f) => fs.readFileSync(path.join(CODE, 'src', ...f.split('/')), 'utf8')).join('\n');
   // Every env switch the find handler consults is either forwarded or shapes the index (refused when different).
   const read = new Set([...src.matchAll(/(requestFrameOn|tieSpread|levers\.active)\(([^)]*)\)/g)].map((m) => m[1]));
   assert.ok(read.has('requestFrameOn') && read.has('tieSpread') && read.has('levers.active'), 'the reader found no switch read - the probe is blind');

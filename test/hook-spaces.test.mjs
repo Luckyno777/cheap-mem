@@ -70,7 +70,13 @@ function find(snippet, env) {
     Object.assign(base, process.env);
     for (const k of Object.keys(base)) if (UNDER_TEST.includes(k.toUpperCase())) delete base[k];
   }
-  const r = spawnSync('bash', ['-c', script], { encoding: 'utf8', env: { ...base, ...env } });
+  const given = { ...env };
+  // Windows (CI run 1103): HOME and USERPROFILE name the same home on every Windows machine, and the hook gets them in
+  // the Windows spelling - exactly what the END TO END probe below hands over, and that one finds the memory from the
+  // same HOME. With HOME alone, in slashes, next to the runner's own USERPROFILE, these lookups found nothing (red
+  // since run 1066) - a world no hook runs in, not the finding this probe is about.
+  if (WIN && given.HOME && !given.HOME.startsWith('/')) given.HOME = given.USERPROFILE = path.win32.normalize(given.HOME);
+  const r = spawnSync('bash', ['-c', script], { encoding: 'utf8', env: { ...base, ...given } });
   assert.equal(r.status, 0, `${r.stderr}\n--- script ---\n${script}`);
   return r.stdout;
 }

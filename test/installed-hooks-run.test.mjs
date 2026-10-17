@@ -445,13 +445,15 @@ test('windows.ps1: the installed .ps1 hooks, started bare, deliver (win32 with p
   const failures = [];
   for (const name of NAMES) {
     const file = path.join(home, '.claude', 'hooks', `cheap-mem-${name}.ps1`);
+    // MEM_BEFORE_EDIT_TRACE: the before-edit lane names where it stopped on stderr (stdout, the contract, is untouched);
+    // runs 1066-1103 said only "ZERO bytes" here, and stderr was never shown.
     const r = spawnSync(POWERSHELL, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', file], {
-      input: JSON.stringify(input[name]), encoding: 'utf8', timeout: 120000, env: bareEnv(home),
+      input: JSON.stringify(input[name]), encoding: 'utf8', timeout: 120000, env: bareEnv(home, { MEM_BEFORE_EDIT_TRACE: '1' }),
     });
     try {
       assert.equal(r.status, 0, `${name}: rc ${r.status}\n${r.stderr}`);
       EXPECT[name](r, root);
-    } catch (e) { failures.push(`[${name}] ${e.message}`); }
+    } catch (e) { failures.push(`[${name}] ${e.message}\n  stderr: ${String(r.stderr || '').trim().slice(-600) || '(none)'}`); }
   }
   assert.equal(failures.length, 0, failures.join('\n---\n'));
 });

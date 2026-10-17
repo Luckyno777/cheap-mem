@@ -14,6 +14,141 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Changed - the one-place latch for the due date now sees destructuring, bracket access and the `due ?? by` idiom
+
+`due-one-place` (`shared/calculations.jsonl`, owner `src/due.mjs`) only knew the property read `x.due`. A reader could take the field with `const { due } = d`, `d["due"]` or `d['deadline']` and the latch stayed green. The core had left the destructuring open on purpose, because its own results were called `due` too (`const { due: dueNow } = s`), so a destructuring of a result could not be told from a read of a duty.
+- **The core's results no longer carry the raw field's name.** `situationFromOpen` returns the count of the state as `dueNow` (was `due`) and a row's text as `dueAt` (was `due`); the day list of `appointment-today` is `dueList` (was `due`, the machine form `duties.due` is unchanged). `mem deadlines --json`, `mem_deadlines` and the day list JSON keep the public key `due`: `rowForOutput` gives a row its public name back in the same place.
+- **The pattern has four branches now:** property read (as before), destructuring that is assigned to, iterated or taken as the single destructured parameter of an arrow (`{ due }`, `{ due: x }`, `{ due = null }`, quoted keys), bracket access with a literal name (also a template key) and the alias fallback `due ?? x.by`. An object literal `{ due: x }` is no read. A bare `.by` is not searched: it is the author field of claims, appointments and deletions; the only duty reader of `by` is the core.
+- **Two new `except` entries, each with its reason in the `why`:** `src/questiontext.mjs` (an options parameter `{ since, until }`, a time window) and `src/today.mjs` (renders the rows of the deadline and decision parts, whose public key is `due`; it reads no duty).
+- Proofs: `test/due-core.test.mjs` is red on the base in four places (the result names, the day list, the positive control with readers e to k, the line-by-line pattern probe). `bench/mutation.mjs`: three new mutants on `shared/calculations.jsonl` (no destructuring branch, no bracket branch, no `due ?? by` branch), 3/3 caught. Parity: the sibling house has the same gap (`frist-zustand` knows only `.frist`) and its rows are called `frist`; that port is open.
+### Tests - the heap-cap probes measured: every one has a wide window (heap-margin-cm; counterpart of the sibling's heap-marge fix, Parity lm=yes)
+
+The sibling's `dash-tempo2-lm` memory probe had ~1 MB between "the bounded path fits" and "the unbounded path does not" and failed 7 of 40 runs under load. The five equal-shaped probes here were measured
+the same way (Node 22.22, 4 cores at load 8-10; the smallest heap at which a side runs, bracketed with 10 runs four at a time): none is tight, so no world size or cap changed.
+- `atlas-pass-cm` (cap 48 MB, 80 000 rows): the pass runs from ~20 MB, holding every entry from ~68 MB (air ~28 below, ~18 above). `find-stream` (cap 48 MiB): new from ~12, old from ~140 (~36 / ~90).
+  `startblock-slim` (cap 48 MiB): new from ~20, old from ~88 (~28 / ~40). `net-derive-bounded-cm` (cap 128 MiB): new from ~32, old from ~416 (~96 / ~270).
+  `doctor-bounded` (cap 128 MiB): new from ~88, old and the lifted-guard run only at 1024 (~40 / more than 500).
+- At the cap itself every side was 40 of 40 on the right side four at a time (and 10 of 10 single). The numbers now stand as a comment at each probe; no product code and no assertion changed.
+### Fixed - `mem doctor --alarm` sees a tearing that `mem doctor --full` measured (alarm-tearing-cm; cheap-mem only)
+
+Since cli-speed-cm TB7 the session-start banner (`mem doctor --alarm`, no `--full`) leaves out the concurrent-append probe and sees only the
+filesystem-name list, so a mount on which `--full` had MEASURED torn lines raised no alarm any more. `mem doctor --full` (and `--strict`) now keeps
+the verdict of a finished measurement in `.pipeline/append-atomicity.json` (ok/torn, time, device, filesystem name, node version, writers, lines;
+temp file and rename; `.pipeline/` is already git-ignored as a whole, so no new rule). A run without `--full` reads it back and measures nothing:
+a **torn** verdict on the same device is `env/append-atomicity` at level ERROR with the time of the measurement and "`mem doctor --full` measures anew",
+so `--alarm` prints it and exits non-zero; a clean verdict stays UNKNOWN (naming the time; a measurement can only falsify, so never `ok` from a record);
+a record from another device or another named filesystem (the memory moved) is not used and says so; a missing record changes nothing; an empty or damaged
+one (not JSON, wrong shape, directory in its place) is its own note and never a throw. The file can be edited by anybody who can write the clone, so only
+validated fields are read, the time is re-formatted from the parsed number and the filesystem name shown is the live one. A measurement that did not
+finish (writers timed out) leaves the earlier record alone. No new environment variable.
+Who writes the record: every caller that measures, not only the `mem doctor --full` command. The dashboard (`src/dashboard-data.mjs`) and the weekly
+instrument trace (`src/measurements.mjs`) call `doctor.checkAll(root)`, whose library default is `full: true`, so they leave it too. Who removes a torn
+verdict: only a later clean measurement (`--full`, `--strict`, or one of those two callers) replaces it, and that is the only way out; a short clean run
+shows that no tearing happened, not that none can, so a torn entry is not aged out and a clean record never alarms. The record is only read within a bound: it must
+be a plain file of at most 4096 bytes (it is about 250), checked with `stat` before it is opened and again on the bounded read; a device behind a symlink
+(a symlink to `/dev/zero` ran into `bad_alloc` under a memory limit in review), a pipe, a directory or an oversize file is not read and gets its own note
+("is not a plain file of at most 4096 bytes and was not read"), level UNKNOWN. Tested with an oversize file and a symlink to a large file in the scratch, never to a device.
+Time: `mem doctor --alarm` adds one `stat` and the read of a file of about 200 bytes; `mem doctor --alarm` on a scratch memory, 40 fresh processes each, interleaved, wall time on a loaded host (load 11 to 18): median 425 -> 437 ms and 448 -> 441 ms in two runs, i.e. no measurable difference (the probe itself, 167 to 445 ms, stays behind `--full`). `test/alarm-tearing.test.mjs` (torn record alarms and starts no probe, clean record stays
+unknown, other device and other filesystem not used, six damaged shapes, the record written by `--full` and atomically, the loop torn -> alarm -> clean measurement -> no alarm, a git tree
+stays clean) and nine mutants in `bench/mutation.mjs` hold it.
+### Changed - search: the parts of an identifier with an underscore in a question are searched, while the index does not hold the whole word (k1-subword-cm; port of lucky-mem `k1-teilwort-lm`, merge eea4d4f8d)
+
+K1 (below, abruf-stamm-cm) searches `socket_closed_by_peer` as ONE word because the index holds `a_b` as one term, and named its price: the entry "the peer closed the socket" was no longer found by the after-failure hook's question. Now `search()` adds the parts (`socket`, `closed`, `peer`; parts of three letters or more, no filler) next to the whole word: **weight 0.6 if the index holds the whole word NOWHERE, 0 (none) if it does** (`session_id` must not pull in every `session` entry: that was K1). The whole word keeps 1.0; the parts never outweigh a typed word and are searched per language pack with MAX, like the typed forms; a word covered only through its parts counts HALF in the coordination factor and in the answer gate's `covered` (like a bridged word); a part that is also typed is not counted twice. A part that two identifiers of the question share counts once (the highest weight per distinct part, like the typed terms; two unknown identifiers with one common part scored 11.54 against 8.77 for one before this was fixed). "Holds" means the raw document frequency (`index.docFreq`): discarded or superseded entries and raw captures count as holding the word, as in the sibling house. The hyphen is untouched (the question already types the whole and the parts). Both doors go through `search()`, so `mem find`, `mem_find`, the hook calls (`--content-words`, `--recall`) and the H1 split all see it. The constants stay inside `src/search.mjs` (not exported; no environment variable). Docs: `docs/architecture.md`, "Identifiers with an underscore in a question".
+
+Behaviour changes, each on purpose:
+1. **A question with an underscore identifier the index lacks finds the entry that carries its words.** Scratch memory (`test/k1-subword.test.mjs`): `socket_closed_by_peer` against "the peer closed the socket" - none at the base, first place now, at a score clearly under the same words typed.
+2. **Nothing else moves**: a question without an underscore, a hyphen word and a known identifier answer with the same ids, order and scores as at the base (probe C, 9 questions x 2 calls, against the pinned base `076542c`).
+3. The price of the rule, held on purpose (as in the sibling): a known identifier AND an entry that carries only its parts - the entry is not found by the identifier (K1 probe D).
+
+Measured (`bench/subword-measure.mjs`; SYNTHETIC store, `bench/scale.mjs` 2,000 entries as background + 150 known identifiers (half with two dense prose entries that carry the parts), 100 invented identifiers each with one prose entry, 40 known identifiers with a parts-only entry; after-failure hook path, errors and learnings, first three hits, bar 2.0; N=2,480; deterministic, 6 s). These numbers say how the two rules behave, not how often a real memory holds such an entry (there is no real memory here, and no gold question has an underscore):
+
+| state | WHOLE top1 / top3 | WHOLE shown (foreign) | UNKNOWN top1 / top3 / over bar 2.0 / over 5.0 (of 100) | PARTS top3 (of 40) |
+|---|---|---|---|---|
+| base `076542c` | 150 / 150 | 150 (0) | 0 / 0 / 0 / 0 | 0 |
+| **this change** (0.6 unknown, 0 known) | 150 / 150 | 150 (0) | 100 / 100 / 100 / 100 | 0 |
+| parts ALWAYS 0.3 | 150 / 150 | 450 (300) | 100 / 100 / 100 / 100 | 39 |
+| parts ALWAYS 0.5 | 100 / 150 | 450 (300) | 100 / 100 / 100 / 100 | 40 |
+| parts ALWAYS 1.0 | 46 / 146 | 450 (304) | 100 / 100 / 100 / 100 | 40 |
+| unknown 0.6, known 0.1 | 150 / 150 | 258 (108) | 100 / 100 / 100 / 100 | 0 |
+| unknown 0.1, known 0 | 150 / 150 | 150 (0) | 100 / 100 / 99 / 0 | 0 |
+| unknown 0.2, known 0 | 150 / 150 | 150 (0) | 100 / 100 / 100 / 93 | 0 |
+| unknown 0.3 / 0.4 / 1.0, known 0 | 150 / 150 | 150 (0) | 100 / 100 / 100 / 100 | 0 |
+
+Read: the distinction is what matters. Parts for known identifiers too (any weight above 0) put foreign hits into what the hook shows (108 to 304 of 450) and at 0.5 or more cost first places (100 and 46 of 150); the unknown side is saturated from 0.3 on in this synthetic store (a prose entry that carries all three words is easy), so the 0.6 is the sibling's constant, kept for parity, not re-derived here (the sibling found 0.6 the smallest value that reaches its maximum on a real store of 6,746 entries; 0.4 and 0.5 were slightly lower there). Gold set through the CLI (`bench/gold-compare.mjs --base 076542c`): 34 of 44 before and after, every category same, 0 flips (no gold question holds an underscore, so it cannot measure this side). `bench/recall-levers.mjs`: output identical on both states (gold 34 hits / 29 pass, decoys 1 of 28 answered).
+
+Probe `test/k1-subword.test.mjs`, 11 probes (A6: a shared part counts once; RED against the first build `f3257a1`, 22.53 against 11.27): A (unknown identifier on the hook, plain and recall path, weaker than typed words, half in coverage, a two-letter part is filler, the coordination arithmetic); B (known identifier: no part hits; control: the same words behind an unknown identifier DO drag the noise in); C (nothing else moves, against the pinned base); D (CLI and `mem_find` answer the same); E (RED at the base, controls green on both sides). Against the base source 8 of the 11 are red (A1-A6, B2, D); C and E compare with the base itself. 9 NEW mutants (`K1S ...` in `bench/mutation.mjs`: a shared part counted per identifier, weight 1 instead of 0.6, switch always on, switch always off, a weak weight for known identifiers, part-covered word full in coordination, full in the answer gate, a typed part counted twice, a two-letter part searched), all caught.
+
+### Changed - recall: ONE byte budget for the answers of the prompt hook and the SubagentStart hook; `mem_find` on the core of `mem find` (abruf-budget-cm; port of lucky-mem decision 2pbqt66q0wdj "merge the recall trunk", steps 4 and 5)
+
+**Step 4 - one final selection, `src/answerbudget.mjs`.** The prompt hook put header, clone line, hit lines, skill offer and workflow block together with no budget common to them. The SubagentStart start capped its recap (4,000 CHARACTERS) and its assignment block (1,500 bytes) and joined the workflow block, the procedures and the hint in front without any bound. Both answers are now put together by `answerbudget.compose` under one budget, `ANSWER_BYTES` = 3,200 bytes (the sibling's ceiling, decided for both answers): parts are allocated in rank order and what is allocated last gives way first; a part that does not fit steps down to a POINTER (its id and the command that loads it) instead of vanishing or being cut; one note names how many stepped down or fell away, the ids of those that fell away (up to 12, the rest counted) and how to fetch them; the header, the clone line, the closing hint and the "no procedure tagged" statement are always in, and **a procedure is never left out**: at the least it stays a pointer (marking, title, id; `mem procedures` where it has no id) and is upgraded to its full text in rank order while there is room (the pointers count with the fixed parts; if even they do not fit, the workflow block and the recap are gone); every form is masked BEFORE its bytes are counted and no form is ever cut (a key can not become a stump). Rank (what is allocated last gives way first; the rank is the sibling's): prompt hook - skill hint (its account lines first), workflow block, then the later hits; subagent start - recap (elastic: it takes what is left), assignment lines (one by one to pointers), procedures, workflow block. A workflow card above 1,500 bytes comes as a pointer from the start (`workflowdetect.CARD_MAX_BYTES`, question and subagent hooks only); its repeat says that only the pointer was shown so far (it does not claim the card was seen). A card the selection turned into a pointer, or left out, was not seen: its "shown in this session" mark is taken back (`src/workflowpointer.mjs`), so the next message offers it again. Pointer titles are masked first and cut after (`answerbudget.shorten`, `outputguard.cutMasked`): a key that crosses the cut leaves no stump.
+
+Behaviour changes, each on purpose:
+1. **The SubagentStart start is smaller**: 3,200 bytes in total where it was a 4,000-character recap plus the assignment block (+1,500) plus workflow block plus hint. The recap gets what the rest leaves; its first ask is the old one (4,000 characters less the other parts), so a start that fits the budget is byte for byte what it was. Scratch corpus (`bench/answer-budget.mjs`, synthetic, 60 starts, three procedures): median 4,276 -> 3,159 bytes, max 5,759 -> 3,160, 60 of 60 were above 3,200 before.
+2. **Procedures share the budget and are never left out.** A rule that fits is unchanged and whole. When the start would pass 3,200 bytes, the later rules (in rank order) become pointers (marking, title, `mem show <id>`), and a rule too long for the whole budget is a pointer too, no longer whole and uncapped (a rule of 8,000 bytes: start 8,356 -> 503 bytes). With six rules of ~600 bytes and a 1.3 KB workflow card, rules are pointers but none is missing, and the note says how many. The price of never leaving a rule out: the pointers count with the fixed parts, so the 3,200 bytes are not a hard ceiling for procedures - each costs about 190 bytes as a pointer, and 30 rules tagged `subagent-start` make a start of about 6,100 bytes, all pointers (`compose` reports `over`).
+3. **A workflow card above 1,500 bytes is a pointer** in the prompt hook and the subagent start (`mem workflow show <id>` loads it; the repeat says only the pointer was shown); the before-edit hook is untouched.
+4. **The journal line of the prompt hook counts what was delivered**: a hit that stepped down to a pointer counts (its id stands in the text), one that fell away does not; a skill hint delivered as its first line books no account ids.
+Prompt-hook answers under the budget are byte for byte the base's (B1: 3 hit counts x 3 settings x offer/none); on the scratch spread (150 questions, 3 hits) 0 of 150 hook answers changed, and 15 of 150 with a workflow block (a card over 1,500 bytes as its pointer, and the new wording of its repeat).
+
+**Step 5 - `mem_find` on the core of `mem find`, `src/findcore.mjs`.** The MCP tool had its own copy of "ask the index": no exact lane, no echo filter, no MMR, no retired/as-of gates, and the query pinned to the memory's configured language (`test/paths-agree.test.mjs` names that as the third divergence: score 10.879 against 1.808 for one entry). The ranked lane of `mem find` moved out of the CLI handler into `findcore.rankedFind`; the CLI and the tool both call it and differ only in what they hand in and how they print (the CLI keeps the time router, the literal lane, `--wildcard`; the tool keeps its `*` operator, the journal line and its text). The same question now gives the same hits - ids, order and scores - at both doors. Behaviour change: **`mem_find` answers like `mem find`** (near-duplicates are MMR-ordered, an identifier in the question leads, a raw capture that is the user's own sentence is dropped, scores are the CLI's). Not unified: the CLI's time router (a question that names a window), which the tool never had. **`mem_find` cuts `top` to 25** (the sibling's limit; schema `maximum: 25` and the answer says `top N was cut to 25`): with the shared core a large `top` is slow in the synchronous server (top 200: 0.8 -> 6.1 s, top 1000: 0.9 -> 16.6 s, the MMR re-rank is quadratic in what it fetches).
+
+Measured: `test/answer-budget-cm.test.mjs`, 33 probes - A (the selection: fits, rank order, pointers, note counted in the budget, fixed parts, byte-counted elastic part, mask before measure, input order); B (prompt hook: equal to the base under the budget; RED on `f5ee47b`: 5 long hits + a 1.4 KB card + a skill offer = 3,441 bytes at the base, 2,324 now with pointers and the note); C (start: equal under the budget, RED on `f5ee47b`: long card + long rule + four assignment lines = 4,670 bytes at the base, 2,976 now); D (the "seen" mark); E (CLI and MCP give the same ids, order and scores on 8 questions - RED on `f5ee47b`: 4 of 4 probed questions differ there); F (source guards); H (six and twelve procedures next to a card: none left out; `keep` at every budget; the ids in the note); N1 (a fuzz of 400 mixed-order part lists: the text is within the budget whenever the parts that must be in leave room); H2 (a token built at run time across the cut of a pointer title); M1 (`top` cut to 25). 18 NEW mutants in `bench/mutation.mjs`, all caught (one first survived: MMR off in the core - the probe E1 now compares with the pure-BM25 order); two existing `mem find` mutants moved their anchors into `findcore.mjs`. Gold set through the CLI: 34 of 44 before and after, 0 flips; through the MCP tool (new in this measurement): 30 -> 31 of 44 (3 as-of cases cannot be asked over MCP), flips para-06 and lang-05 to pass, para-04 to fail - the tool now fails what the CLI fails (para-04 failed in the CLI all along; the tool passed it only by its divergent copy). `bench/recall-levers.mjs`: identical on both sides (gold 34 hits / 29 pass, decoys 1 of 28 answered). There is no real journal in this repository: the size distribution is a synthetic scratch spread, not a user's.
+### Fixed - CI run 1103: macOS and Windows red, the guarantees job cancelled - entry points under a symlinked path, per-run folders left behind, an 8-minute mutant
+
+- **macOS: no unattended model session started from a copy of the tool under a symlinked path.** `src/headless.mjs` and
+  `bin/mem-mask-copy.mjs` decided "am I the program" by comparing `import.meta.url` (the real path) with `argv[1]` (the path
+  as typed) as text. Under a symlinked parent - every macOS temp dir, `/var` -> `/private/var` - the starter printed nothing,
+  and the digest, the mail handler and the reflector refused (`REFUSED - no safe way to start the model session`); the
+  reflector also found no masked copy. Both now use `src/ismain.mjs` (real paths on both sides, already used by eight entry
+  points). `test/ismain-symlink-entry.test.mjs` starts both through a symlink (a junction on Windows) and holds every
+  file in `bin/` and `src/` that reads `process.argv[1]` and `import.meta.url` or `import.meta.filename` to calling
+  `isMain(` (per file, so a two-line test, `import.meta.url.endsWith(...)` and `import.meta.filename` are seen; one
+  reasoned exception, `src/timetrack.mjs`, whose `node -e` child takes argv[1] as data); red on `9a10bf6`, reproduced on
+  Linux with a symlinked `TMPDIR` (`test/f2-audit.test.mjs` #10 and both red proofs of `test/headless-start.test.mjs`).
+  Known gap, deliberately not touched: dev scripts under `bench/` (docs-images, scale-gate, gold-compare, heaps-corpus,
+  field-without-writer, `bench/mutation.mjs` itself) still compare argv[1] with their own path as text and do nothing
+  when started through a symlinked directory.
+- **Windows: the per-run neutral folder of the mail handler and the reflector stayed in the temp directory.** Both `cd` into
+  it to start the model and then removed it from inside; Windows does not remove a process's working directory.
+  `mem_headless_cleanup` (`bin/_portable.sh`) and `Remove-HeadlessDir` (`bin/_headless.ps1`) step out to its parent first.
+  `test/headless-cleanup-cwd.test.mjs`, red on `9a10bf6`.
+- **Windows: `install/support/tool-missing.sh` passed over a Windows-spelled `XDG_STATE_HOME`** (Git Bash converts only
+  PATH, HOME and the temp variables) and put its marker in `~/.local/state`. Under Git Bash `C:\x` / `C:/x` is absolute now;
+  elsewhere it stays refused. `test/tool-missing-state-win.test.mjs` (a `uname` stand-in on Linux, the real Git Bash on Windows).
+- **The guarantees job hit its 25-minute limit.** The mutant "deferred parts: a newer round leaves the old retry waiting" was
+  checked only by a browser probe; the job has no Chromium, the probe skipped, and the harness re-ran the whole suite for it
+  (8 minutes). `test/dash-later-once-cm.test.mjs` holds the same guarantee on the cut-out functions, without a browser (red on
+  `dc6b69d` and on the mutant). Six new mutants in `bench/mutation.mjs`, all caught.
+- **Probes that asked the wrong place.** `test/headless-start.test.mjs` planted the neutral folder under `~/.cache` on every
+  platform (macOS reads `Library/Caches`, Windows `LOCALAPPDATA`), compared paths with the JS realpath that keeps the 8.3
+  short name of the Windows temp dir (`RUNNER~1`, while a started process reports `runneradmin`), and ran its first-version
+  red proof from a symlinked temp dir, where the old starter failed for the reason fixed above. `test/own-tool.test.mjs`
+  expected the memory's rules in the short spelling (the installer resolves with `pwd -W`: the long form).
+  `test/hook-spaces.test.mjs` hands HOME and USERPROFILE together, in the Windows spelling, as its end-to-end probe does.
+- Open: the Windows PowerShell 5.1 runs of the `.ps1` hooks still answer with nothing (`before-edit-twin` PLATFORM, `windows.ps1:
+  the installed .ps1 hooks ... deliver`). The core receives no readable hook JSON; the trace now says how many bytes reached
+  the core and whether they parse (in the twin's ASCII mode only, by size, error NAME and position - never the parser's
+  message, which quotes the first characters of the input; `test/before-edit-trace-noleak.test.mjs` plants a key
+  prefix built at run time, red on the first form of this diagnosis), the twin says how many characters it read from
+  stdin, and the installed-hooks probe shows stderr - the next Windows run says on which side of the pipe to node it is lost.
+
+### Changed - the dashboard's card origin line names the author with name AND rank, in the words of `mem today`
+
+The origin line of a decision card ("Written by X · tier Y") now reads the card's `byline` (`src/decisioncard.mjs`) and says a rank the line does not carry the way `authority.rankWord` does:
+`tier unknown (missing)`, `tier unknown (empty)` or `tier unknown (broken)` instead of one bare `tier unknown` for all three. The hint "Written by an agent, not checked by you" still goes by the
+rank alone: the configured human's name at tier agent keeps it, a card of rank `user` carries none (`origin.by_human` implies rank `user`, so the old `rank === 'user' || by_human` was the rank check).
+`test/card-byline-ui-cm-browser.test.mjs` (real Chromium, 390 px light and dark): red on `9a10bf6`; three mutants in `bench/mutation.mjs`.
+
+### Fixed - `-h` after a yes/no switch is a help request, not the switch's value (help-after-bool-cm)
+
+The parser reads `--key next` as "key is next" unless next starts with `--`, and it did not know which names are switches. So `-h` right after one (`mem init --force -h`, `mem serve --readonly -h`,
+`mem epoch --force -h`, `mem raw delete <p> --yes -h`, `mem suggest rules --write -h`, `mem log ... --shred -h`, `mem find x --json -h`) was taken as the VALUE of the switch: the command ran (wrote,
+or started the server) instead of showing help. The sibling case, a bare `-h`, was closed on 2026-10-13.
+- **One register, one place:** `BOOL_SWITCHES` in `src/cli/shell.mjs` (it takes in the `mem log` switches `shred`, `automatic`, `without-scaffold`, `no-broadcast`). The parser never gives `-h` to a listed name.
+  Every other reading is as before: `--text -h` still writes the text "-h", `--top 5` and `--root x` are untouched, any other word after a switch is still its value (so `serve --allow-writes maybe` and
+  `--as-me <word>` are still refused, not silently dropped). `quiet` (a number in `digest due`) and `human` (a name in `init`) are left out on purpose, so `mem doctor --quiet -h` still runs the doctor.
+- **Guard:** `test/bool-switch-help.test.mjs` reads every (command, switch) pair out of the `checkFlags` declarations (plus the `appointment` table and 5 for `mem log`) and runs `<cmd> --<switch> -h` against an initialised scratch memory: help, exit 0,
+  memory and HOME byte-for-byte unchanged. Another test keeps the register honest against the source: no listed name is read as a text or number, and a switch that is only ever yes/no but is not listed is a failure.
+  Red on `9a10bf6` (the parser eats `-h`; with only that one parser line reverted, 58 of the 136 pairs of the first version fail - a `serve --readonly -h` that never ends, refusals instead of help - and the scratch memory changes on top: `.mem/epoch.json`, `.agents/skills/mem/SKILL.md`, hooks).
 ### Security - hard HTTP limits for the dashboard server and the MCP bridge (slow headers, dripping body, connection flood)
 
 `mem serve` and `mem-mcp --http` ran with the Node defaults: headers could take 90 s in practice (60 s, checked every 30 s), a body 330 s,
@@ -446,7 +581,6 @@ Not reachable at a size that matters, and left alone: `src/skillregistry.mjs` an
 Guards: `test/linear-trim.test.mjs` (20 probes: the site on 1 MB of the bad input in a child process, once at 1 MB and once at a quarter of it, read as a ratio, linear about 4, quadratic about 16, next to a generous
 ceiling of 2 s; the state before is killed, over the ceiling or wrong on all 20),
 `test/linear-trim-golden.test.mjs` (the old pattern written out as the reference, 4,000 to 120,000 random strings per site; `git check-attr` as the truth for the attributes; 17 mutants red).
-
 
 ### Fixed - review of the hook-shim fix: the time-cap branch, a dead code path, an apostrophe in a path (hook-shims-code-cm, second round)
 

@@ -47,6 +47,10 @@ const made = [];
 process.on('exit', () => { for (const d of made) removeTree(d); });
 const temp = (p) => { const d = fs.mkdtempSync(path.join(os.tmpdir(), p)); made.push(d); return d; };
 const read = (f) => fs.readFileSync(path.join(REPO, f), 'utf8');
+// The spelling the installer writes into the rules: it resolves the memory with `pwd -W` under Git Bash, which gives
+// the LONG form of an 8.3 name (the CI temp dir holds RUNNER~1, the rules say runneradmin; CI run 1103).
+// Elsewhere `pwd` keeps the path as given, so it is compared as given.
+const spelled = (p) => (WIN ? fs.realpathSync.native(p) : p).replace(/\\/g, '/');
 
 function find(name) {
   const exts = WIN ? ['.exe', '.cmd', ''] : [''];
@@ -590,7 +594,7 @@ test('permissions.allow: the installed tool always, the memory\'s own only with 
   const cfg = () => JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
   const slash = (p) => p.replace(/\\/g, '/');
   const installed = `Bash(node ${slash(REPO)}/bin/mem:*)`;
-  const memorys = `Bash(node ${slash(ctx.root)}/bin/mem:*)`;
+  const memorys = `Bash(node ${spelled(ctx.root)}/bin/mem:*)`;
   const reinstall = () => {
     const r = spawnSync(BASH, [path.join(REPO, 'install', 'claude-code.sh')], {
       encoding: 'utf8', timeout: 60000, env: bareEnv(ctx.home, { CHEAP_MEM_ROOT: ctx.root, CLAUDE_HOME: ctx.claudeHome }),
@@ -602,7 +606,7 @@ test('permissions.allow: the installed tool always, the memory\'s own only with 
   assert.ok(first.allow.includes(installed), 'the installed tool is allowed');
   assert.ok(!first.allow.includes(memorys), `the memory's own tool must not be allowed by default:\n${first.allow.join('\n')}`);
   assert.ok(first.deny.includes(`Bash(node ${slash(REPO)}/bin/mem trust-own-tool:*)`), 'the switch command is denied to a model (installed tool)');
-  assert.ok(first.deny.includes(`Bash(node ${slash(ctx.root)}/bin/mem trust-own-tool:*)`), 'the switch command is denied to a model (memory)');
+  assert.ok(first.deny.includes(`Bash(node ${spelled(ctx.root)}/bin/mem trust-own-tool:*)`), 'the switch command is denied to a model (memory)');
   // An entry an earlier version of the installer wrote is withdrawn while the switch is off.
   const old = cfg();
   old.permissions.allow.push(memorys);
@@ -633,12 +637,11 @@ test('a checkout installed from INSIDE the memory is the memory\'s own tool: not
   for (const d of ['bin', 'src', 'install', 'shared']) fs.cpSync(path.join(REPO, d), path.join(code, d), { recursive: true });
   fs.copyFileSync(path.join(REPO, 'package.json'), path.join(code, 'package.json'));
   const claudeHome = path.join(home, '.claude');
-  const slash = (p) => p.replace(/\\/g, '/');
   const install = () => spawnSync(BASH, [path.join(code, 'install', 'claude-code.sh')], {
     encoding: 'utf8', timeout: 60000, env: bareEnv(home, { CHEAP_MEM_ROOT: root, CLAUDE_HOME: claudeHome }),
   });
   const allow = () => JSON.parse(fs.readFileSync(path.join(claudeHome, 'settings.json'), 'utf8')).permissions.allow;
-  const own = `Bash(node ${slash(code)}/bin/mem:*)`;
+  const own = `Bash(node ${spelled(code)}/bin/mem:*)`;
   const r1 = install();
   assert.equal(r1.status, 0, r1.stderr);
   assert.match(r1.stderr, /lies inside the memory, so it counts as the memory's own tool/);
@@ -756,7 +759,7 @@ test('an installer from before the follow-up: the stale allow entry goes in its 
   const ctx = install();
   const settingsPath = path.join(ctx.claudeHome, 'settings.json');
   const cfg = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-  const fwd = `Bash(node ${ctx.root.replace(/\\/g, '/')}/bin/mem:*)`;
+  const fwd = `Bash(node ${spelled(ctx.root)}/bin/mem:*)`;
   cfg.permissions.allow.push(fwd.replace(/\//g, '\\'));
   fs.writeFileSync(settingsPath, JSON.stringify(cfg));
   const r = spawnSync(BASH, [path.join(REPO, 'install', 'claude-code.sh')], {
