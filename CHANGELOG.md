@@ -14,6 +14,27 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Fixed - the state-mark readers took a refused open for "no file" (Windows); hook stdin kept its blanks; the before-edit diagnosis names the mark
+
+- **A refusal is not a gap.** `writeAtomic` replaces a state file by `rename`; on Windows the OPEN of a reader answers
+  EPERM / EACCES / EBUSY while that happens, and `pointer.readMark`, `clonegate.readCache`, `epoch.readEpoch` and
+  `runningmark.readMarker` read every failure as "no such file". One helper, `readStateFile` (`src/atomicwrite.mjs`):
+  ENOENT is `missing`; on win32 the three codes are tried again with the writer's pauses (6 opens, 75 ms at most);
+  what still fails is `unreadable`, never folded into `missing`. The dangerous reader was the epoch watermark: read as
+  "first", `recordEpoch` wrote over it. Now `checkEpoch` answers `unreadable` and `recordEpoch` leaves the file alone
+  unless `--force`; `mem doctor` and `mem epoch` say "could not be read" instead of "no watermark yet", and the running
+  code check says so for a start marker. `test/state-read-retry.test.mjs` plays Windows on any machine (injected
+  platform; a child process that makes the real `fs.readFileSync` refuse) and runs the same child against the base.
+- **Hook stdin: only the byte order mark goes.** `hookText` also dropped every blank in front (`/^[\uFEFF\s]+/`). JSON does
+  not need that (`JSON.parse` takes leading space, tab, CR, LF), but the prompt modes of `recallhook.mjs` (signal,
+  machine, workflow) read plain text: the user's leading blanks were cut, the length judged without them, the kept
+  question text shortened - and the sh twin passes them on. The twins now agree.
+- **The before-edit diagnosis counted the trimmed text**, so the BOM case of CI run 1141 could not be seen any more. It
+  counts the bytes that arrived and says `bom=yes|no` (`input 27 bytes, JSON without a file path, bom=yes`); lengths and
+  a yes/no, never content.
+- Tests: BOM + CR LF process tests for `commandguard bash` and `workflowdetect bash` joined the others in
+  `test/hook-stdin-bom.test.mjs`.
+
 ### Fixed - CI run 1141 (Windows): the PowerShell twins' hook JSON arrived with a byte order mark, a Git Bash probe measured nothing, a refused read counted as a gap
 
 - **Windows PowerShell 5.1: every twin that hands the hook JSON to node answered with nothing.** The twin's trace on the
