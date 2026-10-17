@@ -31,3 +31,18 @@ test('the ratchets are written down with the day they were measured', () => {
   assert.equal(phase.OPENS_PER_LOG, 3);
   assert.equal(phase.JOURNAL_READS, 1);
 });
+
+test('todayProbeVerdict: a counter that never ran, or saw nothing, is not "0 workers"; a real zero passes; workers fail', () => {
+  const row = (calls, workers = 0) => ({ pid: 1, calls: { existsSync: 0, statSync: 0, lstatSync: 0, accessSync: 0, readdirSync: 0, realpathSync: 0, openSync: 0, ...calls }, workers, opens: {} });
+  const v = phase.todayProbeVerdict;
+  assert.equal(v({ rows: null, status: 0 }).ok, false, 'null: the preload never ran');
+  assert.match(v({ rows: null, status: 0 }).why, /counter did not run/);
+  assert.equal(v({ rows: [], status: 0 }).ok, false, 'an empty list: no row');
+  assert.match(v({ rows: [], status: 0 }).why, /counter did not run/);
+  assert.equal(v({ rows: [row({})], status: 0 }).ok, false, 'a row with no file-system call at all cannot be a node that ran the CLI');
+  assert.equal(v({ rows: [row({ statSync: 3 })], status: 0 }).ok, true, 'positive control: a live counter and no workers passes');
+  assert.equal(v({ rows: [row({ statSync: 3 }, 6)], status: 0 }).ok, false);
+  assert.equal(v({ rows: [row({ statSync: 3 }, 6)], status: 0 }).workers, 6);
+  assert.equal(v({ rows: [row({ statSync: 3 })], status: 1 }).ok, false, 'a failed call is not a pass');
+  assert.equal(v(({ rows: [row({ statSync: 3 })], status: null })).ok, false);
+});

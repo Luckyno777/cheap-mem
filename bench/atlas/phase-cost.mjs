@@ -73,7 +73,8 @@ export const HOOK_STARTS = Object.freeze({
 });
 
 /**
- * Modules a CLI start loads, measured 2026-10-17 (Node 22.22), plus a headroom of 10: one new module is not a regression, a whole command group (about 30) is.
+ * Modules a CLI start loads, measured 2026-10-17 (Node 22.22) as 103 (`version`), 62 (`--help`) and 94 (`find`) after the merge of kette/cm
+ * (101/61/92 before it); the limits leave a headroom of 8, 9 and 8: one new module is not a regression, a whole command group (about 30) is.
  * TB4 took `mem version` from 158 modules to 93.
  */
 export const CLI_MODULES = Object.freeze({ version: 111, help: 71, find: 102 });
@@ -147,8 +148,8 @@ const where = (rel, needle) => {
 /** One node call with a counter preload; returns the rows the counter wrote (`null` when it never ran). */
 export function counted(kind, args, { root, env = {}, cwd, input = '' } = {}) {
   const dir = tempRoot('atlas-cost-c-');
+  // No file is made beforehand: a counter that never ran leaves none, and `null` ("never ran") must not be told from `[]` ("ran, counted nothing").
   const out = path.join(dir, 'out.txt');
-  fs.writeFileSync(out, '');
   const file = { starts: 'start-counter.mjs', modules: 'module-counter.mjs', calls: 'call-counter.mjs' }[kind];
   const query = kind === 'calls' ? { root, out } : kind === 'starts' ? { out, tag: REBUILD_MARK } : { out };
   // The start counter goes in through NODE_OPTIONS so that every node child counts; the others look at the one process.
@@ -371,19 +372,33 @@ function todayGroup(atlas, quick) {
   });
 }
 
+/**
+ * The verdict of `cost.today-probe` from one counted call. A counter that never ran (`rows` null) or ran and saw no file-system call at all
+ * is not "0 workers": it is a broken counter, and says so.
+ * @returns {{ ok: boolean, workers: number, why: string|null }}
+ */
+export function todayProbeVerdict({ rows, status }) {
+  if (rows === null || rows === undefined) return { ok: false, workers: 0, why: 'counter did not run (no counter file)' };
+  const t = total(rows);
+  const alive = t.rows >= 1 && Object.values(t.calls).reduce((a, b) => a + b, 0) > 0;
+  if (!alive) return { ok: false, workers: t.workers, why: 'counter did not run (no row, or no file-system call seen)' };
+  if (status !== 0) return { ok: false, workers: t.workers, why: `\`mem today\` exited ${status}` };
+  return { ok: t.workers === 0, workers: t.workers, why: null };
+}
+
 /** The day card runs the doctor; the doctor's append probe (six writer threads) was limited to `--full` by TB7. Does the card respect that? */
 function todayProbe(atlas) {
   const root = worldWith(50);
   const args = [MEM, '--root', root, 'today'];
   counted('calls', args, { root }); // the first call may write derived state
   const { r, rows } = counted('calls', args, { root });
-  const t = total(rows);
+  const v = todayProbeVerdict({ rows, status: r.status });
   rec(atlas, {
-    id: 'today-probe', ok: rows !== null && r.status === 0 && t.workers === 0, severity: SEVERITY.MINOR,
-    expected: 'exit 0 and 0 worker threads (the probe only with --full, as for `mem doctor`; control: doctor-probe sees the six writers with --full)',
-    actual: `exit ${r.status}, ${t.workers} worker thread(s)`,
+    id: 'today-probe', ok: v.ok, severity: SEVERITY.MINOR,
+    expected: 'the counter ran (at least one row, file-system calls seen), exit 0 and 0 worker threads (the probe only with --full, as for `mem doctor`; control: doctor-probe sees the six writers with --full)',
+    actual: v.why ?? `exit ${r.status}, ${v.workers} worker thread(s)`,
     evidence: `bench/atlas/call-counter.mjs wraps new Worker on a warm \`mem today\`; the card calls ${where('src/today.mjs', 'check = doctorMod.checkAll')}, and ${where('src/doctor.mjs', 'export function checkAll')} measures by default (\`full = true\`); it also writes a probe folder under the memory root on every call`,
-    measured: { workers: t.workers, status: r.status },
+    measured: { workers: v.workers, status: r.status, counterRan: v.why === null || !/counter did not run/.test(v.why) },
   });
 }
 

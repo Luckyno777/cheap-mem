@@ -91,6 +91,17 @@ test('FINDING (pinned): `mem today` starts the concurrent-append probe (six writ
   assert.match(r.evidence, /src\/doctor\.mjs:\d+/);
 });
 
+test('a call made while the counter is off hands back null (never ran), not an empty list; today-probe then says so instead of passing', () => {
+  const root = process.cwd();
+  const on = phase.counted('starts', ['-e', '0'], { root, cwd: root });
+  assert.ok(Array.isArray(on.rows) && on.rows.length === 1, 'positive control: with the preload the counter file exists');
+  const off = phase.counted('starts', ['-e', '0'], { root, cwd: root, env: { NODE_OPTIONS: '' } });
+  assert.equal(off.rows, null, 'NODE_OPTIONS emptied: the preload never ran, no file was made beforehand');
+  const offCalls = phase.counted('calls', ['-e', '0'], { root, cwd: root, env: { NODE_OPTIONS: '--no-warnings' } });
+  assert.ok(Array.isArray(offCalls.rows), 'the call counter is a --import argument, not NODE_OPTIONS: this one still ran');
+  assert.match(phase.todayProbeVerdict({ rows: off.rows, status: 0 }).why, /counter did not run/);
+});
+
 test('the measured values: one process per CLI start, the hooks within their ratchets, retrieve opens each log at most three times, no probe thread without --full', async () => {
   const m = Object.fromEntries(records(await runOnce()).map((r) => [r.id, r.measured]));
   for (const [k, s] of Object.entries(m['cost.cli-start'].seen)) {
