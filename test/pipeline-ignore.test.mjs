@@ -41,7 +41,7 @@ function memory(t) {
 /** What the hooks and features put under .pipeline/ - one file per feature, nested ones included. */
 function runtimeFiles(root) {
   const files = ['clone-gate.json', 'injections.jsonl', 'model-cost.jsonl', 'shrink-baseline.json', 'mem-skills.md',
-    'question-text-errors.jsonl', 'observations.jsonl', 'command-guard/words.txt', 'recall/key', 'running/job.json'];
+    'question-text-errors.jsonl', 'append-atomicity.json', 'observations.jsonl', 'command-guard/words.txt', 'recall/key', 'running/job.json'];
   for (const f of files) {
     fs.mkdirSync(path.dirname(path.join(root, '.pipeline', f)), { recursive: true });
     fs.writeFileSync(path.join(root, '.pipeline', f), '{}\n');

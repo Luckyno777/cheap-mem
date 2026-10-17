@@ -420,6 +420,8 @@ export function checkAll(root, { memo = true, full = true } = {}) {
   // `full: false` leaves out the one measuring probe of the run, the concurrent-append writers
   // (`env/append-atomicity`), which then reports UNKNOWN with the way to run it, never `ok`
   // (cli-speed-cm TB7). The default measures, as before; `mem doctor` passes it from `--full`.
+  // A verdict `--full` MEASURED earlier is kept in `.pipeline/append-atomicity.json` and read back here without
+  // measuring: a torn one on the same mount stays an error (alarm-tearing-cm; src/environment.mjs `readAppendRecord`).
   // One doctor run = one index context: the full index is built AT MOST
   // ONCE, however many findings read it (see `doctorIndex`), and every
   // drawer file is read and parsed ONCE however many findings walk it
@@ -1162,7 +1164,7 @@ export function checkDeadlines(root, now = new Date()) {
   if (!stale.length && !unreadable.length && !aliased.length) return finding('deadlines', LEVEL.GOOD, core);
   const hints = [];
   if (stale.length) {
-    const { id, due: value } = stale[0]; // the core's row, not a read of a duty's field
+    const { id, dueAt: value } = stale[0];
     hints.push(`the longest overdue: ${id} (due ${value}) — do it and close it (mem duties close ${id}), or move the date `
       + `(mem correction duty ${id} --due YYYY-MM-DD; only the author or a higher tier may)`);
   }

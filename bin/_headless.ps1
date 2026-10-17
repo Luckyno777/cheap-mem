@@ -48,6 +48,12 @@ function Get-HeadlessPlan {
 function Remove-HeadlessDir {
   param($Plan)
   if ($Plan -and $Plan.Clean) {
+    # A native command starts in the current location, and Windows does not remove a directory that is a process's
+    # working directory: the mail handler's Set-Location into the folder left it behind after every run (CI run 1103).
+    try {
+      $here = (Get-Location).ProviderPath.TrimEnd('\', '/')
+      if ($here -eq ([string]$Plan.Clean).TrimEnd('\', '/')) { Set-Location -LiteralPath (Split-Path -Parent $Plan.Clean) }
+    } catch { }
     & node $script:HeadlessHelper 'cleanup' $Plan.Clean 2>$null | Out-Null
     $Plan.Clean = $null
   }
