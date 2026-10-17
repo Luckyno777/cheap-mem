@@ -29,6 +29,40 @@ Not ported, with the reason: the sibling's `zeiger_ids` journal field and the da
 
 Proof (`test/subagent-order-cm.test.mjs`, 11 probes; red against the pinned old commit `71be9cf`): 9 of the 11 red with the old `subagentstart.mjs` and `answerbudget.mjs` (the other 2 guard what must not move: a start that fits is byte-equal, and no procedure is lost behind many); B7 (the card is never gone) is also red against the first version of this change (`cec2e34`). The sizes are not tuned to one machine: the closing hint carries the memory's path, so the probes sweep sizes or compare relatively and were run with a 120- and a 300-character `TMPDIR`. Eight mutants in `bench/mutation.mjs` (card ranked first again, card pointer not reserved, assignment behind the card, recap first, no holdBack, half holdBack, `holdBack` ignored, `holdBack` on the pointer).
 
+### Fixed - looking at the doctor writes nothing: the append-atomicity record is laid down only by `mem doctor --full` / `--strict` (alarm-record-cm; cheap-mem only)
+
+The record of alarm-tearing-cm was written after every finished measurement, and `doctor.checkAll(root)` measures by default (`full: true`), so collecting the
+agents view, the dashboard, `mem today` or the weekly instrument trace left `.pipeline/append-atomicity.json` behind; `test/agents-d5.test.mjs` probe 3
+("collecting the agents view writes nothing at all") found it (red on the chain before this change). `checkAll` and `environment.checkEnvironment` /
+`checkAppendAtomicity` take a new option `record` (default `false`); only `mem doctor --full` / `--strict` (`src/cli/commands/admin.mjs`) pass `record: true`.
+Every other caller measures as before and writes nothing. Checked by search: the callers of `checkAll` outside the command are `src/measurements.mjs` and the dashboard data
+(`src/dashboard-data.mjs` through `src/today.mjs`); none sets it. Tested in `test/alarm-tearing.test.mjs` (the default `checkAll` runs the probe once and leaves no file;
+the library calls without `record` leave none; `record: true` lays it down) and by three mutants (the default of `record` in the environment check and in `checkAll`
+set to true, and the command no longer asking for it). The effect for the banner is unchanged: the file still comes from `--full`.
+
+### Fixed - dashboard: the small grey text reaches WCAG AA in both themes (quiet-aa-cm)
+
+Measured in a real Chromium on every page (the overview and all 31 tabs), light and dark, at 1920 and 390 px: for each visible text element in
+`--quiet` or `--muted`, every layer under it is composited from the computed styles, each gradient with its worst colour stop. Before, 1485 of
+about 7,800 measured elements were below 4.5:1 (the light `--quiet` at 2.63 to 4.34, the light `--muted` down to 4.13, the dark `--quiet` down
+to 4.30 on a figure tile under its hover glow). After, none is; the lowest are 4.75 (light `--quiet`), 4.88 (light `--muted`), 4.64 (dark
+`--quiet`) and 5.36 (dark `--muted`). Changes, all in `assets/dashboard/dashboard.css`, hue kept:
+- light `--quiet` `#617869` to `#566a5d`; dark `--quiet` `#91a699` to `#99aca0`.
+- the light theme drops the dark `.content` tint (`#101c2022`), which greyed the page top and pulled `--muted` below AA there.
+- the fabric stage, dark in both themes, takes the dark `--quiet` in the light theme too (its label was at 2.63).
+
+Not covered by the measurement: the WebGL atmosphere behind the page. In the light theme it still lays a grey veil over the page top; read from
+the pixels, text there stands at about 4.0 (`--quiet`) and 4.1 (`--muted`), up from 2.6 and 3.3. `test/quiet-aa-cm-browser.test.mjs` is red on
+`9a10bf6`; four mutants in `bench/mutation.mjs`.
+
+### Changed - the one-place latch for the due date now sees destructuring, bracket access and the `due ?? by` idiom
+
+`due-one-place` (`shared/calculations.jsonl`, owner `src/due.mjs`) only knew the property read `x.due`. A reader could take the field with `const { due } = d`, `d["due"]` or `d['deadline']` and the latch stayed green. The core had left the destructuring open on purpose, because its own results were called `due` too (`const { due: dueNow } = s`), so a destructuring of a result could not be told from a read of a duty.
+- **The core's results no longer carry the raw field's name.** `situationFromOpen` returns the count of the state as `dueNow` (was `due`) and a row's text as `dueAt` (was `due`); the day list of `appointment-today` is `dueList` (was `due`, the machine form `duties.due` is unchanged). `mem deadlines --json`, `mem_deadlines` and the day list JSON keep the public key `due`: `rowForOutput` gives a row its public name back in the same place.
+- **The pattern has four branches now:** property read (as before), destructuring that is assigned to, iterated or taken as the single destructured parameter of an arrow (`{ due }`, `{ due: x }`, `{ due = null }`, quoted keys), bracket access with a literal name (also a template key) and the alias fallback `due ?? x.by`. An object literal `{ due: x }` is no read. A bare `.by` is not searched: it is the author field of claims, appointments and deletions; the only duty reader of `by` is the core.
+- **Two new `except` entries, each with its reason in the `why`:** `src/questiontext.mjs` (an options parameter `{ since, until }`, a time window) and `src/today.mjs` (renders the rows of the deadline and decision parts, whose public key is `due`; it reads no duty).
+- Proofs: `test/due-core.test.mjs` is red on the base in four places (the result names, the day list, the positive control with readers e to k, the line-by-line pattern probe). `bench/mutation.mjs`: three new mutants on `shared/calculations.jsonl` (no destructuring branch, no bracket branch, no `due ?? by` branch), 3/3 caught. Parity: the sibling house has the same gap (`frist-zustand` knows only `.frist`) and its rows are called `frist`; that port is open.
+
 ### Tests - the heap-cap probes measured: every one has a wide window (heap-margin-cm; counterpart of the sibling's heap-marge fix, Parity lm=yes)
 
 The sibling's `dash-tempo2-lm` memory probe had ~1 MB between "the bounded path fits" and "the unbounded path does not" and failed 7 of 40 runs under load. The five equal-shaped probes here were measured
@@ -49,9 +83,9 @@ a record from another device or another named filesystem (the memory moved) is n
 one (not JSON, wrong shape, directory in its place) is its own note and never a throw. The file can be edited by anybody who can write the clone, so only
 validated fields are read, the time is re-formatted from the parsed number and the filesystem name shown is the live one. A measurement that did not
 finish (writers timed out) leaves the earlier record alone. No new environment variable.
-Who writes the record: every caller that measures, not only the `mem doctor --full` command. The dashboard (`src/dashboard-data.mjs`) and the weekly
-instrument trace (`src/measurements.mjs`) call `doctor.checkAll(root)`, whose library default is `full: true`, so they leave it too. Who removes a torn
-verdict: only a later clean measurement (`--full`, `--strict`, or one of those two callers) replaces it, and that is the only way out; a short clean run
+Who writes the record: only an explicit call, `mem doctor --full` / `--strict` (`doctor.checkAll(root, { record: true })`, default `false`; see the entry
+on alarm-record-cm above). The dashboard, `mem today` and the weekly instrument trace call `checkAll(root)` and measure as before but leave nothing behind. Who removes a torn
+verdict: only a later clean `--full` / `--strict` measurement replaces it, and that is the only way out; a short clean run
 shows that no tearing happened, not that none can, so a torn entry is not aged out and a clean record never alarms. The record is only read within a bound: it must
 be a plain file of at most 4096 bytes (it is about 250), checked with `stat` before it is opened and again on the bounded read; a device behind a symlink
 (a symlink to `/dev/zero` ran into `bad_alloc` under a memory limit in review), a pipe, a directory or an oversize file is not read and gets its own note
@@ -172,6 +206,18 @@ the token, except with `--local-no-token` on loopback. `test/http-limits.test.mj
 answer, the real services as processes, the recall socket with a hung client; one mutation per probe) and the listener inventory in
 `test/serve-token-refuse-cm.test.mjs` (every listed HTTP service must call `hardenServer` with a named cap) hold it. The recall
 server (Unix socket) got no cap, with the reason in `docs/security-model.md` ("HTTP service limits"). No new environment variable.
+
+### Fixed - three leftovers of `mem setup codex-cloud` (codex-rest-cm)
+
+- **The report of a failed skill write said ".gitignore was put back as it was" even when this run had never touched
+  `.gitignore`.** It now says so only when the file was really rewritten and written back.
+- **A failure while putting `.gitignore` back masked the error that made it necessary** (the exception replaced the
+  report, and the folders this run made were not taken back). The first error now stays, a second line names the failed
+  restore and the file to put back by hand, and `changed` is true, because the file still holds the new rules.
+- **No probe held a foreign file in a folder this run had made**, so a recursive delete in place of `rmdir` survived the
+  mutation sweep. Three probes now put a file into each of the three folders during the failing write; it must stay. Four
+  mutants in `bench/mutation.mjs` (recursive delete, the false claim, the two masked restores) are caught.
+
 ### Fixed - leftovers of the masked transcript copy and of the pin words (small-rest2-cm)
 
 Five items checked, three were real:
