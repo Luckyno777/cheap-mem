@@ -220,6 +220,13 @@ export function install(root, pkgRoot, { dryRun = false, force = false } = {}) {
     if (giExisted) writeAtomic(giPath, giText, giMode === undefined ? {} : { mode: giMode });
     else fs.rmSync(giPath, { force: true });
   };
+  // Putting it back can fail too. That must not replace the error that made it necessary: the caller keeps the original
+  // reason and adds what this returns (null when .gitignore is back as it was, else the lines that say it is not).
+  const tryRestoreGi = () => {
+    try { restoreGi(); return null; } catch (e) {
+      return [`  .gitignore could NOT be put back (${e.message}); it still holds what this run wrote. Put it back by hand: ${giPath}`];
+    }
+  };
   if (before.skill === null) {
     lines.push('.gitignore: not checked (not a git repository, or git is not on the PATH); left alone');
   } else if (!giNeeded) {
@@ -238,8 +245,12 @@ export function install(root, pkgRoot, { dryRun = false, force = false } = {}) {
       const why = after.skill !== false
         ? `${SKILL_REL} is still ignored: ${rule ? `${rule.source}: ${rule.rule}` : 'git did not say by which rule'}`
         : 'the exception would have opened more of .agents/ than the skill folder';
-      restoreGi();
-      return { ok: false, lines: [`codex-cloud: ${why}.`, '  .gitignore was put back as it was and the skill was not written. Fix the ignore rule by hand.'], changed: false };
+      const notBack = tryRestoreGi();
+      return {
+        ok: false,
+        lines: [`codex-cloud: ${why}.`, ...(notBack ?? ['  .gitignore was put back as it was and the skill was not written. Fix the ignore rule by hand.'])],
+        changed: notBack !== null,
+      };
     }
     lines.push(`.gitignore: appended ${IGNORE_EXCEPTION.length - 2} rules, so git sees ${SKILL_REL} and nothing else under .agents/`);
     changed = true;
@@ -253,9 +264,11 @@ export function install(root, pkgRoot, { dryRun = false, force = false } = {}) {
     lines.splice(0, 0, `${would}${verb} ${SKILL_REL}${verb === 'replace' ? ' (it differed; --force)' : ''}`);
     if (!dryRun) {
       try { writeAtomic(target, wanted); } catch (e) {
-        if (changed) restoreGi();
+        // Only a .gitignore this run really rewrote is put back, and only then does the report say so.
+        const notBack = changed ? tryRestoreGi() : null;
         removeMadeDirs();
-        return { ok: false, lines: [`codex-cloud: cannot write ${target}: ${e.message}`, '  .gitignore was put back as it was.'], changed: false };
+        const gi = !changed ? [] : (notBack ?? ['  .gitignore was put back as it was.']);
+        return { ok: false, lines: [`codex-cloud: cannot write ${target}: ${e.message}`, ...gi], changed: notBack !== null };
       }
     }
     changed = true;

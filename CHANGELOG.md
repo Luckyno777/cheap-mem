@@ -47,6 +47,28 @@ are the day the work landed on `main`.
   budget, anything else fails; the codes seen are in every message. D drives the classification on all three
   platforms. Not reproduced here: which code the 738 were, the next Windows run names.
 
+### Fixed - dashboard: the small grey text reaches WCAG AA in both themes (quiet-aa-cm)
+
+Measured in a real Chromium on every page (the overview and all 31 tabs), light and dark, at 1920 and 390 px: for each visible text element in
+`--quiet` or `--muted`, every layer under it is composited from the computed styles, each gradient with its worst colour stop. Before, 1485 of
+about 7,800 measured elements were below 4.5:1 (the light `--quiet` at 2.63 to 4.34, the light `--muted` down to 4.13, the dark `--quiet` down
+to 4.30 on a figure tile under its hover glow). After, none is; the lowest are 4.75 (light `--quiet`), 4.88 (light `--muted`), 4.64 (dark
+`--quiet`) and 5.36 (dark `--muted`). Changes, all in `assets/dashboard/dashboard.css`, hue kept:
+- light `--quiet` `#617869` to `#566a5d`; dark `--quiet` `#91a699` to `#99aca0`.
+- the light theme drops the dark `.content` tint (`#101c2022`), which greyed the page top and pulled `--muted` below AA there.
+- the fabric stage, dark in both themes, takes the dark `--quiet` in the light theme too (its label was at 2.63).
+
+Not covered by the measurement: the WebGL atmosphere behind the page. In the light theme it still lays a grey veil over the page top; read from
+the pixels, text there stands at about 4.0 (`--quiet`) and 4.1 (`--muted`), up from 2.6 and 3.3. `test/quiet-aa-cm-browser.test.mjs` is red on
+`9a10bf6`; four mutants in `bench/mutation.mjs`.
+
+### Changed - the one-place latch for the due date now sees destructuring, bracket access and the `due ?? by` idiom
+
+`due-one-place` (`shared/calculations.jsonl`, owner `src/due.mjs`) only knew the property read `x.due`. A reader could take the field with `const { due } = d`, `d["due"]` or `d['deadline']` and the latch stayed green. The core had left the destructuring open on purpose, because its own results were called `due` too (`const { due: dueNow } = s`), so a destructuring of a result could not be told from a read of a duty.
+- **The core's results no longer carry the raw field's name.** `situationFromOpen` returns the count of the state as `dueNow` (was `due`) and a row's text as `dueAt` (was `due`); the day list of `appointment-today` is `dueList` (was `due`, the machine form `duties.due` is unchanged). `mem deadlines --json`, `mem_deadlines` and the day list JSON keep the public key `due`: `rowForOutput` gives a row its public name back in the same place.
+- **The pattern has four branches now:** property read (as before), destructuring that is assigned to, iterated or taken as the single destructured parameter of an arrow (`{ due }`, `{ due: x }`, `{ due = null }`, quoted keys), bracket access with a literal name (also a template key) and the alias fallback `due ?? x.by`. An object literal `{ due: x }` is no read. A bare `.by` is not searched: it is the author field of claims, appointments and deletions; the only duty reader of `by` is the core.
+- **Two new `except` entries, each with its reason in the `why`:** `src/questiontext.mjs` (an options parameter `{ since, until }`, a time window) and `src/today.mjs` (renders the rows of the deadline and decision parts, whose public key is `due`; it reads no duty).
+- Proofs: `test/due-core.test.mjs` is red on the base in four places (the result names, the day list, the positive control with readers e to k, the line-by-line pattern probe). `bench/mutation.mjs`: three new mutants on `shared/calculations.jsonl` (no destructuring branch, no bracket branch, no `due ?? by` branch), 3/3 caught. Parity: the sibling house has the same gap (`frist-zustand` knows only `.frist`) and its rows are called `frist`; that port is open.
 ### Tests - the heap-cap probes measured: every one has a wide window (heap-margin-cm; counterpart of the sibling's heap-marge fix, Parity lm=yes)
 
 The sibling's `dash-tempo2-lm` memory probe had ~1 MB between "the bounded path fits" and "the unbounded path does not" and failed 7 of 40 runs under load. The five equal-shaped probes here were measured
@@ -189,6 +211,18 @@ the token, except with `--local-no-token` on loopback. `test/http-limits.test.mj
 answer, the real services as processes, the recall socket with a hung client; one mutation per probe) and the listener inventory in
 `test/serve-token-refuse-cm.test.mjs` (every listed HTTP service must call `hardenServer` with a named cap) hold it. The recall
 server (Unix socket) got no cap, with the reason in `docs/security-model.md` ("HTTP service limits"). No new environment variable.
+
+### Fixed - three leftovers of `mem setup codex-cloud` (codex-rest-cm)
+
+- **The report of a failed skill write said ".gitignore was put back as it was" even when this run had never touched
+  `.gitignore`.** It now says so only when the file was really rewritten and written back.
+- **A failure while putting `.gitignore` back masked the error that made it necessary** (the exception replaced the
+  report, and the folders this run made were not taken back). The first error now stays, a second line names the failed
+  restore and the file to put back by hand, and `changed` is true, because the file still holds the new rules.
+- **No probe held a foreign file in a folder this run had made**, so a recursive delete in place of `rmdir` survived the
+  mutation sweep. Three probes now put a file into each of the three folders during the failing write; it must stay. Four
+  mutants in `bench/mutation.mjs` (recursive delete, the false claim, the two masked restores) are caught.
+
 ### Fixed - leftovers of the masked transcript copy and of the pin words (small-rest2-cm)
 
 Five items checked, three were real:

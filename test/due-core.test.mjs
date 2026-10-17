@@ -262,11 +262,21 @@ test('situationFromOpen: counts per state, separates "no due date" from "unreada
   ];
   const s = due.situationFromOpen(open, { now, zone: BERLIN });
   assert.deepEqual([s.open, s.withDue, s.withoutDue], [6, 5, 1]);
-  assert.deepEqual([s.fresh, s.due, s.overdue, s.unknown], [1, 1, 2, 1]);
+  assert.deepEqual([s.fresh, s.dueNow, s.overdue, s.unknown], [1, 1, 2, 1]);
   assert.deepEqual(s.list.map((x) => x.id), ['f', 'b', 'c', 'a', 'e']);
   assert.deepEqual(s.list.map((x) => x.state), ['overdue', 'overdue', 'due', 'fresh', 'unknown']);
   assert.equal(s.list.find((x) => x.id === 'a').who, 'human');
   assert.equal(s.list.find((x) => x.id === 'e').day, null);
+  // The results do not answer to the raw field's name (so a destructuring of them cannot be mistaken for reading a duty).
+  assert.equal(Object.hasOwn(s, 'due'), false);
+  assert.ok(s.list.every((x) => !Object.hasOwn(x, 'due')), 'a row names its text dueAt');
+  assert.equal(s.list.find((x) => x.id === 'b').dueAt, '2026-10-01');
+  assert.equal(s.list.find((x) => x.id === 'e').dueAt, 'sometime');
+  // The public JSON keeps `due`, in the same place of the row, without the internal clock value.
+  const pub = due.rowForOutput(s.list[0]);
+  assert.deepEqual(Object.keys(pub), ['id', 'title', 'who', 'project', 'due', 'day', 'state', 'since']);
+  assert.equal(pub.due, '2026-09-30');
+  assert.deepEqual(due.rowForOutput(null), {});
   assert.deepEqual([due.situationFromOpen([], { now, zone: BERLIN }).open, due.situationFromOpen(undefined, { now, zone: BERLIN }).open], [0, 0]);
 });
 
@@ -398,15 +408,15 @@ test('appointment-today: duties due today / overdue come from the core; the gues
     { id: 'p0000006', ts: '2026-09-02T00:00:00Z', title: 'Broken', due: 'soon' },
   ]);
   const d = appointmentToday.today(root, { now, zone: BERLIN }).duties;
-  assert.deepEqual(d.due.map((p) => [p.id, p.overdue]), [['p0000001', true], ['p0000005', true], ['p0000004', false]]);
+  assert.deepEqual(d.dueList.map((p) => [p.id, p.overdue]), [['p0000001', true], ['p0000005', true], ['p0000004', false]]);
   assert.equal(d.open, 6);
   assert.equal(d.withDate, 4, 'readable due dates: 0001, 0002, 0004 and the alias 0005 (0006 is unknown)');
   // Berlin midnight: at 22:30Z the 12th is already over in Berlin
   const late = appointmentToday.today(root, { now: ms('2026-10-12T22:30:00Z'), zone: BERLIN }).duties;
-  assert.deepEqual(late.due.map((p) => [p.id, p.overdue]), [['p0000001', true], ['p0000005', true], ['p0000004', true]]);
+  assert.deepEqual(late.dueList.map((p) => [p.id, p.overdue]), [['p0000001', true], ['p0000005', true], ['p0000004', true]]);
   // another zone: the same instant, but in New York the 12th still runs
   const ny = appointmentToday.today(root, { now: ms('2026-10-12T22:30:00Z'), zone: 'America/New_York' }).duties;
-  assert.deepEqual(ny.due.map((p) => [p.id, p.overdue]), [['p0000001', true], ['p0000005', true], ['p0000004', false]]);
+  assert.deepEqual(ny.dueList.map((p) => [p.id, p.overdue]), [['p0000001', true], ['p0000005', true], ['p0000004', false]]);
 });
 
 test('today.decisionsForHuman: due and "since" from the core (the start of the chain)', (t) => {
@@ -592,11 +602,51 @@ test('due-one-place: positive control — a reader that guesses the field itself
   fs.writeFileSync(path.join(w, 'src', 'reader-b.mjs'), "for (const f of ['due', 'due_date', 'until', 'deadline']) read(p[f]);\n");
   fs.writeFileSync(path.join(w, 'src', 'reader-c.mjs'), 'export const c = (duty) => duty?.deadline;\n');
   fs.writeFileSync(path.join(w, 'bin', 'mem-mcp'), 'if (d.due) { run(); } const x = s.due; const until = e.until + 1; // claim lines\n');
-  fs.writeFileSync(path.join(w, 'src', 'reader-d.mjs'), 'const { due: dueNow } = s; export const d = dueNow;\n');
+  // The core's results are NOT called after the raw field: destructuring them is allowed, and an object literal is no read.
+  fs.writeFileSync(path.join(w, 'src', 'result-d.mjs'), [
+    'const { fresh, dueNow, overdue } = s; export const d = dueNow;',
+    'for (const { id, dueAt: value, state } of s.list) use(id, value, state);',
+    'export const rows = s.list.map(({ id, dueAt }) => ({ id, due: dueAt }));',
+    'export const shape = { due: dueNow, overdue };',
+    'export const pick = (p) => p?.dueAt ?? p?.state;',
+    '',
+  ].join('\n'));
+  // The three ways the first pattern could not see (destructuring, bracket, the alias `by`); each in a file of its own.
+  fs.writeFileSync(path.join(w, 'src', 'reader-e.mjs'), 'export const e = (d) => { const { due } = d; return due; };\n');
+  fs.writeFileSync(path.join(w, 'src', 'reader-f.mjs'), 'export const f = (d) => d["due"];\n');
+  fs.writeFileSync(path.join(w, 'src', 'reader-g.mjs'), "export const g = (d) => d['deadline'];\n");
+  fs.writeFileSync(path.join(w, 'src', 'reader-h.mjs'), 'export const h = (d) => { const { due_date: when = null } = d; return when; };\n');
+  fs.writeFileSync(path.join(w, 'src', 'reader-i.mjs'), 'export const i = (rows) => rows.map(({ id, deadline }) => [id, deadline]);\n');
+  fs.writeFileSync(path.join(w, 'src', 'reader-j.mjs'), 'export const j = (d, a) => d.ts ?? (a.due ?? a.by);\n');
+  fs.writeFileSync(path.join(w, 'src', 'reader-k.mjs'), "for (const { 'until': t } of rows) read(t);\n");
+  // `by` alone is the author field of other records: reading it is no finding; only the fallback idiom after a due name is.
+  fs.writeFileSync(path.join(w, 'src', 'author.mjs'), 'export const by = (c) => c.by ?? c.claimed_by; const { by: who } = c;\n');
   const r = calculations.check(w);
   const x = r.results[0];
   assert.equal(x.anchorHolds, true);
-  assert.deepEqual(x.seconds.map((s) => s.file).sort(), ['src/reader-a.mjs', 'src/reader-b.mjs', 'src/reader-c.mjs']);
+  assert.deepEqual(x.seconds.map((s) => s.file).sort(), [
+    'src/reader-a.mjs', 'src/reader-b.mjs', 'src/reader-c.mjs', 'src/reader-e.mjs', 'src/reader-f.mjs', 'src/reader-g.mjs',
+    'src/reader-h.mjs', 'src/reader-i.mjs', 'src/reader-j.mjs', 'src/reader-k.mjs',
+  ]);
+});
+
+test('due-one-place: the real catalogue pattern, line by line — every way of reading the field fires, the core\'s own result names and an object literal do not', () => {
+  const text = fs.readFileSync(path.join(REPO, 'shared', 'calculations.jsonl'), 'utf8');
+  const entry = text.split('\n').filter(Boolean).map((l) => JSON.parse(l)).find((e) => e.id === 'due-one-place');
+  const re = new RegExp(entry.pattern);
+  const reads = [
+    'const x = d.due;', 'const y = d?.deadline;', 'const { due } = d;', 'const { id, due: v } = d;', 'const { due = null } = d;',
+    'const { due_date: when } = d;', 'for (const { due } of rows) use(due);', 'rows.map(({ id, deadline }) => id);',
+    "for (const { 'until': t } of rows) use(t);", 'const x = d["due"];', "const x = d['deadline'];", "const x = d['due_date'];",
+    'const x = d[`until`];', 'const x = a.ts ?? (deadline ?? q.by);', 'const x = due || d.by;',
+  ];
+  for (const line of reads) assert.ok(re.test(line), `should fire: ${line}`);
+  const quiet = [
+    'const { fresh, dueNow, overdue } = s;', 'for (const { id, dueAt: v } of s.list) use(id, v);', 'rows.map(({ id, dueAt }) => id);',
+    'const o = { due: dueNow, overdue };', 'const o = { id, due: dueAt };', 'const x = d[name];', "const x = d['title'];",
+    'const { by: who } = c;', 'const x = c.by ?? c.claimed_by;', 'const [due, other] = pair;',
+  ];
+  for (const line of quiet) assert.ok(!re.test(line), `should stay quiet: ${line}`);
 });
 
 // --------------------------------------------- 8. parity table and shared fixture
