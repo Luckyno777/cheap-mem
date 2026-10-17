@@ -170,8 +170,9 @@ test('C: at BASE the question-side paths miss the entry (the probes above would 
 test('D: a snake_case token is searched as a WHOLE word only - loose part hits on prose are gone (named, held)', (t) => {
   // Parity with the sibling house (the underscore rule for the question only). The price: an entry that says
   // "the peer closed the socket" is no longer found by the question `socket_closed_by_peer` over the path of the
-  // after-failure hook (`find --content-words --weak`). At BASE that path scored 16.88 on it. "Whole word AND parts"
-  // is an open question for the owner of the sibling parity; if it is answered, this probe is changed on purpose.
+  // after-failure hook (`find --content-words --weak`). At BASE that path scored 16.88 on it. Answered for the case
+  // that matters (k1-subword-cm, test/k1-subword.test.mjs): the parts are searched too, but ONLY while the index does
+  // not hold the whole word. Here the index holds it (the `whole` entry), so the price stays as held below.
   const root = tempDir('cm-k1-loss-', t);
   assert.equal(spawnSync(process.execPath, [MEM, 'init', '--root', root], { input: '' }).status, 0);
   for (let i = 0; i < 6; i += 1) {
