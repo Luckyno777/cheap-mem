@@ -413,7 +413,7 @@ symlink, a path that does not exist); and one `mem_log` with a title of tens of
 thousands of characters without whitespace. The last is a counter, not a
 timer: a preload (`bench/atlas/run-counter.mjs`) reports the longest unbroken
 run any pattern scan was handed, and the expectation is the bound in
-`src/entity.mjs` (512). The quick run takes about four seconds. Against
+`src/entity.mjs` (512). The quick run took about four seconds before the gap groups below. Against
 `91b1afc`, before the ports, 52 of its 75 records read `fail`; on the current
 state they all pass.
 
@@ -439,6 +439,49 @@ E2 and E4 of the sister house's list are named as blind spots.
 phases this house does not have, each with its reason. (Until 2026-10-17 it also
 carried a mapping for `bridge`/`bruecke` and `silent-errors`/`stille-fehler`;
 see the next section.)
+
+## The gap groups of `bridge` and `silent-errors` (atlas-luecken-cm)
+
+The sister house measured four doors of the bridge and four read paths that these two phases had named as blind spots. Each is now a group of
+records, in `bench/atlas/bridge-gaps.mjs` and `bench/atlas/silent-errors-gaps.mjs`. Each group owns a throwaway root, asks a **real** door
+(a stdio client, an HTTP process, a dashboard process, a child that imports the tree's own module), counts, and has a positive control; when the
+control fails, every record behind it reads `not-measured` and names it. A red record is a finding, not a bug of the phase. The quick run of
+`bridge` went from 79 to 101 records (about 11 s instead of 3.4 s: it starts a dozen real processes), `silent-errors` from 31 to 51 (about 7 s).
+
+**`bridge`, new records (22).**
+
+| Group | Records | Counted | Threshold |
+|---|---|---|---|
+| `sdk` (A8) | `bridge.sdk.range`, `bridge.sdk.installed` | peer floor, dev floor, locked version, installed version | peer floor = dev floor <= locked version, the lock inside the caret range, the peer optional; the installed SDK inside the range (absent: `not-measured`) |
+| `bidi` (A9) | `world` (control), `exits`, `structured`, `roundtrip`, `all-nine`, `clean` | raw controls in the whole answer of `mem_find`, `mem_show`, `mem_context`, `mem_retrieve`; marks per control | 0 raw controls (text and `structuredContent`); `mem_show` equals the original with each of the nine replaced by `[U+XXXX:NAME]`; Arabic, Hebrew, umlauts and the two direction marks arrive unchanged |
+| `card` (H11) | `control`, `limits-edge`, `limits`, `shape`, `rank`, `person-stage1`, `person-stage2` | refused of asked on both roads (`mem_card_add`, `mem_log` type card), rows written, tier stored | exactly at every limit accepted (160/320/200/80/240, six options, eight pieces of evidence); one over refused, naming the limit, 0 rows; 13 wrong shapes refused with their reason; a claimed tier `user` stored as `agent` and a person's card still the one that counts; stage 1 takes the entry in and names the gap, stage 2 (`CHEAP_MEM_CARD_REJECT=yes`) refuses |
+| `http-token` (A14) | `start-control`, `start-refused`, `accepted`, `rejected`, `local-switch`, `read-only-default`, `dashboard` | processes up or refused (exit code), status per request, rows written | 4 of 4 allowed starts up, 7 of 7 refused starts exit 1 naming the variable; 8 of 8 bad requests 401 with a Bearer challenge and 0 rows; the loopback switch serves a plain local request and turns away four proxy headers, a foreign Host and a foreign Origin (403); the HTTP default offers no write tool; the dashboard starts with its login, a token or the switch and refuses with none |
+
+Why these thresholds. They are the numbers the code states: the limits of `src/cardrules.mjs`, the nine codepoints of `src/bidi.mjs` (written
+out in the group, so a change there is a visible change here), the start rule of `src/webauth.mjs` (one rule that the bridge and the dashboard
+both read; the login counts as a credential at the dashboard and never at the bridge, decision 2hhdn4aug8uk). The token is built at run time
+and never printed; a record also counts the outputs that carry it (expected 0).
+
+**`silent-errors`, new records (20).** The duties surface (what is still owed) over the CLI and the bridge in the five states of the older
+surfaces (10 records: `cli-duties.*`, `bridge-duties.*`; broken is `degraded` like for find and context, because the skipped line is not
+mentioned, and unreadable is an error that does not name the file). E1: `visibility.states` (five states, five different answers, the reason
+for unreadable), `visibility.bridge-control` and `visibility.bridge-unreadable` (the bridge writes a row when it can and keeps answering when it
+cannot). E2: `doctor.ok|missing|empty|broken|unreadable` (`mem doctor` calls a missing or empty drawer no error, a line that is not JSON an
+error naming file and line, and a drawer whose read failed an error that says "unreadable"). E3: `task-lane.real-control` and
+`task-lane.real-unreadable` (the block of a subagent says that the lookup failed when the drawer cannot be read, with the file system doing the
+failing, not an injection).
+
+**Not built, and why.** E4 of the sister house (a dismissed review suggestion still on the daily summary): `src/today.mjs` lists its part (d)
+review as not built, so there is nothing to measure; the blind spot says so. A8 at start time: this house has no runtime check of the SDK
+version (the peer range in `package.json` is the guard); the sister house refuses a too-old SDK at start, and no record asks that here.
+
+**Red proof, record by record.** `GAP_MUTANTS` in `bench/mutation.mjs` holds 42 mutants, each at the SHARED source of its record: the limits constant,
+the nine-control mask, the one start rule, the visibility reader. `test/atlas-gaps-mutants-cm.test.mjs` applies each to a scratch copy of the tree,
+asks the group again and requires the listed records to read `fail`, the controls to stay `pass` and the dependents of a fallen control to read
+`not-measured`; its last test counts that every new record has a mutant. Where a second layer stands behind the first (the visibility journal is
+guarded in `src/mcpvisibility.mjs` and again in `bin/mem-mcp`), the mutant removes both. The mutants with one edit (41) are also in the catalogue of
+`bench/mutation.mjs`, so `test/mutation-anchors.test.mjs` holds their anchors. The live suites are `test/atlas-gaps-bridge-cm.test.mjs`,
+`test/atlas-gaps-http-cm.test.mjs` and `test/atlas-gaps-silent-cm.test.mjs`.
 
 ## One id per phase, and four phases that are only named: `dashboard`, `cost`, `digest`, `net-tempo`
 

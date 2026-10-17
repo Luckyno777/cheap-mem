@@ -32,6 +32,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { tempDir } from './temp-dir.mjs';
+import { probeStatus } from './helpers/probe-post.mjs';
 import * as memory from '../src/memory.mjs';
 import * as loopback from '../src/embed/loopback.mjs';
 
@@ -395,21 +396,22 @@ test('A8/F14: the bridge answers 413 above 1 MiB and passes exactly 1 MiB on to 
     if (/ 200 /.test(await wire(port, 'GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n'))) break;
     await new Promise((r) => setTimeout(r, 50));
   }
-  const post = (body, headers = {}) => new Promise((resolve) => {
-    const q = http.request({
-      host: '127.0.0.1', port, path: '/mcp', method: 'POST',
-      headers: { host: '127.0.0.1', accept: 'application/json, text/event-stream', 'content-type': 'application/json', ...headers },
-    }, (r) => { r.resume(); r.on('end', () => resolve(r.statusCode)); });
-    q.on('error', (e) => resolve(`error ${e.code}`));
-    q.end(body);
-  });
+  // An over-limit body is answered 413 at once and the server may cut the connection while the client still writes: the
+  // reset lands on the request (no answer: "error <code>") or on the response after the status (the status stays). A
+  // connection that hangs THROWS (probeStatus): it is neither a 413 nor a refusal.
+  const post = (body, headers = {}) => probeStatus({
+    host: '127.0.0.1', port, path: '/mcp',
+    headers: { host: '127.0.0.1', accept: 'application/json, text/event-stream', 'content-type': 'application/json', ...headers },
+  }, (q) => q.end(body));
   const MIB = 1024 * 1024;
   const frame = (fill) => `{"jsonrpc":"2.0","id":1,"method":"ping","params":{"p":"${fill}"}}`;
   const pad = (bytes) => frame('a'.repeat(bytes - Buffer.byteLength(frame(''))));
   // Exactly the limit: not refused by size (the transport may refuse the message for its own reasons; never 413).
   const atLimit = pad(MIB);
   assert.equal(Buffer.byteLength(atLimit), MIB);
-  assert.notEqual(await post(atLimit), 413, `positive control: a body of exactly 1 MiB is read ${err}`);
+  const atLimitAnswer = await post(atLimit);
+  assert.equal(typeof atLimitAnswer, 'number', `positive control: a body of exactly 1 MiB gets an answer ${err}`);
+  assert.notEqual(atLimitAnswer, 413, `positive control: a body of exactly 1 MiB is read ${err}`);
   // Above the limit the server answers 413 and may close the connection while the client still writes: on a
   // loopback socket that surfaces as a reset (the error CODE differs per platform and is not asserted). "Refused"
   // is therefore a 413 OR a reset; the one body that is a single byte over must show the real 413.

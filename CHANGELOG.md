@@ -48,6 +48,52 @@ are the day the work landed on `main`.
   `.mem/search-index` on cleanup. The recall hook in those scenes starts the detached index rebuild (shown locally: its
   note is written); the file now removes its trees with `removeTree`, which waits for that rebuild.
 
+### Added - atlas gaps: A8, A9, H11, A14 in `bridge`, E1 to E3 and the duties in `silent-errors`, each record with a mutant at its shared source (atlas-luecken-cm)
+
+Plan step 3 (T3, part 3). Measures what the sister house measures and these two phases had named as blind spots. No source of `src/` or `bin/` changed; a red record is a finding.
+- **`bridge`: 22 new records (79 -> 101 in the quick run, about 11 s).** `bench/atlas/bridge-gaps.mjs`, four groups, each on a root of its own with a positive control.
+  A8 `sdk` (2): the peer range of the SDK has a floor equal to the dev range and not above the locked version; the installed SDK is inside it.
+  A9 `bidi` (6): the nine Trojan Source controls are masked in `mem_find`, `mem_show`, `mem_context` and `mem_retrieve`, in text and in `structuredContent`
+  (0 raw controls, `mem_show` equal to the expected mask), also on the road write over `mem_log` then read; each of the nine alone; Arabic, Hebrew, umlauts and the
+  two direction marks arrive unchanged. H11 `card` (7): both roads (`mem_card_add`, `mem_log` type card) accept a card exactly at every limit and refuse one over
+  it, naming the limit (14 of 14, 0 rows); 13 wrong shapes refused with the reason; a claimed tier `user` is stored as `agent`, forged rank fields are refused, a
+  person's card stays the one that counts; the person rule in stage 1 (taken in and named) and stage 2 (`CHEAP_MEM_CARD_REJECT=yes`, refused). A14 `http-token` (7):
+  real `bin/mem-mcp --http` and `bin/mem-serve` processes: 4 allowed starts up, 7 refused starts exit 1 naming the variable, 8 bad requests 401 with a Bearer challenge
+  and 0 rows, the loopback switch turns away four proxy headers, a foreign Host and a foreign Origin, the HTTP default has no write tool, the dashboard starts with its
+  login (decision 2hhdn4aug8uk) and the bridge never does. The blind spot "the bridge over HTTP and with a token" is gone; narrower ones took its place.
+- **`silent-errors`: 20 new records (31 -> 51, about 7 s).** `bench/atlas/silent-errors-gaps.mjs`: E1 the visibility journal in five read states and a bridge that
+  keeps answering when it cannot be read (3); E2 `mem doctor` tells the five states of a drawer apart (5); E3 the block of a subagent says the lookup failed with a real
+  unreadable drawer, no injection (2); the duties surface over the CLI and the bridge in five states (10; broken and unreadable read `degraded`, like find and context: the
+  skipped line is not mentioned, the error does not name the file). E4 has nothing to measure: `src/today.mjs` lists its review part as not built (blind spot says so).
+- **Red proof.** `GAP_MUTANTS` in `bench/mutation.mjs`: 42 mutants at the shared source (the limits constant of the card rules, the nine-control mask, the one start rule of
+  `src/webauth.mjs`, the visibility reader, the doctor drawer check, the subagent notice). `test/atlas-gaps-mutants-cm.test.mjs` applies each to a scratch copy and requires the
+  listed records red, the controls green, the dependents of a fallen control `not-measured`, and that every new record has a mutant. A guarantee with two layers (the
+  visibility journal) is removed in both. 41 mutants (one edit) are also in the catalogue of `bench/mutation.mjs`. Live suites: `test/atlas-gaps-{bridge,http,silent}-cm.test.mjs`.
+- `bench/atlas/bridge-client.mjs` `openBridge` takes the code tree (`tree`), `surfacesGroup` is exported and takes it too. `docs/benchmark-atlas.md` has the section.
+### Fixed - 413 probes: a reset after the answer is part of the answer, not a red file (reset-413-cm; tests only, no `src/` or `bin/`)
+
+A service that refuses an over-limit body answers 413 at once and may cut the connection while the client still writes. The reset then lands on the request before any answer, or on the response after its status line. The 413 probes handled only the first place well: `test/service-door-cm.test.mjs` (the 1 MiB bridge limit) resolved at the response's `end`, so a response that ended in a reset instead hung the probe; `test/body-reader.test.mjs` had no `error` listener on the response. The sibling saw the same class once in 16 runs under load ("asynchronous activity after the test ended", file red, every assertion green).
+- **One helper:** `test/helpers/probe-post.mjs` settles when the request is closed; the status line that arrived is the answer and a reset after it is recorded (`resetAfterAnswer`), a failure before any answer is `{ status: null, code }` (the code is never interpreted), the response's `error` is always listened to, and a time limit settles a hung connection. Both files use it. A hang is never a refusal: `probeStatus` throws on a connection that does not answer (before, `service-door-cm` would have counted `error timeout` as "a reset" and as "not 413"), and the exactly-1-MiB control needs a real numeric answer. Nothing was weakened: `service-door-cm` still requires at least one real 413, `body-reader` still requires exactly `[413]` at all seven places.
+- **Guard:** `test/probe-post.test.mjs` cuts the connection after the status line on purpose with a raw server (no timing involved) and holds the helper to the five outcomes above; its control proves the cut is visible on the response. The old `service-door-cm` helper shape hangs on the same server (measured), the old `body-reader` shape survived it on Node 22.
+- **Not reproduced here:** the reset after the answer did not occur in 540 probe rounds on Node 22 / loopback under load (the 1-byte-over and 3 MiB bodies always arrived as 413, the multi-byte one always as a reset before any answer), so the wobble counts are equal (20 full runs of each file, four at a time, before and after: 0 of 20 red every time); the fix follows the sibling's measured case.
+### Security - MCP SDK raised to 1.32.1, floor 1.31.0 (GHSA-6qxp-vccf-f47h)
+
+- **The optional MCP SDK's range admitted releases with a known advisory.** [GHSA-6qxp-vccf-f47h](https://github.com/advisories/GHSA-6qxp-vccf-f47h)
+  (high, reviewed 2026-10-06): the SDK's OAuth client in `@modelcontextprotocol/sdk` 1.12.0 through 1.30.1 sends stored
+  OAuth credentials (refresh token, client secret) to whichever authorization server the MCP server names; 1.31.0 is the
+  first fixed release. MCP servers built with the SDK and stdio clients are not affected. cheap-mem uses no OAuth client:
+  `bin/mem-mcp` is a server (stdio and `--http`), and the dashboard's probe (`src/mcplive.mjs`) connects to the local
+  bridge with a static bearer header, no `authProvider`. So cheap-mem itself was not exposed, but its peer range
+  `^1.30.0` let an install pair it with an affected release. Peer and dev range are now `^1.31.0` (package.json and the
+  lock's root entry), the lock pins 1.32.1 (the newest 1.x on the registry, 2026-10-17), and every install line
+  (`bin/mem-mcp`, `mem setup`, `docs/mcp-setup.md`, README) names `^1.31.0`. Between 1.30.0 and 1.32.1 the declarations
+  cheap-mem imports (`server/index`, `server/stdio`, `server/streamableHttp`, `client/index`, `types`) are unchanged; the
+  two behaviour changes do not reach it: the streamable HTTP server's new 4 MiB body cap is skipped when the caller
+  passes a parsed body (the bridge does, after its own 1 MiB limit), and the HTTP client now follows redirects only
+  within the origin (the probe talks to a fixed local address). The MCP probes (`test/*mcp*`, tool-count-doc, setup,
+  output-guard) are green against 1.32.1 and against the floor 1.31.0. `test/mcp-sdk-floor-cm.test.mjs` gains a guard:
+  neither range nor the lock may admit a release before 1.31.0 (red on `f059670`; red when the peer range or only the
+  lock is set back). The tarball is unchanged in content (2,056,533 bytes packed, cap 2.1 MB); the SDK is not in it.
 ### Fixed - PowerShell paths read as wildcards, and two places that printed CHEAP_MEM_CODE raw (ps1-pfade-cm; port to lucky-mem: no, it has no PowerShell twins for the first; the other two open)
 
 Review of shim-rest-cm left three findings, each with a red proof against its base `077b7e1`.
