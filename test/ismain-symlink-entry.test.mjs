@@ -94,6 +94,7 @@ const EXCEPTIONS = {
   // Same shape: the rebuild child is a `node -e` script (a template string); argv[1] there is the memory root it is handed,
   // and import.meta.url only locates the module directory.
   'src/indexrebuild.mjs': 'node -e child script: argv[1] is the memory root, not an entry-point test',
+  'bench/atlas/start-counter.mjs': 'a preload, not an entry point: argv[1] is the script of the process being counted (its base name goes into the row), import.meta.url only carries the counter\'s own query string',
 };
 function sourceFiles(base) {
   const files = [];

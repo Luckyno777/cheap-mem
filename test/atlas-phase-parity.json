@@ -1,5 +1,5 @@
 {
-  "about": "The atlas phase ids of the sister house (lucky-mem), as a fixed list, and every deliberate difference between the two atlases. test/atlas-phase-parity.test.mjs compares bench/atlas.mjs against it. Update it in the same commit that adds, renames or removes a phase in either house; a difference that is not listed here, with a reason, turns the test red. `luckyMemPhases` is the list the sister house is building toward (ids English and equal in both houses); `luckyMemPending` names the ids of it that are not yet on the sister house's main branch, with the branch that carries them. `cmStubs` are phases this house names but has not built.",
+  "about": "The atlas phase ids of the sister house (lucky-mem), as a fixed list, and every deliberate difference between the two atlases. test/atlas-phase-parity.test.mjs compares bench/atlas.mjs against it. Update it in the same commit that adds, renames or removes a phase in either house; a difference that is not listed here, with a reason, turns the test red. `luckyMemPhases` is the list the sister house is building toward (ids English and equal in both houses); `luckyMemPending` names the ids of it that are not yet on the sister house's main branch, with the branch that carries them. `cmStubs` are phases this house names but has not built (none since atlas-neue-phasen-cm built the last four; bench/atlas/stub.mjs stays for the next agreed id).",
   "recordedOn": "2026-10-17",
   "luckyMemPhases": [
     "surface",
@@ -68,22 +68,5 @@
     }
   ],
   "newInLm": [],
-  "cmStubs": [
-    {
-      "id": "dashboard",
-      "reason": "The id is agreed with the sister house; this house has not built the phase. It reports `not-measured` and a named blind spot, never `pass` (bench/atlas/stub.mjs)."
-    },
-    {
-      "id": "cost",
-      "reason": "The id is agreed with the sister house; this house has not built the phase. It reports `not-measured` and a named blind spot, never `pass` (bench/atlas/stub.mjs)."
-    },
-    {
-      "id": "digest",
-      "reason": "The id is agreed with the sister house; this house has not built the phase. It reports `not-measured` and a named blind spot, never `pass` (bench/atlas/stub.mjs)."
-    },
-    {
-      "id": "net-tempo",
-      "reason": "The id is agreed with the sister house; this house has not built the phase. It reports `not-measured` and a named blind spot, never `pass` (bench/atlas/stub.mjs)."
-    }
-  ]
+  "cmStubs": []
 }

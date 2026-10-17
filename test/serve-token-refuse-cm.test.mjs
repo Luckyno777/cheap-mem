@@ -361,6 +361,7 @@ const SOCKET_ONLY = { 'src/recallserver.mjs': 'a Unix socket / named pipe with a
 const LOOPBACK_PROBES = {
   'bench/scale-gate.mjs': 'finds a free port: binds 127.0.0.1:0, closes at once, serves nothing',
   'bench/board-tempo.mjs': 'finds a free port: binds 127.0.0.1:0, closes at once, serves nothing',
+  'bench/atlas/serve-world.mjs': 'finds a free port: binds 127.0.0.1:0, closes at once, serves nothing (the server it then starts is bin/mem-serve itself, with the loopback-only switch)',
   'bench/atlas/bridge-gaps.mjs': 'finds a free port for the HTTP doors it starts: binds 127.0.0.1:0, closes at once, serves nothing',
 };
 const NET_NAMES = '(?:node:)?(?:net|http|https|http2|tls|dgram)';

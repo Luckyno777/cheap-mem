@@ -483,7 +483,7 @@ guarded in `src/mcpvisibility.mjs` and again in `bin/mem-mcp`), the mutant remov
 `bench/mutation.mjs`, so `test/mutation-anchors.test.mjs` holds their anchors. The live suites are `test/atlas-gaps-bridge-cm.test.mjs`,
 `test/atlas-gaps-http-cm.test.mjs` and `test/atlas-gaps-silent-cm.test.mjs`.
 
-## One id per phase, and four phases that are only named: `dashboard`, `cost`, `digest`, `net-tempo`
+## One id per phase
 
 From 2026-10-17 a phase has the same id in both houses, and new ids are English
 in both. The sister house renames `kennungen`, `bruecke` and `stille-fehler` to
@@ -494,20 +494,139 @@ its branch `agent/atlas-rahmen-lm` was not pushed yet at that date). So the `idM
 `luckyMemPending` names the ids of it that are not on the sister house's main
 branch yet, with the branch that carries them (`agent/atlas-rahmen-lm`).
 
-Four ids are in this atlas as **stubs** (`bench/atlas/stub.mjs`): `dashboard`,
-`cost`, `digest` and `net-tempo`. A stub measures nothing. It writes one record,
-`<id>.not-built`, with the verdict `not-measured`, and one named blind spot; it
-never writes `pass`. The stubs add four fixed `not-measured` rows and four blind
-spots to a run. They do not change the exit code on their own account: a real run
-already ends with 1 or 3 today (the committed baseline has 81 `not-measured`
-and 1 `fail`), and a run of the stubs alone ends with 3, never 0. The report
-lists each stub among the blind spots. `test/atlas-stub-never-passes.test.mjs`
-holds that: each stub phase on its own, the real runner on the four together,
-and a positive control (a stub written to record `pass` is caught by the same
-check). When a stub is built, its file stops importing `stub.mjs` and its entry
-leaves `cmStubs` in the parity list in the same commit. The questions the four
-phases ask are set with the sister house when they are built; the stub files
-promise no particular measurement.
+An id can be held in this atlas before the phase is built: `bench/atlas/stub.mjs`
+writes one record, `<id>.not-built`, with the verdict `not-measured`, and one
+named blind spot, and never `pass`; a run of stubs alone ends with exit code 3,
+never 0 (`exitCodeOf` in `bench/atlas/core.mjs`). `test/atlas-stub-never-passes.test.mjs`
+holds that, with a positive control. The four ids agreed with the sister house
+(`dashboard`, `cost`, `digest`, `net-tempo`) were stubs from the atlas frame
+(`atlas-rahmen-cm`) until the next section; `cmStubs` in the parity list is empty
+now, and the mechanism stays for the next agreed id. When a stub is built, its
+file stops importing `stub.mjs` and its entry leaves `cmStubs` in the same commit.
+
+## Four more phases: `dashboard`, `cost`, `digest`, `net-tempo`
+
+Built on 2026-10-17 (change `atlas-neue-phasen-cm`), after the frame. All four lead
+with a **count, never a clock**: the time a call takes depends on who else is
+running, the number of processes, reads and requests does not. Each has a
+threshold or expectation that is a **bound of the design or a ratchet** (today's
+measured number, which may fall and must not grow), never a wish; a ratchet says
+what is, not that it is good, and the record prints the figure so a reader can
+disagree. Each names its blind spots. None of them has a baseline yet: the first
+full run on a quiet machine adds them (the figures below are from quick runs on
+2026-10-17, on a box at load 14 on 4 cores, which does not move a count).
+
+The counters are preloads whose output file travels in the URL's query string, so
+no environment variable was added (`bench/atlas/*-counter.mjs`; each header names
+what it cannot see, and `test/atlas-counters-probe.test.mjs` runs each on a planted
+program with the answer written down): `start-counter` (node process starts),
+`module-counter` (modules loaded, command groups among them), `call-counter`
+(file-system calls, opens per entry log, worker threads), and the existing
+`io-counter` (lines and bytes read). Of the tempo items of 2026-10-11 (TB), TB4 to TB7
+were fixed in this house and held by a test each, and TB1, TB2 and TB8 are the sister
+house's by name and have counterparts here; none of them was a row of the atlas before.
+
+**`dashboard`.** The server is `bin/mem-serve` as its own child process on a
+scratch memory (`bench/atlas/serve-world.mjs`), with `io-counter` inside it; the
+full build runs in a worker thread and the counter adds every row. The page's own
+protocol (the page, `/dashboard.json` until the build is in, each deferred part,
+the entries page by page) is replayed over HTTP, one scenario per server, and two
+scenarios are compared as the difference of two deterministic counts.
+`build-reads`: a full build reads each line of the entry logs at most 32 times
+(measured 28.5 at 300 entries and 29.4 at 1000, so a pass count and not a byte
+count). `warm-load`: a second page load reads nothing (0 lines). `write-rebuild`:
+one new entry costs a full rebuild of 27.7 to 28.5 passes, not less, which the
+record prints (the cache's gap between two builds is set to 0 for this scenario by
+its test switches, so the run does not wait 20 s). `desk` (the counterpart of plan
+item TB1): `/desk.json` collects on every call, 22.1 passes of the store per call,
+and the second call reads 100 % of the first; no page asks for the route. That is a
+**finding**, recorded as `fail` (minor) against the expectation that a repeated
+call is served from a cache like `/dashboard.json`. `requests`: in Chromium, the
+home view opens with 13 requests and `/dashboard/appointments.json` is among them
+twice (the page draws once from the head and once from the full list, and each
+draw asks again), a **finding** recorded as `fail` (minor); the entries view asks
+11 and none twice. Blind spots: the replay is a model of the page; time is
+`bench/board-tempo.mjs`'s question and is not judged; the compact build above the
+size limit, writes and a second client are not entered. Without Chromium
+`requests` reads `not-measured`; where a process cannot be ended gracefully
+(Windows) the read counters are missing and the rows say so instead of counting 0.
+
+**`net-tempo`.** This house had no counter for the 3D network, so
+`bench/atlas/net-counter.mjs` is it: calls of `initGraph()` (builds) and
+`graphModel()` (model computations) through a wrapper appended to the served
+script, and WebGL contexts and linked programs through patches installed before
+the page's own script, so nothing in the shipped file changed. Chromium with
+software GL, a real `bin/mem-serve`. `load`: opening the network builds it once or
+twice (the head, then the full list; which it is depends on a race, both are inside
+the bound of 2), one model computation per build, at most one context per build
+plus the page's background canvas, at most five programs per build plus one.
+`quiet`: a quiet reload with the same and with changed data builds nothing, 0 of
+each counter (the no-jump rule). `rebuild`: a draw by the person is one build, one
+model computation, one context, five programs. `reuse`: a rebuild should make 0
+new contexts and 0 new programs, as the sister house does with its pool of the
+canvas; this house makes 1 and 5 per draw, so the record reads `degraded`, minor,
+and says it is a cost the sister house removed, not a promise this house broke. The
+**red probe**: with the counter switched off the page still draws its network, and
+`load` reads `fail` ("a broken counter") with the other three rows `not-measured`;
+it is held both on doctored results and on the real page. The time of a build is
+neither a verdict nor a companion value. Blind spots: the mode selector, focusing a
+topic and project and tab changes (also rebuilds), the size, and the picture
+(`test/atlas-net-cm.test.mjs`).
+
+**`cost`.** What one call costs. `cli-start` (TB4): a CLI start is one process and
+loads at most one command group (`--help` none), and loads at most this many
+modules (file count): `version` 111 (103 measured), `--help` 71 (62), `find` 102 (94); a whole
+command group is about thirty files, so a headroom of 8 to 9 is below a regression. `hook.*` (TB5 and
+the other five hooks): node processes started per hook call, on the second call
+(the component table built), the labelled rebuild child not counted: `before-edit`
+1, `subagent-start` 1, `retrieve` 4, `catch-fail` 4, `after-failure` 5, `stop` 5.
+These are ratchets: the phase says what is, and that four to five processes for a
+prompt hook is more than the work needs is a thing the reader sees in the figure.
+Where there is no bash or no time-cap program (`timeout`, `gtimeout`, `perl`) the
+six rows are `not-measured` and name that. `retrieve-opens` (TB6): a warm
+`mem retrieve` opens each entry log at most 3 times (two passes of the state
+derivation, one read in `loadIndex`; measured 3). `doctor-probe` (TB7): no worker
+thread without `--full`, six with it. `doctor-fs` (counterpart of TB2): the
+stat-class calls of `mem doctor --quiet` do not grow with the entries (829 calls at
+100 entries and at 400), they do grow with the project folders (about 450 per
+folder, printed and not judged). `today-journal` (counterpart of TB8): `mem today`
+reads each byte of the injection journal twice per call (slope 2.00 bytes read per
+journal byte, once for the card and once through the doctor it runs; the counter
+watches the journal file alone, so the probe's temporary file cannot move it),
+expected once: a **finding**, recorded as `fail` (minor). `today-probe`: the same
+doctor, called with its default, starts the six writer threads of the
+concurrent-append probe on every `mem today` call (10 calls out of 10) and writes a
+probe folder under the memory root each time, although TB7 limited the probe to
+`--full` for `mem doctor`: a second **finding**, `fail` (minor). TB1, TB2 and TB8 are the sister
+house's items by name (`/schreibtisch.json`, `mem doktor`, `mem heute`); the rows
+here are their counterparts in this house's code, not copies.
+
+**`digest`.** What one tick of `bin/mem-digest` costs, without a model: the model
+command (`MEM_DIGEST_CMD`) is a stand-in that writes one line per call and, in the
+draining variant, marks what it was given as digested. `idle`: a tick that finds
+nothing ripe calls no model, leaves no lock, and starts 3 node processes. `due-once`
+(the control of `idle`: the same store, the threshold set to zero): exactly one
+model call, and because the stand-in digests nothing the script must say so and
+exit 1. `cap`: that call is handed 4 of 21 captures (990 raw bytes) and no more than
+the budget (1000), the oldest capture among them by the age reserve; the sizes are
+chosen so that they do not divide the budget, which is what lets a selection that
+overshoots it be seen. `drain`: the backlog is gone after 4 working ticks (bound:
+`ceil(raw bytes / budget) + 1` = 5),
+one call and exit 0 each, and the tick after has 0 calls. `starts`: ratchets of 3
+(idle) and 14 (a tick with one call). The model call itself is a stand-in: what a
+real session does with the prompt, its cost journal, the PowerShell twin and two
+ticks at once are blind spots. Without bash (or with a space in the scratch path,
+which the script word-splits) the five rows are `not-measured`.
+
+**What the first quick run says, in one line each.** `dashboard`: 3 pass, 2 fail
+(the findings `desk` and `requests`). `net-tempo`: 3 pass, 1 degraded (`reuse`).
+`cost`: 10 pass, 2 fail (`today-journal`, `today-probe`). `digest`: 5 pass. The five non-passes are
+findings, recorded and not fixed; each is a pinned row of its probe test, which goes red on
+purpose when the finding is fixed so the row is changed with the fix.
+
+`test/atlas-phase-parity.json` lists the sister house's phase ids and the
+phases this house does not have, each with its reason. (Until 2026-10-17 it also
+carried a mapping for `bridge`/`bruecke` and `silent-errors`/`stille-fehler`.)
 
 ## Keeping it honest over time
 

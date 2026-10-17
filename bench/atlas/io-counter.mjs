@@ -17,7 +17,7 @@
 // At exit the process appends ONE JSON line to the output file:
 //
 //   { pid, maxRssKb, linesRead, corpusBytesRead, indexBytesRead,
-//     otherBytesRead, filesRead, corpusFiles }
+//     otherBytesRead, watchedBytesRead, filesRead, corpusFiles }
 //
 // - `linesRead`       newline bytes seen in reads of files under
 //                     `<root>/global` or `<root>/projects` (the entry logs)
@@ -25,6 +25,11 @@
 // - `indexBytesRead`  bytes read from the search-index cache directory
 // - `otherBytesRead`  bytes read from anything else under the root
 //                     (config, journals, markers)
+// - `watchedBytesRead` bytes read from the ONE file named by the URL's `watch`
+//                     parameter (a path relative to the root, with `/`), also counted
+//                     in the class it belongs to; 0 without `watch`. It is what lets a
+//                     phase ask about one file while the rest of `otherBytesRead` moves
+//                     with things that come and go (a probe's temporary file, a cache)
 //
 // What it does NOT see (named, because a counter that claims more than it
 // sees is an empty green): reads through `fs.promises` file handles
@@ -40,10 +45,11 @@ import { syncBuiltinESMExports } from 'node:module';
 const params = new URL(import.meta.url).searchParams;
 const ROOT = params.get('root');
 const OUT = params.get('out');
+const WATCH = params.get('watch');
 
-if (ROOT && OUT) install(ROOT, OUT);
+if (ROOT && OUT) install(ROOT, OUT, WATCH);
 
-function install(root, out) {
+function install(root, out, watch) {
   const roots = [path.resolve(root)];
   try { roots.push(fs.realpathSync(root)); } catch { /* may not exist yet */ }
   const underRoot = (p) => {
@@ -55,7 +61,7 @@ function install(root, out) {
     return null;
   };
   const c = {
-    linesRead: 0, corpusBytesRead: 0, indexBytesRead: 0, otherBytesRead: 0, filesRead: new Set(), corpusFiles: new Set(),
+    linesRead: 0, corpusBytesRead: 0, indexBytesRead: 0, otherBytesRead: 0, watchedBytesRead: 0, filesRead: new Set(), corpusFiles: new Set(),
   };
   const fdPath = new Map();
   const classify = (rel) => {
@@ -66,6 +72,7 @@ function install(root, out) {
   const add = (rel, bytes, lines) => {
     if (!bytes) return;
     const kind = classify(rel);
+    if (watch && rel === watch) c.watchedBytesRead += bytes;
     c.filesRead.add(rel);
     if (kind === 'corpus') { c.corpusBytesRead += bytes; c.linesRead += lines; c.corpusFiles.add(rel); } else if (kind === 'index') c.indexBytesRead += bytes;
     else c.otherBytesRead += bytes;
@@ -163,6 +170,7 @@ function install(root, out) {
       corpusBytesRead: c.corpusBytesRead,
       indexBytesRead: c.indexBytesRead,
       otherBytesRead: c.otherBytesRead,
+      watchedBytesRead: c.watchedBytesRead,
       filesRead: c.filesRead.size,
       corpusFiles: c.corpusFiles.size,
     };
