@@ -53,6 +53,43 @@ are the day the work landed on `main`.
   prefix built at run time, red on the first form of this diagnosis), the twin says how many characters it read from
   stdin, and the installed-hooks probe shows stderr - the next Windows run says on which side of the pipe to node it is lost.
 
+### Security - hard HTTP limits for the dashboard server and the MCP bridge (slow headers, dripping body, connection flood)
+
+`mem serve` and `mem-mcp --http` ran with the Node defaults: headers could take 90 s in practice (60 s, checked every 30 s), a body 330 s,
+and the number of open connections was unlimited. Measured on a real service (8 slow connections, 600 silent ones): slow headers held
+89.5 s, a dripping body 329.5 s, 600 silent connections freed only after 89.4 s. `src/http-limits.mjs` `hardenServer()` now sets head 10 s, request 30 s,
+idle 5 s, 100 header lines, a check every 2 s and `maxConnections` per service (dashboard 512, MCP 256; never 0, Node drops every
+connection at 0), right after `createServer`. Measured after: slow headers closed at ~11.6 s, dripping body at ~31.5 s, 600 silent
+connections freed by ~11.9 s with the surplus dropped at once. The limits bound only the receiving of a request, so a long answer or a
+stream does not break. Residual risk, documented and not coded: the MCP bridge streams (`GET /mcp` opens an SSE stream with a
+`: keepalive` every 15 s), and every open stream holds one of its 256 seats for good, so 256 held streams lock the bridge; that needs
+the token, except with `--local-no-token` on loopback. `test/http-limits.test.mjs` (slow headers, silent connections, dripping body, flood at cap 8, header lines, long
+answer, the real services as processes, the recall socket with a hung client; one mutation per probe) and the listener inventory in
+`test/serve-token-refuse-cm.test.mjs` (every listed HTTP service must call `hardenServer` with a named cap) hold it. The recall
+server (Unix socket) got no cap, with the reason in `docs/security-model.md` ("HTTP service limits"). No new environment variable.
+### Fixed - leftovers of the masked transcript copy and of the pin words (small-rest2-cm)
+
+Five items checked, three were real:
+
+- **A key as ONE JSON string (`\n` escapes)** was already masked whole (structured line, a line cut off inside the string,
+  a string inside a string): no defect. The one real gap beside it: the short LAST line of a key (fewer than 20 characters)
+  survived in an open block (no END) and in a block past the 8 KB bound of the complete-block rule. It now falls, but only
+  when it ends its line, so prose after an open block stays.
+- **The block cut of `bin/mem-mask-copy.mjs`** (20000 lines or 2 MiB) split a key that began just before it: the part
+  behind the cut stayed in the clear (297 of 300 key lines in the probe). A cut now carries the header of a block that is
+  still open into the next block; it is masked to the END or to the end of the file.
+- **`pinhashes`** (one word, plural of `pinhash`) is a counter key like `pincodes`. Bare `pins`, `spins`, `hairpins`,
+  `kingpins` stay free, as before.
+- **`bin/mem-reflect.ps1`**: the helper already got root and transcript as separate arguments (a space or an apostrophe
+  in a path was no problem); the root now loses a trailing separator, which Windows PowerShell 5.1 would turn into an
+  escaped closing quote.
+- **Parallel runs of the two mask test files** (the mutation baseline runs every suite in one `node --test`):
+  `test/reflect-masked-copy.test.mjs` counted `mem-reflect-*` directories in the shared temp directory and saw the copies
+  of a file running beside it (red in 3 of 4 double runs). Both files now work in their own temp directory
+  (TMPDIR, TEMP, TMP), and the count is taken there (double run: 6 of 6 red before, 10 of 10 green after).
+- **`test/no-jump.test.mjs`**: the 20 s limit timer of the held-request wait was never cleared and kept the test process
+  alive after the test (the single test: 26.7 s wall, 11.0 s with `clearTimeout` in a `finally`).
+
 ### Security - unattended model sessions no longer read a project's settings or `.mcp.json` (digest, mail handler, reflector)
 
 Without `--bare`, `claude -p` runs the hooks of the `.claude/settings.json` of its working directory and connects the servers of its `.mcp.json`, in a folder nobody trusted and with no dialog
