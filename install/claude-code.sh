@@ -268,9 +268,44 @@ if (text !== null && text.trim()) {
 
 cfg.hooks = cfg.hooks || {};
 
-// Quote anything with a space. `C:\\Program Files\\Git\\bin\\bash.exe` is
-// the normal case on Windows, not an exotic one.
-const q = (s) => (/[\s"]/.test(s) ? `"${s}"` : s);
+// How a path is written into a hook `command`. Claude Code hands the whole
+// string to a shell, so the path has to survive that shell as ONE word.
+//
+// **POSIX paths** (anything that starts with `/`, plus a bare `bash`): a path
+// made only of letters, digits and `-_.:@%+=,/` is written exactly as before,
+// so an install made by an older run is still recognised and replaced, not
+// doubled (`upsertHook` below finds an old entry by the script NAME). Any
+// other character - a space, `"`, `'`, `$`, a backtick, `\`, `&`, `(`, `;`,
+// a glob - puts the path into SINGLE quotes, with every `'` written as
+// `'\''`. Single quotes are the only quoting in which `$`, a backtick and `\`
+// stay literal. The old rule (double quotes, and only for white space or `"`)
+// left a `"` unescaped and let the shell expand `$HOME` or a backtick inside
+// the path (#42).
+//
+// **Windows paths** (a drive letter, a UNC prefix, or a backslash in a path
+// that does not start with `/`): written as before - double quotes when there
+// is white space, `C:\Program Files\Git\bin\bash.exe` being the normal case
+// there, not an exotic one. Which shell runs the command on Windows is not
+// something this repository can prove (the Windows branch cannot run in CI
+// against Claude Code itself), so single quotes are NOT used there: cmd.exe
+// does not read them. What cannot be written safely in double quotes is
+// refused instead of written wrong: a `"` in a Windows path stops the
+// installer before settings.json is touched.
+const isWindowsPath = (s) => /^[A-Za-z]:/.test(s) || s.startsWith('\\\\')
+  || (!s.startsWith('/') && s.includes('\\'));
+const SAFE_POSIX = /^[-A-Za-z0-9_.:@%+=,/]+$/;
+function q(s) {
+  if (isWindowsPath(s)) {
+    if (s.includes('"')) {
+      console.error(`error: the path ${JSON.stringify(s)} contains a double quote; it cannot be written into a hook command safely.`);
+      console.error(`       Move the tool or the Claude home to a path without one, then run this installer again.`);
+      console.error(`       ${settingsPath} was not changed.`);
+      process.exit(1);
+    }
+    return /\s/.test(s) ? `"${s}"` : s;
+  }
+  return SAFE_POSIX.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`;
+}
 
 // An old install is recognised by the SCRIPT NAME, not by the path.
 // The path form changes between install runs — MSYS on one, Windows on
