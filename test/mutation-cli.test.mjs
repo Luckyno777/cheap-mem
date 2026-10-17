@@ -25,6 +25,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { MUTANTS } from '../bench/mutation.mjs';
+import { relPosix } from './helpers/relpath.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..');
@@ -56,7 +57,7 @@ function digest(dir) {
     for (const name of fs.readdirSync(d).sort()) {
       const p = path.join(d, name);
       if (fs.statSync(p).isDirectory()) walk(p);
-      else h.update(path.relative(dir, p)).update('\0').update(fs.readFileSync(p));
+      else h.update(relPosix(dir, p)).update('\0').update(fs.readFileSync(p));
     }
   };
   walk(dir);
