@@ -32,6 +32,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { tempDir } from './temp-dir.mjs';
+import { probePost } from './helpers/probe-post.mjs';
 import * as memory from '../src/memory.mjs';
 import * as loopback from '../src/embed/loopback.mjs';
 
@@ -395,14 +396,15 @@ test('A8/F14: the bridge answers 413 above 1 MiB and passes exactly 1 MiB on to 
     if (/ 200 /.test(await wire(port, 'GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n'))) break;
     await new Promise((r) => setTimeout(r, 50));
   }
-  const post = (body, headers = {}) => new Promise((resolve) => {
-    const q = http.request({
-      host: '127.0.0.1', port, path: '/mcp', method: 'POST',
+  // An over-limit body is answered 413 at once and the server may cut the connection while the client still writes: the
+  // reset lands on the request (no answer: "error <code>") or on the response after the status (the status stays).
+  const post = async (body, headers = {}) => {
+    const { status, code } = await probePost({
+      host: '127.0.0.1', port, path: '/mcp',
       headers: { host: '127.0.0.1', accept: 'application/json, text/event-stream', 'content-type': 'application/json', ...headers },
-    }, (r) => { r.resume(); r.on('end', () => resolve(r.statusCode)); });
-    q.on('error', (e) => resolve(`error ${e.code}`));
-    q.end(body);
-  });
+    }, (q) => q.end(body));
+    return status ?? `error ${code}`;
+  };
   const MIB = 1024 * 1024;
   const frame = (fill) => `{"jsonrpc":"2.0","id":1,"method":"ping","params":{"p":"${fill}"}}`;
   const pad = (bytes) => frame('a'.repeat(bytes - Buffer.byteLength(frame(''))));
