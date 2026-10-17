@@ -39,7 +39,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { writeAtomic } from './atomicwrite.mjs';
+import { writeAtomic, readStateFile } from './atomicwrite.mjs';
 
 /** Where all service markers live, relative to the memory root. */
 export const MARKER_DIR = path.join('.pipeline', 'running');
@@ -95,13 +95,25 @@ export function writeMarker(root, { service, codePath = root, pid = process.pid,
   return marker;
 }
 
-/** Read one service's marker — `null` if missing or unreadable. */
-export function readMarker(root, service) {
+/**
+ * One service's marker in three states: `{ state: 'ok', marker }`, `{ state: 'missing' }` (no such file) and
+ * `{ state: 'unreadable', error }` (there, but cannot be read or is not a marker). A Windows refusal while a writer
+ * replaces the file is tried again first (`readStateFile`). `opt` is that function's (platform/read/pause), for probes.
+ */
+export function readMarkerState(root, service, opt = {}) {
+  const r = readStateFile(markerPath(root, service), opt);
+  if (r.state !== 'ok') return r;
   try {
-    const content = JSON.parse(fs.readFileSync(markerPath(root, service), 'utf8'));
-    if (content && typeof content === 'object' && typeof content.service === 'string') return content;
-    return null;
-  } catch {
-    return null;
+    const content = JSON.parse(r.text);
+    if (content && typeof content === 'object' && typeof content.service === 'string') return { state: 'ok', marker: content };
+    return { state: 'unreadable', error: 'not a marker', code: null };
+  } catch (e) {
+    return { state: 'unreadable', error: String((e && e.message) || e), code: null };
   }
+}
+
+/** Read one service's marker — `null` if missing or unreadable (`readMarkerState` tells the two apart). */
+export function readMarker(root, service, opt = {}) {
+  const r = readMarkerState(root, service, opt);
+  return r.state === 'ok' ? r.marker : null;
 }

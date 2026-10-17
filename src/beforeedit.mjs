@@ -39,7 +39,7 @@ import * as pointer from './pointer.mjs';
 import * as injection from './injection.mjs';
 import * as componentHook from './componenthook.mjs';
 import { maskOutput, maskText } from './outputguard.mjs';
-import { hookText } from './hookstdin.mjs';
+import { hookText, hookShape } from './hookstdin.mjs';
 
 const ARROW = '↳';
 
@@ -145,6 +145,8 @@ async function pickLines(root, hooked, top) {
  *
  * @param {object} o
  * @param {string} o.input    the hook JSON, as read from stdin
+ * @param {{bytes: number, bom: boolean}} [o.shape] size and mark of the input as it arrived (`hookShape`); taken
+ *   from `o.input` when not given
  * @param {string} o.root     the memory (slashes, already resolved)
  * @param {string} [o.marks]  where the once-per-file marks live
  * @param {number} [o.startMs] hook start, for the journal's duration
@@ -155,7 +157,8 @@ async function pickLines(root, hooked, top) {
  */
 export async function run(o = {}) {
   // A byte order mark is not part of the hook JSON (src/hookstdin.mjs): the PowerShell 5.1 twin delivered one.
-  const r = await runPlain({ ...o, input: hookText(o.input) });
+  // The diagnosis counts what ARRIVED (bytes, mark or not), so the shape is taken before the mark goes.
+  const r = await runPlain({ ...o, input: hookText(o.input), shape: o.shape ?? hookShape(o.input) });
   // The last word: whatever the path of the touched file brings along (`.../ghp_<token>.sh`) is masked on the way out,
   // like every other output of this tool. The entries are masked where they are rendered; the QUERY is not an entry.
   if (r.stdout) r.stdout = maskOutput(r.stdout);
@@ -164,7 +167,7 @@ export async function run(o = {}) {
   return r;
 }
 
-async function runPlain({ input, root, marks, startMs, top = 3, ascii = false, trace = false,
+async function runPlain({ input, shape, root, marks, startMs, top = 3, ascii = false, trace = false,
   stderr = (s) => process.stderr.write(s) } = {}) {
   const exitAt = (where) => { if (trace) stderr(maskText(`mem-before-edit: exit at ${where}\n`)); };
   const note = (msg) => { if (trace) stderr(maskText(`mem-before-edit: ${msg}\n`)); };
@@ -198,10 +201,12 @@ async function runPlain({ input, root, marks, startMs, top = 3, ascii = false, t
       }
       // What arrived, by size and shape, never by content: the Windows PowerShell 5.1 twin answered with nothing in CI
       // (runs 1066-1103) and the bare exit name could not say whether its stdin was empty or mangled on the way.
-      const size = Buffer.byteLength(String(input ?? ''), 'utf8');
+      // The RAW size and the mark, from before `hookText` took it off: the trimmed text would hide the very case
+      // (a BOM in front) this line exists to name. Lengths and a yes/no, never content.
+      const size = shape?.bytes ?? Buffer.byteLength(String(input ?? ''), 'utf8');
       // Only in the twin's ASCII mode (bin/mem-before-edit.ps1): the bash hook's trace stays byte for byte the v1 one
       // (test/before-edit-golden.test.mjs).
-      const detail = ascii && !isBash ? ` (input ${size} bytes${size ? `, ${why}` : ''})` : '';
+      const detail = ascii && !isBash ? ` (input ${size} bytes${size ? `, ${why}` : ''}, bom=${shape?.bom ? 'yes' : 'no'})` : '';
       exitAt(`no-readable-path${isBash ? ' (bash: no written file)' : ''}${detail}`);
       return { stdout: '' };
     }

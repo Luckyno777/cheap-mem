@@ -600,11 +600,17 @@ export const COMMANDS = {
       const s = epoch.checkEpoch(root);
       out(`status: ${s.status}`);
       out(`  now:  ${s.current.claims} claims, ${s.current.retiredCount} retired`);
+      if (s.status === 'unreadable') out(`  mark: there, but could not be read (${s.detail})`);
       if (s.mark) out(`  mark: ${s.mark.claims} claims, ${s.mark.retiredCount} retired (${s.mark.seenAt})`);
       if (s.resurrected.length) out(`  resurrected: ${s.resurrected.join(', ')}`);
       process.exit(s.status === 'rollback' ? 2 : 0);
     }
     const r = epoch.recordEpoch(root, { force: Boolean(args.force) });
+    if (!r.written && r.status === 'unreadable') {
+      warn(`the watermark is there but could not be read (${r.detail}) — not replacing it on a guess.`);
+      warn('  Run it again; pass --force only to replace a mark that stays unreadable.');
+      process.exit(2);
+    }
     if (!r.written) {
       warn('refusing to lower the watermark — the memory is BEHIND what this machine saw.');
       warn(`  ${r.resurrected.length} retired claim(s) are active again: ${r.resurrected.slice(0, 5).join(', ')}`);
