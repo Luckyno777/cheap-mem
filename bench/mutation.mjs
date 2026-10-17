@@ -296,9 +296,27 @@ export const MUTANTS=[
    to:'      void n;  // MUTANT: a file that grew after the look is taken as it is',
    tests:['test/alarm-tearing.test.mjs'] },
 
+ { name:'alarm-record: the record default of the environment check is true (a view writes the file)',
+   file:'src/environment.mjs',
+   from:'measure = true, record = false, ...probeOpts } = opts;',
+   to:'measure = true, record = true, ...probeOpts } = opts;  // MUTANT: looking writes',
+   tests:['test/alarm-tearing.test.mjs'] },
+
+ { name:'alarm-record: checkAll records by default (the dashboard and the instrument trace write the file)',
+   file:'src/doctor.mjs',
+   from:'export function checkAll(root, { memo = true, full = true, record = false } = {}) {',
+   to:'export function checkAll(root, { memo = true, full = true, record = true } = {}) {  // MUTANT',
+   tests:['test/alarm-tearing.test.mjs','test/agents-d5.test.mjs'] },
+
+ { name:'alarm-record: mem doctor --full does not ask for the record',
+   file:'src/cli/commands/admin.mjs',
+   from:'full: Boolean(args.full || args.strict), record: true });',
+   to:'full: Boolean(args.full || args.strict), record: false });  // MUTANT',
+   tests:['test/alarm-tearing.test.mjs'] },
+
  { name:'alarm-tearing: --full keeps no record',
    file:'src/environment.mjs',
-   from:'  if (probe.measured) writeAppendRecord(root, probe, { fsType });',
+   from:'  if (probe.measured && record) writeAppendRecord(root, probe, { fsType });',
    to:'  void writeAppendRecord;  // MUTANT: the verdict is not kept',
    tests:['test/alarm-tearing.test.mjs'] },
 
