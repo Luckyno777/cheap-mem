@@ -63,6 +63,59 @@ Plan step 3 (T3, part 1). No measuring run; the stubs measure nothing.
 - `test/atlas-stub-never-passes.test.mjs` (4 tests): each stub on its own, the runner (exit 3, zero passes) and a positive control. Three mutants in
   `bench/mutation.mjs` (a stub counts as passed; no blind spot; exit 0 instead of 3).
 - The phase comments of `bridge`, `identifiers`, `silent-errors` and `docs/benchmark-atlas.md` no longer speak of a mapping.
+
+### Fixed - search: the MMR pool has a hard ceiling; the index state is taken from the bytes the build read; a second builder no longer causes a false failure (index-rest-cm; #48 port of lucky-mem `MMR_DECKEL_MAX`, merge 69defe480; #49 cheap-mem only so far, Parity lm=open)
+
+**1. MMR pool (#48).** `mem find --top N` asks the search for 3 x N hits and the MMR pool was ten times that, with no ceiling; `mmrRerank` costs O(pool x selection). Measured (6000 entries, a query that matches most of them, `mem find`, median of 3, load average 6 to 7 on 4 cores):
+
+| `mem find --top N` | base `9c95641` | this change |
+|---|---|---|
+| 10 | 0.58 s | 0.60 s |
+| 200 | 9.3 s | 0.94 s |
+| 1000 | 34 s | 1.16 s |
+| `--no-mmr` (top 10) | 0.67 s | 0.49 s |
+
+`MMR_POOL_MAX = 600` caps the pool (`mmrPoolFor` = `max(n, min(max(10 n, 50), 600))`); `mmrSelect` orders the first 600 by MMR and hands the rest back in score order, so `--top 1000` still returns 1000. 600 covers every `--top` up to 60 unchanged (60 x 10 = 600); above that the answer can differ, because the pool is no longer 10 x top (measured on a 6,000-entry scratch corpus, 9 questions: top 100 differed in 6 of 9, with up to 18 of 100 hits other than before; top 200 in 7 of 9) - the sibling's constant, chosen for the cost: `test/mmr-pool-max.test.mjs` compares `search()` with the code before the change for top 3, 10, 30 and 60 on every bench query, and is red at the base (`MMR_POOL_MAX` and `mmrSelect` do not exist there, and `search()` reorders beyond rank 600). Gold (`bench/gold-compare.mjs --base 9c95641`): same in every category; `bench/recall-levers.mjs`: byte-identical output to the base. Five mutants.
+
+**2. The state of a full build (#49).** `loadIndexCached` took the file sizes before `buildIndex` and counted lines, tail hash and whole-file hash after it. A writer working in between left a cache that said "N0 bytes, L lines" about documents built from more bytes: the next append read them again (entries twice in the index) and numbered later entries from the wrong base. Measured by the review (20,000 entries, 150 lines written during the background rebuild): 243 documents with a wrong `source:line` (offset 183) and one id twice at the base; none with this change (same probe, `in A not F 0`, `wrong lines 0`). The build now records, per log it reads, the size, the lines, the tail hash and the whole-range hash of the very bytes of that one read (`snapshotOfBytes`), and the state is built from them; a log the stat had not listed (first write during the build) and the captures the build listed are in the state as well; the times are those of the file when it still has the size that was read (else those from before the read: a doubt costs a rebuild, never a wrong answer). `test/index-snapshot-cm.test.mjs` drives the writer deterministically (before and after the build's read), and is red at the base.
+
+**3. Two builders at once.** `assertCacheLanded` wants `res.fullAt >= fullAt` (a cache of a later or the same build is as good as ours; it was `!==`) and looks a second time after 50 ms when the first read misses (the gap of the other builder's swap), so a valid swap no longer books a failure and starts the 600 s backoff. The writer that lost the race (the other cache landed between its two renames, the old one cannot go back) removes its own parked `<cache>.stale.<pid>.<random>` instead of leaving a full old cache beside the new one; and each successful swap removes this cache's parked directories older than ten minutes (`STALE_LEFTOVER_MS`, by change time: the modification time of a parked cache is the day it was written; a rename moves the change time) that a killed writer left. Removing a parked cache a live writer still wants is harmless (its put-back then fails and the next load rebuilds). Eleven mutants.
+
+**Heartbeat on the rebuild lock: judged, not built.** The lock is taken over by age (`INDEX_REBUILD_LOCK_MAX_AGE_S` = 900 s) because the owner PID is the asker's. A heartbeat would have to be touched from inside the child's build, which is one synchronous call (a timer cannot fire during it; it would need a worker thread or progress hooks in `buildIndex`). The build takes about a minute at 100,000 entries, 15 times under the age; and a second build after the age is now harmless (atomic swap, `>=`, own leftovers removed). Not worth the machinery; re-judge if a build ever approaches the age.
+
+### Changed - recall: an absolute bound for the appended index stack, the rebuild in the background; `mem correction` takes the index from the cache (index-schwelle-cm; port of lucky-mem `abruf-nachtrag-schwelle-lm`, merge 71a6f5373, and the `nachtrag-zu-gross` part of `verfahren-zeiger-lm`, merge 69defe480)
+
+The recall hook (`mem find --recall`) loads the cached search index and appends the lines written since the last full build. The full rebuild came only at a fifth of the corpus (`REBUILD_AFTER_FRACTION`), and then inside the asking process, inside the hook's 5 s cap. Now:
+
+1. **The bound.** `REBUILD_AFTER_APPENDED = 100` and `appendedTooMany(baseN, nowN, { absolute })` = `added > min(baseN * 0.2, 100)`. A memory under 500 entries keeps its fifth. The hook (`loadIndex(root, { allowStale: true })`, which `mem find --recall` passes; the warm server's first load too) answers from the appended index, however far the stack has grown, and past the bound starts the full rebuild **detached** (`src/indexrebuild.mjs`, new). The terminal (`mem find`, every other command) is unchanged: it rebuilds in its own process at a fifth, and a plain `mem find` never starts the background child. The hook does not write the cache while the rebuild is due (the child replaces it).
+2. **One rebuild at a time.** Lock `.mem/locks/search-index-rebuild.lock` (link/`O_EXCL`, `src/filelock.mjs`): two processes asking at the same moment start one child (probe (e), two real processes, a stand-in child that counts its starts). A lock whose child died is taken over by age (900 s) through the takeover bar; a fresh one is respected. The child removes its lock when it ends and leaves a note (`search-index-rebuild.note.json`); after a failed rebuild no child is started for 600 s (`backoff`). The write itself is the existing atomic directory swap. No new environment variable (the constants are fixed; the probes hang on them).
+3. **`nachtrag-zu-gross` and the hint (part 2 of the order).** The sibling drops the hint "from before the last rebuild" when the reason is the size of the stack alone. cm has no such text: the hook says nothing about the state of the index, and the appended lines are in the answer. Probe (h) keeps it so (no word of rebuild, stale, older in the hook's output); there is nothing to drop and no mutant for it.
+4. **`mem correction` (part 3, #25).** It built the whole index cold (`search.buildIndex(root)`) once per correction, only for the document-frequency table of the content-loss warning. That was not settled by part 1 (it never went through `loadIndex`). Now `loadIndex(root, { allowStale: true })`: the cache plus the appended stack, and the rebuild, if due, in the background. The warning is unchanged (probe (i2); the document frequencies of the cached index equal `buildIndex`'s). `search.fullBuildCount()` is new, a probe's way to tell a cold build from a cache load.
+5. `test/fixture/cleanup.mjs` waits for the background rebuild before it removes a temp tree (Windows holds the child's working directory).
+
+Measured (synthetic memories from `src/memory.mjs`, a busy 4-core machine, load 4 to 8, so comparison values, not quiet ones):
+
+| `mem correction`, median of 5, chained | base `71be9cf` | this change |
+|---|---|---|
+| 2,000 entries | 686 ms | 338 ms |
+| 20,000 entries | 2,448 ms | 1,014 ms |
+
+(Of the remaining time about 300 ms is process start and, at 20,000 entries, about 640 ms reading the cache; a correction no longer reads and tokenises the corpus.)
+
+Hook load (`loadIndex`, fresh process, median of 5, 7,000 entries, appended cumulatively; base never rebuilds below a fifth = 1,400, new rebuilds in the background once it passes 100):
+
+| appended lines | base | this change |
+|---|---|---|
+| 0 | 242 ms | 273 ms |
+| 100 | 269 ms | 260 ms |
+| 500 | 302 ms | 221 ms (stack already emptied by the background rebuild) |
+| 1,000 | 397 ms | 267 ms |
+
+Read honestly: in cm appending is cheap, about 0.15 ms per line (the sibling measured about 0.5), so the smaller stack saves little at 7,000 entries; what the bound changes is that the full rebuild (0.7 to 0.9 s at 7,000 entries, 1.8 to 2.2 s at 20,000) is never paid inside the hook's 5 s cap, where the base paid it in the asking process the moment a fifth was reached. A rebuild every ~100 new entries is the price (detached, one at a time, with a backoff).
+
+Proofs: `test/index-bound-cm.test.mjs` (17 probes; the scenes are built with literal numbers, so a drifted constant turns them red). Red at the base `71be9cf` (its `src/search.mjs`, `src/cli/commands/{search,write}.mjs` put into the tree, then restored): (a)(b)(c)(d)(h)(i) and the red-proof probe (j) red; (e)(f)(g) test the new module and are red at the base by its absence; (i2) green on both (the warning is kept). Mutants (`bench/mutation.mjs`, `ISC ...`, 25): bound off, a fifth to the whole corpus, absolute bound for the terminal, hook rebuilds in its own process, hook never starts the rebuild, memo drops the flag, cache write not skipped, `--recall` flag dropped / always on, correction on `buildIndex` / without the flag, no lock, lock never / always taken over, no backoff, no note, lock left behind: all caught. Docs: `docs/architecture.md` ("The appended stack, and when the full rebuild runs"), `docs/scale.md`.
+
+Review round (same order): (1) the warm server's memo is no longer dropped at a fifth when the caller is the hook (`allowStale`): dropping it loaded the cache again on every question while the child ran and during the backoff (measured at 600 entries, 300 appended, lock held: 4 builds, 0 hits; at the base 1 build, then hits). The memo starts the rebuild at the absolute bound too, and is dropped ONCE after a rebuild has ended well (`indexrebuild.rebuiltSince`). (2) The signal check of the hook (`recallhook.signal`) opens the index with `allowStale` as well, so no full build runs in the hook's process above a fifth. (3) The child releases the lock only if it is still its own (content compared; one taken over meanwhile is left alone), and after the build it reads the cache back whole (`search.assertCacheLanded`, since `writeIndexCache` swallows its failures): a cache that did not land books a failure note and the backoff holds. Probes (m) to (p) (red at the previous state `b31ccc4`), 8 more `ISC` mutants, all caught (25 in all).
 ### Fixed - hook shims, the rest (shim-rest-cm; leftovers of the review hook-shims-cm; port of lucky-mem `shim-rest-lm`: open)
 
 Four leftovers, each judged on its own: a defect with a red proof, or none with the reason.
