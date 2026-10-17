@@ -14,6 +14,38 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Fixed - CI run 1141: http-limits red on Node 20 and Node 22.23, the guarantees job cancelled after 25 minutes
+
+- **Node 22.23.3: "header lines: 300 lines -> the server reads at most maxHeadersCount".** From 22.23.2 on (CVE-2026-58044,
+  "http: reject requests exceeding max header count") Node answers a request with more than `maxHeadersCount` header lines
+  with `431` instead of handing the first 100 to the handler. The limit acts either way; the probe assumed one Node line's
+  way. `test/http-limits.test.mjs` now accepts either effect (truncated to <= 100, or 431 before the handler ran) and pins
+  the mutation without the limit to status 200, so a 431 can only come from `maxHeadersCount`. No product fault.
+- **Node 20.20: "a raw maxConnections = 0 drops every connection" got 200.** Node 20 reads 0 as "no cap"; dropping
+  everything at 0 came with Node 21 (nodejs/node#48276, semver-major). `hardenServer` never sets 0, so no product fault; the
+  control branches on the major version with an assertion on both sides, and a new control (cap 1, its seat taken) proves
+  on every line that the probe sees a dropped connection at all. The comment in `src/http-limits.mjs` and
+  `docs/security-model.md` say what each line does. Reproduced locally with Node 20.20.0 and 22.23.3 (red on `2f0981b`,
+  green now; also green on 22.22.0).
+- **The guarantees job hit its 25-minute limit inside `bench/mutation.mjs`.** Not a hang: the mutant after "WRITER the
+  bridge card list ..." was "BYLINE-UI the dashboard shows a missing rank as a plain tier", checked only by a Chromium probe.
+  The job has no browser, the probe skipped, and the harness spent a full-suite run on it (CI's full suite: 11 minutes) -
+  the same trap as run 1103. Three fixes:
+  1. `test/card-byline-ui-cm.test.mjs`, the logic half: the original `cardOriginHtml` and `rankWord` cut out of the page,
+     fed with cards `src/decisioncard.mjs` builds. Red on `9a10bf6` and on each of the three BYLINE-UI mutants.
+  2. The harness no longer spends a full-suite run on a mutant whose own suites passed with tests skipped: "NOT JUDGED
+     HERE", with the skip reason, counted like an anchor that never applied (exit 1). A third browser-only mutant costs
+     seconds and says why.
+  3. The sweep left the guarantees job: `--shard=i/n` (round robin, after `--only`/`--security`) and a `mutation` job with
+     four slices, `fail-fast: false`, each with its own clean-tree check. `npm run verify` is `bench/mutation.mjs` plus the
+     new `npm run verify:benches`, which is what the guarantees job runs now (timeout 10 minutes, was 25).
+  The sum, measured: the first 198 mutants took 16.0 minutes in CI; the other 99 about 36 more (timed by their suites,
+  local/CI factor 2.0 from `test/writer-identity.test.mjs`; 51 mutants on `test/own-tool.test.mjs` alone are ~26). Even
+  without the browser trap one job needed about an hour. Four slices: ~16 minutes each with baseline and setup; timeout 30.
+  `test/mutation-shard.test.mjs` holds the slices (every mutant exactly once, for n = 1..7), the skip verdict (sandboxed, a
+  sentinel suite proves no full-suite run), bad slices refused with exit 2, and ci.yml's matrix against its `--shard` line.
+  The argument check is the one of `agent/werkzeug-rest-cm` with `--shard` added.
+
 ### Changed - search: the parts of an identifier with an underscore in a question are searched, while the index does not hold the whole word (k1-subword-cm; port of lucky-mem `k1-teilwort-lm`, merge eea4d4f8d)
 
 K1 (below, abruf-stamm-cm) searches `socket_closed_by_peer` as ONE word because the index holds `a_b` as one term, and named its price: the entry "the peer closed the socket" was no longer found by the after-failure hook's question. Now `search()` adds the parts (`socket`, `closed`, `peer`; parts of three letters or more, no filler) next to the whole word: **weight 0.6 if the index holds the whole word NOWHERE, 0 (none) if it does** (`session_id` must not pull in every `session` entry: that was K1). The whole word keeps 1.0; the parts never outweigh a typed word and are searched per language pack with MAX, like the typed forms; a word covered only through its parts counts HALF in the coordination factor and in the answer gate's `covered` (like a bridged word); a part that is also typed is not counted twice. A part that two identifiers of the question share counts once (the highest weight per distinct part, like the typed terms; two unknown identifiers with one common part scored 11.54 against 8.77 for one before this was fixed). "Holds" means the raw document frequency (`index.docFreq`): discarded or superseded entries and raw captures count as holding the word, as in the sibling house. The hyphen is untouched (the question already types the whole and the parts). Both doors go through `search()`, so `mem find`, `mem_find`, the hook calls (`--content-words`, `--recall`) and the H1 split all see it. The constants stay inside `src/search.mjs` (not exported; no environment variable). Docs: `docs/architecture.md`, "Identifiers with an underscore in a question".

@@ -1872,6 +1872,45 @@ const SECURITY_MODULES = Object.freeze([
   'claim', 'writegate', 'pathcheck', 'filelock', 'inbox', 'guard', 'owntool',
 ].map((m) => `src/${m}.mjs`));
 
+// **Slices of the sweep (CI run 1141).** The whole catalogue, one mutant
+// after the other, ran past the guarantees job's 25-minute limit: 198
+// mutants in 16 minutes, with about 100 still to go. `--shard=i/n` sweeps
+// every n-th mutant starting at the i-th (round robin over the catalogue
+// order, AFTER `--only`/`--security`), so n jobs together sweep each mutant
+// exactly once, and the slow neighbours (a run of suites that each start
+// processes) are spread over all slices instead of landing in one.
+// `parseShard` returns null for anything that is not `i/n` with
+// 1 <= i <= n; the caller refuses that before anything runs.
+export function parseShard(text) {
+  const m = /^([1-9][0-9]*)\/([1-9][0-9]*)$/.exec(String(text ?? ''));
+  if (!m) return null;
+  const i = Number(m[1]), n = Number(m[2]);
+  return i <= n ? { i, n } : null;
+}
+export function shardOf(list, shard) {
+  return shard ? list.filter((_, k) => k % shard.n === shard.i - 1) : list;
+}
+
+// **A passing suite that skipped tests cannot judge a mutant (CI run 1141).**
+// Twice a mutant was checked only by a browser probe (runs 1103 and
+// 1141). The guarantees job has no Chromium, the probe skipped, its suite
+// passed, and the mutant looked like a survivor: the harness then re-ran
+// the WHOLE suite to find out whether anything else caught it - 7 to 8
+// minutes per mutant, where the browser probe skipped again - and the job
+// hit its limit before it could say anything. Now the harness reads the
+// TAP summary of the mutant's own run: not caught AND tests skipped means
+// "not judged here", reported with the first skip reason, counted like an
+// anchor that never applied (exit 1), and no full-suite run is spent on it.
+// The remedy is a suite that runs where the sweep runs (for a browser
+// probe: its logic half, as test/dash-later-once-cm.test.mjs and
+// test/card-byline-ui-cm.test.mjs are).
+export function skipsOf(tap) {
+  const text = String(tap ?? '');
+  const n = Number(/^# skipped (\d+)$/m.exec(text)?.[1] ?? 0);
+  const reason = /^\s*ok \d+ - .*?# SKIP\b ?(.*)$/m.exec(text)?.[1]?.trim() || null;
+  return { skipped: n, reason };
+}
+
 // **The catalogue is importable; none of the rest of this file is.**
 //
 // `test/mutation-anchors.test.mjs` (and `test/readme-numbers.test.mjs`,
@@ -1898,13 +1937,59 @@ const RUN_AS_SCRIPT = process.argv[1]
 
 if (RUN_AS_SCRIPT) {
 
+// **Arguments are checked BEFORE anything runs.** This file used to know
+// two switches and ignore every other word, so `node bench/mutation.mjs
+// --help` was read as "no switch" and started the FULL sweep, which
+// rewrites source files in the working tree one mutant at a time. That
+// happened twice on 2026-10-17, to people who only wanted the usage text.
+// Now `--help`/`-h` prints the usage and exits 0 having touched nothing,
+// and anything this file does not know is refused loudly with exit 2,
+// also before anything is touched. The known switches are exactly the
+// three that are read below.
+{
+  const args=process.argv.slice(2);
+  if(args.includes('--help') || args.includes('-h')){
+    console.log([
+      'Usage: node bench/mutation.mjs [--security | --only=<file>[,<file>...]] [--shard=<i>/<n>]',
+      '',
+      '  (no switch)        sweep EVERY mutant, then run the full suite once per',
+      '                     survivor candidate. Slow. Rewrites source files in',
+      '                     the working tree one at a time and restores them.',
+      '  --security         sweep only the security-relevant modules',
+      '  --only=<files>     sweep only the mutants on these comma-separated',
+      '                     paths, e.g. --only=src/authority.mjs',
+      '  --shard=<i>/<n>    sweep only every n-th of those mutants, starting at',
+      '                     the i-th (1 <= i <= n); n runs together cover each',
+      '                     mutant once. CI runs the sweep as n such slices.',
+      '  --help, -h         print this text and exit; touches nothing',
+      '',
+      'Run it in your own working tree or a scratch copy. Exit codes: 0 all',
+      'mutants caught, 1 a mutant survived or did not run, 2 bad arguments.',
+    ].join('\n'));
+    process.exit(0);
+  }
+  const unknown=args.filter((a)=>a!=='--security' && !a.startsWith('--only=') && !a.startsWith('--shard='));
+  if(unknown.length){
+    console.error(`bench/mutation.mjs: unknown argument${unknown.length===1?'':'s'}: ${unknown.join(' ')}`);
+    console.error('Nothing was touched. Known: --security, --only=<files>, --shard=<i>/<n>, --help. Try --help.');
+    process.exit(2);
+  }
+  const shards=args.filter((a)=>a.startsWith('--shard='));
+  if(shards.length>1 || (shards.length===1 && !parseShard(shards[0].slice(8)))){
+    console.error(`bench/mutation.mjs: bad slice: ${shards.join(' ')} (wanted once: --shard=<i>/<n>, 1 <= i <= n)`);
+    console.error('Nothing was touched. Try --help.');
+    process.exit(2);
+  }
+}
+
 // `--security` or `--only=src/a.mjs,src/b.mjs`: sweep a subset, run only its
 // own suites. A survivor is then judged against ITS suites alone (no full
 // run to tell "caught elsewhere" from "survived"): it is reported as
 // SURVIVED and the person decides - a missing test, or an equivalent mutant.
 const ONLY=process.argv.includes('--security') ? SECURITY_MODULES
   : (process.argv.find((a)=>a.startsWith('--only='))?.slice(7).split(',').filter(Boolean) ?? null);
-const SWEEP=ONLY ? MUTANTS.filter((m)=>ONLY.includes(m.file)) : MUTANTS;
+const SHARD=parseShard(process.argv.find((a)=>a.startsWith('--shard='))?.slice(8));
+const SWEEP=shardOf(ONLY ? MUTANTS.filter((m)=>ONLY.includes(m.file)) : MUTANTS, SHARD);
 const perModule=new Map();
 
 // A mutant counts as caught when the tests fail. So on a suite that is
@@ -1957,7 +2042,7 @@ const perModule=new Map();
   }
 }
 
-let survived=0, skipped=0, ambiguous=0, misScoped=0;
+let survived=0, skipped=0, ambiguous=0, misScoped=0, notJudged=0;
 
 // A killed run used to leave the mutant on disk — the header claims every
 // file is restored "including on failure", and SIGINT is a failure. One
@@ -1992,14 +2077,22 @@ for(const m of SWEEP){
   if(hits>1){ ambiguous++; console.log(`${m.name.padEnd(48)} | ANCHOR AMBIGUOUS (${hits}x) — only the first would mutate`); continue; }
   inFlight={path:p, orig};
   fs.writeFileSync(p, orig.replace(m.from,m.to));
-  let failed=false, detail='';
+  let failed=false, detail='', own='';
   try{
-    execFileSync('node',['--test',...m.tests],{cwd:ROOT,stdio:['ignore','pipe','pipe'],encoding:'utf8'});
+    own=execFileSync('node',['--test',...m.tests],{cwd:ROOT,stdio:['ignore','pipe','pipe'],encoding:'utf8'});
   }catch(e){
     failed=true;
     const out=String(e.stdout||'');
     const n=(out.match(/^not ok /gm)||[]).length;
     detail=` (${n} test${n===1?'':'s'})`;
+  }
+  const skips=failed ? null : skipsOf(own);
+  if(skips && skips.skipped>0){
+    restore();
+    notJudged++;
+    console.log(`${m.name.padEnd(48)} | NOT JUDGED HERE — its suites passed with ${skips.skipped} test${skips.skipped===1?'':'s'} skipped`
+      + `${skips.reason?` (${skips.reason})`:''}; name a suite that runs here, NOT a pass`);
+    continue;
   }
   let elsewhere=false;
   if(!failed && !ONLY){
@@ -2015,8 +2108,9 @@ for(const m of SWEEP){
 }
 
 const applied=SWEEP.length-skipped-ambiguous;
-console.log(`\n${applied-survived}/${applied} applied mutants caught by tests`
-  + ` (of ${SWEEP.length} defined; ${skipped} anchor gone, ${ambiguous} ambiguous).`);
+console.log(`\n${applied-survived-notJudged}/${applied} applied mutants caught by tests`
+  + ` (of ${SWEEP.length} ${SHARD?`in slice ${SHARD.i}/${SHARD.n} of ${MUTANTS.length} `:''}defined;`
+  + ` ${skipped} anchor gone, ${ambiguous} ambiguous${notJudged?`, ${notJudged} not judged here`:''}).`);
 if(ONLY){
   console.log('\nCaught mutants per module (the measure that matters):');
   for(const [f,r] of [...perModule].sort()) console.log(`  ${f.padEnd(24)} ${r.caught}/${r.total}`);
@@ -2024,6 +2118,7 @@ if(ONLY){
 if(survived) console.log(`${survived} surviving mutant(s) = ${survived} guarantee(s) that exist only in documentation.`);
 if(skipped||ambiguous) console.log(`${skipped+ambiguous} mutant(s) did not run. An untested guarantee is not a kept one — re-anchor them.`);
 if(misScoped) console.log(`${misScoped} mutant(s) name the wrong suite: the guarantee is kept, the bookkeeping is not.`);
-if(survived||skipped||ambiguous) process.exitCode = 1;
+if(notJudged) console.log(`${notJudged} mutant(s) were not judged: their suites passed only by skipping. A skipped probe keeps no guarantee here.`);
+if(survived||skipped||ambiguous||notJudged) process.exitCode = 1;
 
 }

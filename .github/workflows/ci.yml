@@ -1381,10 +1381,15 @@ jobs:
   verify:
     name: guarantees
     runs-on: ubuntu-latest
-    # Mutation runs the test suite once per mutant, plus a full-suite
-    # re-check for each survivor. Slower than the rest of CI put together
-    # and worth every second of it.
-    timeout-minutes: 25
+    # The mutation sweep left this job for its own (the `mutation` job
+    # below, in slices) after CI run 1141: 198 mutants had taken 16
+    # minutes when the job hit its 25-minute limit, with about 100 still
+    # to go. What stays here is minutes, not tens of minutes: in run 1141
+    # every step before the sweep took 31 s together (09:12:34 to
+    # 09:13:04), and `npm run verify:benches` takes 13 s on a loaded
+    # 4-core box (2026-10-17). 10 minutes is a hang guard with room, not
+    # a budget.
+    timeout-minutes: 10
     steps:
       # fetch-depth: 0 here too: mutation runs suites whose red proofs read a FIXED old commit
       # (test/redaction-object-keys.test.mjs), and on a one-commit checkout the baseline is red
@@ -1466,7 +1471,8 @@ jobs:
       #   mutation           every mutant (count: README): break one guarantee, expect a
       #                      test to notice. Skipped and ambiguous
       #                      anchors fail too — a mutant that never ran
-      #                      used to be counted as caught.
+      #                      used to be counted as caught. Runs in the
+      #                      `mutation` job below, in slices.
       #   fuzz               no crash, hang, unbounded growth or bypass
       #   composed           7 attacks that are only dangerous combined
       #   byzantine          a flood of rule-abiding liars: the genuine
@@ -1511,8 +1517,11 @@ jobs:
       - name: every calculation lives in exactly one place
         run: node bench/calculations.mjs
 
+      # `npm run verify` is `bench/mutation.mjs` and then exactly this
+      # script; the sweep runs in the `mutation` job (test/mutation-shard.test.mjs
+      # holds the two halves together).
       - name: the guarantees, enforced
-        run: npm run verify
+        run: npm run verify:benches
 
       # git config, not code: the mutation harness writes into src/ and
       # restores it. If a run ever leaves a mutant behind, the next job to
@@ -1522,6 +1531,62 @@ jobs:
           set -euo pipefail
           if [ -n "$(git status --porcelain)" ]; then
             echo "::error::the verify run left the working tree dirty"
+            git status --porcelain
+            git --no-pager diff
+            exit 1
+          fi
+          echo "working tree clean"
+
+  # **The mutation sweep, in slices (CI run 1141).** One job sweeping the
+  # whole catalogue in a row outgrew the 25-minute limit: 198 mutants in
+  # 16 minutes (09:14:52 to 09:30:54), then the job was cancelled. Each
+  # slice sweeps every fourth mutant (`--shard=i/4`, round robin over the
+  # catalogue, so the slow neighbours spread over all four), and the
+  # four slices together sweep each mutant exactly once
+  # (test/mutation-shard.test.mjs reads the matrix below against the
+  # `--shard` line). Each slice checks its own baseline first, and a
+  # survivor still gets its full-suite re-run, in its slice.
+  #
+  # **The sum, and why 30 minutes.** Measured from run 1141: the first 198
+  # mutants took 16.0 minutes, the baseline 1:48. The other 99 were timed
+  # by their suites (each mutant runs its named suites once; the local box
+  # ran test/writer-identity.test.mjs in 31.7 s against 15.5 s per mutant
+  # in CI, factor 2.0): 51 mutants on test/own-tool.test.mjs at ~31 s,
+  # 17 on test/answer-budget-cm.test.mjs at ~21 s, the rest small - about
+  # 36 minutes. All mutants together are about 52 minutes of CI time, one
+  # job in a row would need an hour. Four slices: ~13 minutes of mutants,
+  # plus the baseline and setup, ~16 minutes each. 30 minutes is that with
+  # room for a slower runner, not a number turned up until it passes.
+  mutation:
+    name: guarantees · mutation slice ${{ matrix.shard }}/4
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    timeout-minutes: 30
+    steps:
+      # fetch-depth: 0 as in `verify`: some mutants' suites read a FIXED
+      # old commit (test/redaction-object-keys.test.mjs, CI run 1060).
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - name: history complete, probe baselines present
+        run: node bench/ci-history-check.mjs
+      - run: npm ci --omit=optional
+      - name: mutation slice
+        run: node bench/mutation.mjs --shard=${{ matrix.shard }}/4
+      # The harness writes into src/ and restores it; a slice that ever
+      # leaves a mutant behind is red here, not in the next job.
+      - name: no mutant left behind
+        run: |
+          set -euo pipefail
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::the mutation slice left the working tree dirty"
             git status --porcelain
             git --no-pager diff
             exit 1
