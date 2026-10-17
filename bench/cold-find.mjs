@@ -37,10 +37,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { performance } from 'node:perf_hooks';
-import { pathToFileURL } from 'node:url';
 import { environment, pct, mem, REPO } from './atlas/core.mjs';
 import { buildCorpus } from './scale.mjs';
 import { loadIndex, search } from '../src/search.mjs';
+import { isMain } from '../src/ismain.mjs';
 
 export const ARTIFACT = path.join(REPO, 'bench', 'cold-find.json');
 export const PERF_BEGIN = '<!-- perf:begin -->';
@@ -155,4 +155,4 @@ function main() {
   console.log(renderPerfBlock(artifact));
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();
+if (isMain(import.meta.url)) main();

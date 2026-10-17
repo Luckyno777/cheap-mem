@@ -64,6 +64,26 @@ test('bin/mem-mask-copy.mjs started through a symlinked directory makes the mask
   assert.equal(fs.existsSync(copy), false, 'and --clean through the link removes it');
 });
 
+test('bench scripts started through a symlinked directory still run (bench/mutation.mjs, calculations, invariants)', () => {
+  const { link } = linked();
+  // Each prints its first line at once and does not sweep or write anything; mutation.mjs is asked for a refusal, never a sweep.
+  const run = (base, rel, args) => spawnSync(process.execPath, [path.join(base, ...rel.split('/')), ...args], { encoding: 'utf8', cwd: REPO });
+  for (const [rel, args, first] of [['bench/calculations.mjs', [], /^Catalogue: /], ['bench/invariants.mjs', [], /^Catalogue: /]]) {
+    const direct = run(REPO, rel, args);
+    assert.equal(direct.status, 0, `${rel}: ${direct.stderr}`);
+    assert.match(direct.stdout, first, `positive control: ${rel} through the real path prints`);
+    const through = run(link, rel, args);
+    assert.equal(through.status, direct.status, `${rel} through the link: ${through.stderr}`);
+    assert.match(through.stdout, first, `${rel} through the link said nothing (it compared argv[1] with its own path as text)`);
+  }
+  // bench/mutation.mjs: an unknown switch is refused BEFORE anything runs (exit 1, a message) - silence means it did not start.
+  const refuse = run(link, 'bench/mutation.mjs', ['--no-such-switch']);
+  assert.notEqual(refuse.status, 0, 'through the link mutation.mjs ran nothing and exited 0');
+  assert.match(refuse.stderr, /Nothing was touched/, refuse.stderr);
+});
+
+// bench/ is held to the rule since CI run 1180: bench/mutation.mjs compared the two as text, did nothing under /var -> /private/var
+// (macOS temp dir) and test/mutation-shard.test.mjs failed three times there; the other scripts of bench/ had the same copy.
 // The rule is per FILE, not per line: a test split over two lines, `import.meta.url.endsWith(entry)` and
 // `import.meta.filename` all escaped a line-by-line search. A file in bin/ or src/ that reads `process.argv[1]` and
 // `import.meta.url` or `import.meta.filename` must call `isMain(`; src/ismain.mjs is the one place that may compare.
@@ -71,10 +91,13 @@ const EXCEPTIONS = {
   // A `node -e` child script: argv[1] there is the memory root handed to buildTimeTracks, not the program's own path,
   // and import.meta.url only locates the module directory. No "am I the program" test is made.
   'src/timetrack.mjs': 'node -e child script: argv[1] is a data argument, not an entry-point test',
+  // Same shape: the rebuild child is a `node -e` script (a template string); argv[1] there is the memory root it is handed,
+  // and import.meta.url only locates the module directory.
+  'src/indexrebuild.mjs': 'node -e child script: argv[1] is the memory root, not an entry-point test',
 };
 function sourceFiles(base) {
   const files = [];
-  for (const d of ['bin', 'src']) {
+  for (const d of ['bin', 'src', 'bench']) {
     const walk = (p) => {
       for (const e of fs.readdirSync(p, { withFileTypes: true })) {
         const f = path.join(p, e.name);
@@ -97,8 +120,8 @@ function offenders(base) {
   return out;
 }
 
-test('ratchet: a file in bin/ or src/ that reads argv[1] and its own path calls isMain (src/ismain.mjs decides)', () => {
-  assert.ok(sourceFiles(REPO).length > 50, 'the walk found too few files: it looks in the wrong place');
+test('ratchet: a file in bin/, src/ or bench/ that reads argv[1] and its own path calls isMain (src/ismain.mjs decides)', () => {
+  assert.ok(sourceFiles(REPO).length > 50 && sourceFiles(REPO).some((f) => f.includes(`${path.sep}bench${path.sep}`)), 'the walk found too few files: it looks in the wrong place');
   assert.deepEqual(offenders(REPO), [], 'an own entry-point test is false under a symlinked parent; use isMain from src/ismain.mjs');
   for (const [rel, why] of Object.entries(EXCEPTIONS)) {
     assert.ok(fs.existsSync(path.join(REPO, rel)) && why.length > 20, `exception ${rel}: the file is gone or the reason is empty - drop the entry`);

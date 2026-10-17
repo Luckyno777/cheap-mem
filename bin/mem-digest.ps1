@@ -152,14 +152,17 @@ try {
   # asks - an age reserve for the OLDEST captures first, then smallest
   # first. A capture with no known size counts as LARGE.
   # B19 (2026-09-30): bytes BEFORE packing (`rawSizes`), not gzipped.
+  # No double quote in a `node -e` snippet: Windows PowerShell 5.1 passes the inner ones unescaped and node cuts the
+  # snippet apart at them - the selection then failed on every tick (CI run 1180, bin/mem-catch-fail.ps1; the rule:
+  # test/ps51-node-snippet.test.mjs).
   $SelectScript = @'
-let d="";process.stdin.on("data",c=>d+=c).on("end",async()=>{
-  let o;try{o=JSON.parse(d.replace(/^[\uFEFF\s]+/,""))}catch{process.exit(1)}
-  if(!process.env.ROOT){process.stderr.write("selection: ROOT missing\n");process.exit(2)}
-  if(!o.rawSizes){process.stderr.write("selection: raw pending --json has no rawSizes\n");process.exit(2)}
-  let m;try{m=await import(process.argv[1])}catch(e){process.stderr.write("selection: "+e.message+"\n");process.exit(2)}
+let d='';process.stdin.on('data',c=>d+=c).on('end',async()=>{
+  let o;try{o=JSON.parse(d.replace(/^[\uFEFF\s]+/,''))}catch{process.exit(1)}
+  if(!process.env.ROOT){process.stderr.write('selection: ROOT missing\n');process.exit(2)}
+  if(!o.rawSizes){process.stderr.write('selection: raw pending --json has no rawSizes\n');process.exit(2)}
+  let m;try{m=await import(process.argv[1])}catch(e){process.stderr.write('selection: '+e.message+'\n');process.exit(2)}
   const r=m.selectCaptures(o,{max:Number(process.env.MAX),reservePct:Number(process.env.RESERVE)});
-  console.log(r.chosen.join("\n"));
+  console.log(r.chosen.join('\n'));
 });
 '@
   $env:MAX = $MaxBytes
@@ -228,7 +231,10 @@ condensing enough. Stop after the push.
   # Remember how much was pending. The model call's exit code alone
   # says NOTHING about whether work happened - a session that fails on
   # permissions explains itself at length and exits 0.
-  $CountScript = 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{process.stdout.write(String((JSON.parse(d.replace(/^[\uFEFF\s]+/,"")).open||[]).length))}catch{process.stdout.write("-1")}})'
+  # Single quotes inside, for Windows PowerShell 5.1 (see $SelectScript above).
+  $CountScript = @'
+let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{try{process.stdout.write(String((JSON.parse(d.replace(/^[\uFEFF\s]+/,'')).open||[]).length))}catch{process.stdout.write('-1')}})
+'@
   $Before = (& node $Mem --root $Root raw pending --json 2>$null | & node -e $CountScript)
 
   # MEM_HEADLESS stops this call from triggering the Stop hook.

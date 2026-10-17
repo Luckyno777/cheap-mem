@@ -52,11 +52,12 @@
 // not guessable core terms; they come from the misses themselves.
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { buildCorpus, QUERIES } from './retrieval.mjs';
 import { buildIndex, search } from '../src/search.mjs';
 import * as lb from '../src/langbridge.mjs';
 import * as al from '../src/askedlearn.mjs';
+import { isMain } from '../src/ismain.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PAIRS = fs.readdirSync(path.join(HERE, 'lang-gold')).filter((f) => f.endsWith('.tsv')).map((f) => f.slice(0, -4));
@@ -172,7 +173,7 @@ function print(r) {
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+if (isMain(import.meta.url)) {
   const r = run();
   print(r);
   if (process.argv.includes('--json')) console.log(JSON.stringify(r, null, 2));

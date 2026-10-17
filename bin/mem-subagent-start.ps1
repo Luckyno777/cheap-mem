@@ -27,6 +27,7 @@
 #                            finish): PowerShell has no portable `timeout`
 #                            that could stop the search itself, which the
 #                            POSIX hook does with a first, tighter pass.
+#   MEM_SUBAGENT_START_TRACE=1 name every exit on stderr (lengths and exit codes only)
 #   MEM_STOP_ROOTS           fallback roots to probe
 
 $ErrorActionPreference = 'Continue'
@@ -50,8 +51,20 @@ if (-not $env:NODE_COMPILE_CACHE) {
   } catch { }
 }
 
-if ($env:MEM_HOOK_OFF -eq '1') { exit 0 }
-if ($env:MEM_SUBAGENT_START_OFF -eq '1') { exit 0 }
+# **Which exit did it take?** `MEM_SUBAGENT_START_TRACE=1` makes every exit name itself on stderr, the way
+# MEM_BEFORE_EDIT_TRACE does in mem-before-edit.ps1: the place, lengths and the node exit code, never a byte of the
+# hook JSON or of the answer. Nothing is printed without it, and stdout - the hook's contract - is untouched. CI run
+# 1180 saw this twin deliver ZERO bytes on windows-latest with an empty stderr, so nobody could say where it stopped.
+function Write-Trace { param([string]$where)
+  if ($env:MEM_SUBAGENT_START_TRACE -eq '1') { [Console]::Error.WriteLine("mem-subagent-start: exit at $where") }
+}
+# The same, for a midpoint that does NOT exit ("exit at" would be a false statement there).
+function Write-Note { param([string]$msg)
+  if ($env:MEM_SUBAGENT_START_TRACE -eq '1') { [Console]::Error.WriteLine("mem-subagent-start: $msg") }
+}
+
+if ($env:MEM_HOOK_OFF -eq '1') { Write-Trace 'hook-off'; exit 0 }
+if ($env:MEM_SUBAGENT_START_OFF -eq '1') { Write-Trace 'off-switch'; exit 0 }
 
 # Same probe as mem-stop.ps1's Get-ProbeRoots - kept local rather than
 # shared, the same call this codebase already made for mem-stop.ps1
@@ -74,7 +87,7 @@ foreach ($k in (@($env:CHEAP_MEM_ROOT) + (Get-ProbeRoots))) {
   if (-not $k) { continue }
   if (Test-Path -LiteralPath (Join-Path $k '.mem/config.json')) { $Root = $k; break }
 }
-if (-not $Root) { exit 0 }
+if (-not $Root) { Write-Trace "no-root (CHEAP_MEM_ROOT set: $([bool]$env:CHEAP_MEM_ROOT))"; exit 0 }
 
 $Here = Split-Path -Parent $PSCommandPath
 
@@ -93,13 +106,15 @@ if (Test-Path -LiteralPath $OwnToolLib) {
 } elseif (Test-Path -LiteralPath (Join-Path $Here '../src/subagentstart.mjs')) {
   $Module = Join-Path $Here '../src/subagentstart.mjs'
 }
-if (-not $Module) { exit 0 }
+if (-not $Module) { Write-Trace "no-module (Here=$Here)"; exit 0 }
 
 # The stdin JSON carries session_id and the assignment text (`prompt`):
 # a workflow whose `triggers` match the assignment leads the block
 # (src/workflowdetect.mjs, as in bin/mem-subagent-start).
 $In = ''
 if ([Console]::IsInputRedirected) { $In = [Console]::In.ReadToEnd() }
+# Size only, never content: on which side of the pipe to node the hook JSON was lost.
+Write-Note "stdin: $($In.Length) chars, redirected=$([Console]::IsInputRedirected)"
 # stdin to node (CI run 1141, src/hookstdin.mjs says why): Windows PowerShell 5.1 opens a native command's stdin in
 # [Console]::InputEncoding and writes its preamble first - under code page 65001 a UTF-8 BOM before the hook JSON, and
 # the core's JSON.parse failed in silence. Same code page without a preamble; what PowerShell writes into the pipe as
@@ -112,19 +127,31 @@ $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 # a note about. A file:// URL is what survives on both platforms.
 $ModuleUrl = ([System.Uri]::new($Module)).AbsoluteUri
 
+# **No double quote in the snippet (CI run 1180).** Windows PowerShell 5.1 wraps an argument for a native command
+# in double quotes when it holds a blank and leaves the double quotes inside it unescaped; node's command-line
+# parser reads the inner ones as quote toggles, the snippet arrived mangled (`let d = "";` became `let d = ";`), node
+# stopped at a SyntaxError (exit 1, stderr thrown away below) and this hook delivered ZERO bytes to every subagent. Single quotes only; the
+# rule for every .ps1 is test/ps51-node-snippet.test.mjs. Exit codes, for the trace: 0 ran (an empty answer is the
+# module's own), 3 the module did not load or threw, 1 node's own (the snippet itself did not run).
 $Script = @'
-let d = "";
-process.stdin.on("data", (c) => { d += c; }).on("end", () => {
+let d = '';
+process.stdin.on('data', (c) => { d += c; }).on('end', () => {
   import(process.argv[1]).then(async (m) => {
     const r = await m.hookResultFor(process.env.CHEAP_MEM_ROOT, d);
     if (r) process.stdout.write(JSON.stringify(r));
-  }).catch(() => {});
+  }).catch(() => { process.exitCode = 3; });
 });
 '@
 
 $env:CHEAP_MEM_ROOT = $Root
+$Out = ''
+$NodeExit = 'none'
 try {
-  [Console]::Out.Write((($In | & node -e $Script $ModuleUrl 2>$null) -join ''))
-} catch { }
+  $Out = (($In | & node -e $Script $ModuleUrl 2>$null) -join '')
+  $NodeExit = $LASTEXITCODE
+} catch { Write-Note 'node could not be started' }
+if (-not $Out) { Write-Trace "empty (node exit $NodeExit)"; exit 0 }
 
+[Console]::Out.Write($Out)
+Write-Trace "delivered ($($Out.Length) chars)"
 exit 0

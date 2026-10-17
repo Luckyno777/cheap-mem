@@ -448,9 +448,11 @@ test('windows.ps1: the installed .ps1 hooks, started bare, deliver (win32 with p
   for (const name of NAMES) {
     const file = path.join(home, '.claude', 'hooks', `cheap-mem-${name}.ps1`);
     // MEM_BEFORE_EDIT_TRACE: the before-edit lane names where it stopped on stderr (stdout, the contract, is untouched);
-    // runs 1066-1103 said only "ZERO bytes" here, and stderr was never shown.
+    // runs 1066-1103 said only "ZERO bytes" here, and stderr was never shown. MEM_CATCH_FAIL_TRACE and
+    // MEM_SUBAGENT_START_TRACE do the same for the two lanes run 1180 still saw mute with an empty stderr.
+    const trace = { MEM_BEFORE_EDIT_TRACE: '1', MEM_CATCH_FAIL_TRACE: '1', MEM_SUBAGENT_START_TRACE: '1' };
     const r = spawnSync(POWERSHELL, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', file], {
-      input: JSON.stringify(input[name]), encoding: 'utf8', timeout: 120000, env: bareEnv(home, { MEM_BEFORE_EDIT_TRACE: '1' }),
+      input: JSON.stringify(input[name]), encoding: 'utf8', timeout: 120000, env: bareEnv(home, trace),
     });
     try {
       assert.equal(r.status, 0, `${name}: rc ${r.status}\n${r.stderr}`);

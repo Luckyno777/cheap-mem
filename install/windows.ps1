@@ -611,10 +611,12 @@ try {
     `$env:MEM_SS_SRC = ([System.Uri]::new([System.IO.Path]::GetFullPath(`$injection))).AbsoluteUri
     `$env:MEM_SS_INPUT = `$hookIn
     `$env:MEM_SS_START_MS = [string]`$hookStartMs
+    # Single quotes only: Windows PowerShell 5.1 passes the double quotes inside a native argument unescaped and node
+    # cuts the snippet apart at them (CI run 1180; the rule: test/ps51-node-snippet.test.mjs).
     `$bookScript = @'
       import(process.env.MEM_SS_SRC).then((m) => {
         let session = null;
-        try { session = String(JSON.parse(process.env.MEM_SS_INPUT).session_id || "") || null; } catch { }
+        try { session = String(JSON.parse(process.env.MEM_SS_INPUT).session_id || '') || null; } catch { }
         const start = Number(process.env.MEM_SS_START_MS);
         m.book(process.env.CHEAP_MEM_ROOT, {
           session, occasion: m.OCCASION.SESSION_START, reason: null,

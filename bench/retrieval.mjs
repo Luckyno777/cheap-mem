@@ -79,7 +79,7 @@ import { performance } from 'node:perf_hooks';
 import { buildIndex, search } from '../src/search.mjs';
 import * as memory from '../src/memory.mjs';
 
-import { pathToFileURL } from 'node:url';
+import { isMain } from '../src/ismain.mjs';
 // --- The labelled corpus ------------------------------------------------
 //
 // A small software team's memory. Each doc has a stable id so queries can
@@ -379,8 +379,7 @@ function printReport(res) {
   console.log('there is what an optional local-embedding rerank would close.');
 }
 
-const isMain = process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
-if (isMain) {
+if (isMain(import.meta.url)) {
   const res = runBenchmark();
   printReport(res);
   if (process.argv.includes('--json')) {
