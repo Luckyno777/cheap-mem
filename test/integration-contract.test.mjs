@@ -182,6 +182,61 @@ test('the finding wraps the verdict, and checkAll runs it', () => {
     'checkAll does not run the finding');
 });
 
+// --- the doctor never prints a baked code path raw (ps1-pfade-cm, 2026-10-17) -----------------------------------------
+
+/** A settings file that registers ONE hook by absolute path, and that shim: `export CHEAP_MEM_CODE='<code>'` (or the PowerShell form). */
+function shimWithCode(dir, code, { ps = false } = {}) {
+  const hooks = path.join(dir, 'hooks');
+  fs.mkdirSync(hooks, { recursive: true });
+  const script = path.join(hooks, ps ? 'cheap-mem-user-prompt.ps1' : 'cheap-mem-user-prompt.sh');
+  const text = ps
+    ? `$codeRoot = if ($env:CHEAP_MEM_CODE) { $env:CHEAP_MEM_CODE } else { '${code.replace(/'/g, "''")}' }\n`
+    : `#!/usr/bin/env bash\nexport CHEAP_MEM_CODE='${code.replace(/'/g, "'\\''")}'\n`;
+  fs.writeFileSync(script, text);
+  const p = path.join(dir, 'settings.json');
+  // The matrix names the .sh hooks, so a .ps1-only registration is "unknown client" (reported separately); a second,
+  // unreadable .sh entry makes the client known and leaves the PowerShell shim under test the only one read.
+  const entries = [{ type: 'command', command: `${ps ? 'powershell -File' : 'bash'} "${script}"` }];
+  if (ps) entries.push({ type: 'command', command: `bash "${path.join(hooks, 'cheap-mem-user-prompt.sh')}"` });
+  fs.writeFileSync(p, JSON.stringify({ hooks: { UserPromptSubmit: [{ hooks: entries }] } }));
+  return p;
+}
+const RAW_CONTROL = /[\x00-\x1f\x7f]/;
+
+for (const ps of [false, true]) {
+  test(`doctor (${ps ? 'PowerShell' : 'sh'} shim): a baked code path with control characters is masked and called rejected, never printed raw`, () => {
+    const dir = temp();
+    const bad = '/no/such\ndir\tX\x1b[2J\x7fINJECTED LINE';
+    // POSITIVE CONTROL: an ordinary moved checkout is SILENT and its path IS printed, so the probe can see a value.
+    const plain = c.judge({ codeRoot: REPO, settingsPaths: [shimWithCode(temp(), '/moved/away/INJECTED LINE', { ps })] });
+    assert.equal(plain.level, 'error', plain.text);
+    assert.match(plain.text, /CHEAP_MEM_CODE=\/moved\/away\/INJECTED LINE\)/);
+    assert.doesNotMatch(plain.text, /REJECTED/);
+    const r = c.judge({ codeRoot: REPO, settingsPaths: [shimWithCode(dir, bad, { ps })] });
+    assert.equal(r.level, 'error', r.text);
+    assert.ok(!RAW_CONTROL.test(r.text), `a raw control character in the verdict: ${JSON.stringify(r.text)}`);
+    assert.ok(!RAW_CONTROL.test(r.advice), 'a raw control character in the advice');
+    assert.match(r.text, /CHEAP_MEM_CODE=\/no\/such\\ndir\\tX\\x1b\[2J\\x7fINJECTED LINE, REJECTED: it holds a control character\)/);
+    assert.ok(!r.text.split('\n').some((l) => l.startsWith('dir') || l.startsWith('INJECTED')), 'a line of the value\'s own making');
+  });
+}
+
+test('doctor: a rejected code path is silent even when a tool sits at that very path (the shims never use it)', () => {
+  const dir = temp();
+  const bad = path.join(dir, 'code\tdir');
+  fs.mkdirSync(path.join(bad, 'bin'), { recursive: true });
+  fs.writeFileSync(path.join(bad, 'bin', 'mem'), '# tool\n');
+  const r = c.judge({ codeRoot: REPO, settingsPaths: [shimWithCode(temp(), bad)] });
+  assert.equal(r.level, 'error', r.text);
+  assert.match(r.text, /REJECTED/);
+  // And the same path without the control character is a tool: the verdict is not "error" for the silent reason.
+  const fine = path.join(dir, 'code-dir');
+  fs.mkdirSync(path.join(fine, 'bin'), { recursive: true });
+  fs.writeFileSync(path.join(fine, 'bin', 'mem'), '# tool\n');
+  const ok = c.judge({ codeRoot: REPO, settingsPaths: [shimWithCode(temp(), fine)] });
+  assert.doesNotMatch(ok.text, /SILENT/, ok.text);
+});
+
 // --- the map: same numbers in both languages -------------------------------
 
 test('the finding map carries the pair, and warum and why hold the same numbers', () => {
