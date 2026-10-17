@@ -225,6 +225,16 @@ test('SOURCE PROBE: the classification comes from the code, not from memory', ()
         && !/\b(question|query|text)\s*=/.test(
           (modules.get('injection') ?? '').split('export function buildLine')[1]?.split('\n}')[0] ?? ''),
     }],
+    // **The fourth class: the rebuild of a derived cache, started from a read.** Since index-schwelle-cm the recall path
+    // (`search.loadIndex`, through `mem_find`) starts the background rebuild of the search index when the appended stack passes
+    // its bound: a detached child, a lock file and a note, all under `.mem/locks/`. Same claim as `search.loadIndexCached`:
+    // rebuildable from the logs, carries no byte the caller supplied. The assertion holds it to that: it must still be the
+    // lock-and-spawn function and write nothing but the lock (`tryLock`) and the note (`noteRebuild`), no memory content.
+    ['indexrebuild.kickIndexRebuild', {
+      why: 'background rebuild of a derived cache: a lock and a note under .mem/locks, no caller byte',
+      holds: (body) => /tryLock\s*\(/.test(body) && /spawn\s*\(/.test(body) && /noteRebuild\s*\(/.test(body)
+        && !/memory\.logEntry|appendLine\s*\(/.test(body),
+    }],
     ['setup.archiveStep', {
       why: 'write-and-delete probe: the answer to "is this writable"',
       holds: (body) => SYSCALLS.test(body) && /fs\.unlinkSync/.test(body),
