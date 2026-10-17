@@ -14,6 +14,39 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Added - the four named atlas phases are built: `dashboard`, `cost`, `digest`, `net-tempo`, and the counters behind them (atlas-neue-phasen-cm)
+
+Plan step 3 (T3, part 2). The stubs of the atlas frame become measuring phases; the sister house's ids are kept. Every phase leads with a count
+(never a clock), has an expectation that is a bound of the design or a ratchet with its reason, and names its blind spots. Quick runs on 2026-10-17
+(a box at load 14 on 4 cores, which does not move a count): `dashboard` 3 pass / 2 fail, `net-tempo` 3 pass / 1 degraded, `cost` 10 pass / 1 fail,
+`digest` 5 pass. The five non-passes are FINDINGS, recorded and not fixed; each is a pinned row of its probe test that goes red on purpose when the
+finding is fixed.
+- **Counters** (preloads; the output file travels in the URL's query string, so no environment variable is added): `bench/atlas/start-counter.mjs` (node
+  process starts; a child can be labelled instead of counted), `bench/atlas/module-counter.mjs` (modules loaded, command groups among them),
+  `bench/atlas/call-counter.mjs` (file-system calls, opens per entry log, worker threads), `bench/atlas/net-counter.mjs` (the 3D network: builds, model
+  computations, WebGL contexts and programs, from outside the shipped script). `bench/atlas/serve-world.mjs` starts `bin/mem-serve` as a child with the
+  read counter inside it and a Chromium. `test/atlas-counters-probe.test.mjs` runs each counter on a planted program with the answer written down.
+- **`digest`** - one tick of `bin/mem-digest`, counted with a stand-in for the model: idle = 0 model calls and 3 node starts; the same store with the
+  threshold at zero = exactly 1 call, and a stand-in that digests nothing makes the script say FAILED and exit 1; the call gets 4 of 21 captures
+  (990 of 1000 raw bytes, the oldest among them); the backlog drains in 4 ticks (bound 5), one call each; ratchets 3 / 14 starts.
+- **`cost`** - node starts per hook (`before-edit` 1 (TB5), `subagent-start` 1, `retrieve` 4, `catch-fail` 4, `after-failure` 5, `stop` 5; ratchets), a CLI start
+  is one process and at most one command group (modules: version 101, help 61, find 92; TB4), a warm `retrieve` opens each log at most 3 times (TB6), no
+  worker thread without `doctor --full` (TB7), the doctor's stat-class calls do not grow with the entries (829 at 100 and 400; counterpart of TB2).
+  FINDING: `mem today` reads the injection journal twice per call (2.00 bytes read per journal byte; the card and the doctor it runs), counterpart of TB8.
+- **`dashboard`** - passes over the entry logs per full build (28.5 to 29.4, bound 32), a warm page load reads nothing, one new entry costs a full rebuild
+  (27.7 passes, printed), requests of a real page load. FINDINGS: `/desk.json` collects on every call (22.1 passes, the second call reads 100 % of the first;
+  no page asks for it; counterpart of TB1), and the home view asks `/dashboard/appointments.json` twice per load.
+- **`net-tempo`** - opening the network builds it once or twice, a quiet reload (same or changed data) builds nothing, a draw is 1 build, 1 model
+  computation, 1 context, 5 programs. `reuse` is `degraded`: the sister house pools the canvas and makes 0 new contexts per rebuild, this house makes 1.
+  The red probe: with the counter switched off the page still draws its network, and the phase says `fail` (and the other three rows `not-measured`).
+- `exitCodeOf(counts)` moved into `bench/atlas/core.mjs` (the runner ends with it) so a test can ask the exit code without running the atlas;
+  `test/atlas-stub-never-passes.test.mjs` now uses a made stub and `exitCodeOf` (there is no stub file left), `cmStubs` of the parity list is empty.
+- Tests: `test/atlas-counters-probe.test.mjs`, `test/atlas-digest-probe.test.mjs`, `test/atlas-cost-probe.test.mjs` + `-logic`, `test/atlas-dashboard-probe.test.mjs`
+  + `-logic`, `test/atlas-net-tempo-probe.test.mjs` (browser half, skipped as a whole where there is no Chromium: the four rows then say `not-measured`)
+  + `-logic` (judge on doctored results, the page-side counter in a vm). 21 mutants in `bench/mutation.mjs` ("ATLAS-..."), none of which needs a browser.
+- `docs/benchmark-atlas.md`: the section on the four phases (what is counted, threshold and why, blind spot, red proof, findings). Against the base commit
+  of this change each of the four ids is one `not-measured` stub row.
+
 ### Added - atlas frame: four named phases (stubs) and one id per phase in both houses (atlas-rahmen-cm)
 
 Plan step 3 (T3, part 1). No measuring run; the stubs measure nothing.
