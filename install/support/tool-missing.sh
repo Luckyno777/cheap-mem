@@ -54,6 +54,13 @@ if [ -n "$root" ]; then
   state=""
   case "${XDG_STATE_HOME:-}" in
     /*) state="$XDG_STATE_HOME" ;;
+    # Git Bash hands a Windows value on as it is (MSYS2 converts only PATH, HOME and the temp variables): `C:\x` or
+    # `C:/x` is absolute there too. It used to fall through to ~/.local/state (CI run 1103, Windows).
+    [A-Za-z]:[\\/]*)
+      case "$(uname -s 2>/dev/null)" in
+        MINGW* | MSYS* | CYGWIN*) state="${XDG_STATE_HOME//\\//}" ;;
+        *) [ -n "${HOME:-}" ] && state="$HOME/.local/state" ;;
+      esac ;;
     *) [ -n "${LOCALAPPDATA:-}" ] && command -v cygpath >/dev/null 2>&1 && state="$(cygpath -u "$LOCALAPPDATA" 2>/dev/null)"
        [ -n "$state" ] || { [ -n "${HOME:-}" ] && state="$HOME/.local/state"; } ;;
   esac
