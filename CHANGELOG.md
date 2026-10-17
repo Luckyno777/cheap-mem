@@ -55,6 +55,42 @@ Prompt-hook answers under the budget are byte for byte the base's (B1: 3 hit cou
 **Step 5 - `mem_find` on the core of `mem find`, `src/findcore.mjs`.** The MCP tool had its own copy of "ask the index": no exact lane, no echo filter, no MMR, no retired/as-of gates, and the query pinned to the memory's configured language (`test/paths-agree.test.mjs` names that as the third divergence: score 10.879 against 1.808 for one entry). The ranked lane of `mem find` moved out of the CLI handler into `findcore.rankedFind`; the CLI and the tool both call it and differ only in what they hand in and how they print (the CLI keeps the time router, the literal lane, `--wildcard`; the tool keeps its `*` operator, the journal line and its text). The same question now gives the same hits - ids, order and scores - at both doors. Behaviour change: **`mem_find` answers like `mem find`** (near-duplicates are MMR-ordered, an identifier in the question leads, a raw capture that is the user's own sentence is dropped, scores are the CLI's). Not unified: the CLI's time router (a question that names a window), which the tool never had. **`mem_find` cuts `top` to 25** (the sibling's limit; schema `maximum: 25` and the answer says `top N was cut to 25`): with the shared core a large `top` is slow in the synchronous server (top 200: 0.8 -> 6.1 s, top 1000: 0.9 -> 16.6 s, the MMR re-rank is quadratic in what it fetches).
 
 Measured: `test/answer-budget-cm.test.mjs`, 33 probes - A (the selection: fits, rank order, pointers, note counted in the budget, fixed parts, byte-counted elastic part, mask before measure, input order); B (prompt hook: equal to the base under the budget; RED on `f5ee47b`: 5 long hits + a 1.4 KB card + a skill offer = 3,441 bytes at the base, 2,324 now with pointers and the note); C (start: equal under the budget, RED on `f5ee47b`: long card + long rule + four assignment lines = 4,670 bytes at the base, 2,976 now); D (the "seen" mark); E (CLI and MCP give the same ids, order and scores on 8 questions - RED on `f5ee47b`: 4 of 4 probed questions differ there); F (source guards); H (six and twelve procedures next to a card: none left out; `keep` at every budget; the ids in the note); N1 (a fuzz of 400 mixed-order part lists: the text is within the budget whenever the parts that must be in leave room); H2 (a token built at run time across the cut of a pointer title); M1 (`top` cut to 25). 18 NEW mutants in `bench/mutation.mjs`, all caught (one first survived: MMR off in the core - the probe E1 now compares with the pure-BM25 order); two existing `mem find` mutants moved their anchors into `findcore.mjs`. Gold set through the CLI: 34 of 44 before and after, 0 flips; through the MCP tool (new in this measurement): 30 -> 31 of 44 (3 as-of cases cannot be asked over MCP), flips para-06 and lang-05 to pass, para-04 to fail - the tool now fails what the CLI fails (para-04 failed in the CLI all along; the tool passed it only by its divergent copy). `bench/recall-levers.mjs`: identical on both sides (gold 34 hits / 29 pass, decoys 1 of 28 answered). There is no real journal in this repository: the size distribution is a synthetic scratch spread, not a user's.
+### Security - hard HTTP limits for the dashboard server and the MCP bridge (slow headers, dripping body, connection flood)
+
+`mem serve` and `mem-mcp --http` ran with the Node defaults: headers could take 90 s in practice (60 s, checked every 30 s), a body 330 s,
+and the number of open connections was unlimited. Measured on a real service (8 slow connections, 600 silent ones): slow headers held
+89.5 s, a dripping body 329.5 s, 600 silent connections freed only after 89.4 s. `src/http-limits.mjs` `hardenServer()` now sets head 10 s, request 30 s,
+idle 5 s, 100 header lines, a check every 2 s and `maxConnections` per service (dashboard 512, MCP 256; never 0, Node drops every
+connection at 0), right after `createServer`. Measured after: slow headers closed at ~11.6 s, dripping body at ~31.5 s, 600 silent
+connections freed by ~11.9 s with the surplus dropped at once. The limits bound only the receiving of a request, so a long answer or a
+stream does not break. Residual risk, documented and not coded: the MCP bridge streams (`GET /mcp` opens an SSE stream with a
+`: keepalive` every 15 s), and every open stream holds one of its 256 seats for good, so 256 held streams lock the bridge; that needs
+the token, except with `--local-no-token` on loopback. `test/http-limits.test.mjs` (slow headers, silent connections, dripping body, flood at cap 8, header lines, long
+answer, the real services as processes, the recall socket with a hung client; one mutation per probe) and the listener inventory in
+`test/serve-token-refuse-cm.test.mjs` (every listed HTTP service must call `hardenServer` with a named cap) hold it. The recall
+server (Unix socket) got no cap, with the reason in `docs/security-model.md` ("HTTP service limits"). No new environment variable.
+### Fixed - leftovers of the masked transcript copy and of the pin words (small-rest2-cm)
+
+Five items checked, three were real:
+
+- **A key as ONE JSON string (`\n` escapes)** was already masked whole (structured line, a line cut off inside the string,
+  a string inside a string): no defect. The one real gap beside it: the short LAST line of a key (fewer than 20 characters)
+  survived in an open block (no END) and in a block past the 8 KB bound of the complete-block rule. It now falls, but only
+  when it ends its line, so prose after an open block stays.
+- **The block cut of `bin/mem-mask-copy.mjs`** (20000 lines or 2 MiB) split a key that began just before it: the part
+  behind the cut stayed in the clear (297 of 300 key lines in the probe). A cut now carries the header of a block that is
+  still open into the next block; it is masked to the END or to the end of the file.
+- **`pinhashes`** (one word, plural of `pinhash`) is a counter key like `pincodes`. Bare `pins`, `spins`, `hairpins`,
+  `kingpins` stay free, as before.
+- **`bin/mem-reflect.ps1`**: the helper already got root and transcript as separate arguments (a space or an apostrophe
+  in a path was no problem); the root now loses a trailing separator, which Windows PowerShell 5.1 would turn into an
+  escaped closing quote.
+- **Parallel runs of the two mask test files** (the mutation baseline runs every suite in one `node --test`):
+  `test/reflect-masked-copy.test.mjs` counted `mem-reflect-*` directories in the shared temp directory and saw the copies
+  of a file running beside it (red in 3 of 4 double runs). Both files now work in their own temp directory
+  (TMPDIR, TEMP, TMP), and the count is taken there (double run: 6 of 6 red before, 10 of 10 green after).
+- **`test/no-jump.test.mjs`**: the 20 s limit timer of the held-request wait was never cleared and kept the test process
+  alive after the test (the single test: 26.7 s wall, 11.0 s with `clearTimeout` in a `finally`).
 
 ### Security - unattended model sessions no longer read a project's settings or `.mcp.json` (digest, mail handler, reflector)
 
