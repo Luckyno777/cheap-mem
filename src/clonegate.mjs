@@ -34,7 +34,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import * as provenance from './provenance.mjs';
-import { writeAtomic } from './atomicwrite.mjs';
+import { writeAtomic, readStateFile } from './atomicwrite.mjs';
 import { cutMasked } from './outputguard.mjs';
 import * as bidi from './bidi.mjs';
 
@@ -58,9 +58,12 @@ function cleanLine(raw) {
   return cutMasked(bidi.visible(one), 300) || null;
 }
 
-function readCache(file) {
+/** The cached verdict, or null (missing, unreadable, broken). A Windows refusal during a replace is tried again first. */
+export function readCache(file, opt = {}) {
+  const r = readStateFile(file, opt);
+  if (r.state !== 'ok') return null;
   try {
-    const c = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const c = JSON.parse(r.text);
     return c && typeof c === 'object' && Number.isFinite(c.checked) && typeof c.state === 'string' ? c : null;
   } catch { return null; }
 }
