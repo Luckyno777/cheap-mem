@@ -87,14 +87,14 @@ function actionStates(root, state, nowMs, zone) {
  * value, `date` is the calendar day of the due date in the house zone.
  */
 function dutiesSituation(root, nowMs, zone, fold) {
-  if (fold.error) return { open: null, withDate: 0, due: [] };
+  if (fold.error) return { open: null, withDate: 0, dueList: [] };
   const open = fold.open;
   const situation = dueCore.situationFromOpen(open, { now: nowMs, zone, title: (p) => String(p.title ?? p.text ?? '') });
-  const due = situation.list
+  const dueList = situation.list
     .filter((x) => x.state === dueCore.STATE.DUE || x.state === dueCore.STATE.OVERDUE)
     .map((x) => ({ id: x.id, title: bidi.visible(cutMasked(x.title, 120)), date: x.day, overdue: x.state === dueCore.STATE.OVERDUE }));
-  due.sort((a, b) => a.date.localeCompare(b.date) || String(a.id).localeCompare(String(b.id)));
-  return { open: situation.open, withDate: situation.withDue - situation.unknown, due: due.slice(0, 8) };
+  dueList.sort((a, b) => a.date.localeCompare(b.date) || String(a.id).localeCompare(String(b.id)));
+  return { open: situation.open, withDate: situation.withDue - situation.unknown, dueList: dueList.slice(0, 8) };
 }
 
 /** The open duties, read once per day list: `memory.openDuties()` (`{ open, done }`), or `{ error }` when the drawers cannot be read. */
@@ -214,7 +214,7 @@ export function machine(h, { cap = null } = {}) {
     remindBeforeMin: t.beforeMin ?? null, wake: t.wake ?? null, state: t.state ?? null, status: t.status,
   });
   const appointments = h.appointments.map(item);
-  const { due: dutiesDue } = h.duties; // the day list's own result (due today or overdue), not a duty's field
+  const { dueList: dutiesDue } = h.duties; // the day list's own result (due today or overdue)
   // The Monday week review alone keeps a day from being empty; so does a day line that says something (a deadline overdue, a
   // project waiting, or "not measurable").
   const line = dayLineText(h);
@@ -254,7 +254,7 @@ export function briefingText(h, { late = null } = {}) {
     for (const t of h.actions) z.push(`- ${t.time} ${t.title} -> ${t.wake}: ${t.state ?? 'planned'}`);
   }
   z.push('');
-  const { due: dutiesDue } = h.duties; // the day list's own result (due today or overdue), not a duty's field
+  const { dueList: dutiesDue } = h.duties; // the day list's own result (due today or overdue)
   if (h.duties.open === null) z.push('Duties: not readable.');
   else if (dutiesDue.length) {
     z.push(`Duties due today or overdue: ${dutiesDue.length} (of ${h.duties.open} open)`);

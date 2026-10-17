@@ -200,16 +200,30 @@ async function probeSilentFlood(modulePath, edgeMs) {
   } finally { closeAll(conns); k.stop(); }
 }
 
-/** Header lines: 300 lines in ONE request; the server reads at most maxHeadersCount. */
+/**
+ * Header lines: 300 lines in ONE request; the handler never gets more than maxHeadersCount of them.
+ *
+ * The limit acts in one of two ways, depending on the Node line, and both are the limit acting (CI run 1141):
+ *   - truncate: Node 20.x and 22.x up to 22.23.1 read the first maxHeadersCount lines, drop the rest, and run the handler
+ *     (`read` <= maxHeadersCount, status 200);
+ *   - refuse: from 22.23.2 on (CVE-2026-58044, "http: reject requests exceeding max header count") Node answers
+ *     `431 Request Header Fields Too Large` and the handler never runs (no count in the answer).
+ * Which one is NOT pinned (that is the runtime's choice, not ours). What is pinned: one of the two, and the mutation below shows
+ * that without the limit the same Node answers 200 with all 300 lines read - so a 431 here comes from maxHeadersCount and
+ * from nothing else (300 short lines are ~3 KiB, far below the 16 KiB head cap).
+ */
 async function probeHeaderLines(modulePath) {
   const k = await startChild(null, modulePath, {});
   try {
     const many = Array.from({ length: 300 }, (_, i) => `X-H${i}: 1`).join('\r\n');
     const o = await open(k.port, { prelude: `GET /heads HTTP/1.1\r\nHost: x\r\nConnection: close\r\n${many}\r\n\r\n` });
     await waitUntil(() => o.closed, 20_000);
+    const status = Number(/^HTTP\/1\.[01] (\d{3})/.exec(o.all)?.[1]);
     const read = Number(/\r\n\r\n(\d+)/.exec(o.all)?.[1]);
     closeAll([o]);
-    return { ok: read > 0 && read <= LIMITS.maxHeadersCount, read, answer: o.all.slice(0, 200) };
+    const truncated = status === 200 && read > 0 && read <= LIMITS.maxHeadersCount;
+    const refused = status === 431 && Number.isNaN(read);
+    return { ok: truncated || refused, how: truncated ? 'truncate' : refused ? 'refuse' : null, status, read, answer: o.all.slice(0, 200) };
   } finally { k.stop(); }
 }
 
@@ -303,13 +317,14 @@ test('group 1: the helper hardens; the mutations and controls keep the probes ho
       const v = await probeFlood(m, EDGE_MUTATION);
       assert.equal(v.capped, false, JSON.stringify(v));
     }),
-    t.test('header lines: 300 lines -> the server reads at most maxHeadersCount', async () => {
+    t.test('header lines: 300 lines -> the handler gets at most maxHeadersCount (Node truncates, or refuses with 431)', async () => {
       const v = await probeHeaderLines(HELPER);
       assert.ok(v.ok, JSON.stringify(v));
     }),
     t.test('mutation: maxHeadersCount removed -> the server reads all 300 (red)', async (tt) => {
       const m = mutatedHelper(tt, 'server.maxHeadersCount = g.maxHeadersCount;', 'void g.maxHeadersCount;');
       const v = await probeHeaderLines(m);
+      assert.equal(v.status, 200, `without the limit the same Node does not refuse: ${JSON.stringify(v)}`);
       assert.ok(v.read > LIMITS.maxHeadersCount, JSON.stringify(v));
     }),
     t.test('long answer (SSE-like, 12 s, longer than the request limit of 10 s): arrives whole', async () => {
@@ -339,7 +354,7 @@ test('group 1: the values of the helper are the promised ones', () => {
   for (const [name, n] of Object.entries(MAX_CONNECTIONS)) assert.ok(Number.isInteger(n) && n > 0 && n < 1024, `${name}: a positive cap below 1024`);
 });
 
-test('group 1: hardenServer never sets maxConnections to 0 (Node would drop every connection); a bad value leaves the cap unset', async () => {
+test('group 1: hardenServer never sets maxConnections to 0 (no cap on any Node line); a bad value leaves the cap unset', async () => {
   const build = () => http.createServer((q, r) => { r.end('ok'); });
   const listen = (server) => new Promise((res) => { server.listen(0, '127.0.0.1', () => res(server.address().port)); });
   for (const bad of [0, -1, 1.5, NaN, '8', null, undefined]) {
@@ -347,18 +362,38 @@ test('group 1: hardenServer never sets maxConnections to 0 (Node would drop ever
     assert.equal(s.maxConnections, undefined, `${String(bad)} leaves the cap unset`);
   }
   assert.equal(hardenServer(build(), { maxConnections: 8 }).maxConnections, 8);
-  // The helper with 0 still serves; the control below shows what a raw 0 does.
+  // The helper with 0 still serves; the controls below show that the probe sees a drop at all, and what a raw 0 does.
   const a = hardenServer(build(), { maxConnections: 0 });
   const portA = await listen(a);
   try {
     assert.equal((await fetchOnce(portA, '/')).status, 200, 'the helper with 0 serves normally');
   } finally { a.close(); }
+
+  // Control 1, the same on every Node line: a raw cap of 1 with its one seat taken drops the next connection, and
+  // fetchOnce reports that as an error - so "serves normally" above is a measurement, not a probe that cannot see a drop.
+  const c = build();
+  c.maxConnections = 1;
+  const portC = await listen(c);
+  const seated = new Promise((res) => c.once('connection', res));
+  const seat = await open(portC);
+  try {
+    await seated;
+    const r = await fetchOnce(portC, '/');
+    assert.ok(r.error, `control: a full cap drops the next connection: ${JSON.stringify(r)}`);
+  } finally { closeAll([seat]); c.close(); }
+
+  // Control 2, what a raw 0 means depends on the Node line (CI run 1141): from Node 21 on it drops EVERY connection
+  // (nodejs/node#48276, semver-major: "do not treat server.maxConnections=0 as Infinity"); Node 20 still reads 0 as
+  // "no cap at all". Neither is a cap, which is why hardenServer never sets it. A plain branch, both sides asserted:
+  // if a Node line changes its meaning again, this turns red instead of quietly passing.
   const b = build();
   b.maxConnections = 0;
   const portB = await listen(b);
   try {
     const r = await fetchOnce(portB, '/');
-    assert.ok(r.error, `control: a raw maxConnections = 0 drops every connection: ${JSON.stringify(r)}`);
+    const major = Number(process.versions.node.split('.')[0]);
+    if (major >= 21) assert.ok(r.error, `control (Node ${process.version}): a raw maxConnections = 0 drops every connection: ${JSON.stringify(r)}`);
+    else assert.equal(r.status, 200, `control (Node ${process.version}): a raw maxConnections = 0 is no cap at all: ${JSON.stringify(r)}`);
   } finally { b.close(); }
 });
 

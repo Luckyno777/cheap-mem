@@ -149,6 +149,9 @@ test('equality through the CLI: `mem net --derived` (text and --json) on a real 
   void a; void b;
 });
 
+// Heap window at 128 MiB, measured 2026-10-17 (task heap-margin-cm, Node 22.22, 4 cores at load 8-10, 50 000 entries):
+//   NEW needs ~28-32 MiB (24: 0 of 10 run, 32: 10 of 10); OLD needs ~400-416 MiB (400: 0 of 10 run, 416: 10 of 10).
+//   Air at 128: ~96 MiB below, ~270 MiB above. At 128 itself 10 of 10 single and 10 of 10 four at a time, on both sides.
 function child(srcDir, root, heapMiB, mode) {
   const t0 = Date.now();
   const r = spawnSync(process.execPath, [`--max-old-space-size=${heapMiB}`, CHILD, srcDir, root, mode], { encoding: 'utf8', timeout: 150000 });

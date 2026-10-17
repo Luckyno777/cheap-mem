@@ -54,7 +54,10 @@ export const COMMANDS = {
         '  --full    also run the concurrent-append probe (six writer threads on',
         '            this mount, the slowest part of a run). Without it that one',
         '            finding, env/append-atomicity, says "not measured" (unknown),',
-        '            never ok. --strict includes it.',
+        '            never ok. --strict includes it. A finished measurement is kept in',
+        '            .pipeline/append-atomicity.json; a run without --full reads it back:',
+        '            a TORN verdict on the same mount stays an error (so --alarm shows it),',
+        '            a clean one stays "not measured", another mount\'s record is not used.',
         '  --alarm   ONLY level ERROR, one line each, nothing when quiet.',
         '            For a start banner. exit 1 if anything is red.',
         '  --strict  an UNVERIFIABLE guarantee counts as a failure.',
@@ -92,7 +95,7 @@ export const COMMANDS = {
     // `config: error` by itself — verified before this change.
     // The append probe runs on `--full`, and under `--strict`: there an unverifiable guarantee is a
     // failure, so leaving the probe out would turn the documented CI command red.
-    const result = doctor.checkAll(root, { full: Boolean(args.full || args.strict) });
+    const result = doctor.checkAll(root, { full: Boolean(args.full || args.strict), record: true });
 
     // The automatic tick (P21, 2026-09-20): every `mem doctor` run that
     // comes back with no ERROR advances the rollback watermark to the

@@ -292,8 +292,8 @@ test('bidi: the briefing list and the decisions in `mem today --json` show a rig
   const raw = /[\u202A-\u202E\u2066-\u2069]/;
   // the briefing's list of duties due today or overdue
   const h = T.today(root, { now: NOW, zone: BERLIN });
-  assert.equal(h.duties.due.length, 2);
-  const titles = h.duties.due.map((d) => d.title);
+  assert.equal(h.duties.dueList.length, 2);
+  const titles = h.duties.dueList.map((d) => d.title);
   assert.ok(titles.some((x) => /Pay \[U\+202E:RLO\]evil\[U\+202C:PDF\] bill/.test(x)), titles.join(' | '));
   assert.equal(raw.test(T.briefingText(h)), false, 'no raw control character in the briefing');
   // the decisions of `mem today --json`
@@ -462,7 +462,7 @@ test('briefing: the week review ALONE keeps a day from being empty (machine form
   const { r, mon } = briefed(t, [duty({ id: 'wk100001', title: 'Done last week', owner: 'alex', due: '2026-10-02' })]);
   handWritten(r, [{ id: id(), ts: '2026-10-02T10:00:00Z', agent: 'human:alex', closes_id: 'wk100001', state: 'done' }]);
   const h = T.today(r, { now: mon + 1000 });
-  assert.equal(h.duties.due.length, 0, 'no duty due today or overdue');
+  assert.equal(h.duties.dueList.length, 0, 'no duty due today or overdue');
   assert.equal(h.dayLine.overdue, 0);
   assert.equal(h.week.show, true);
   const m = T.machine(h);
