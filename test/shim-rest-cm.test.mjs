@@ -79,13 +79,17 @@ test('tool-missing: a path with a tab, a line break and an escape comes out as v
 
 test('tool-missing: every control character U+0001..U+001F and DEL survives a round trip through the JSON line', () => {
   // The hook name is the one value that reaches the message raw; each control character is sent through it.
+  // It travels through the ENVIRONMENT into the script's first argument, not on the command line: on Windows the
+  // MSYS bash splits its command line at a raw line feed and carriage return (CI run 1205, only U+000A and U+000D
+  // "lost"), so the script never saw the character the probe meant to send. An environment value keeps every byte
+  // here, as the CHEAP_MEM_CODE probe above shows on Windows too.
   const dir = temp('cm-shim-tmc-');
   const codes = [...Array.from({ length: 31 }, (_, i) => i + 1), 0x7f];
   const bad = [];
   for (const c of codes) {
     const name = `a${String.fromCharCode(c)}b`;
-    const r = spawnSync('bash', [MISSING, name, 'mem-retrieve'], {
-      cwd: dir, encoding: 'utf8', env: envOf(dir, { CHEAP_MEM_CODE: path.join(dir, 'gone') }),
+    const r = spawnSync('bash', ['-c', 'exec bash "$1" "$CM_HOOK_NAME" mem-retrieve', 'probe', posix(MISSING)], {
+      cwd: dir, encoding: 'utf8', env: envOf(dir, { CHEAP_MEM_CODE: path.join(dir, 'gone'), CM_HOOK_NAME: name }),
     });
     let ok = r.status === 0;
     if (ok) {

@@ -30,9 +30,12 @@ import * as search from '../src/search.mjs';
 import * as caps from '../src/capability.mjs';
 import * as config from '../src/config.mjs';
 import * as retrieval from '../src/retrieval.mjs';
+import { removeTree } from './fixture/cleanup.mjs';
 
 const PKG = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const away = (r) => fs.rmSync(r, { recursive: true, force: true });
+// The recall hook (bin/mem-retrieve) can start the detached search-index rebuild in the tree; a bare rmSync then races it
+// (CI run 1208, macOS node 20: ENOTEMPTY in .mem/locks and .mem/search-index). removeTree waits for that rebuild first.
+const away = (r) => removeTree(r);
 
 /** The six typed fields from the audit, each in its own entry. */
 const TYPED_FIELDS = {

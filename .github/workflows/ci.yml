@@ -1540,33 +1540,38 @@ jobs:
   # **The mutation sweep, in slices (CI run 1141).** One job sweeping the
   # whole catalogue in a row outgrew the 25-minute limit: 198 mutants in
   # 16 minutes (09:14:52 to 09:30:54), then the job was cancelled. Each
-  # slice sweeps every fourth mutant (`--shard=i/4`, round robin over the
-  # catalogue, so the slow neighbours spread over all four), and the
-  # four slices together sweep each mutant exactly once
+  # slice sweeps every sixth mutant (`--shard=i/6`, round robin over the
+  # catalogue, so the slow neighbours spread over all six), and the
+  # six slices together sweep each mutant exactly once
   # (test/mutation-shard.test.mjs reads the matrix below against the
   # `--shard` line). Each slice checks its own baseline first, and a
   # survivor still gets its full-suite re-run, in its slice.
   #
-  # **The sum, and why 30 minutes.** Measured from run 1141: the first 198
-  # mutants took 16.0 minutes, the baseline 1:48. The other 99 were timed
-  # by their suites (each mutant runs its named suites once; the local box
-  # ran test/writer-identity.test.mjs in 31.7 s against 15.5 s per mutant
-  # in CI, factor 2.0): 51 mutants on test/own-tool.test.mjs at ~31 s,
-  # 17 on test/answer-budget-cm.test.mjs at ~21 s, the rest small - about
-  # 36 minutes; the 9 alarm-tearing mutants on test/alarm-tearing.test.mjs
-  # (~20 s each) add ~3, the 4 codex-cloud and 3 due-one-place mutants ~3
-  # more. All 313 together are about 58 minutes of CI time, one job in a
-  # row would need an hour. Four slices: ~15 minutes of mutants, plus the
-  # baseline and setup, ~18 minutes each. 30 minutes is
-  # that with room for a slower runner, not a number turned up until it
-  # passes.
+  # **Six slices and 30 minutes (CI run 1205).** With four slices of 395
+  # mutants, slice 4/4 was cancelled at its 30-minute limit. Measured in
+  # run 1205 (the sweep step, baseline included): slice 1 22:19, slice 2
+  # 26:28, slice 3 23:29, slice 4 cancelled after 30:04. The baselines
+  # took 2:12 to 2:43; the 385 mutants that finished took 86.2 minutes,
+  # 13.4 s each on average, the heaviest suites test/own-tool.test.mjs
+  # (51 mutants, ~39 s each) and test/index-bound-cm.test.mjs (24, ~29 s).
+  # Slice 4 did not die of its size alone: one mutant ("ISC the child
+  # leaves its lock behind") made eight scenes of test/index-bound-cm wait
+  # out a minute each - 10:18 for that one suite run on the local box,
+  # 6:23 in CI before the cancel. That suite now says so after 10 s
+  # (2:54 locally). Those per-mutant times summed over today's 399
+  # mutants, round robin, give the heaviest of six slices 18.9 minutes of
+  # mutants (four: 26.2, five: 20.6, seven: 15.1); with the baseline and
+  # the setup about 22 minutes, and 30 minutes leave ~35 % for a slower
+  # runner. Mutants still to come (~64 from two open branches, ~14 more
+  # minutes in all) shrink that to ~20 %: the next step is a seventh
+  # slice, not a longer limit.
   mutation:
-    name: guarantees · mutation slice ${{ matrix.shard }}/4
+    name: guarantees · mutation slice ${{ matrix.shard }}/6
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     timeout-minutes: 30
     steps:
       # fetch-depth: 0 as in `verify`: some mutants' suites read a FIXED
@@ -1582,7 +1587,7 @@ jobs:
         run: node bench/ci-history-check.mjs
       - run: npm ci --omit=optional
       - name: mutation slice
-        run: node bench/mutation.mjs --shard=${{ matrix.shard }}/4
+        run: node bench/mutation.mjs --shard=${{ matrix.shard }}/6
       # The harness writes into src/ and restores it; a slice that ever
       # leaves a mutant behind is red here, not in the next job.
       - name: no mutant left behind
