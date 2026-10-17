@@ -2089,7 +2089,9 @@ const perModule=new Map();
 // broken is worse than none.
 {
   const suites=[...new Set(SWEEP.flatMap((m)=>m.tests))];
-  try{ execFileSync('node',['--test',...suites],{cwd:ROOT,stdio:['ignore','pipe','pipe'],encoding:'utf8'}); }
+  // `--test-reporter=tap` on every run whose output is READ (here the `not ok` blocks, below the
+  // skip count of `skipsOf`): the default reporter is Node's choice and may change; TAP is named.
+  try{ execFileSync('node',['--test','--test-reporter=tap',...suites],{cwd:ROOT,stdio:['ignore','pipe','pipe'],encoding:'utf8'}); }
   catch(e){
     const out=String(e.stdout||'');
     // The TAP block under a failing test - location, error, the diff -
@@ -2168,7 +2170,7 @@ for(const m of SWEEP){
   fs.writeFileSync(p, orig.replace(m.from,m.to));
   let failed=false, detail='', own='';
   try{
-    own=execFileSync('node',['--test',...m.tests],{cwd:ROOT,stdio:['ignore','pipe','pipe'],encoding:'utf8'});
+    own=execFileSync('node',['--test','--test-reporter=tap',...m.tests],{cwd:ROOT,stdio:['ignore','pipe','pipe'],encoding:'utf8'});
   }catch(e){
     failed=true;
     const out=String(e.stdout||'');

@@ -25,7 +25,7 @@ are the day the work landed on `main`.
   everything at 0 came with Node 21 (nodejs/node#48276, semver-major). `hardenServer` never sets 0, so no product fault; the
   control branches on the major version with an assertion on both sides, and a new control (cap 1, its seat taken) proves
   on every line that the probe sees a dropped connection at all. The comment in `src/http-limits.mjs` and
-  `docs/security-model.md` say what each line does. Reproduced locally with Node 20.20.0 and 22.23.3 (red on `2f0981b`,
+  `docs/security-model.md` say what each line does. Reproduced locally with Node 20.20.0 and a downloaded 22.23.3 (red on `2f0981b`,
   green now; also green on 22.22.0).
 - **The guarantees job hit its 25-minute limit inside `bench/mutation.mjs`.** Not a hang: the mutant after "WRITER the
   bridge card list ..." was "BYLINE-UI the dashboard shows a missing rank as a plain tier", checked only by a Chromium probe.
