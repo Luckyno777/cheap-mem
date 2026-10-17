@@ -187,8 +187,18 @@ test('a memory path with a line break is refused, not written as two lines', () 
   const home = path.join(dir, 'home');
   const o = optsOf(home);
   // The key of a path with a line break, on any platform (win32 keeps the unresolved spelling as a key).
-  assert.throws(() => owntool.setTrusted(path.join(dir, 'a\nb'), true, { ...o, platform: 'win32' }), /line break/);
-  assert.throws(() => owntool.setTrusted(path.join(dir, 'a\rb'), true, { ...o, platform: 'win32' }), /line break/);
+  // Off Windows the win32 switch file is a RELATIVE name (`\tmp\...\own-tool-roots`, path.win32 has no drive here), so
+  // a write that is not refused lands in the working directory: these calls run in the scratch directory, never in the
+  // repository (CI run 1205: under the mutant "a path with a line break is written to the switch file" the mutation slice
+  // left that file in the checkout and went red on "no mutant left behind").
+  const winOpts = { ...o, platform: 'win32' };
+  const cwd = process.cwd();
+  process.chdir(dir);
+  try {
+    assert.throws(() => owntool.setTrusted(path.join(dir, 'a\nb'), true, winOpts), /line break/);
+    assert.throws(() => owntool.setTrusted(path.join(dir, 'a\rb'), true, winOpts), /line break/);
+    assert.equal(fs.existsSync(owntool.switchFile(winOpts)), false, 'a refused path left a (win32) switch file');
+  } finally { process.chdir(cwd); }
   assert.equal(fs.existsSync(switchOf(home)), false, 'a refused path left a switch file');
   if (!WIN) {
     const odd = path.join(dir, 'x\ny');

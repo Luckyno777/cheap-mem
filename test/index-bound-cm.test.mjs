@@ -75,7 +75,27 @@ function append(root, count, from = 0) {
 const lockOf = (root) => path.join(root, indexrebuild.INDEX_REBUILD_LOCK_PATH);
 const noteOf = (root) => path.join(root, indexrebuild.INDEX_REBUILD_NOTE_PATH);
 const readNote = (root) => { try { return JSON.parse(fs.readFileSync(noteOf(root), 'utf8')); } catch { return null; } };
-const idle = (root) => assert.equal(indexrebuild.waitForIndexRebuildIdle(root, 60000), true, 'the background rebuild did not end');
+/**
+ * Wait (at most a minute) until the background rebuild has let go of its lock. The child writes its note and only then drops
+ * the lock (src/indexrebuild.mjs); a lock that still stands 10 s after the note of the rebuild it guards (a note no older
+ * than the lock) was left behind, and that is said at once instead of after the minute. CI run 1205: under the mutant "ISC
+ * the child leaves its lock behind" eight scenes each waited out the full minute (and their cleanup another 15 s): the suite
+ * took 10 minutes and its mutation slice was cancelled at its time limit. The stale lock is removed before the failure, so
+ * the scene's cleanup does not wait for it again.
+ */
+function idle(root) {
+  const deadline = Date.now() + 60000;
+  while (!indexrebuild.waitForIndexRebuildIdle(root, 500)) {
+    let lockMs = null;
+    try { lockMs = fs.statSync(lockOf(root)).mtimeMs; } catch { continue; }
+    const noteMs = Date.parse(readNote(root)?.at ?? '');
+    if (noteMs >= lockMs && Date.now() - noteMs > 10000) {
+      fs.rmSync(lockOf(root), { force: true });
+      assert.fail(`the rebuild wrote its note (${readNote(root)?.ok ? 'ok' : 'failed'}) more than 10 s ago and its lock still stood: the child left it behind`);
+    }
+    assert.ok(Date.now() < deadline, 'the background rebuild did not end');
+  }
+}
 
 /** The stand-in for the child: counts its start, hangs until the release file exists, then lets go of the lock. */
 const FAKE_CHILD = `const fs = require('node:fs'); const path = require('node:path');

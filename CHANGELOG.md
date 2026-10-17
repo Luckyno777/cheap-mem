@@ -55,6 +55,40 @@ finding is fixed.
   of a run in which no record ran is 3, not 0.
 - `docs/benchmark-atlas.md`: the section on the four phases (what is counted, threshold and why, blind spot, red proof, findings). Against the base commit
   of this change each of the four ids is one `not-measured` stub row.
+### Fixed - CI run 1205: two Windows probes that measured their own transport, a mutation slice past its time limit, a mutant that left a file in the checkout
+
+- **`test/installer-command-quoting.test.mjs`, Windows (node 20 and 22).** "a second install ... replaces an entry in
+  the old double-quote form" asserted that no `"` is left. On Windows the double quotes ARE the current form (`q` in
+  `install/claude-code.sh` keeps them for white space; `C:\Program Files\Git\usr\bin\bash.exe` has one), and the run
+  showed exactly one entry, rewritten (`bash.exe` and the `C:/...` spelling instead of the seeded `bash` and
+  backslashes). No double hook: the old entry is recognised by the script name. The probe now asserts on every platform
+  one entry, not the seeded one, two shell words with the installed script second; then on POSIX no `"`, on Windows
+  the double-quote form.
+- **`test/shim-rest-cm.test.mjs`, Windows (node 20 and 22).** "every control character ... survives a round trip"
+  lost only U+000A and U+000D: the hook name went in on the command line, and the MSYS bash splits its command line at
+  a raw line feed and carriage return (a tab survives because node quotes it). The script never saw the character. The
+  name now travels through the environment into the script's first argument; `install/support/tool-missing.sh` is
+  unchanged (its escaping already passed the CHEAP_MEM_CODE probe, which uses the environment, on Windows).
+- **Mutation slice 2/4: "no mutant left behind" red.** Under the mutant "own-tool: a path with a line break is written
+  to the switch file", `test/own-tool.test.mjs` called `setTrusted` with `platform: 'win32'` on Linux, where the win32
+  switch file is a RELATIVE name (`\tmp\cm-ot-nl-...\own-tool-roots`); the unrefused write landed in the checkout. Those
+  calls now run with the scratch directory as working directory, and the probe also asserts that no win32 switch file
+  was written. Red against the base with the same mutant (the file appears in `git status`), clean now.
+- **Mutation slice 4/4 cancelled at 30 minutes.** Measured in run 1205: slices 22:19, 26:28, 23:29 and 30:04
+  (cancelled); 385 mutants 86.2 minutes, 13.4 s each on average. One mutant, "ISC the child leaves its lock behind",
+  made eight scenes of `test/index-bound-cm.test.mjs` wait out a minute each: 10:18 for that suite locally, 6:23 in CI
+  until the cancel. The scene helper `idle` now fails after 10 s when the lock outlives the note of the rebuild it
+  guards (the child writes the note, then drops the lock), and removes that lock so the cleanup does not wait again:
+  the same mutant is caught by the same eight scenes in 2:54. CI now sweeps in six slices (`--shard=i/6`), still 30
+  minutes; from the measured per-mutant times the heaviest slice holds 18.9 minutes of mutants, about 22 with baseline
+  and setup. `test/mutation-shard.test.mjs` also holds the job name to the same n.
+- **macOS node 20, `test/release.test.mjs` red proof** ("Missing expected exception"; not repeated by run 1208 on the
+  same commit): the cause is not visible in the log. The probe now asserts that the old code made its first release
+  and names what the second call returned instead of throwing, so the next occurrence says why.
+- **macOS node 20, run 1208 on the same commit, `test/audit-body.test.mjs`:** ENOTEMPTY in `.mem/locks` and
+  `.mem/search-index` on cleanup. The recall hook in those scenes starts the detached index rebuild (shown locally: its
+  note is written); the file now removes its trees with `removeTree`, which waits for that rebuild.
+
 ### Added - atlas gaps: A8, A9, H11, A14 in `bridge`, E1 to E3 and the duties in `silent-errors`, each record with a mutant at its shared source (atlas-luecken-cm)
 
 Plan step 3 (T3, part 3). Measures what the sister house measures and these two phases had named as blind spots. No source of `src/` or `bin/` changed; a red record is a finding.

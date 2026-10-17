@@ -383,11 +383,18 @@ test('red proof: at the base commit the second createRelease dies when the OS re
   const { root, base } = releasedFixture();
   const restore = refusingRename();
   try {
-    old.createRelease(root, { ref: 'HEAD', fetch: false, env: { CHEAP_MEM_RELEASE_BASE: base } });
+    // The probe shows the rename defect only if the old code gets as far as the second switch: the first release must
+    // exist. When it does not, the old code stopped earlier for a reason of its own, and that reason is named (CI run
+    // 1205, macOS node 20: "Missing expected exception", nothing more).
+    const first = old.createRelease(root, { ref: 'HEAD', fetch: false, env: { CHEAP_MEM_RELEASE_BASE: base } });
+    assert.equal(first?.created, true, `the old code made no first release: ${JSON.stringify(first)}`);
     fs.writeFileSync(path.join(root, 'README.md'), 'second state\n');
     gitc(root, 'add', '-A');
     gitc(root, 'commit', '--quiet', '-m', 'innocent change');
-    assert.throws(() => old.createRelease(root, { ref: 'HEAD', fetch: false, env: { CHEAP_MEM_RELEASE_BASE: base } }), /EPERM/);
+    let second; let err;
+    try { second = old.createRelease(root, { ref: 'HEAD', fetch: false, env: { CHEAP_MEM_RELEASE_BASE: base } }); } catch (e) { err = e; }
+    assert.ok(err, `the old code did not die on the refused rename; it returned ${JSON.stringify(second)}`);
+    assert.match(String(err.message), /EPERM/);
   } finally { restore(); away(root); fs.rmSync(base, { recursive: true, force: true }); }
 });
 
