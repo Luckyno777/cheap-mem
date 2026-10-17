@@ -41,8 +41,8 @@ are the day the work landed on `main`.
      new `npm run verify:benches`, which is what the guarantees job runs now (timeout 10 minutes, was 25).
   The sum, measured: the first 198 mutants took 16.0 minutes in CI; the other 99 about 36 more (timed by their suites,
   local/CI factor 2.0 from `test/writer-identity.test.mjs`; 51 mutants on `test/own-tool.test.mjs` alone are ~26), and the
-  9 alarm-tearing mutants from kette/cm ~3: about 55 minutes for all 306. Even without the browser trap one job needed
-  about an hour. Four slices: ~17 minutes each with baseline and setup; timeout 30.
+  16 mutants merged from kette/cm since (alarm-tearing, codex-cloud, due-one-place) ~6: about 58 minutes for all 313. Even
+  without the browser trap one job needed about an hour. Four slices: ~18 minutes each with baseline and setup; timeout 30.
   `test/mutation-shard.test.mjs` holds the slices (every mutant exactly once, for n = 1..7), the skip verdict (sandboxed, a
   sentinel suite proves no full-suite run), bad slices refused with exit 2, and ci.yml's matrix against its `--shard` line.
   The argument check is the one of `agent/werkzeug-rest-cm` with `--shard` added.
