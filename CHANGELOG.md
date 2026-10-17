@@ -14,6 +14,14 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Tests - the heap-cap probes measured: every one has a wide window (heap-margin-cm; counterpart of the sibling's heap-marge fix, Parity lm=yes)
+
+The sibling's `dash-tempo2-lm` memory probe had ~1 MB between "the bounded path fits" and "the unbounded path does not" and failed 7 of 40 runs under load. The five equal-shaped probes here were measured
+the same way (Node 22.22, 4 cores at load 8-10; the smallest heap at which a side runs, bracketed with 10 runs four at a time): none is tight, so no world size or cap changed.
+- `atlas-pass-cm` (cap 48 MB, 80 000 rows): the pass runs from ~20 MB, holding every entry from ~68 MB (air ~28 below, ~18 above). `find-stream` (cap 48 MiB): new from ~12, old from ~140 (~36 / ~90).
+  `startblock-slim` (cap 48 MiB): new from ~20, old from ~88 (~28 / ~40). `net-derive-bounded-cm` (cap 128 MiB): new from ~32, old from ~416 (~96 / ~270).
+  `doctor-bounded` (cap 128 MiB): new from ~88, old and the lifted-guard run only at 1024 (~40 / more than 500).
+- At the cap itself every side was 40 of 40 on the right side four at a time (and 10 of 10 single). The numbers now stand as a comment at each probe; no product code and no assertion changed.
 ### Fixed - `mem doctor --alarm` sees a tearing that `mem doctor --full` measured (alarm-tearing-cm; cheap-mem only)
 
 Since cli-speed-cm TB7 the session-start banner (`mem doctor --alarm`, no `--full`) leaves out the concurrent-append probe and sees only the

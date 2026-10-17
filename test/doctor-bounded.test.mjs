@@ -248,6 +248,11 @@ test('old and new agree on the findings this change must not touch', async () =>
 // --- memory gate: a child process with a small heap -------------------------
 
 const GATE_N = 50000;
+// Heap window at 128 MiB, measured 2026-10-17 (task heap-margin-cm, Node 22.22, 4 cores at load 8-10, 50 000 entries):
+//   NEW needs ~84-88 MiB (80: 0 of 10 run, 88: 10 of 10); OLD and NEW with the guards lifted both die up to 512 MiB
+//   (OLD also at 640 and 768; at 896 it ran into the 150 s limit under load) and finish only at 1024 (2 of 2).
+//   Air at 128: ~40 MiB below, more than 500 MiB above.
+//   At 128 itself 10 of 10 single and 10 of 10 four at a time (NEW runs, OLD and the lifted NEW die).
 const GATE_HEAP_MIB = 128;
 
 function doctorChild(code, root, env = {}) {
