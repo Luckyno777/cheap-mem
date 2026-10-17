@@ -190,12 +190,17 @@ head; the changelog entry of 2026-10-16 has the counts).
   freshly computed part (`projects`) carries the cards of what is left. Probes:
   `test/card-view-cm-browser.test.mjs`, `test/card-group-browser.test.mjs`.
 
-  **Known defect of the existing group heading (open).** In the light theme the
-  group heading ("FOR YOU (n)") and the hint under "Agent work" are drawn with
-  the existing `.label` / `quiet` colour `--quiet` (rgb 97,120,105) and reach
-  only 4.2 to 4.4 : 1 against the card background, short of WCAG AA (4.5 : 1) for
-  small text. The variable is shared by the whole page and is deliberately not
-  changed here; a separate job is to fix it.
+  **Contrast of the small grey text (fixed 2026-10-17).** The group heading
+  ("FOR YOU (n)"), the hint under "Agent work" and every other `.label` /
+  `quiet` / `muted` text reach WCAG AA (4.5 : 1) on every surface they stand on,
+  in both themes: `--quiet` is `#566a5d` in the light theme (was `#617869`, 4.06
+  on the card background) and `#99aca0` in the dark one (was `#91a699`). The
+  probe `test/quiet-aa-cm-browser.test.mjs` walks every page light and dark at
+  1920 and 390 px and composites each text's background from the computed
+  styles, each gradient with its worst stop. Not part of that measurement: the
+  WebGL atmosphere behind the page, which in the light theme still lays a grey
+  veil over the page top (read from the pixels, text there stands at about
+  4.0 : 1).
 - **Knowledge**: entries, network, topics, facts, learnings, skills.
 - **Work**: duties and questions, agents, inbox, a calendar (today, the next
   days, proposals waiting for you, fired reminders, scheduled agent actions
