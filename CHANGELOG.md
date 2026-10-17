@@ -14,6 +14,21 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Changed - subagent start: the procedures get their full text before the workflow card; the card steps down to its pointer before the recap is cut (verfahren-zeiger-cm; port of lucky-mem `verfahren-zeiger-lm`, merge 69defe480, with the owner's decision 1zvs5jjeyaz4 to follow the sibling's order)
+
+The start's selection (`src/subagentstart.mjs` over `answerbudget.compose`, 3,200 bytes) allocated the workflow card FIRST (rank 10) and the procedures after it. With a card of about 1,300 bytes and six procedures of about 560 bytes the card stood whole while the last procedures were only pointers: a rule a human issued gave way to a card the assignment merely matched. Now the order is the sibling's: **(1) the procedures** (all of them share one rank, their order in the text breaks the tie) get room for their full text, each stays at least a pointer with its id; **(2) the assignment block**; **(3) the workflow card**, whole only if the whole recap still fits beside it, otherwise its pointer; **(4) the recap** (elastic, takes what is left, so it is shortened or dropped only after the card has already stepped down). New in `answerbudget.compose`: a part option `holdBack` (bytes the parts after it must still find; a form better than the part's last form, its pointer, is taken only if they stay free; the pointer and a part's only form are not held back). The card sets it to the size of the whole recap plus its separator. A card that has a pointer is a `keep` part: its pointer is reserved BEFORE any procedure is upgraded (the sibling reserves the card pointer first as well), so the card never vanishes behind greedy procedures; the note names the card's own id, not a placeholder (an earlier version of this change lost the card in 30 of 144 swept cases; `test/subagent-order-cm.test.mjs` B7 sweeps 1 to 12 procedures x four rule lengths x two card sizes). A card without a pointer (a tie list of titles) is unchanged. The prompt hook is untouched (the sibling changed nothing there either).
+
+Behaviour changes, each on purpose:
+1. **Procedures first.** Three procedures and a large card: all three stand whole, the card is its pointer (`mem workflow show <id>`), the recap still stands. At the base the card stood whole and the last rule was a pointer.
+2. **The card gives way before the recap is cut.** Two procedures, a card and the recap that together exceed the budget but where card plus procedures fit: the card is the pointer and the recap stands whole (at the base the recap was lost behind the card). At the byte boundary the card is whole only if the whole recap and its separator fit (swept byte by byte in `test/subagent-order-cm.test.mjs`).
+3. **The assignment block now outranks the card** (before: card, procedures, assignment). The sibling's assignment block is not in its budget at all, so the card could never cost it a line; here both share one budget and the lines win.
+4. **A start that fits is byte for byte what it was** (`answer-budget-cm` C1 and C7 unchanged and green; a card whole next to everything that fits stays whole). A card turned into a pointer is not "seen": its mark is taken back as before.
+5. Procedures ranked `20 + i` before, so the eleventh and later ranked behind the assignment block (30); they now share one rank.
+
+Not ported, with the reason: the sibling's `zeiger_ids` journal field and the dashboard counter (cheap-mem's start is not journaled per procedure; the note names what stepped down), the `(Verfahren <id>)` line under a whole procedure (it would change a start that fits), the id-only list for very many procedures (here every procedure stays a pointer with its title, as `keep` has done since abruf-budget), and the bounded MMR pool (its counterpart sits in `src/search.mjs`, owned by another branch: the pool still grows with `--top`).
+
+Proof (`test/subagent-order-cm.test.mjs`, 11 probes; red against the pinned old commit `71be9cf`): 9 of the 11 red with the old `subagentstart.mjs` and `answerbudget.mjs` (the other 2 guard what must not move: a start that fits is byte-equal, and no procedure is lost behind many); B7 (the card is never gone) is also red against the first version of this change (`cec2e34`). The sizes are not tuned to one machine: the closing hint carries the memory's path, so the probes sweep sizes or compare relatively and were run with a 120- and a 300-character `TMPDIR`. Eight mutants in `bench/mutation.mjs` (card ranked first again, card pointer not reserved, assignment behind the card, recap first, no holdBack, half holdBack, `holdBack` ignored, `holdBack` on the pointer).
+
 ### Added - atlas frame: four named phases (stubs) and one id per phase in both houses (atlas-rahmen-cm)
 
 Plan step 3 (T3, part 1). No measuring run; the stubs measure nothing.
@@ -156,6 +171,7 @@ Red proof against the base `2f0981b`: 14 of the 18 probes red (JSON, round trip 
   `test/mutation-shard.test.mjs` holds the slices (every mutant exactly once, for n = 1..7), the skip verdict (sandboxed, a
   sentinel suite proves no full-suite run), bad slices refused with exit 2, and ci.yml's matrix against its `--shard` line.
   The argument check is the one of `agent/werkzeug-rest-cm` with `--shard` added.
+
 ### Fixed - looking at the doctor writes nothing: the append-atomicity record is laid down only by `mem doctor --full` / `--strict` (alarm-record-cm; cheap-mem only)
 
 The record of alarm-tearing-cm was written after every finished measurement, and `doctor.checkAll(root)` measures by default (`full: true`), so collecting the
@@ -189,6 +205,7 @@ the pixels, text there stands at about 4.0 (`--quiet`) and 4.1 (`--muted`), up f
 - **The pattern has four branches now:** property read (as before), destructuring that is assigned to, iterated or taken as the single destructured parameter of an arrow (`{ due }`, `{ due: x }`, `{ due = null }`, quoted keys), bracket access with a literal name (also a template key) and the alias fallback `due ?? x.by`. An object literal `{ due: x }` is no read. A bare `.by` is not searched: it is the author field of claims, appointments and deletions; the only duty reader of `by` is the core.
 - **Two new `except` entries, each with its reason in the `why`:** `src/questiontext.mjs` (an options parameter `{ since, until }`, a time window) and `src/today.mjs` (renders the rows of the deadline and decision parts, whose public key is `due`; it reads no duty).
 - Proofs: `test/due-core.test.mjs` is red on the base in four places (the result names, the day list, the positive control with readers e to k, the line-by-line pattern probe). `bench/mutation.mjs`: three new mutants on `shared/calculations.jsonl` (no destructuring branch, no bracket branch, no `due ?? by` branch), 3/3 caught. Parity: the sibling house has the same gap (`frist-zustand` knows only `.frist`) and its rows are called `frist`; that port is open.
+
 ### Tests - the heap-cap probes measured: every one has a wide window (heap-margin-cm; counterpart of the sibling's heap-marge fix, Parity lm=yes)
 
 The sibling's `dash-tempo2-lm` memory probe had ~1 MB between "the bounded path fits" and "the unbounded path does not" and failed 7 of 40 runs under load. The five equal-shaped probes here were measured
