@@ -14,6 +14,21 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Fixed - dashboard: the small grey text reaches WCAG AA in both themes (quiet-aa-cm)
+
+Measured in a real Chromium on every page (the overview and all 31 tabs), light and dark, at 1920 and 390 px: for each visible text element in
+`--quiet` or `--muted`, every layer under it is composited from the computed styles, each gradient with its worst colour stop. Before, 1485 of
+about 7,800 measured elements were below 4.5:1 (the light `--quiet` at 2.63 to 4.34, the light `--muted` down to 4.13, the dark `--quiet` down
+to 4.30 on a figure tile under its hover glow). After, none is; the lowest are 4.75 (light `--quiet`), 4.88 (light `--muted`), 4.64 (dark
+`--quiet`) and 5.36 (dark `--muted`). Changes, all in `assets/dashboard/dashboard.css`, hue kept:
+- light `--quiet` `#617869` to `#566a5d`; dark `--quiet` `#91a699` to `#99aca0`.
+- the light theme drops the dark `.content` tint (`#101c2022`), which greyed the page top and pulled `--muted` below AA there.
+- the fabric stage, dark in both themes, takes the dark `--quiet` in the light theme too (its label was at 2.63).
+
+Not covered by the measurement: the WebGL atmosphere behind the page. In the light theme it still lays a grey veil over the page top; read from
+the pixels, text there stands at about 4.0 (`--quiet`) and 4.1 (`--muted`), up from 2.6 and 3.3. `test/quiet-aa-cm-browser.test.mjs` is red on
+`9a10bf6`; four mutants in `bench/mutation.mjs`.
+
 ### Security - unattended model sessions no longer read a project's settings or `.mcp.json` (digest, mail handler, reflector)
 
 Without `--bare`, `claude -p` runs the hooks of the `.claude/settings.json` of its working directory and connects the servers of its `.mcp.json`, in a folder nobody trusted and with no dialog
