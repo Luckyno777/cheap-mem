@@ -30,6 +30,42 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 /** The root of the PACKAGE (not of the memory): src/cli -> .. -> .. */
 export const PKG_ROOT = path.resolve(HERE, '..', '..');
 
+// The few `mem log` / `mem correction` flags that are real SWITCHES (no value): everything else needs one. A flag without
+// a value used to be written as `true` for any field that was not on a short list of prose fields, so `--tags`, `--key`,
+// `--files` ... wrote `tags: true` / `key: true` and the readers broke on them (review 2026-10-12). See fieldsFrom().
+// (`without-scaffold` and `no-broadcast` are taken out of the entry by the log handler.)
+const SWITCH_FIELDS = frozenSet(['shred', 'automatic', 'without-scaffold', 'no-broadcast']);
+
+/**
+ * **The register of boolean switches: the one place the parser learns that a `--name` is a switch and not a value-taker.**
+ *
+ * The parser reads `--key next` as "key is next" unless next starts with `--`. For a boolean switch that is wrong in exactly
+ * one case that matters: `-h`. `mem init --force -h`, `mem serve --readonly -h`, `mem raw delete <p> --yes -h`,
+ * `mem epoch --force -h` read `-h` as the VALUE of the switch, so the command ran (and wrote, or started a server) instead of
+ * showing its help (help-after-bool-cm, 2026-10-17; the sibling of the `-h` position fix of 2026-10-13). A name listed here
+ * never takes `-h` as its value; `-h` stays a help request, as everywhere else.
+ *
+ * **What is listed.** Names that are switches in EVERY command that knows them (read as `Boolean(args.x)` / `if (args.x)`,
+ * never through `textFlag` / `numberFlag` / `String(args.x)`): test/bool-switches.test.mjs holds that against the source.
+ * Left out on purpose: `quiet` (a switch in `doctor`, a number of minutes in `digest due`), `human` (a switch OR a name in
+ * `init`), and every name that is a value switch somewhere. A value switch keeps its old reading (`--text -h` still writes
+ * the text "-h"; `--top 5`, `--root x` are untouched).
+ *
+ * **What is NOT changed.** Any other word after a switch is still taken as its value, as before: the handlers that refuse a
+ * value for a switch (`serve --allow-writes maybe`, `--as-me <word>`) keep refusing it, rather than silently dropping a word.
+ * `mem log` / `mem correction` take any `--name value` as a field: there `--open word` still writes the field; only
+ * `--open -h` asks for help.
+ */
+export const BOOL_SWITCHES = frozenSet([
+  ...SWITCH_FIELDS,
+  'json', 'force', 'dry-run', 'readonly', 'allow-writes', 'local-no-token', 'as-me', 'write', 'yes', 'all', 'open',
+  'all-proposals', 'alarm', 'brief', 'briefing', 'check-only', 'conflicts', 'derived', 'flat', 'fresh', 'full', 'graph',
+  'hook', 'large', 'list-stores', 'literal', 'markdown', 'names-only', 'new-baseline', 'no-mmr', 'no-raw', 'no-write',
+  'non-interactive', 'off', 'only-raw', 'pre-push', 'private', 'proposals', 'rebuild', 'recall', 'self-test',
+  'session-start', 'shown', 'skip-fetch', 'stale', 'status', 'strict', 'suggested', 'sync', 'table', 'weak', 'weekly',
+  'wildcard', 'with-disputed', 'with-echo', 'with-retired', 'content-words', 'head', 'raw', 'no-mark', 'html', 'line', 'draw',
+]);
+
 export function parseArgs(argv) {
   const args = {};
   const rest = [];
@@ -48,7 +84,9 @@ export function parseArgs(argv) {
       }
       const key = a.slice(2);
       const next = argv[i + 1];
-      if (next !== undefined && !next.startsWith('--')) {
+      // A word after a boolean switch is still its value (the handlers that refuse one keep refusing), except `-h`: that is a
+      // help request, never the value of a switch listed in BOOL_SWITCHES.
+      if (next !== undefined && !next.startsWith('--') && !(next === '-h' && BOOL_SWITCHES.has(key))) {
         args[key] = next;
         i += 1;
       } else {
@@ -62,8 +100,8 @@ export function parseArgs(argv) {
       // its own copy: it becomes `args.help`, the very thing `isHelp()` reads.
       // A `-h` that a preceding `--key` took as its VALUE never gets here (the
       // branch above consumed it): `mem log learning --text -h` still writes
-      // the text "-h". The parser cannot tell a boolean switch from a
-      // value-taking one, so `--json -h` also reads `-h` as the value of --json.
+      // the text "-h". A switch that is a known BOOLEAN (BOOL_SWITCHES) never takes it,
+      // so `mem init --force -h` is a help request.
       markHelp(args);
     } else {
       rest.push(a);
@@ -194,12 +232,6 @@ export function numberFlag(name, value, { fallback = null, min = null, max = nul
   if (max !== null && n > max) die(`Error: --${name} must be at most ${max}, got ${n}.`);
   return n;
 }
-
-// The few `mem log` / `mem correction` flags that are real SWITCHES (no value): everything else needs one. A flag without
-// a value used to be written as `true` for any field that was not on a short list of prose fields, so `--tags`, `--key`,
-// `--files` ... wrote `tags: true` / `key: true` and the readers broke on them (review 2026-10-12). See fieldsFrom().
-// (`without-scaffold` and `no-broadcast` are taken out of the entry by the log handler.)
-const SWITCH_FIELDS = new Set(['shred', 'automatic', 'without-scaffold', 'no-broadcast']);
 
 /**
  * A switch that NARROWLY misses a reserved name is a typo, not a field.
