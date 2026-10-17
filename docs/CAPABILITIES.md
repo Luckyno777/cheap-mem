@@ -156,6 +156,7 @@ directory. The section number in brackets is where it is explained.
 | `icon.mjs` | the mark, drawn in code |
 | `inbox.mjs` | cross-session messages |
 | `indexcache.mjs` | the search index cache as shards, never as one JSON string — the old cache broke past ~978,000 entries |
+| `indexrebuild.mjs` | the full rebuild of the search index in the background: the recall hook answers from the cached index plus the appended lines and, past `min(a fifth, 100)` of them, starts a detached child that rebuilds the cache; one at a time (lock file), a lock of a dead child is taken over by age, a failed rebuild holds the next one back for ten minutes |
 | `injection.mjs` | the journal of what the hook put into a turn, and what it did not |
 | `integrity.mjs` | what is wrong with the log itself (4) |
 | `ismain.mjs` | "was this module started as the program?" by real path, so an entry point under a symlinked directory (every macOS temp dir) still runs instead of silently doing nothing |
