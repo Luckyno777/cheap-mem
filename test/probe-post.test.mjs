@@ -8,7 +8,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import net from 'node:net';
-import { probePost } from './helpers/probe-post.mjs';
+import { probePost, probeStatus } from './helpers/probe-post.mjs';
 
 /** A raw TCP server: `onData(socket)` decides what the client gets. Returns { port, close }. */
 async function rawServer(onConnection, t) {
@@ -82,4 +82,34 @@ test('the body can be written in chunks by the caller, and a throwing writer doe
   const throwing = await probePost({ host: '127.0.0.1', port, path: '/' }, () => { throw new Error('writer broke'); }, { timeoutMs: 300 });
   assert.equal(throwing.status, null);
   assert.equal(throwing.code, 'timeout');
+});
+
+test('probeStatus: a number for an answer (also after a cut), "error <code>" for a reset before any answer, a THROW for a hang', async (t) => {
+  const cut = await rawServer(answerThenCut, t);
+  assert.equal(await probeStatus({ host: '127.0.0.1', port: cut, path: '/' }, (q) => q.end('x'), { timeoutMs: 5000 }), 413);
+  const reset = await rawServer((s) => s.once('data', () => s.destroy()), t);
+  const refused = await probeStatus({ host: '127.0.0.1', port: reset, path: '/' }, (q) => q.end('x'), { timeoutMs: 5000 });
+  assert.match(refused, /^error \S+$/);
+  const silent = await rawServer(() => {}, t);
+  await assert.rejects(probeStatus({ host: '127.0.0.1', port: silent, path: '/' }, (q) => q.end('x'), { timeoutMs: 200 }), /probe hung/);
+});
+
+test('the probes that accept "a 413 or a reset" cannot count a hang as a refusal (a service that never answers)', async (t) => {
+  // Same predicate as test/service-door-cm.test.mjs: refused = 413 or a string "error ...".
+  const refused = (r) => r === 413 || (typeof r === 'string' && r.startsWith('error '));
+  const silent = await rawServer(() => {}, t);
+  let counted = null;
+  try {
+    counted = refused(await probeStatus({ host: '127.0.0.1', port: silent, path: '/' }, (q) => q.end('x'), { timeoutMs: 200 }));
+  } catch { counted = 'threw'; }
+  assert.equal(counted, 'threw', 'a hang must end the probe with an error, not satisfy "refused" or "not 413"');
+});
+
+test('static: service-door-cm and body-reader refuse a hang and the 1 MiB control needs a number', async () => {
+  const fs = await import('node:fs');
+  const read = (f) => fs.readFileSync(new URL(f, import.meta.url), 'utf8');
+  const sd = read('./service-door-cm.test.mjs');
+  assert.match(sd, /probeStatus\(/, 'service-door-cm posts through probeStatus (a hang throws)');
+  assert.match(sd, /typeof atLimitAnswer, 'number'/, 'the positive control needs a real answer');
+  assert.match(read('./body-reader.test.mjs'), /probe hung/, 'body-reader rejects a hang');
 });

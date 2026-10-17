@@ -113,7 +113,7 @@ async function post(port, pathName, chunks) {
   const { status, code } = await probePost({ host: '127.0.0.1', port, path: pathName, headers: {
     host: `127.0.0.1:${port}`, cookie: sessionCookie, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/x-www-form-urlencoded', 'transfer-encoding': 'chunked' } },
   async (r) => { for (const c of chunks) { if (!r.write(c)) await new Promise((t) => r.once('drain', t)); } r.end(); });
-  if (status === null) throw new Error(`no answer: ${code}`);
+  if (status === null) throw new Error(code === 'timeout' ? 'probe hung: no answer within the time limit' : `no answer: ${code}`);
   return [status];
 }
 // Runs fn against a fresh server and ALWAYS tears it down.

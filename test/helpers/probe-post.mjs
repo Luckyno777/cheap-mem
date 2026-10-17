@@ -45,3 +45,16 @@ export function probePost(options, send, { timeoutMs = 30000 } = {}) {
     Promise.resolve().then(() => send(q)).catch(() => {});
   });
 }
+
+/**
+ * The answer as a probe compares it: the status NUMBER, or the string `error <code>` for a reset before any answer. A
+ * connection that hangs is neither: it THROWS. A hang must never count as "refused" (it would satisfy "a 413 or a reset" and
+ * the "not 413" control alike and hide a service that stopped answering).
+ * @returns {Promise<number|string>}
+ */
+export async function probeStatus(options, send, { timeoutMs = 30000 } = {}) {
+  const { status, code } = await probePost(options, send, { timeoutMs });
+  if (status !== null) return status;
+  if (code === 'timeout') throw new Error(`probe hung: no answer within ${timeoutMs} ms`);
+  return `error ${code}`;
+}
