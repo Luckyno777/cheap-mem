@@ -36,6 +36,39 @@ Plan step 3 (T3, part 3). Measures what the sister house measures and these two 
   listed records red, the controls green, the dependents of a fallen control `not-measured`, and that every new record has a mutant. A guarantee with two layers (the
   visibility journal) is removed in both. 41 mutants (one edit) are also in the catalogue of `bench/mutation.mjs`. Live suites: `test/atlas-gaps-{bridge,http,silent}-cm.test.mjs`.
 - `bench/atlas/bridge-client.mjs` `openBridge` takes the code tree (`tree`), `surfacesGroup` is exported and takes it too. `docs/benchmark-atlas.md` has the section.
+### Fixed - 413 probes: a reset after the answer is part of the answer, not a red file (reset-413-cm; tests only, no `src/` or `bin/`)
+
+A service that refuses an over-limit body answers 413 at once and may cut the connection while the client still writes. The reset then lands on the request before any answer, or on the response after its status line. The 413 probes handled only the first place well: `test/service-door-cm.test.mjs` (the 1 MiB bridge limit) resolved at the response's `end`, so a response that ended in a reset instead hung the probe; `test/body-reader.test.mjs` had no `error` listener on the response. The sibling saw the same class once in 16 runs under load ("asynchronous activity after the test ended", file red, every assertion green).
+- **One helper:** `test/helpers/probe-post.mjs` settles when the request is closed; the status line that arrived is the answer and a reset after it is recorded (`resetAfterAnswer`), a failure before any answer is `{ status: null, code }` (the code is never interpreted), the response's `error` is always listened to, and a time limit settles a hung connection. Both files use it. A hang is never a refusal: `probeStatus` throws on a connection that does not answer (before, `service-door-cm` would have counted `error timeout` as "a reset" and as "not 413"), and the exactly-1-MiB control needs a real numeric answer. Nothing was weakened: `service-door-cm` still requires at least one real 413, `body-reader` still requires exactly `[413]` at all seven places.
+- **Guard:** `test/probe-post.test.mjs` cuts the connection after the status line on purpose with a raw server (no timing involved) and holds the helper to the five outcomes above; its control proves the cut is visible on the response. The old `service-door-cm` helper shape hangs on the same server (measured), the old `body-reader` shape survived it on Node 22.
+- **Not reproduced here:** the reset after the answer did not occur in 540 probe rounds on Node 22 / loopback under load (the 1-byte-over and 3 MiB bodies always arrived as 413, the multi-byte one always as a reset before any answer), so the wobble counts are equal (20 full runs of each file, four at a time, before and after: 0 of 20 red every time); the fix follows the sibling's measured case.
+### Security - MCP SDK raised to 1.32.1, floor 1.31.0 (GHSA-6qxp-vccf-f47h)
+
+- **The optional MCP SDK's range admitted releases with a known advisory.** [GHSA-6qxp-vccf-f47h](https://github.com/advisories/GHSA-6qxp-vccf-f47h)
+  (high, reviewed 2026-10-06): the SDK's OAuth client in `@modelcontextprotocol/sdk` 1.12.0 through 1.30.1 sends stored
+  OAuth credentials (refresh token, client secret) to whichever authorization server the MCP server names; 1.31.0 is the
+  first fixed release. MCP servers built with the SDK and stdio clients are not affected. cheap-mem uses no OAuth client:
+  `bin/mem-mcp` is a server (stdio and `--http`), and the dashboard's probe (`src/mcplive.mjs`) connects to the local
+  bridge with a static bearer header, no `authProvider`. So cheap-mem itself was not exposed, but its peer range
+  `^1.30.0` let an install pair it with an affected release. Peer and dev range are now `^1.31.0` (package.json and the
+  lock's root entry), the lock pins 1.32.1 (the newest 1.x on the registry, 2026-10-17), and every install line
+  (`bin/mem-mcp`, `mem setup`, `docs/mcp-setup.md`, README) names `^1.31.0`. Between 1.30.0 and 1.32.1 the declarations
+  cheap-mem imports (`server/index`, `server/stdio`, `server/streamableHttp`, `client/index`, `types`) are unchanged; the
+  two behaviour changes do not reach it: the streamable HTTP server's new 4 MiB body cap is skipped when the caller
+  passes a parsed body (the bridge does, after its own 1 MiB limit), and the HTTP client now follows redirects only
+  within the origin (the probe talks to a fixed local address). The MCP probes (`test/*mcp*`, tool-count-doc, setup,
+  output-guard) are green against 1.32.1 and against the floor 1.31.0. `test/mcp-sdk-floor-cm.test.mjs` gains a guard:
+  neither range nor the lock may admit a release before 1.31.0 (red on `f059670`; red when the peer range or only the
+  lock is set back). The tarball is unchanged in content (2,056,533 bytes packed, cap 2.1 MB); the SDK is not in it.
+### Fixed - PowerShell paths read as wildcards, and two places that printed CHEAP_MEM_CODE raw (ps1-pfade-cm; port to lucky-mem: no, it has no PowerShell twins for the first; the other two open)
+
+Review of shim-rest-cm left three findings, each with a red proof against its base `077b7e1`.
+
+1. **`Test-Path`, `Get-Content`, `Remove-Item`, `Set-Location` ... without `-LiteralPath` (defect, the hook path included).** `-Path` reads `[` and `]` as a wildcard class, so a memory folder called `notes [work]` is "not found". The seven installed shims search the memory root with `Test-Path (Join-Path $candidate '.mem\config.json')`: a hit on none of the candidates means the hook says "no memory found" and the session starts without it. The same in the start hook's `FACTS.md` read, in `mem-capture`, `mem-reflect`, `mem-watch` (lock, handler, the job's `Set-Location` and `Out-File`), `mem-digest` and the installer: 40 lines in five scripts, all on `-LiteralPath` now. `New-Item -Path` stays (its own help: wildcards are not accepted; it creates, it never searches). The text ratchet in `test/shim-rest-cm.test.mjs` now reads EVERY line of EVERY shipped `.ps1` (it read only lines that named a helper), with a positive control for every bare shape; its title no longer claims "every twin ... -LiteralPath" for the helper lines only. Red: 80 hits on the base, the real scan red.
+2. **A start hook installed without `cheap-mem-own-tool.sh` printed a raw `CHEAP_MEM_CODE` into the session's context (defect).** The rejection lives in the library (`bin/_owntool.sh`, run when the hook picks its tool); with the library missing next to the hook it was never called, and a line break in the value started a line of its own making in the context (and in the hint lines `$CHEAP_MEM_CODE/bin/mem ...`). `install/hooks/session-start.sh` now carries an inline twin of the rejection. Red: the base hook, run alone with a value holding a line break, prints `INJECTED LINE` as a line of its own seven times; the new one rejects, says so on stderr and in the context.
+3. **The doctor printed the baked code path raw (defect).** `src/integrationcontract.mjs` put the value read out of the shim file into the `SILENT` finding unchanged, and a value with a line break was not even read (`.` does not match it), so such a shim was not judged at all. Now it is read, shown with every control character as `\n`, `\t` or `\xNN`, marked `REJECTED`, and counted as no tool whatever sits at that path (the shims never use it). Red: 3 of 3 new probes red on the base.
+
+Not shown by anything here, since there is no `pwsh` on the build machine: that the PowerShell parser accepts the edited lines and that `-LiteralPath` behaves as read in the help for `Out-File -Append` and `Get-Item`. The Windows CI is the first to run them.
 
 ### Fixed - the state-mark readers took a refused open for "no file" (Windows); hook stdin kept its blanks; the before-edit diagnosis names the mark
 

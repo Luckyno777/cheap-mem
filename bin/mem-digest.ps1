@@ -35,7 +35,7 @@ $ErrorActionPreference = 'Continue'
 
 if (-not $env:CHEAP_MEM_ROOT) { Write-Error 'env CHEAP_MEM_ROOT missing'; exit 2 }
 $Root = $env:CHEAP_MEM_ROOT
-if (-not (Test-Path (Join-Path $Root '.mem'))) {
+if (-not (Test-Path -LiteralPath (Join-Path $Root '.mem'))) {
   Write-Error "'$Root' has no .mem - run 'mem init' first"; exit 2
 }
 
@@ -65,7 +65,7 @@ New-Item -ItemType Directory -Force -Path (Split-Path -Parent $LogPath) | Out-Nu
 function Note($msg) {
   $line = "[{0}] {1}" -f (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'), $msg
   Write-Output $line
-  Add-Content -Path $LogPath -Value $line
+  Add-Content -LiteralPath $LogPath -Value $line
 }
 
 # --- Miss gold, at most once per UTC day ---------------------------
@@ -85,7 +85,7 @@ if ($env:MEM_GOLD_DAILY -ne 'no') {
     $GoldProc = Start-Process -FilePath 'node' -ArgumentList $GoldArgs `
       -NoNewWindow -PassThru -RedirectStandardOutput $GoldOut -RedirectStandardError $GoldErr
     if (-not $GoldProc.WaitForExit($GoldTimeout * 1000)) { try { $GoldProc.Kill() } catch { } }
-    Remove-Item $GoldOut, $GoldErr -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $GoldOut, $GoldErr -Force -ErrorAction SilentlyContinue
   } catch { }
 }
 
@@ -123,17 +123,17 @@ Note "due: $State"
 # a stale one from a crashed run is recognised - otherwise one crash
 # blocks the digest forever.
 $LockPath = Join-Path $Root '.mem\digest.lock'
-if (Test-Path $LockPath) {
-  $OldPid = (Get-Content $LockPath -ErrorAction SilentlyContinue | Select-Object -First 1)
+if (Test-Path -LiteralPath $LockPath) {
+  $OldPid = (Get-Content -LiteralPath $LockPath -ErrorAction SilentlyContinue | Select-Object -First 1)
   $Alive = $false
   if ($OldPid -match '^\d+$') {
     $Alive = $null -ne (Get-Process -Id ([int]$OldPid) -ErrorAction SilentlyContinue)
   }
   if ($Alive) { Note "already running (pid $OldPid), skipping"; exit 0 }
   Note "stale lock from pid $OldPid - taking over"
-  Remove-Item $LockPath -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $LockPath -Force -ErrorAction SilentlyContinue
 }
-Set-Content -Path $LockPath -Value $PID
+Set-Content -LiteralPath $LockPath -Value $PID
 # stdin to node (CI run 1141, src/hookstdin.mjs says why): Windows PowerShell 5.1 opens a native command's stdin in
 # [Console]::InputEncoding and writes its preamble first - under code page 65001 a UTF-8 BOM before the hook JSON, and
 # the core's JSON.parse failed in silence. Same code page without a preamble; what PowerShell writes into the pipe as
@@ -266,11 +266,11 @@ let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{try{process.stdout.write
 
   $ModelText = ''
   foreach ($t in @($OutTmp, $ErrTmp)) {
-    if (Test-Path $t) {
-      $got = @(Get-Content $t -ErrorAction SilentlyContinue)
+    if (Test-Path -LiteralPath $t) {
+      $got = @(Get-Content -LiteralPath $t -ErrorAction SilentlyContinue)
       $ModelText += (($got -join "`n") + "`n")
-      $got | Add-Content -Path $LogPath
-      Remove-Item $t -Force -ErrorAction SilentlyContinue
+      $got | Add-Content -LiteralPath $LogPath
+      Remove-Item -LiteralPath $t -Force -ErrorAction SilentlyContinue
     }
   }
 
@@ -310,5 +310,5 @@ let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{try{process.stdout.write
   exit 0
 }
 finally {
-  Remove-Item $LockPath -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $LockPath -Force -ErrorAction SilentlyContinue
 }

@@ -12,6 +12,7 @@ import { pathToFileURL, fileURLToPath } from 'node:url';
 import { readBoundedBody } from '../src/body-reader.mjs';
 import { exportCommit } from './helpers/export-commit.mjs';
 import { personCookie } from './person-session.mjs';
+import { probePost } from './helpers/probe-post.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OLD = '4bbca61';
@@ -106,15 +107,14 @@ const tree = (root) => {
   walk(root);
   return out.sort().join('|');
 };
-function post(port, pathName, chunks) {
-  return new Promise((ok, no) => {
-    const answers = [];
-    const r = http.request({ host: '127.0.0.1', port, path: pathName, method: 'POST', headers: {
-      host: `127.0.0.1:${port}`, cookie: sessionCookie, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/x-www-form-urlencoded', 'transfer-encoding': 'chunked' } },
-    (res) => { answers.push(res.statusCode); res.resume(); res.on('end', () => ok(answers)); res.on('close', () => ok(answers)); });
-    r.on('error', (e) => ((e.code === 'ECONNRESET' || e.code === 'EPIPE') && answers.length ? ok(answers) : no(e)));
-    (async () => { for (const c of chunks) { if (!r.write(c)) await new Promise((t) => r.once('drain', t)); } r.end(); })().catch(() => {});
-  });
+// The status codes of the answers (see helpers/probe-post.mjs: a reset after the status line keeps the answer; a failure
+// before any answer rejects).
+async function post(port, pathName, chunks) {
+  const { status, code } = await probePost({ host: '127.0.0.1', port, path: pathName, headers: {
+    host: `127.0.0.1:${port}`, cookie: sessionCookie, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/x-www-form-urlencoded', 'transfer-encoding': 'chunked' } },
+  async (r) => { for (const c of chunks) { if (!r.write(c)) await new Promise((t) => r.once('drain', t)); } r.end(); });
+  if (status === null) throw new Error(code === 'timeout' ? 'probe hung: no answer within the time limit' : `no answer: ${code}`);
+  return [status];
 }
 // Runs fn against a fresh server and ALWAYS tears it down.
 async function withServer(moduleRoot, fn) {

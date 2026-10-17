@@ -22,11 +22,17 @@ which is an *optional peer* — it is 28 MB across 91 packages, so it is not fet
 you want the MCP tools:
 
 ```bash
-npm install -g "@modelcontextprotocol/sdk@^1.30.0"
+npm install -g "@modelcontextprotocol/sdk@^1.31.0"
 ```
 
-The range is the floor the bridge is built and tested on (`1.30.0`, pinned in
-`package-lock.json` for the development tree). An older release may lack the
+The floor is `1.31.0`, the first release with the fix for the SDK's OAuth client
+advisory [GHSA-6qxp-vccf-f47h](https://github.com/advisories/GHSA-6qxp-vccf-f47h)
+(1.12.0 through 1.30.1 could send stored OAuth credentials to an authorization server
+the MCP server names). cheap-mem's own code does not use that OAuth client: the server
+and stdio are not affected, and the dashboard's probe sends a static bearer token. The
+floor keeps an install from pairing cheap-mem with an affected release all the same.
+The suite runs against the version pinned in `package-lock.json` for the development
+tree (`1.32.1`). An older release may lack the
 streamable HTTP transport that `mem-mcp --http` uses, and the 1 MiB limit on
 request bodies is cheap-mem's own code, so it does not depend on which release you
 install. The quotes matter on Windows: `^` is an escape character in `cmd.exe`.

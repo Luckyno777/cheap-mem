@@ -55,6 +55,22 @@ test('A8/F14: the peer range of the SDK is not wider than the version the suite 
   assert.ok(cmp(lowerBound('^1.0.0'), lowerBound('^1.30.0')) < 0);
 });
 
+// GHSA-6qxp-vccf-f47h (https://github.com/advisories/GHSA-6qxp-vccf-f47h, reviewed 2026-10-06): the SDK's OAuth
+// client in 1.12.0 through 1.30.1 sends stored credentials to whichever authorization server the MCP server names;
+// 1.31.0 is the first fixed release. cheap-mem does not use that client (server and stdio are not affected, the
+// dashboard probe sends a static bearer), but neither the range a user installs from nor the tree the suite runs on
+// may admit an affected release. Red on the base (f059670): the range is `^1.30.0`, the lock pins 1.30.0.
+const FIRST_FIXED = [1, 31, 0];
+test('GHSA-6qxp-vccf-f47h: neither the SDK range nor the locked SDK admits a release before 1.31.0', () => {
+  for (const [name, range] of [['peer', pkg.peerDependencies?.[SDK]], ['dev', pkg.devDependencies?.[SDK]]]) {
+    assert.ok(cmp(lowerBound(range), FIRST_FIXED) >= 0, `${name} range ${range} admits an affected release (< 1.31.0)`);
+  }
+  const locked = lock.packages?.[`node_modules/${SDK}`]?.version;
+  assert.ok(cmp(parseVersion(locked), FIRST_FIXED) >= 0, `the lock pins ${locked}, an affected release (< 1.31.0)`);
+  // Positive control of the comparison: the last affected release is below the first fixed one, the fixed one is not.
+  assert.ok(cmp(parseVersion('1.30.1'), FIRST_FIXED) < 0 && cmp(parseVersion('1.31.0'), FIRST_FIXED) === 0);
+});
+
 test('A8/F14: the lock mirrors package.json for the SDK (npm ci refuses a lock that disagrees)', () => {
   const root = lock.packages?.[''];
   assert.ok(root, 'lock root entry');
