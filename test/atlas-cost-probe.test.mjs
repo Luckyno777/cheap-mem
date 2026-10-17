@@ -98,7 +98,7 @@ test('a call made while the counter is off hands back null (never ran), not an e
   const off = phase.counted('starts', ['-e', '0'], { root, cwd: root, env: { NODE_OPTIONS: '' } });
   assert.equal(off.rows, null, 'NODE_OPTIONS emptied: the preload never ran, no file was made beforehand');
   const offCalls = phase.counted('calls', ['-e', '0'], { root, cwd: root, env: { NODE_OPTIONS: '--no-warnings' } });
-  assert.ok(Array.isArray(offCalls.rows), 'the call counter is a --import argument, not NODE_OPTIONS: this one still ran');
+  assert.ok(Array.isArray(offCalls.rows), 'the call counter is passed on the command line, not through NODE_OPTIONS: this one still ran');
   assert.match(phase.todayProbeVerdict({ rows: off.rows, status: 0 }).why, /counter did not run/);
 });
 

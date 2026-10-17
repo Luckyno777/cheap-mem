@@ -32,7 +32,12 @@ import { readModules, groupsOf } from '../bench/atlas/module-counter.mjs';
 import { readRows, total } from '../bench/atlas/call-counter.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const spec = (file, query) => `${pathToFileURL(path.join(REPO, 'bench', 'atlas', file)).href}?${Object.entries(query).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&')}`;
+/** The file: URL of a counter preload with its query (an object, so every `--import` below reads `.href`). */
+const spec = (file, query) => {
+  const url = pathToFileURL(path.join(REPO, 'bench', 'atlas', file));
+  url.search = Object.entries(query).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+  return url;
+};
 
 test('start-counter: a node that starts two nodes is three starts; a missing file is null, not zero', (t) => {
   const dir = tempDir('cm-atlas-sc-', t);
@@ -42,7 +47,7 @@ test('start-counter: a node that starts two nodes is three starts; a missing fil
   fs.writeFileSync(parent, "import { spawnSync } from 'node:child_process';\n"
     + "spawnSync(process.execPath, ['-e', '0']);\n"
     + "spawnSync(process.execPath, ['-e', 'process.exit(0)'], { env: { ...process.env, SC_TAGGED: '1' } });\n");
-  const r = spawnSync(process.execPath, [parent], { encoding: 'utf8', env: { ...process.env, NODE_OPTIONS: `--import=${spec('start-counter.mjs', { out, tag: 'SC_TAGGED' })}` } });
+  const r = spawnSync(process.execPath, [parent], { encoding: 'utf8', env: { ...process.env, NODE_OPTIONS: `--import=${spec('start-counter.mjs', { out, tag: 'SC_TAGGED' }).href}` } });
   assert.equal(r.status, 0, r.stderr);
   const rows = readStarts(out);
   assert.equal(rows.length, 3, JSON.stringify(rows));
@@ -52,7 +57,7 @@ test('start-counter: a node that starts two nodes is three starts; a missing fil
   assert.equal(readStarts(path.join(dir, 'never-written.txt')), null, 'a counter that never ran is not an empty list');
   // Without `tag` nothing is labelled, even where the variable is set.
   fs.writeFileSync(out, '');
-  spawnSync(process.execPath, ['-e', '0'], { env: { ...process.env, SC_TAGGED: '1', NODE_OPTIONS: `--import=${spec('start-counter.mjs', { out })}` } });
+  spawnSync(process.execPath, ['-e', '0'], { env: { ...process.env, SC_TAGGED: '1', NODE_OPTIONS: `--import=${spec('start-counter.mjs', { out }).href}` } });
   assert.equal(readStarts(out)[0].tagged, false);
 });
 
@@ -63,7 +68,7 @@ test('module-counter: a script and its import are listed, built-ins are not, and
   fs.writeFileSync(path.join(dir, 'child.mjs'), 'export const x = 1;\n');
   const main = path.join(dir, 'main.mjs');
   fs.writeFileSync(main, "import fs from 'node:fs';\nimport { x } from './child.mjs';\nvoid fs; void x;\n");
-  const r = spawnSync(process.execPath, [`--import=${spec('module-counter.mjs', { out })}`, main], { encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [`--import=${spec('module-counter.mjs', { out }).href}`, main], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   const urls = readModules(out);
   assert.ok(urls.some((u) => u.endsWith('/main.mjs')), JSON.stringify(urls));
@@ -82,7 +87,7 @@ test('module-counter on the CLI: `mem find` loads its group, `mem --help` loads 
   const count = (args) => {
     const out = path.join(dir, `m-${args[0].replace(/\W/g, '')}.txt`);
     fs.writeFileSync(out, '');
-    const r = spawnSync(process.execPath, [`--import=${spec('module-counter.mjs', { out })}`, path.join(REPO, 'bin', 'mem'), '--root', root, ...args], { encoding: 'utf8' });
+    const r = spawnSync(process.execPath, [`--import=${spec('module-counter.mjs', { out }).href}`, path.join(REPO, 'bin', 'mem'), '--root', root, ...args], { encoding: 'utf8' });
     assert.equal(r.status, 0, r.stderr);
     return readModules(out);
   };
@@ -122,7 +127,7 @@ test('call-counter: planted calls are counted exactly; opens are per file under 
     "const w = new Worker('0', { eval: true });",
     "w.on('exit', () => {});",
   ].join('\n'));
-  const r = spawnSync(process.execPath, [`--import=${spec('call-counter.mjs', { root, out })}`, prog, log, other, note], { encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [`--import=${spec('call-counter.mjs', { root, out }).href}`, prog, log, other, note], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   const rows = readRows(out);
   const sum = total(rows);
@@ -150,7 +155,7 @@ test('io-counter `watch`: the bytes of ONE file are counted on their own, whatev
   const run = (query) => {
     const out = path.join(dir, `io-${Object.keys(query).join('')}.txt`);
     fs.writeFileSync(out, '');
-    const r = spawnSync(process.execPath, [`--import=${spec('io-counter.mjs', { root, out, ...query })}`, prog, watched, path.join(root, '.pipeline', 'other.txt')], { encoding: 'utf8' });
+    const r = spawnSync(process.execPath, [`--import=${spec('io-counter.mjs', { root, out, ...query }).href}`, prog, watched, path.join(root, '.pipeline', 'other.txt')], { encoding: 'utf8' });
     assert.equal(r.status, 0, r.stderr);
     return readRows(out)[0];
   };
@@ -170,7 +175,7 @@ test('call-counter: the doctor starts its append-probe writers only with --full 
   const workers = (args) => {
     const out = path.join(dir, `w-${args.join('')}.txt`);
     fs.writeFileSync(out, '');
-    mem(args, [`--import=${spec('call-counter.mjs', { root, out })}`]);
+    mem(args, [`--import=${spec('call-counter.mjs', { root, out }).href}`]);
     return total(readRows(out)).workers;
   };
   assert.equal(workers(['doctor', '--quiet']), 0);

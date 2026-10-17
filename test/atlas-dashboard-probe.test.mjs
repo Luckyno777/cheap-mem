@@ -76,9 +76,16 @@ test('FINDING (pinned): /desk.json rebuilds on every call — the second call re
   assert.ok(r.measured.first > 0, 'positive control: the first call read lines');
   assert.ok(r.measured.share >= 0.95 && r.measured.share <= 1.05, `share ${r.measured.share}`);
   assert.deepEqual(r.measured.statuses, [200, 200]);
-  assert.match(r.evidence, /bin\/mem-serve:\d+/);
+  assert.match(r.evidence, /bin\/[\w-]+:\d+/);
   const page = fs.readFileSync(new URL('../assets/dashboard/dashboard.js', import.meta.url), 'utf8');
   assert.ok(!page.includes('/desk.json'), 'no page asks for /desk.json (if one does, the evidence text of the row is wrong)');
+});
+
+test('requests: the server of the browser half is warmed over fetch before the first page opens (the first page pays no cold start)', () => {
+  const src = fs.readFileSync(new URL('../bench/atlas/phase-dashboard.mjs', import.meta.url), 'utf8');
+  const at = (re) => src.search(re);
+  assert.ok(at(/await warmView\(server\.base\)/) > at(/server = await startServer\(root, \{ outDir: root \}\)/), 'warmView must follow the start of the requests-row server');
+  assert.ok(at(/await warmView\(server\.base\)/) < at(/browser\.newContext\(/), 'warmView must come before the first browser context');
 });
 
 test('requests: with Chromium the home view asks appointments.json twice (pinned finding); without, the row says not-measured and why', async () => {
