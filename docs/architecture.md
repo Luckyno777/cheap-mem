@@ -228,6 +228,29 @@ And one field carries words that are deliberately **not** in the entry:
 this costs a few tokens per digest run. Measured: gold in context
 24/63 → 28/63, nothing lost.
 
+### The appended stack, and when the full rebuild runs
+
+`loadIndex` takes the cached index and appends the lines written since the last full build (`appendToIndex`). The documents and the
+term statistics stay exact; the compound lexicon and the two learned graphs lag until the next full build. How far they may lag
+depends on who asks:
+
+- **The terminal** (`mem find`, every other command) rebuilds in its own process once a fifth of the corpus arrived after the last
+  full build (`REBUILD_AFTER_FRACTION`).
+- **The recall hook** (`mem find --recall`, the warm server's first load) never rebuilds in its own process. It answers from the
+  appended index however large the stack is, and past `min(a fifth, 100)` appended lines (`REBUILD_AFTER_APPENDED`,
+  `appendedTooMany`) it starts the full rebuild **detached** (`src/indexrebuild.mjs`) and returns. The load result carries
+  `stale: 'appended-too-many'` and `rebuild: 'started' | 'running' | 'backoff' | 'error'`. The hook's text says nothing about it:
+  the appended lines are in the answer, only the ranking statistics are a little behind.
+- **One rebuild at a time.** The lock is `.mem/locks/search-index-rebuild.lock`, created with link/`O_EXCL`; of two processes that ask
+  at the same moment one starts the child, the other sees `running`. The child removes the lock when it ends. A child that is killed
+  leaves it, and it is taken over **by age** (900 s, through the takeover bar of `src/filelock.mjs`: the PID in the file is the
+  asker's, gone a moment later, so only the age can decide). After a failed rebuild a note (`search-index-rebuild.note.json`) holds
+  the next one back for 600 s.
+- **No half index.** The child writes the cache like every build does: a new directory, then a rename (`src/indexcache.mjs`), and
+  every shard is checked against its hash on reading. A reader that meets the cache between the two renames builds in its own process.
+- **`mem correction`** takes its document-frequency table (for the content-loss warning) from the same cache and the same appended
+  stack (`loadIndex(root, { allowStale: true })`), not from a cold `buildIndex`.
+
 ### The tag graph is the actual trick
 
 From the co-occurrence of your `tags` fields, via normalised pointwise

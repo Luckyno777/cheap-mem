@@ -62,6 +62,17 @@ arrived after the last full build, the next search pays for a real one.
 So retrieval *quality* lags the newest entries slightly. Finding them
 does not — the documents are in the index immediately.
 
+The recall hook is held to a tighter bound than the terminal:
+`REBUILD_AFTER_APPENDED` = 100 lines (`min(a fifth, 100)`), and it never
+pays for the rebuild itself. Past the bound it answers from the appended
+index and starts the full rebuild as a detached child, one at a time
+(`src/indexrebuild.mjs`; see "The appended stack, and when the full
+rebuild runs" in `architecture.md`). Measured on 7,000 entries (synthetic,
+a busy 4-core machine): appending costs about 0.15 ms per line (load 242 ms
+at 0 appended, 397 ms at 1,000), a full rebuild 0.7 to 0.9 s, 1.8 to 2.2 s at
+20,000 entries. So at this size the hook gains less from the smaller stack
+than from not rebuilding inside its 5 s cap.
+
 Appending refuses and falls back to a full rebuild whenever the change is
 not a pure append: a shrunk file, a deleted file, or a changed prefix.
 That last one is not hypothetical — `git pull --rebase` replays a local

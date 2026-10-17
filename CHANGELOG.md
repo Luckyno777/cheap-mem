@@ -14,6 +14,40 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Changed - recall: an absolute bound for the appended index stack, the rebuild in the background; `mem correction` takes the index from the cache (index-schwelle-cm; port of lucky-mem `abruf-nachtrag-schwelle-lm`, merge 71a6f5373, and the `nachtrag-zu-gross` part of `verfahren-zeiger-lm`, merge 69defe480)
+
+The recall hook (`mem find --recall`) loads the cached search index and appends the lines written since the last full build. The full rebuild came only at a fifth of the corpus (`REBUILD_AFTER_FRACTION`), and then inside the asking process, inside the hook's 5 s cap. Now:
+
+1. **The bound.** `REBUILD_AFTER_APPENDED = 100` and `appendedTooMany(baseN, nowN, { absolute })` = `added > min(baseN * 0.2, 100)`. A memory under 500 entries keeps its fifth. The hook (`loadIndex(root, { allowStale: true })`, which `mem find --recall` passes; the warm server's first load too) answers from the appended index, however far the stack has grown, and past the bound starts the full rebuild **detached** (`src/indexrebuild.mjs`, new). The terminal (`mem find`, every other command) is unchanged: it rebuilds in its own process at a fifth, and a plain `mem find` never starts the background child. The hook does not write the cache while the rebuild is due (the child replaces it).
+2. **One rebuild at a time.** Lock `.mem/locks/search-index-rebuild.lock` (link/`O_EXCL`, `src/filelock.mjs`): two processes asking at the same moment start one child (probe (e), two real processes, a stand-in child that counts its starts). A lock whose child died is taken over by age (900 s) through the takeover bar; a fresh one is respected. The child removes its lock when it ends and leaves a note (`search-index-rebuild.note.json`); after a failed rebuild no child is started for 600 s (`backoff`). The write itself is the existing atomic directory swap. No new environment variable (the constants are fixed; the probes hang on them).
+3. **`nachtrag-zu-gross` and the hint (part 2 of the order).** The sibling drops the hint "from before the last rebuild" when the reason is the size of the stack alone. cm has no such text: the hook says nothing about the state of the index, and the appended lines are in the answer. Probe (h) keeps it so (no word of rebuild, stale, older in the hook's output); there is nothing to drop and no mutant for it.
+4. **`mem correction` (part 3, #25).** It built the whole index cold (`search.buildIndex(root)`) once per correction, only for the document-frequency table of the content-loss warning. That was not settled by part 1 (it never went through `loadIndex`). Now `loadIndex(root, { allowStale: true })`: the cache plus the appended stack, and the rebuild, if due, in the background. The warning is unchanged (probe (i2); the document frequencies of the cached index equal `buildIndex`'s). `search.fullBuildCount()` is new, a probe's way to tell a cold build from a cache load.
+5. `test/fixture/cleanup.mjs` waits for the background rebuild before it removes a temp tree (Windows holds the child's working directory).
+
+Measured (synthetic memories from `src/memory.mjs`, a busy 4-core machine, load 4 to 8, so comparison values, not quiet ones):
+
+| `mem correction`, median of 5, chained | base `71be9cf` | this change |
+|---|---|---|
+| 2,000 entries | 686 ms | 338 ms |
+| 20,000 entries | 2,448 ms | 1,014 ms |
+
+(Of the remaining time about 300 ms is process start and, at 20,000 entries, about 640 ms reading the cache; a correction no longer reads and tokenises the corpus.)
+
+Hook load (`loadIndex`, fresh process, median of 5, 7,000 entries, appended cumulatively; base never rebuilds below a fifth = 1,400, new rebuilds in the background once it passes 100):
+
+| appended lines | base | this change |
+|---|---|---|
+| 0 | 242 ms | 273 ms |
+| 100 | 269 ms | 260 ms |
+| 500 | 302 ms | 221 ms (stack already emptied by the background rebuild) |
+| 1,000 | 397 ms | 267 ms |
+
+Read honestly: in cm appending is cheap, about 0.15 ms per line (the sibling measured about 0.5), so the smaller stack saves little at 7,000 entries; what the bound changes is that the full rebuild (0.7 to 0.9 s at 7,000 entries, 1.8 to 2.2 s at 20,000) is never paid inside the hook's 5 s cap, where the base paid it in the asking process the moment a fifth was reached. A rebuild every ~100 new entries is the price (detached, one at a time, with a backoff).
+
+Proofs: `test/index-bound-cm.test.mjs` (13 probes; the scenes are built with literal numbers, so a drifted constant turns them red). Red at the base `71be9cf` (its `src/search.mjs`, `src/cli/commands/{search,write}.mjs` put into the tree, then restored): (a)(b)(c)(d)(h)(i) and the red-proof probe (j) red; (e)(f)(g) test the new module and are red at the base by its absence; (i2) green on both (the warning is kept). Mutants (`bench/mutation.mjs`, `ISC ...`, 17): bound off, a fifth to the whole corpus, absolute bound for the terminal, hook rebuilds in its own process, hook never starts the rebuild, memo drops the flag, cache write not skipped, `--recall` flag dropped / always on, correction on `buildIndex` / without the flag, no lock, lock never / always taken over, no backoff, no note, lock left behind: all caught. Docs: `docs/architecture.md` ("The appended stack, and when the full rebuild runs"), `docs/scale.md`.
+
+Not done: `src/recallhook.mjs` (the signal check opens the index with a plain `loadIndex`, so it keeps the terminal's rule, and a fifth reached there is still rebuilt in that process; the file belongs to a parallel order). The warm server's memo still drops at a fifth.
+
 ### Changed - search: the parts of an identifier with an underscore in a question are searched, while the index does not hold the whole word (k1-subword-cm; port of lucky-mem `k1-teilwort-lm`, merge eea4d4f8d)
 
 K1 (below, abruf-stamm-cm) searches `socket_closed_by_peer` as ONE word because the index holds `a_b` as one term, and named its price: the entry "the peer closed the socket" was no longer found by the after-failure hook's question. Now `search()` adds the parts (`socket`, `closed`, `peer`; parts of three letters or more, no filler) next to the whole word: **weight 0.6 if the index holds the whole word NOWHERE, 0 (none) if it does** (`session_id` must not pull in every `session` entry: that was K1). The whole word keeps 1.0; the parts never outweigh a typed word and are searched per language pack with MAX, like the typed forms; a word covered only through its parts counts HALF in the coordination factor and in the answer gate's `covered` (like a bridged word); a part that is also typed is not counted twice. A part that two identifiers of the question share counts once (the highest weight per distinct part, like the typed terms; two unknown identifiers with one common part scored 11.54 against 8.77 for one before this was fixed). "Holds" means the raw document frequency (`index.docFreq`): discarded or superseded entries and raw captures count as holding the word, as in the sibling house. The hyphen is untouched (the question already types the whole and the parts). Both doors go through `search()`, so `mem find`, `mem_find`, the hook calls (`--content-words`, `--recall`) and the H1 split all see it. The constants stay inside `src/search.mjs` (not exported; no environment variable). Docs: `docs/architecture.md`, "Identifiers with an underscore in a question".
