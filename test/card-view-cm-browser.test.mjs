@@ -121,7 +121,7 @@ test('the duties list: one card per item, For you apart from Agent work, origin 
     const wt = await written.innerText();
     assert.match(wt, /Which transfer details should the payment page show\?/);
     assert.match(wt, /Recommendation from alex-planner: The newer file was reviewed last week\./);
-    assert.match(wt, /Written by alex-planner · tier unknown · 01 Oct 2026 · written on the entry/);
+    assert.match(wt, /Written by alex-planner · tier unknown \(missing\) · 01 Oct 2026 · written on the entry/);
     assert.equal(await written.locator('[data-card-agent]').count(), 1);
     assert.match(await written.locator('[data-card-agent]').innerText(), /Written by an agent, not checked by you\./);
     // The evidence is a link (https) or a button to the entry; the identifier is small.

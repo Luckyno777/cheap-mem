@@ -347,7 +347,8 @@ test('the switch changes nothing for the stdio bridge (no port, no door)', () =>
 //     ...LISTEN`, `ruby -run -e httpd`, `npx http-server`, `node -e "...createServer..."` (also `--eval`), `HttpListener`; and a
 //     JS file that spawns one of those (`spawn('python3', ['-m', 'http.server'])`, `exec('php -S ...')`, `execFile('node', ['-e', ...])`).
 // A listener must be one of
-//   - the two doored services (`bin/mem-serve`, `bin/mem-mcp`): they must call `webauth.startDecision` and act on a refusal;
+//   - the two doored services (`bin/mem-serve`, `bin/mem-mcp`): they must call `webauth.startDecision` and act on a refusal, and
+//     `hardenServer(server, { maxConnections: MAX_CONNECTIONS.<service> })` (src/http-limits.mjs: slow-header, dripping-body and flood limits);
 //   - the recall server: a Unix socket / named pipe with a key file, every `.listen(` takes the socket path, never a port;
 //   - the two bench helpers that find a free port: they bind `127.0.0.1:0` for an instant and close it, serving nothing.
 // Comments are removed first (a comment that mentions `startDecision(` or `createServer(` proves nothing). What it does NOT see:
@@ -498,6 +499,8 @@ function inventory(root, off = new Set()) {
     found.push(rel);
     if (DOORED.includes(rel)) {
       if (!/\bwebauth\.startDecision\(/.test(text) || !/!\s*\w+\.ok\)\s*throw/.test(text)) problems.push(`${rel}: opens a listener without acting on webauth.startDecision`);
+      // Hard limits (parity A9 (a)): a listed service that listens over HTTP hardens its server (src/http-limits.mjs), with a positive cap.
+      if (/\bhttp\.createServer\(/.test(text) && !/(?<![\w.])hardenServer\([^)]*\bmaxConnections:\s*MAX_CONNECTIONS\.\w+/.test(text)) problems.push(`${rel}: an HTTP service that does not call hardenServer with a maxConnections cap`);
     } else if (rel in SOCKET_ONLY) {
       const args = [...text.matchAll(/\.listen\(\s*([^,)\s]+)/g)].map((m) => m[1]);
       if (args.length === 0 || args.some((a) => a !== 'where.socket')) problems.push(`${rel}: a listener that is not the socket path (${args.join(', ')})`);
@@ -636,10 +639,28 @@ test('inventory counter-probes: each pattern, each directory and the comment rul
     withTree({ [rel]: text }, (dir) => assert.deepEqual(inventory(dir), { found: [], problems: [] }, `${name}: not a listener`));
   }
   // A doored service whose only mention of the decision is a comment is red; with the real call it is green.
-  const door = (body) => withTree({ 'bin/mem-serve': `#!/usr/bin/env node\nimport http from 'node:http';\n${body}\nhttp.createServer(() => {});\n` }, inventory);
+  const door = (body) => withTree({ 'bin/mem-serve': `#!/usr/bin/env node\nimport http from 'node:http';\n${body}\nconst server = http.createServer(() => {});\nhardenServer(server, { maxConnections: MAX_CONNECTIONS.dashboard });\n` }, inventory);
   assert.ok(door('// webauth.startDecision(cfg)\n/* if (!d.ok) throw new Error(); */').problems.length > 0, 'a comment is not the door');
+  const decided = 'const d = webauth.startDecision(cfg);\nif (!d.ok) throw new Error(d.reason);\n';
+  assert.deepEqual(withTree({ 'bin/mem-serve': `#!/usr/bin/env node\nimport http from 'node:http';\n${decided}const server = http.createServer(() => {});\nhardenServer(server, { maxConnections: MAX_CONNECTIONS.dashboard });\n` }, inventory).problems, [], 'positive control: the doored service with hard limits is accepted');
   assert.deepEqual(door('const d = webauth.startDecision(cfg);\nif (!d.ok) throw new Error(d.reason);').problems, [], 'positive control: the real call is accepted');
   assert.ok(door('const d = webauth.startDecision(cfg);').problems.length > 0, 'calling it and ignoring a refusal is not the door');
+  // Hard limits (the mutant of the ratchet): a doored HTTP service without the call, with a comment as the call, with a cap of its own
+  // that is not named, or with nothing but a bare call is red.
+  const limited = (call) => withTree({ 'bin/mem-mcp': `#!/usr/bin/env node\nimport http from 'node:http';\n${decided}const server = http.createServer(() => {});\n${call}\n` }, inventory);
+  assert.deepEqual(limited('hardenServer(server, { maxConnections: MAX_CONNECTIONS.mcp });').problems, [], 'positive control: the call with its named cap is accepted');
+  assert.ok(limited('').problems.some((p) => /hardenServer/.test(p)), 'a doored HTTP service without hardenServer is red');
+  assert.ok(limited('// hardenServer(server, { maxConnections: MAX_CONNECTIONS.mcp });').problems.some((p) => /hardenServer/.test(p)), 'a comment is not the call');
+  assert.ok(limited('hardenServer(server);').problems.some((p) => /hardenServer/.test(p)), 'no cap is red: an unlimited service is the fault');
+  assert.ok(limited('hardenServer(server, { maxConnections: 0 });').problems.some((p) => /hardenServer/.test(p)), 'a cap that is not a named one (0 drops every connection) is red');
+  // The mutant on the REAL services: the shipped file with its hardenServer call taken out is red; as shipped it is green.
+  for (const rel of DOORED) {
+    const shipped = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+    const mutant = shipped.replace(/^[ \t]*hardenServer\([^\n]*\);[ \t]*$/gm, '');
+    assert.notEqual(mutant, shipped, `${rel}: the mutation bites (a hardenServer call stands on a line of its own)`);
+    assert.deepEqual(withTree({ [rel]: shipped }, inventory).problems, [], `${rel}: as shipped it is accepted`);
+    assert.ok(withTree({ [rel]: mutant }, inventory).problems.some((x) => /hardenServer/.test(x)), `${rel}: without the call the inventory is red`);
+  }
   // The socket-only and free-port exemptions are narrow: the same file name with a TCP port is red.
   const tcpRecall = withTree({ 'src/recallserver.mjs': "import net from 'node:net';\nnet.createServer().listen(8080, '0.0.0.0');\n" }, inventory);
   assert.ok(tcpRecall.problems.length > 0, 'the recall exemption does not cover a TCP listen');

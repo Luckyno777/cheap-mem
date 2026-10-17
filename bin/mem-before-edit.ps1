@@ -132,6 +132,9 @@ if ($OwnToolTrusted -and (Test-Path -LiteralPath (Join-Path $Root 'bin/mem'))) {
 
 $In = ''
 if ([Console]::IsInputRedirected) { $In = [Console]::In.ReadToEnd() }
+# Size only, never content (CI runs 1066-1103: under Windows PowerShell 5.1 the core said `no-readable-path`; this line
+# and the core's own size say on which side of the pipe to node the hook JSON was lost).
+Write-Note "stdin: $($In.Length) chars, redirected=$([Console]::IsInputRedirected)"
 
 if ($In -and $In -match '"tool_name"\s*:\s*"Bash"') {
   try {
