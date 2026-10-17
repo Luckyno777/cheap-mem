@@ -66,6 +66,82 @@ Read honestly: in cm appending is cheap, about 0.15 ms per line (the sibling mea
 Proofs: `test/index-bound-cm.test.mjs` (17 probes; the scenes are built with literal numbers, so a drifted constant turns them red). Red at the base `71be9cf` (its `src/search.mjs`, `src/cli/commands/{search,write}.mjs` put into the tree, then restored): (a)(b)(c)(d)(h)(i) and the red-proof probe (j) red; (e)(f)(g) test the new module and are red at the base by its absence; (i2) green on both (the warning is kept). Mutants (`bench/mutation.mjs`, `ISC ...`, 25): bound off, a fifth to the whole corpus, absolute bound for the terminal, hook rebuilds in its own process, hook never starts the rebuild, memo drops the flag, cache write not skipped, `--recall` flag dropped / always on, correction on `buildIndex` / without the flag, no lock, lock never / always taken over, no backoff, no note, lock left behind: all caught. Docs: `docs/architecture.md` ("The appended stack, and when the full rebuild runs"), `docs/scale.md`.
 
 Review round (same order): (1) the warm server's memo is no longer dropped at a fifth when the caller is the hook (`allowStale`): dropping it loaded the cache again on every question while the child ran and during the backoff (measured at 600 entries, 300 appended, lock held: 4 builds, 0 hits; at the base 1 build, then hits). The memo starts the rebuild at the absolute bound too, and is dropped ONCE after a rebuild has ended well (`indexrebuild.rebuiltSince`). (2) The signal check of the hook (`recallhook.signal`) opens the index with `allowStale` as well, so no full build runs in the hook's process above a fifth. (3) The child releases the lock only if it is still its own (content compared; one taken over meanwhile is left alone), and after the build it reads the cache back whole (`search.assertCacheLanded`, since `writeIndexCache` swallows its failures): a cache that did not land books a failure note and the backoff holds. Probes (m) to (p) (red at the previous state `b31ccc4`), 8 more `ISC` mutants, all caught (25 in all).
+
+### Fixed - CI run 1141 (Windows): the PowerShell twins' hook JSON arrived with a byte order mark, a Git Bash probe measured nothing, a refused read counted as a gap
+
+- **Windows PowerShell 5.1: every twin that hands the hook JSON to node answered with nothing.** The twin's trace on the
+  runner: 103 characters read, 108 bytes at the core (`not JSON: SyntaxError`); the installed hooks: 288 -> 293. Five
+  bytes each time: a UTF-8 BOM in front, CR LF behind. The BOM is not from `$OutputEncoding` (the before-edit twin already
+  set it): .NET Framework's `Process.Start` opens the child's stdin with a writer in `[Console]::InputEncoding` and
+  flushes that encoding's preamble at once, so under code page 65001 it is on the pipe before PowerShell writes a byte.
+  Both halves now: `src/hookstdin.mjs` is the one stdin reader of the hook cores (before-edit core, recall/catch,
+  after-failure, command guard, workflows; it replaces four copies of the same reader and decodes bytes once, so a
+  character cut by a chunk boundary is no longer torn) and drops BOMs and blanks in front; `subagentstart.hookResultFor`
+  and `beforeedit.run` do the same for raw text; the node snippets in the twins (catch-fail, stop, digest) too. Every
+  `.ps1` that pipes into node sets a preamble-free console input encoding (only when it is UTF-8 with one; no console:
+  the cores cope) and `$OutputEncoding` UTF-8 without a BOM before its first pipe - mem-digest.ps1's selection and
+  count had the same failure. `test/hook-stdin-bom.test.mjs`: BOM + CR LF into each core gives the answer the plain
+  input gives; red against `2f0981b` for every core and the catch-fail snippet; the twins' order is read. Not run
+  here (no Windows PowerShell 5.1): the next CI run's Windows jobs run the twins (`test/before-edit-twin.test.mjs`,
+  `test/installed-hooks-run.test.mjs`).
+- **`test/hook-spaces.test.mjs` red on Windows since it was written - the probe, not the hooks.** It handed its script to
+  Git Bash as `bash -c <script>`. The MSYS runtime splits a native process's command line itself and reads `\\` inside
+  a quoted argument as one backslash, so the probe's `to_slashes` became "delete every slash" and no root was ever
+  found; the change in run 1103 (HOME and USERPROFILE in backslashes) could not help. The hooks read their own file and
+  were never affected (the END TO END probe was green on the same runner). Scripts now go to bash as a file
+  (`test/helpers/bash-file.mjs`); a new instrument check fails if `to_slashes` does not reach bash as written, and the
+  positive control and the mutation check first that the unmutated loop finds the memory (both passed on Windows
+  because everything found nothing). `test/msys-native-paths.test.mjs` had the same instrument and was green on Windows
+  for the same wrong reason (`dirname` of a slashless path is `.`); it runs from a file too.
+- **`test/atomic-cache.test.mjs` A (windows, node 20): "738 reads found no file at all".** The reader counted every
+  exception as a missing file. On Windows an open of a file whose replacement is in flight is refused (EPERM, EACCES,
+  EBUSY - the codes the shipped writer already retries on its rename); the name never goes away. Failed reads are now
+  three states: ENOENT is a gap (zero, every platform), a refusal on Windows is counted, named and kept out of the read
+  budget, anything else fails; the codes seen are in every message. D drives the classification on all three
+  platforms. Not reproduced here: which code the 738 were, the next Windows run names.
+### Fixed - CI run 1141: http-limits red on Node 20 and Node 22.23, the guarantees job cancelled after 25 minutes
+
+- **Node 22.23.3: "header lines: 300 lines -> the server reads at most maxHeadersCount".** From 22.23.2 on (CVE-2026-58044,
+  "http: reject requests exceeding max header count") Node answers a request with more than `maxHeadersCount` header lines
+  with `431` instead of handing the first 100 to the handler. The limit acts either way; the probe assumed one Node line's
+  way. `test/http-limits.test.mjs` now accepts either effect (truncated to <= 100, or 431 before the handler ran) and pins
+  the mutation without the limit to status 200, so a 431 can only come from `maxHeadersCount`. No product fault.
+- **Node 20.20: "a raw maxConnections = 0 drops every connection" got 200.** Node 20 reads 0 as "no cap"; dropping
+  everything at 0 came with Node 21 (nodejs/node#48276, semver-major). `hardenServer` never sets 0, so no product fault; the
+  control branches on the major version with an assertion on both sides, and a new control (cap 1, its seat taken) proves
+  on every line that the probe sees a dropped connection at all. The comment in `src/http-limits.mjs` and
+  `docs/security-model.md` say what each line does. Reproduced locally with Node 20.20.0 and a downloaded 22.23.3 (red on `2f0981b`,
+  green now; also green on 22.22.0).
+- **The guarantees job hit its 25-minute limit inside `bench/mutation.mjs`.** Not a hang: the mutant after "WRITER the
+  bridge card list ..." was "BYLINE-UI the dashboard shows a missing rank as a plain tier", checked only by a Chromium probe.
+  The job has no browser, the probe skipped, and the harness spent a full-suite run on it (CI's full suite: 11 minutes) -
+  the same trap as run 1103. Three fixes:
+  1. `test/card-byline-ui-cm.test.mjs`, the logic half: the original `cardOriginHtml` and `rankWord` cut out of the page,
+     fed with cards `src/decisioncard.mjs` builds. Red on `9a10bf6` and on each of the three BYLINE-UI mutants.
+  2. The harness no longer spends a full-suite run on a mutant whose own suites passed with tests skipped: "NOT JUDGED
+     HERE", with the skip reason, counted like an anchor that never applied (exit 1). A third browser-only mutant costs
+     seconds and says why.
+  3. The sweep left the guarantees job: `--shard=i/n` (round robin, after `--only`/`--security`) and a `mutation` job with
+     four slices, `fail-fast: false`, each with its own clean-tree check. `npm run verify` is `bench/mutation.mjs` plus the
+     new `npm run verify:benches`, which is what the guarantees job runs now (timeout 10 minutes, was 25).
+  The sum, measured: the first 198 mutants took 16.0 minutes in CI; the other 99 about 36 more (timed by their suites,
+  local/CI factor 2.0 from `test/writer-identity.test.mjs`; 51 mutants on `test/own-tool.test.mjs` alone are ~26), and the
+  16 mutants merged from kette/cm since (alarm-tearing, codex-cloud, due-one-place) ~6: about 58 minutes for all 313. Even
+  without the browser trap one job needed about an hour. Four slices: ~18 minutes each with baseline and setup; timeout 30.
+  `test/mutation-shard.test.mjs` holds the slices (every mutant exactly once, for n = 1..7), the skip verdict (sandboxed, a
+  sentinel suite proves no full-suite run), bad slices refused with exit 2, and ci.yml's matrix against its `--shard` line.
+  The argument check is the one of `agent/werkzeug-rest-cm` with `--shard` added.
+### Fixed - looking at the doctor writes nothing: the append-atomicity record is laid down only by `mem doctor --full` / `--strict` (alarm-record-cm; cheap-mem only)
+
+The record of alarm-tearing-cm was written after every finished measurement, and `doctor.checkAll(root)` measures by default (`full: true`), so collecting the
+agents view, the dashboard, `mem today` or the weekly instrument trace left `.pipeline/append-atomicity.json` behind; `test/agents-d5.test.mjs` probe 3
+("collecting the agents view writes nothing at all") found it (red on the chain before this change). `checkAll` and `environment.checkEnvironment` /
+`checkAppendAtomicity` take a new option `record` (default `false`); only `mem doctor --full` / `--strict` (`src/cli/commands/admin.mjs`) pass `record: true`.
+Every other caller measures as before and writes nothing. Checked by search: the callers of `checkAll` outside the command are `src/measurements.mjs` and the dashboard data
+(`src/dashboard-data.mjs` through `src/today.mjs`); none sets it. Tested in `test/alarm-tearing.test.mjs` (the default `checkAll` runs the probe once and leaves no file;
+the library calls without `record` leave none; `record: true` lays it down) and by three mutants (the default of `record` in the environment check and in `checkAll`
+set to true, and the command no longer asking for it). The effect for the banner is unchanged: the file still comes from `--full`.
+
 ### Fixed - dashboard: the small grey text reaches WCAG AA in both themes (quiet-aa-cm)
 
 Measured in a real Chromium on every page (the overview and all 31 tabs), light and dark, at 1920 and 390 px: for each visible text element in
@@ -108,9 +184,9 @@ a record from another device or another named filesystem (the memory moved) is n
 one (not JSON, wrong shape, directory in its place) is its own note and never a throw. The file can be edited by anybody who can write the clone, so only
 validated fields are read, the time is re-formatted from the parsed number and the filesystem name shown is the live one. A measurement that did not
 finish (writers timed out) leaves the earlier record alone. No new environment variable.
-Who writes the record: every caller that measures, not only the `mem doctor --full` command. The dashboard (`src/dashboard-data.mjs`) and the weekly
-instrument trace (`src/measurements.mjs`) call `doctor.checkAll(root)`, whose library default is `full: true`, so they leave it too. Who removes a torn
-verdict: only a later clean measurement (`--full`, `--strict`, or one of those two callers) replaces it, and that is the only way out; a short clean run
+Who writes the record: only an explicit call, `mem doctor --full` / `--strict` (`doctor.checkAll(root, { record: true })`, default `false`; see the entry
+on alarm-record-cm above). The dashboard, `mem today` and the weekly instrument trace call `checkAll(root)` and measure as before but leave nothing behind. Who removes a torn
+verdict: only a later clean `--full` / `--strict` measurement replaces it, and that is the only way out; a short clean run
 shows that no tearing happened, not that none can, so a torn entry is not aged out and a clean record never alarms. The record is only read within a bound: it must
 be a plain file of at most 4096 bytes (it is about 250), checked with `stat` before it is opened and again on the bounded read; a device behind a symlink
 (a symlink to `/dev/zero` ran into `bad_alloc` under a memory limit in review), a pipe, a directory or an oversize file is not read and gets its own note

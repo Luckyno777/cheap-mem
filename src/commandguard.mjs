@@ -49,6 +49,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { isMain } from './ismain.mjs';
+import { readHookStdin } from './hookstdin.mjs';
 import * as memory from './memory.mjs';
 import * as errorclass from './errorclass.mjs';
 import { writeAtomic } from './atomicwrite.mjs';
@@ -482,18 +483,11 @@ export function seed(root, entries) {
   return written;
 }
 
-function readStdin() {
-  return new Promise((resolve) => {
-    let d = '';
-    process.stdin.on('data', (c) => { d += c; }).on('end', () => resolve(d)).on('error', () => resolve(d));
-  });
-}
-
 // `node src/commandguard.mjs bash` - the hooks' entry (sh and ps1 alike).
 if (isMain(import.meta.url)) {
   const mode = process.argv[2];
   const root = process.env.CHEAP_MEM_ROOT;
-  readStdin().then(async (raw) => {
+  readHookStdin().then(async (raw) => {
     if (mode === 'bash' && root) {
       const out = await hookResult(root, raw);
       if (out) process.stdout.write(JSON.stringify(out));

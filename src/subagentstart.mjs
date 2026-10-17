@@ -53,6 +53,7 @@ import * as procedure from './procedure.mjs';
 import * as answerbudget from './answerbudget.mjs';
 import * as wfpointer from './workflowpointer.mjs';
 import { maskText } from './outputguard.mjs';
+import { hookText } from './hookstdin.mjs';
 
 /**
  * Total cap for the SubagentStart text, in BYTES: the one budget of the final selection
@@ -183,7 +184,7 @@ export async function hookResultFor(root, rawJson = '', { n = 10, env = process.
   let taskBlock = null;
   let taskForms = null;
   try {
-    const j = JSON.parse(String(rawJson ?? ''));
+    const j = JSON.parse(hookText(String(rawJson ?? ''))); // no BOM in front (src/hookstdin.mjs)
     session = j?.session_id ? String(j.session_id) : null;
     const task = await import('./subagenttask.mjs');
     const text = task.taskFrom(j) ?? '';
