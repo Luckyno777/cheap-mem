@@ -32,11 +32,19 @@
  * **One budget for the whole start (abruf-budget).** The text is put together by the ONE final selection
  * (`src/answerbudget.mjs`) under {@link CAP_BYTES} (3200 bytes). Until then only the recap (in characters) and the
  * assignment block (1,500 bytes) were capped, and the workflow block, the procedures and the hint were joined in
- * front without any bound. What gives way first is the last part allocated: the recap (it takes what is left, as
- * it always did), then the assignment block, then the procedures, then the workflow block. A part that does not
- * fit does not vanish and is not cut: it steps down to a POINTER (what it is, its id, `mem show <id>`), and a
- * note names what stepped down or fell away. The closing hint and the sentence "no procedure tagged ..." are
- * always in. A procedure too long for the whole budget therefore comes as a pointer, no longer in full.
+ * front without any bound. A part that does not fit does not vanish and is not cut: it steps down to a POINTER
+ * (what it is, its id, `mem show <id>`), and a note names what stepped down or fell away. The closing hint and the
+ * sentence "no procedure tagged ..." are always in. A procedure too long for the whole budget therefore comes as a
+ * pointer, no longer in full.
+ *
+ * **The order of giving way (verfahren-zeiger-cm, 2026-10-17; the sibling's order, Lucky decision 1zvs5jjeyaz4).**
+ * The PROCEDURES come first: each gets room for its full text, in its own order, and every one stays at least a
+ * pointer with its id. The assignment block is next. The workflow card gives way FIRST: it stands whole only if,
+ * next to the procedures and the assignment block, the whole recap still fits (`holdBack`); otherwise it is its
+ * pointer. Only then is the recap shortened (it takes what is left, as it always did). Before this the card was
+ * allocated first, whole, and the procedures and the recap took what it left: with six procedures of about 560 bytes
+ * and a card of 1,300 bytes the last procedures were pointers while the card stood in full. A start that fits is
+ * byte for byte what it was.
  *
  * **Ported from an idea, not a file.** A sibling memory (lucky-mem) built
  * the identical SubagentStart hook (`src/hook.mjs`, `unteragent()`) for
@@ -104,6 +112,16 @@ function recapFor(root, n, room, legacyChars) {
   return '';
 }
 
+/**
+ * The ranks of the parts (smaller is allocated first, what is allocated last gives way first): the procedures, then the
+ * assignment block, then the workflow card (which also gives way before the recap is cut: `holdBack`), then the recap.
+ * The procedures share one rank; their order in the text breaks the tie.
+ */
+const RANK_PROCEDURE = 10;
+const RANK_ASSIGNMENT = 20;
+const RANK_WORKFLOW = 30;
+const RANK_RECAP = 40;
+
 /** The old cap of the base block (recap and procedures), in characters; the recap's first ask is measured against it. */
 const LEGACY_CAP_CHARS = 4000;
 
@@ -121,11 +139,17 @@ export function select(root, { n = 10, workflowBlock = null, taskBlock = null, t
   if (wf) {
     const raw = wf.startsWith(WORKFLOW_LEAD) ? wf.slice(WORKFLOW_LEAD.length).trim() : wf;
     const ptr = wfpointer.pointerForm(raw);
-    parts.push({ id: 'workflow', kind: 'workflow', rank: 10, order: 0, forms: [wf, ptr ? `${WORKFLOW_LEAD}\n${ptr}` : null],
-      how: 'mem workflow show <id>', ref: 'workflow' });
+    // The card is allocated AFTER the procedures and the assignment block and BEFORE the recap; `holdBack` makes it
+    // give way before the recap is cut: whole only if the whole recap still fits next to it (set below).
+    // A card that HAS a pointer is a `keep` part: its pointer is reserved before any procedure is upgraded to its full
+    // text, so the card never vanishes behind greedy procedures ("gives way FIRST" means pointer, not gone). The id is
+    // the card's own (read from its pointer), so a note that names it names something `mem workflow show` can load.
+    const cardId = ptr ? (/mem workflow show (\S+)/.exec(ptr)?.[1] ?? null) : null;
+    parts.push({ id: cardId, kind: 'workflow', rank: RANK_WORKFLOW, order: 0, keep: Boolean(ptr),
+      forms: [wf, ptr ? `${WORKFLOW_LEAD}\n${ptr}` : null], how: 'mem workflow show <id>', ref: 'workflow' });
   }
   if (hits.length) {
-    hits.forEach((e, i) => parts.push({ id: e.id ?? null, kind: 'procedure', rank: 20 + i, order: 1 + i,
+    hits.forEach((e, i) => parts.push({ id: e.id ?? null, kind: 'procedure', rank: RANK_PROCEDURE, order: 1 + i,
       forms: [procedure.display(e), procedurePointer(e)], keep: true, how: e.id ? 'mem show <id>' : 'mem procedures', ref: 'procedure' }));
   } else {
     // Silence would look the same as "nobody has anything to add" and "the tag was never armed": a stated fact, always in.
@@ -135,17 +159,32 @@ export function select(root, { n = 10, workflowBlock = null, taskBlock = null, t
   // The block for THIS assignment (src/subagenttask.mjs): lines step down to pointers one by one, the notice of a lane
   // that did not run stays. Without lines (an older caller handing only text) the text is the one form.
   if (Array.isArray(taskForms) && taskForms.length) {
-    parts.push({ id: 'assignment', kind: 'assignment block', rank: 30, order: 200,
+    parts.push({ id: 'assignment', kind: 'assignment block', rank: RANK_ASSIGNMENT, order: 200,
       forms: taskForms, how: 'mem show <id>', ref: 'assignment' });
   } else if (taskBlock && String(taskBlock).trim()) {
-    parts.push({ id: 'assignment', kind: 'assignment block', rank: 30, order: 200, forms: [String(taskBlock).trim()],
+    parts.push({ id: 'assignment', kind: 'assignment block', rank: RANK_ASSIGNMENT, order: 200, forms: [String(taskBlock).trim()],
       how: 'mem find "<assignment words>"', ref: 'assignment' });
   }
   const hintLine = hint(root);
   const procedureChars = hits.length ? hits.map((e) => procedure.display(e)).join('\n\n').length
     : parts.find((p) => p.id === 'no-procedure').forms[0].length;
   const legacyChars = LEGACY_CAP_CHARS - ((wf ? wf.length + 2 : 0) + procedureChars + hintLine.length + 4);
-  parts.push({ id: 'recap', kind: 'recap', rank: 40, order: 100, fill: (room) => recapFor(root, n, room, legacyChars), how: 'mem context', ref: 'recap' });
+  // With a workflow card that has a pointer, the recap is first asked at its natural size (the first ask, `legacyChars`):
+  // the card is whole only if that text still fits next to it (`holdBack`), and the text is reused when it fits. Without
+  // such a card the recap is asked exactly as it always was.
+  const card = parts.find((p) => p.ref === 'workflow');
+  const holds = Boolean(card && card.forms.length > 1);
+  let natural = null;
+  const naturalRecap = () => { if (natural === null) natural = recapFor(root, n, Infinity, legacyChars); return natural; };
+  parts.push({ id: 'recap', kind: 'recap', rank: RANK_RECAP, order: 100, how: 'mem context', ref: 'recap',
+    fill: (room) => {
+      if (holds) { const t = naturalRecap(); if (t && Buffer.byteLength(maskText(t), 'utf8') <= room) return t; }
+      return recapFor(root, n, room, legacyChars);
+    } });
+  if (holds) {
+    const whole = naturalRecap();
+    card.holdBack = whole ? Buffer.byteLength(maskText(whole), 'utf8') + Buffer.byteLength('\n\n', 'utf8') : 0;
+  }
   parts.push({ id: 'hint', kind: 'hint', fixed: true, order: 1000, forms: [hintLine] });
   return answerbudget.compose(parts, { budget: CAP_BYTES, sanitize: maskText });
 }
