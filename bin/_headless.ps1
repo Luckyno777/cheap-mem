@@ -65,7 +65,7 @@ function Get-OldClaudeMessage {
 }
 
 # Start-Process joins its argument array with plain spaces and does not quote:
-# an element with a space (a memory under C:\Users\Max Muster\...) must be quoted by hand.
+# an element with a space (a memory in a folder whose name holds a space) must be quoted by hand.
 function ConvertTo-StartProcessArg {
   param([string]$Arg)
   if ($Arg -match '\s') { return '"' + $Arg + '"' }

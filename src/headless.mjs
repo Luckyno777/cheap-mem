@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // headless - the ONE place that decides how cheap-mem starts a model session from an unattended job
 // (the digest, the mail handler, the reflector). Why, what and the limits: docs/security-model.md, section 11.
 //
