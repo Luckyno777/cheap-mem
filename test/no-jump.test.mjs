@@ -555,7 +555,14 @@ test('no-jump: an answer that arrives only AFTER the tab was hidden arms no new 
         Object.defineProperty(document, 'hidden', { value: true, configurable: true });
         document.dispatchEvent(new Event('visibilitychange'));
       });
-      await Promise.race([heldSeen, new Promise((_, rej) => setTimeout(() => rej(new Error('the held request never reached the route')), 20000))]);
+      // The limit timer is cleared once the race is decided: a timer left armed keeps the test process alive until it fires
+      // (about 20 s after the test is over), however early the held request showed up.
+      let limitTimer;
+      try {
+        await Promise.race([heldSeen, new Promise((_, rej) => { limitTimer = setTimeout(() => rej(new Error('the held request never reached the route')), 20000); })]);
+      } finally {
+        clearTimeout(limitTimer);
+      }
       const answersBefore = await page.evaluate(() => window.__noJump.answers.length);
       await notFresh(held);
       // The count is taken the moment the answer is released, not after a
