@@ -282,7 +282,11 @@ function pidAlive(pid) {
  * can drift apart and produce a false alarm.
  */
 export function checkRunningCodeFor(root, service) {
-  const marker = runningmark.readMarker(root, service);
+  const found = runningmark.readMarkerState(root, service);
+  const marker = found.marker;
+  if (found.state === 'unreadable') {
+    return { level: LEVEL.UNKNOWN, text: `'${service}': start marker is there but cannot be read (${found.code || 'unreadable'}) — not the same as no marker` };
+  }
   if (!marker) {
     return { level: LEVEL.UNKNOWN, text: `'${service}': no start marker — not running under W1 tracking, or not started since this build` };
   }
@@ -2666,6 +2670,11 @@ export function checkRollback(root) {
       `watermark predates a rules change (${state.detail})`,
       'The derived state is not comparable across a semantic version bump, so a '
       + 'rollback cannot be detected until the mark is retaken: `mem epoch record --force`.');
+  }
+  if (state.status === 'unreadable') {
+    return finding('rollback', LEVEL.UNKNOWN,
+      `the watermark is there but could not be read (${state.detail}) — this run cannot compare, and does not replace it`,
+      'Not the same as "no watermark yet". Run the check again; if it stays, look at the permissions of .mem/epoch.json.');
   }
   if (state.status === 'first') {
     return finding('rollback', LEVEL.UNKNOWN,
