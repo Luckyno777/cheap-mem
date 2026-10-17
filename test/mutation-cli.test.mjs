@@ -39,6 +39,9 @@ function sandbox() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mutation-cli-'));
   fs.mkdirSync(path.join(dir, 'bench'), { recursive: true });
   fs.copyFileSync(path.join(REPO, 'bench', 'mutation.mjs'), path.join(dir, 'bench', 'mutation.mjs'));
+  // The catalogue also lists the mutants of the atlas gap groups, read from this data-only table (bench/atlas/gap-mutants.mjs).
+  fs.mkdirSync(path.join(dir, 'bench', 'atlas'), { recursive: true });
+  fs.copyFileSync(path.join(REPO, 'bench', 'atlas', 'gap-mutants.mjs'), path.join(dir, 'bench', 'atlas', 'gap-mutants.mjs'));
   for (const f of new Set(MUTANTS.map((m) => m.file))) {
     fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true });
     fs.copyFileSync(path.join(REPO, f), path.join(dir, f));

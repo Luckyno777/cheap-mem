@@ -288,7 +288,7 @@ export const GAP_MUTANTS = Object.freeze([
   {
     id: 'http-origin-open', group: 'http', suite: 'http',
     name: 'atlas bridge A14: any Origin is allowed',
-    edits: [{ file: 'src/webauth.mjs', from: '  return Boolean(host) && from.host === String(host);', to: '  return true;' }],
+    edits: [{ file: 'src/webauth.mjs', from: '  if (allowed.includes(o) || allowed.includes(from.origin)) return true;', to: '  if (true) return true;' }],
     red: ['bridge.http-token.local-switch'], green: ['bridge.http-token.start-control', 'bridge.http-token.accepted', 'bridge.http-token.rejected'], unmeasured: [],
   },
   {
