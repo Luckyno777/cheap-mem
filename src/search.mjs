@@ -2920,7 +2920,18 @@ function loadMemoized(root, opts) {
     const now = indexedFiles(root);
     let grown = null;
     try { grown = appendToIndex(root, m.base, m.files, now); } catch { grown = null; }
-    const tooBig = grown && m.base.N > m.fullAt * (1 + REBUILD_AFTER_FRACTION);
+    let tooBig = grown && m.base.N > m.fullAt * (1 + REBUILD_AFTER_FRACTION);
+    if (grown && opts.allowStale) {
+      // The recall hook (index-schwelle-cm): the memo is NOT dropped at a fifth. Dropping it loaded the cache again on
+      // every question while the rebuild runs (and during its backoff), because `m.fullAt` stays old until the child
+      // has replaced the cache. Past the absolute bound the rebuild is started here too; once a child has ended well,
+      // the memo is dropped ONCE and the next load takes the new cache.
+      tooBig = false;
+      if (appendedTooMany(m.fullAt, m.base.N)) {
+        if (m.kickedAt && indexrebuild.rebuiltSince(root, m.kickedAt)) tooBig = true;
+        else if (['started', 'running'].includes(indexrebuild.kickIndexRebuild(root, { language: pack(language).name }))) m.kickedAt ??= Date.now();
+      }
+    }
     if (!grown || tooBig) {
       memo.delete(key);   // rewritten, shrunk, deleted, or too far behind: the normal way
       m = null;
@@ -2937,12 +2948,14 @@ function loadMemoized(root, opts) {
   }
 
   if (!m) {
+    const loadedAt = Date.now();
     const r = loadIndexCached(root, { language, wantState: true, derivedState: opts.derivedState, allowStale: Boolean(opts.allowStale) });
     const { state, ...base } = r;
     m = {
       root, base, files: state.files, fullAt: state.fullAt, gen: 0,
       hasEnc: base.documents.some((d) => d.enc),
       revealed: null, revealedGen: -1, revealedKey: null,
+      kickedAt: r.rebuild === 'started' || r.rebuild === 'running' ? loadedAt : null,
     };
     if (memo.size >= MEMO_MAX_ENTRIES) memo.delete(memo.keys().next().value);
     memo.set(key, m);
@@ -3035,7 +3048,22 @@ export function loadIndex(root, opts = {}) {
  * `fresh` path `loadIndex(root, { fresh: true })` takes, without the per-load attachments. Throws what the build throws.
  */
 export function rebuildIndexCache(root, { language = 'en' } = {}) {
-  loadIndexCached(root, { fresh: true, language });
+  const built = loadIndexCached(root, { fresh: true, language, wantState: true });
+  assertCacheLanded(root, language, built.state.fullAt);
+}
+
+/**
+ * `writeIndexCache` swallows its own failures (an unwritable cache costs speed, not correctness), which is right for a load and
+ * wrong for a rebuild whose only job is the cache. Read it back whole (every shard against its hash) and throw if it is not the
+ * build that was just made: the child then books a failure and the backoff holds in.
+ */
+export function assertCacheLanded(root, language, fullAt) {
+  const res = indexcache.readIndexCache(path.join(root, CACHE_DIR + expand.cacheSuffix()), {
+    expectedVersion: CACHE_VERSION,
+    expectedLanguage: pack(language).name,
+  });
+  if (!res.ok) throw new Error(`the rebuilt search index did not land in the cache (${res.reason})`);
+  if (res.fullAt !== fullAt) throw new Error(`the cache holds a build of ${res.fullAt} documents, not the ${fullAt} just made`);
 }
 
 function loadIndexCached(root, { fresh = false, language = 'en', wantState = false, derivedState = null, allowStale = false } = {}) {

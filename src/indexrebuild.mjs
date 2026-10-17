@@ -68,11 +68,35 @@ export function waitForIndexRebuildIdle(root, timeoutMs = 15000, graceMs = 150) 
   return true;
 }
 
+/** Did a rebuild end well since `sinceMs` (epoch ms) and is none running now? Never throws. */
+export function rebuiltSince(root, sinceMs) {
+  if (indexRebuildRunning(root)) return false;
+  try {
+    const note = JSON.parse(fs.readFileSync(path.join(root, INDEX_REBUILD_NOTE_PATH), 'utf8'));
+    return note.ok === true && new Date(note.at).getTime() >= sinceMs;
+  } catch { return false; }
+}
+
 /** Write down how the last rebuild ended. Never throws. */
 export function noteRebuild(root, outcome) {
   try {
     writeAtomic(path.join(root, INDEX_REBUILD_NOTE_PATH), JSON.stringify({ at: new Date().toISOString(), ...outcome }));
   } catch { /* nothing more can be done about a note */ }
+}
+
+/**
+ * What the child runs: `rebuild()` (the build AND the check that the cache landed, see `search.rebuildIndexCache`), then the note
+ * of how it ended. A rebuild that throws leaves a failure note, which holds the next child back (`backoff`). Never throws.
+ */
+export function runRebuild(root, rebuild) {
+  try {
+    rebuild();
+    noteRebuild(root, { ok: true });
+    return true;
+  } catch (e) {
+    noteRebuild(root, { ok: false, error: String((e && e.message) || e) });
+    return false;
+  }
 }
 
 /** Did the last rebuild fail a moment ago? Never throws. */
@@ -104,12 +128,18 @@ export function kickIndexRebuild(root, { language = 'en', env = process.env, chi
     // `node -e` runs as CommonJS, so `require` exists; root, language and lock arrive as arguments, never through the
     // environment. The lock always goes away, the note says how it ended.
     // `childScript`: a stand-in for the child (probes only), run with the same arguments: root, language, lock path.
+    // The lock is released only if it is still OUR lock (argv[4] is its content): one that was taken over meanwhile
+    // belongs to somebody else by now.
     const script = childScript ?? `import(${JSON.stringify(searchUrl)}).then(async (s) => {
         const n = await import(${JSON.stringify(selfUrl)});
-        try { s.rebuildIndexCache(process.argv[1], { language: process.argv[2] }); n.noteRebuild(process.argv[1], { ok: true }); }
-        catch (e) { n.noteRebuild(process.argv[1], { ok: false, error: String((e && e.message) || e) }); }
-      }).catch(() => {}).finally(() => { try { require('node:fs').rmSync(process.argv[3], { force: true }); } catch {} });`;
-    const child = spawn(process.execPath, ['-e', script, root, String(language), lockPath], {
+        n.runRebuild(process.argv[1], () => s.rebuildIndexCache(process.argv[1], { language: process.argv[2] }));
+      }).catch(() => {}).finally(() => { try {
+        const fs = require('node:fs');
+        if (fs.readFileSync(process.argv[3], 'utf8').trim() === process.argv[4]) fs.rmSync(process.argv[3], { force: true });
+      } catch {} });`;
+    let ownerText = '';
+    try { ownerText = fs.readFileSync(lockPath, 'utf8').trim(); } catch { /* unreadable: the child then leaves the lock to the age */ }
+    const child = spawn(process.execPath, ['-e', script, root, String(language), lockPath, ownerText], {
       cwd: root, env: { ...env }, detached: true, stdio: 'ignore', windowsHide: true,
     });
     child.on('error', (e) => {

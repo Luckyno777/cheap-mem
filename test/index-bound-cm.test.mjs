@@ -41,6 +41,7 @@ import * as shell from '../src/cli/shell.mjs';
 import { COMMANDS as WRITE } from '../src/cli/commands/write.mjs';
 import * as indexrebuild from '../src/indexrebuild.mjs';
 import { tryLock } from '../src/filelock.mjs';
+import * as recallhook from '../src/recallhook.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MEM = path.join(REPO, 'bin', 'mem');
@@ -370,6 +371,94 @@ test('(l) a stack of 4 MiB above the bound: the hook leaves the cache to the reb
   assert.equal(cli.fromCache, true);
   assert.equal(manifestN(), BASIS_N + BOUND + 1, 'the control does not write: the probe measures nothing');
   fs.rmSync(lockOf(root), { force: true });
+});
+
+// --- (m) the warm server keeps its memo while the rebuild runs -------------------------------------------------------
+
+test('(m) memo: a stack over a fifth with the rebuild lock held loads the cache ONCE; after a good rebuild the memo is dropped once', (t) => {
+  const root = world(t);
+  append(root, 300);   // 300 of 600: above a fifth AND above the bound
+  assert.equal(tryLock(lockOf(root)), true);   // someone else is rebuilding for the whole first part
+  const builds = search.fullBuildCount();
+  search.setProcessMemo(true);
+  const before = search.processMemoInfo();   // the counters of the process run on across the probes
+  const since = () => { const i = search.processMemoInfo(); return { builds: i.builds - before.builds, moves: i.hits + i.appends - before.hits - before.appends }; };
+  try {
+    const first = search.loadIndex(root, { allowStale: true });
+    assert.equal(first.appended, 300);
+    for (let i = 0; i < 3; i += 1) {
+      const again = search.loadIndex(root, { allowStale: true });
+      assert.ok(search.search(again, 'zebrafish', { top: 3 }).length > 0);
+    }
+    assert.equal(since().builds, 1, `the memo was dropped and the cache loaded again (${JSON.stringify(since())})`);
+    assert.equal(since().moves, 3);
+    assert.equal(search.fullBuildCount(), builds, 'a full build ran in the asking process');
+
+    // the lock goes: the next question starts a REAL rebuild (still answered from the memo) ...
+    fs.rmSync(lockOf(root), { force: true });
+    search.loadIndex(root, { allowStale: true });
+    assert.equal(since().builds, 1);
+    idle(root);
+    assert.equal(readNote(root)?.ok, true);
+    // ... and once it has ended well the memo is replaced ONCE by the new cache: stack empty, then hits again
+    const fresh = search.loadIndex(root, { allowStale: true });
+    assert.equal(since().builds, 2);
+    assert.equal(fresh.appended, 0);
+    search.loadIndex(root, { allowStale: true });
+    assert.equal(since().builds, 2, 'the memo was dropped again after the new cache');
+  } finally { search.setProcessMemo(false); }
+});
+
+// --- (n) the signal check of the hook -----------------------------------------------------------------------------------
+
+test('(n) the signal check of the recall hook (recallhook.signal) builds nothing in its own process above a fifth', async (t) => {
+  const root = world(t);
+  append(root, 300);
+  memory.logEntry(root, 'learning', { title: 'quartzmango is the only one of its kind', text: 'a rare word in the stack' });
+  const builds = search.fullBuildCount();
+  const verdict = await recallhook.signal(root, 'quartzmango', {});
+  assert.equal(verdict.why, 'rare-word', 'the scene does not reach the index');
+  assert.equal(search.fullBuildCount(), builds, 'the signal check rebuilt the index in its own process');
+  idle(root);   // the rebuild it started
+  assert.equal(readNote(root)?.ok, true);
+});
+
+// --- (o) the child lets go of its own lock only ---------------------------------------------------------------------------
+
+test('(o) a child that finds a foreign lock at its end (taken over meanwhile) leaves it alone', async (t) => {
+  const root = world(t);
+  append(root, BOUND + 1);
+  const idx = search.loadIndex(root, { allowStale: true });
+  assert.equal(idx.rebuild, 'started');
+  fs.writeFileSync(lockOf(root), 'foreign owner\n');   // somebody else holds the lock by now
+  assert.ok(await warteBis(() => readNote(root) !== null, 60000), 'the child did not end');
+  await warte(300);   // the lock is dropped after the note; a late delete would only colour the probe green
+  assert.equal(fs.existsSync(lockOf(root)), true, 'the child removed a lock that was not its own');
+  assert.equal(fs.readFileSync(lockOf(root), 'utf8'), 'foreign owner\n');
+  fs.rmSync(lockOf(root), { force: true });
+});
+
+// --- (p) the cache must have landed -----------------------------------------------------------------------------------------
+
+test('(p) the rebuild checks that the cache landed; a failed child books a failure and the backoff holds', (t) => {
+  const root = world(t, 50);
+  assert.doesNotThrow(() => search.rebuildIndexCache(root, { language: 'en' }), 'positive control: a normal rebuild lands');
+  assert.equal(indexrebuild.runRebuild(root, () => search.rebuildIndexCache(root, { language: 'en' })), true);
+  assert.equal(readNote(root)?.ok, true);
+  const n = search.loadIndex(root, {}).N;
+  assert.doesNotThrow(() => search.assertCacheLanded(root, 'en', n));
+  // a cache that is not the build just made: another count, or nothing at all (`writeIndexCache` swallows its failures)
+  assert.throws(() => search.assertCacheLanded(root, 'en', n + 7), /not the/);
+  fs.rmSync(path.join(root, search.CACHE_DIR), { recursive: true, force: true });
+  assert.throws(() => search.assertCacheLanded(root, 'en', n), /did not land/);
+
+  // the wrapper of the child: a throwing rebuild is a failure note, and the failure holds the next child back
+  assert.equal(indexrebuild.runRebuild(root, () => search.assertCacheLanded(root, 'en', n)), false);
+  assert.equal(readNote(root)?.ok, false);
+  assert.match(readNote(root)?.error ?? '', /did not land/);
+  assert.equal(indexrebuild.failedRecently(root), true);
+  assert.equal(indexrebuild.kickIndexRebuild(root, { childScript: FAKE_CHILD }), 'backoff');
+  assert.equal(fs.existsSync(lockOf(root)), false);
 });
 
 // --- (j) red proof against the pinned base -------------------------------------------------------------------------
