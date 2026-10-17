@@ -894,7 +894,11 @@ export const COMMANDS = {
     // closing) rightly carries no content of its own — exempt.
     if (!closing && process.env.MEM_CORRECTION_WARN_OFF !== '1') {
       try {
-        const idx = search.buildIndex(root);
+        // The index comes from the cache plus the lines appended since (index-schwelle-cm). It used to be
+        // `search.buildIndex(root)`: every correction read and tokenised the whole memory cold (measured 0.69 s at 2,000
+        // entries, 2.4 s at 20,000) to get one document-frequency table, which the cache holds exactly. `allowStale`: a
+        // writer never sits through a rebuild; past the bound it is done in the background (src/indexrebuild.mjs).
+        const idx = search.loadIndex(root, { allowStale: true });
         const lost = search.lostCorrectionContent(old, entry, {
           docFreq: idx.docFreq,
           rareDf: Number(process.env.MEM_CORRECTION_RARE_DF) || search.RARE_DF,

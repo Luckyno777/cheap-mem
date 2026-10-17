@@ -41,6 +41,7 @@ import * as raw from './raw.mjs';
 import * as archive from './archive.mjs';
 import { deriveState } from './state.mjs';
 import * as indexcache from './indexcache.mjs';
+import * as indexrebuild from './indexrebuild.mjs';
 import * as expand from './expand.mjs';
 import * as statequestion from './statequestion.mjs';
 import { dateAnchors } from './timeexpr.mjs';
@@ -833,6 +834,11 @@ function buildLexicon(rawEntries, langPack) {
   return set;
 }
 
+let fullBuilds = 0;
+
+/** How many full builds (`buildIndex`) this process has run: a probe's way to tell a cold build from a cache load. */
+export function fullBuildCount() { return fullBuilds; }
+
 /**
  * Build the index. Reads all JSONL files, tokenizes, collects document
  * frequencies. Two passes, because the compound lexicon only comes into
@@ -850,6 +856,7 @@ function buildLexicon(rawEntries, langPack) {
  * now decided PER DOCUMENT, by `detectEntryLanguage` below.
  */
 export function buildIndex(root, { types = null, language = 'en' } = {}) {
+  fullBuilds += 1;
   const lang = pack(language);
   const targetTypes = types ?? memory.SEARCH_TYPES;
   const rawEntries = [];
@@ -2285,6 +2292,34 @@ export function corpusStamp(root) {
 export const REBUILD_AFTER_FRACTION = 0.2;
 
 /**
+ * The ABSOLUTE bound of the appended stack for the recall hook (index-schwelle-cm, port of the sibling house's
+ * `NEUBAU_AB_NACHTRAG`, 2026-10-16).
+ *
+ * **Why the fifth alone does not do.** At N = 7,000 a fifth is 1,400 lines. Appending costs, on every load and in
+ * every hook process, about 0.5 ms per line (sibling house, measured: 47 ms at 0 lines, 165 at 100, 366 at 500, 558 at
+ * 1,000; roughly ten times that on the busy machines of the field journal), and the sibling's journal never saw the
+ * fifth reached: every recall ran on a stack, none got to the rebuild. 100 keeps the load near 0.6 s there instead of 1.6
+ * to 3.8 s, with room under the hook's 5 s cap, and means about one rebuild a day at 100 new entries a day.
+ *
+ * It is `min(fraction, 100)`: a memory under 500 entries keeps its fifth unchanged. Only the recall hook
+ * (`loadIndex(root, { allowStale: true })`, which `mem find --recall` passes) uses the absolute bound; a plain
+ * `mem find` in a terminal still waits for the rebuild only at a fifth, so nobody sits in front of a full build because of the
+ * new bound. The hook never waits for the rebuild either: it answers from the appended index and starts the rebuild
+ * detached (`src/indexrebuild.mjs`).
+ */
+export const REBUILD_AFTER_APPENDED = 100;
+
+/**
+ * Has the stack of appended lines grown so far that a rebuild is due? `baseN` = documents of the last full build,
+ * `nowN` = documents after appending. `absolute: false` leaves only the fifth (the terminal).
+ */
+export function appendedTooMany(baseN, nowN, { absolute = true } = {}) {
+  const added = nowN - baseN;
+  const bound = absolute ? Math.min(baseN * REBUILD_AFTER_FRACTION, REBUILD_AFTER_APPENDED) : baseN * REBUILD_AFTER_FRACTION;
+  return added > bound;
+}
+
+/**
  * How many new log bytes may accumulate before the cache file is written
  * again.
  *
@@ -2902,7 +2937,7 @@ function loadMemoized(root, opts) {
   }
 
   if (!m) {
-    const r = loadIndexCached(root, { language, wantState: true, derivedState: opts.derivedState });
+    const r = loadIndexCached(root, { language, wantState: true, derivedState: opts.derivedState, allowStale: Boolean(opts.allowStale) });
     const { state, ...base } = r;
     m = {
       root, base, files: state.files, fullAt: state.fullAt, gen: 0,
@@ -2995,7 +3030,15 @@ export function loadIndex(root, opts = {}) {
   return index;
 }
 
-function loadIndexCached(root, { fresh = false, language = 'en', wantState = false, derivedState = null } = {}) {
+/**
+ * The full build, written to the cache, and nothing else: what the detached child of `src/indexrebuild.mjs` runs. The same
+ * `fresh` path `loadIndex(root, { fresh: true })` takes, without the per-load attachments. Throws what the build throws.
+ */
+export function rebuildIndexCache(root, { language = 'en' } = {}) {
+  loadIndexCached(root, { fresh: true, language });
+}
+
+function loadIndexCached(root, { fresh = false, language = 'en', wantState = false, derivedState = null, allowStale = false } = {}) {
   // With MEM_EXPAND=1 the index carries `asked_as`: its own cache directory.
   const cacheDir = path.join(root, CACHE_DIR + expand.cacheSuffix());
   const legacyCachePath = path.join(root, CACHE_FILE);
@@ -3102,7 +3145,14 @@ function loadIndexCached(root, { fresh = false, language = 'en', wantState = fal
         }
         // Rebuild rather than append once enough of the corpus is new that
         // the lexicon and the learned graphs would be measurably behind.
-        if (grown && index.N <= fullAt * (1 + REBUILD_AFTER_FRACTION)) {
+        //
+        // **The recall hook (`allowStale`) never rebuilds here (index-schwelle-cm).** It answers from the appended index
+        // however far the stack has grown and, once it passes the absolute bound (`appendedTooMany`), starts the
+        // rebuild detached (`indexrebuild.kickIndexRebuild`: one at a time, a lock, a backoff after a failure). The
+        // cache is then left to that child (writing the appended one here would be a second, wasted write). Everyone
+        // else (the terminal, the writers) keeps the fifth and rebuilds in the process, as before.
+        const tooMany = appendedTooMany(fullAt, index.N, { absolute: allowStale });
+        if (grown && (allowStale || !tooMany)) {
           let grownState = null;
           if (grown.newBytes >= CACHE_WRITE_AFTER_BYTES || wantState) {
             const files = stateOf(now, grown.lastLines, sourceDocCounts(index.documents));
@@ -3111,8 +3161,9 @@ function loadIndexCached(root, { fresh = false, language = 'en', wantState = fal
               if (files[rel] && !grown.lastLines.has(rel)) files[rel].lines = old.lines ?? files[rel].lines;
             }
             grownState = { files, fullAt };
-            if (grown.newBytes >= CACHE_WRITE_AFTER_BYTES) writeCache(index, files, fullAt);
+            if (grown.newBytes >= CACHE_WRITE_AFTER_BYTES && !tooMany) writeCache(index, files, fullAt);
           }
+          const rebuild = allowStale && tooMany ? indexrebuild.kickIndexRebuild(root, { language: lang.name }) : null;
           // The learned graphs are NOT extended by an append — see
           // appendToIndex. They are exactly the ones the last full build
           // produced, so ranking lags behind the newest entries even
@@ -3125,6 +3176,7 @@ function loadIndexCached(root, { fresh = false, language = 'en', wantState = fal
             appended: grown.added,
             graphsStale: grown.added > 0,
             cacheStatus: 'hit',
+            ...(rebuild ? { stale: 'appended-too-many', rebuild } : {}),
             ...(wantState ? { state: grownState } : {}),
           };
         }

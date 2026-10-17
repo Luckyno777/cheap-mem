@@ -227,7 +227,8 @@ export const COMMANDS = {
     // search): `--content-words` used to load it for the shortening and `find` again for the search.
     let opened = null;
     const openIndex = () => {
-      opened ??= search.loadIndex(root, { fresh: Boolean(args.fresh), language: cfg.language });
+      // `--recall` is the hook: it answers from the appended index and has the rebuild done in the background (index-schwelle-cm).
+      opened ??= search.loadIndex(root, { fresh: Boolean(args.fresh), language: cfg.language, allowStale: Boolean(args.recall) });
       return opened;
     };
     if (args['content-words']) {
