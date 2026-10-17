@@ -14,6 +14,17 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Fixed - three leftovers of `mem setup codex-cloud` (codex-rest-cm)
+
+- **The report of a failed skill write said ".gitignore was put back as it was" even when this run had never touched
+  `.gitignore`.** It now says so only when the file was really rewritten and written back.
+- **A failure while putting `.gitignore` back masked the error that made it necessary** (the exception replaced the
+  report, and the folders this run made were not taken back). The first error now stays, a second line names the failed
+  restore and the file to put back by hand, and `changed` is true, because the file still holds the new rules.
+- **No probe held a foreign file in a folder this run had made**, so a recursive delete in place of `rmdir` survived the
+  mutation sweep. Three probes now put a file into each of the three folders during the failing write; it must stay. Four
+  mutants in `bench/mutation.mjs` (recursive delete, the false claim, the two masked restores) are caught.
+
 ### Fixed - leftovers of the masked transcript copy and of the pin words (small-rest2-cm)
 
 Five items checked, three were real:
