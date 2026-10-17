@@ -14,6 +14,39 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Fixed - CI run 1141 (Windows): the PowerShell twins' hook JSON arrived with a byte order mark, a Git Bash probe measured nothing, a refused read counted as a gap
+
+- **Windows PowerShell 5.1: every twin that hands the hook JSON to node answered with nothing.** The twin's trace on the
+  runner: 103 characters read, 108 bytes at the core (`not JSON: SyntaxError`); the installed hooks: 288 -> 293. Five
+  bytes each time: a UTF-8 BOM in front, CR LF behind. The BOM is not from `$OutputEncoding` (the before-edit twin already
+  set it): .NET Framework's `Process.Start` opens the child's stdin with a writer in `[Console]::InputEncoding` and
+  flushes that encoding's preamble at once, so under code page 65001 it is on the pipe before PowerShell writes a byte.
+  Both halves now: `src/hookstdin.mjs` is the one stdin reader of the hook cores (before-edit core, recall/catch,
+  after-failure, command guard, workflows; it replaces four copies of the same reader and decodes bytes once, so a
+  character cut by a chunk boundary is no longer torn) and drops BOMs and blanks in front; `subagentstart.hookResultFor`
+  and `beforeedit.run` do the same for raw text; the node snippets in the twins (catch-fail, stop, digest) too. Every
+  `.ps1` that pipes into node sets a preamble-free console input encoding (only when it is UTF-8 with one; no console:
+  the cores cope) and `$OutputEncoding` UTF-8 without a BOM before its first pipe - mem-digest.ps1's selection and
+  count had the same failure. `test/hook-stdin-bom.test.mjs`: BOM + CR LF into each core gives the answer the plain
+  input gives; red against `2f0981b` for every core and the catch-fail snippet; the twins' order is read. Not run
+  here (no Windows PowerShell 5.1): the next CI run's Windows jobs run the twins (`test/before-edit-twin.test.mjs`,
+  `test/installed-hooks-run.test.mjs`).
+- **`test/hook-spaces.test.mjs` red on Windows since it was written - the probe, not the hooks.** It handed its script to
+  Git Bash as `bash -c <script>`. The MSYS runtime splits a native process's command line itself and reads `\\` inside
+  a quoted argument as one backslash, so the probe's `to_slashes` became "delete every slash" and no root was ever
+  found; the change in run 1103 (HOME and USERPROFILE in backslashes) could not help. The hooks read their own file and
+  were never affected (the END TO END probe was green on the same runner). Scripts now go to bash as a file
+  (`test/helpers/bash-file.mjs`); a new instrument check fails if `to_slashes` does not reach bash as written, and the
+  positive control and the mutation check first that the unmutated loop finds the memory (both passed on Windows
+  because everything found nothing). `test/msys-native-paths.test.mjs` had the same instrument and was green on Windows
+  for the same wrong reason (`dirname` of a slashless path is `.`); it runs from a file too.
+- **`test/atomic-cache.test.mjs` A (windows, node 20): "738 reads found no file at all".** The reader counted every
+  exception as a missing file. On Windows an open of a file whose replacement is in flight is refused (EPERM, EACCES,
+  EBUSY - the codes the shipped writer already retries on its rename); the name never goes away. Failed reads are now
+  three states: ENOENT is a gap (zero, every platform), a refusal on Windows is counted, named and kept out of the read
+  budget, anything else fails; the codes seen are in every message. D drives the classification on all three
+  platforms. Not reproduced here: which code the 738 were, the next Windows run names.
+
 ### Changed - search: the parts of an identifier with an underscore in a question are searched, while the index does not hold the whole word (k1-subword-cm; port of lucky-mem `k1-teilwort-lm`, merge eea4d4f8d)
 
 K1 (below, abruf-stamm-cm) searches `socket_closed_by_peer` as ONE word because the index holds `a_b` as one term, and named its price: the entry "the peer closed the socket" was no longer found by the after-failure hook's question. Now `search()` adds the parts (`socket`, `closed`, `peer`; parts of three letters or more, no filler) next to the whole word: **weight 0.6 if the index holds the whole word NOWHERE, 0 (none) if it does** (`session_id` must not pull in every `session` entry: that was K1). The whole word keeps 1.0; the parts never outweigh a typed word and are searched per language pack with MAX, like the typed forms; a word covered only through its parts counts HALF in the coordination factor and in the answer gate's `covered` (like a bridged word); a part that is also typed is not counted twice. A part that two identifiers of the question share counts once (the highest weight per distinct part, like the typed terms; two unknown identifiers with one common part scored 11.54 against 8.77 for one before this was fixed). "Holds" means the raw document frequency (`index.docFreq`): discarded or superseded entries and raw captures count as holding the word, as in the sibling house. The hyphen is untouched (the question already types the whole and the parts). Both doors go through `search()`, so `mem find`, `mem_find`, the hook calls (`--content-words`, `--recall`) and the H1 split all see it. The constants stay inside `src/search.mjs` (not exported; no environment variable). Docs: `docs/architecture.md`, "Identifiers with an underscore in a question".
