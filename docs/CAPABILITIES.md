@@ -29,7 +29,7 @@ the verification commands at the end.
 | **Automation** | 7 Claude Code hooks (session start, recall per message, recall per file edit, recall after a failed or failure-printing tool call, subagent start, answer check and capture at stop), one model call per few hours, watcher, git as sync | [6](#6-automation) |
 | **Surfaces** | 88 CLI commands, 45 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 5366 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 5381 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -69,7 +69,7 @@ directory. The section number in brackets is where it is explained.
 | `expand.mjs` | document expansion: the field `asked_as` (8 to 12 everyday phrasings written at capture time, checked at write time), read by the search only behind the switch `MEM_EXPAND=1` (weight 0.3, half coverage, stop words stripped, its own index cache) |
 | `archive.mjs` | the raw capture lives outside the repo — location, record, migration, export |
 | `authority.mjs` | who is entitled to overrule whom |
-| `atomicwrite.mjs` | the one way to write a state file: a unique temp file in the same directory, then `rename` (with a Windows retry) — a reader never sees half a file, two writers never share a temp file (F5, suggestion 14) |
+| `atomicwrite.mjs` | the one way to write a state file: a unique temp file in the same directory, then `rename` (with a Windows retry) — a reader never sees half a file, two writers never share a temp file (F5, suggestion 14); and its reader's half, `readStateFile`: missing / ok / unreadable, a Windows refusal during a replace tried again |
 | `backlinks.mjs` | an incrementally maintained index — id -> every entry that points at it by a declared edge, across every drawer and project (E1.4); read by `getEntryFast()` and `mem-serve` |
 | `basis.mjs` | on what basis a statement stands: stated, measured, inferred, guessed — a mark, never a number |
 | `bashtargets.mjs` | which files a shell command WRITES (`sed -i`, `tee`, `> file`, `cp`, `mv`), read deterministically for the before-edit hook on Bash; directories, extension-less words, expansions, `/dev` and `/tmp` give no target |
@@ -151,7 +151,7 @@ directory. The section number in brackets is where it is explained.
 | `guard.mjs` | a recorded error becomes a latch (10.2) |
 | `guardgaps.mjs` | ranks the errors that have NO guard (`mem guard gaps`): a guarded error is a filter, never a gap; repetition, an open duty and age only order the unguarded ones; reads, writes nothing |
 | `heartbeat.mjs` | running, or just nothing to do (10.3) |
-| `hookstdin.mjs` | the one stdin reader of the hook cores: bytes decoded once, a byte order mark and blanks in front dropped (Windows PowerShell 5.1 piped a UTF-8 BOM in front of the hook JSON; CI run 1141) |
+| `hookstdin.mjs` | the one stdin reader of the hook cores: bytes decoded once, only a byte order mark in front dropped, the blanks behind it are the prompt's (Windows PowerShell 5.1 piped a UTF-8 BOM in front of the hook JSON; CI run 1141), and the raw size and mark of what arrived (`hookShape`) for the before-edit diagnosis |
 | `http-limits.mjs` | hard limits for every HTTP service that listens (`hardenServer`: head 10 s, request 30 s, 100 header lines, a check every 2 s, `maxConnections` per service) against slow headers, a dripping body and a connection flood; they bound only the receiving of a request, so a long answer is not cut (`docs/security-model.md`, "HTTP service limits") |
 | `hybrid.mjs` | BM25 and semantic recall, fused by RRF (2) |
 | `icon.mjs` | the mark, drawn in code |
