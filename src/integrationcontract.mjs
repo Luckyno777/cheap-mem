@@ -384,7 +384,7 @@ export function detectClients({ settingsPaths = [], matrix = MATRIX } = {}) {
   return { clients: found ? [CLIENT.CLAUDE_CODE] : [], readable, commands };
 }
 
-/** U+0000..U+001F and DEL: the class the shims reject in CHEAP_MEM_CODE (bin/_owntool.sh, the PowerShell twins). */
+// U+0000..U+001F and DEL: the class the shims reject in CHEAP_MEM_CODE (bin/_owntool.sh, the PowerShell twins).
 // eslint-disable-next-line no-control-regex -- the control characters are exactly what this pattern matches
 const CONTROL_CHAR = /[\x00-\x1f\x7f]/g;
 const CONTROL_CHAR_ONE = new RegExp(CONTROL_CHAR.source);
