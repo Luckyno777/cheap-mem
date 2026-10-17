@@ -783,7 +783,7 @@ Answered by breaking each mechanism on purpose and checking that a test
 notices (`node bench/mutation.mjs`). A mutant that SURVIVES marks a
 guarantee that lives in documentation and nowhere else.
 
-**258 mutants, 258 caught.** Including: supersession always allowed,
+**284 mutants, 284 caught.** Including: supersession always allowed,
 `admits()` always true, the disputed filter removed, deduplication removed,
 resource limits ignored, the redaction class narrowed back to ASCII, broken
 lines silently skipped again, cycles never reported, the merge driver
