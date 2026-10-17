@@ -14,6 +14,23 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Fixed - `mem doctor --alarm` sees a tearing that `mem doctor --full` measured (alarm-tearing-cm; cheap-mem only)
+
+Since cli-speed-cm TB7 the session-start banner (`mem doctor --alarm`, no `--full`) leaves out the concurrent-append probe and sees only the
+filesystem-name list, so a mount on which `--full` had MEASURED torn lines raised no alarm any more. `mem doctor --full` (and `--strict`) now keeps
+the verdict of a finished measurement in `.pipeline/append-atomicity.json` (ok/torn, time, device, filesystem name, node version, writers, lines;
+temp file and rename; `.pipeline/` is already git-ignored as a whole, so no new rule). A run without `--full` reads it back and measures nothing:
+a **torn** verdict on the same device is `env/append-atomicity` at level ERROR with the time of the measurement and "`mem doctor --full` measures anew",
+so `--alarm` prints it and exits non-zero; a clean verdict stays UNKNOWN (naming the time; a measurement can only falsify, so never `ok` from a record);
+a record from another device or another named filesystem (the memory moved) is not used and says so; a missing record changes nothing; an empty or damaged
+one (not JSON, wrong shape, directory in its place) is its own note and never a throw. The file can be edited by anybody who can write the clone, so only
+validated fields are read, the time is re-formatted from the parsed number and the filesystem name shown is the live one. A measurement that did not
+finish (writers timed out) leaves the earlier record alone. No new environment variable.
+Time: `mem doctor --alarm` adds one `stat` and the read of a file of about 200 bytes; median of 10 fresh processes on a scratch memory before/after is in the
+hand-over report (the probe itself, 167 to 445 ms, stays behind `--full`). `test/alarm-tearing.test.mjs` (torn record alarms and starts no probe, clean record stays
+unknown, other device and other filesystem not used, six damaged shapes, the record written by `--full` and atomically, the loop torn -> alarm -> clean measurement -> no alarm, a git tree
+stays clean) and six mutants in `bench/mutation.mjs` hold it.
+
 ### Security - hard HTTP limits for the dashboard server and the MCP bridge (slow headers, dripping body, connection flood)
 
 `mem serve` and `mem-mcp --http` ran with the Node defaults: headers could take 90 s in practice (60 s, checked every 30 s), a body 330 s,

@@ -35,6 +35,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { Worker } from 'node:worker_threads';
 import { attributesOf } from './lineartext.mjs';
+import { writeAtomic } from './atomicwrite.mjs';
 
 export const LAYER = Object.freeze({
   APP: 'application',      // cheap-mem's own code
@@ -390,6 +391,88 @@ export function runAppendAtomicityProbe(root, opts = {}) {
 }
 
 /**
+ * The record of the last concurrent-append MEASUREMENT (alarm-tearing-cm).
+ *
+ * Since cli-speed-cm TB7 a run without `--full` (the session-start banner `mem doctor --alarm` among them) does not
+ * start the writer threads, so a mount on which `mem doctor --full` once MEASURED tearing raised no alarm any more:
+ * the banner saw only the filesystem-name list. `mem doctor --full` now leaves its verdict in
+ * `.pipeline/append-atomicity.json` (runtime state of ONE clone, already covered by the `.pipeline/` ignore rule), and a
+ * run without `--full` reads it back. Reading costs one `stat` and one small file; nothing is measured.
+ *
+ * What the record may and may not do:
+ *   - `torn` on the SAME device is evidence that stays until a new measurement replaces it: error, with the time.
+ *   - `ok` is a statement about the moment it was taken and says nothing about now: the run stays UNKNOWN (it names
+ *     the time), never `ok`. A measurement of this shape can only falsify.
+ *   - A record taken on another device (the memory was moved) or on another named filesystem is not used.
+ *   - A record that is empty, not JSON or not of this shape is its own note, never a throw.
+ *   - The file is writable by anybody who can write the clone and its text reaches a terminal and a model's context:
+ *     only the validated fields are used, the time is re-formatted from the parsed number, the filesystem name shown is
+ *     the live one, never the one in the file.
+ */
+export const APPEND_RECORD_FILE = path.join('.pipeline', 'append-atomicity.json');
+
+/** Identity of the mount the memory sits on: the device number as text, or null when it cannot be read. */
+function deviceOf(root) {
+  try { return String(fs.statSync(root).dev); } catch { return null; }
+}
+
+/** Write the verdict of a finished measurement. Never throws: a record that cannot be kept only costs the banner its memory. */
+export function writeAppendRecord(root, probe, { fsType = null, now = new Date() } = {}) {
+  try {
+    const dev = deviceOf(root);
+    if (dev === null) return false;
+    writeAtomic(path.join(root, APPEND_RECORD_FILE), `${JSON.stringify({
+      v: 1,
+      ok: Boolean(probe.ok),
+      measuredAt: now.toISOString(),
+      dev,
+      fsType: fsType ?? null,
+      node: process.version,
+      workers: probe.workers,
+      perWorker: probe.perWorker,
+      torn: probe.torn,
+      missing: probe.missing,
+      duplicates: probe.duplicates,
+    })}\n`);
+    return true;
+  } catch { return false; }
+}
+
+const wholeCount = (n) => Number.isInteger(n) && n >= 0 && n <= 1e9;
+
+/**
+ * Read the record back. Three states plus the two that decide whether it counts:
+ *   `{ state: 'missing' }`   no file (never measured with `--full`, or measured before this record existed)
+ *   `{ state: 'empty' }`     a file with nothing in it
+ *   `{ state: 'broken' }`    not JSON, or not the shape written above
+ *   `{ state: 'other' }`     a valid record taken on another device / filesystem: not used
+ *   `{ state: 'usable', ok, measuredAt, workers, perWorker, torn, missing, duplicates }`
+ */
+export function readAppendRecord(root, { fsType = null } = {}) {
+  const file = path.join(root, APPEND_RECORD_FILE);
+  let text;
+  try { text = fs.readFileSync(file, 'utf8'); } catch (err) {
+    return err && err.code === 'ENOENT' ? { state: 'missing' } : { state: 'broken' };
+  }
+  if (text.trim() === '') return { state: 'empty' };
+  let r;
+  try { r = JSON.parse(text); } catch { return { state: 'broken' }; }
+  const at = r && typeof r.measuredAt === 'string' ? Date.parse(r.measuredAt) : NaN;
+  if (!r || typeof r !== 'object' || r.v !== 1 || typeof r.ok !== 'boolean' || !Number.isFinite(at)
+    || typeof r.dev !== 'string' || !(r.fsType === null || typeof r.fsType === 'string')
+    || ![r.workers, r.perWorker, r.torn, r.missing, r.duplicates].every(wholeCount)) {
+    return { state: 'broken' };
+  }
+  const dev = deviceOf(root);
+  if (dev === null || r.dev !== dev) return { state: 'other' };
+  if (fsType && r.fsType && fsType.toLowerCase() !== r.fsType.toLowerCase()) return { state: 'other' };
+  return {
+    state: 'usable', ok: r.ok, measuredAt: new Date(at).toISOString(),
+    workers: r.workers, perWorker: r.perWorker, torn: r.torn, missing: r.missing, duplicates: r.duplicates,
+  };
+}
+
+/**
  * Is a concurrent append safe on the mount this memory sits on?
  *
  * `opts.probe` replaces the measurement itself. It is there so the
@@ -438,12 +521,31 @@ export function checkAppendAtomicity(root, opts = {}) {
   // not a pass: the answer is the third state, with the way to get the real one, and it
   // never reads as `ok` on the strength of the filesystem's name alone.
   if (!measure) {
+    const rec = readAppendRecord(root, { fsType });
+    // A torn verdict from an earlier `--full` on this very mount stays an error until a new measurement replaces it
+    // (alarm-tearing-cm): the banner must not go quiet because it did not measure this time.
+    if (rec.state === 'usable' && !rec.ok) {
+      return check('append-atomicity', LAYER.OS, false,
+        `measured torn at ${rec.measuredAt} by \`mem doctor --full\` on this mount: ${rec.workers} concurrent writers x ${rec.perWorker} lines - `
+        + `${rec.torn} torn, ${rec.missing} missing, ${rec.duplicates} duplicated${fsNote}. Not measured again on this run.`,
+      'Concurrent O_APPEND writes were not safe on this filesystem or mount when last measured. `mem doctor --full` measures anew; '
+      + 'move the memory root, or serialise writers.');
+    }
+    const note = {
+      usable: ` The last measurement (${rec.measuredAt}) was clean, which says nothing about now.`,
+      other: ' A recorded measurement from another device or filesystem is not used.',
+      empty: ' The record of an earlier measurement (.pipeline/append-atomicity.json) is empty and was ignored.',
+      broken: ' The record of an earlier measurement (.pipeline/append-atomicity.json) is unreadable and was ignored.',
+      missing: '',
+    }[rec.state];
     return check('append-atomicity', LAYER.OS, null,
-      `not measured on this run - the concurrent-append probe (writer threads) only runs with \`mem doctor --full\`${fsNote}`,
+      `not measured on this run - the concurrent-append probe (writer threads) only runs with \`mem doctor --full\`${fsNote}${note ? `.${note}` : ''}`,
       'Run `mem doctor --full` (or `--strict`, which includes it) to measure concurrent O_APPEND writes on this mount.');
   }
 
   const probe = probeFn(root, probeOpts);
+  // The verdict of a finished measurement is kept for the runs that do not measure (see `readAppendRecord`).
+  if (probe.measured) writeAppendRecord(root, probe, { fsType });
 
   if (!probe.measured) {
     return check('append-atomicity', LAYER.OS, null,

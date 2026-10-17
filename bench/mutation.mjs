@@ -254,6 +254,42 @@ export const MUTANTS=[
    to:'  const ok = /jsonl/.test(text);  // MUTANT',
    tests:['test/environment.test.mjs'] },
 
+ { name:'alarm-tearing: a torn record on this mount is ignored',
+   file:'src/environment.mjs',
+   from:"    if (rec.state === 'usable' && !rec.ok) {",
+   to:'    if (false) {  // MUTANT: the banner forgets a measured tearing',
+   tests:['test/alarm-tearing.test.mjs'] },
+
+ { name:'alarm-tearing: any usable record, clean or torn, is an error',
+   file:'src/environment.mjs',
+   from:"    if (rec.state === 'usable' && !rec.ok) {",
+   to:"    if (rec.state === 'usable') {  // MUTANT: a clean old measurement alarms",
+   tests:['test/alarm-tearing.test.mjs'] },
+
+ { name:'alarm-tearing: the device of the record is not compared',
+   file:'src/environment.mjs',
+   from:"  if (dev === null || r.dev !== dev) return { state: 'other' };",
+   to:"  if (dev === null) return { state: 'other' };  // MUTANT: a record from another mount counts",
+   tests:['test/alarm-tearing.test.mjs'] },
+
+ { name:'alarm-tearing: a broken record throws',
+   file:'src/environment.mjs',
+   from:"  try { r = JSON.parse(text); } catch { return { state: 'broken' }; }",
+   to:'  r = JSON.parse(text);  // MUTANT: a damaged record takes the doctor down',
+   tests:['test/alarm-tearing.test.mjs'] },
+
+ { name:'alarm-tearing: --full keeps no record',
+   file:'src/environment.mjs',
+   from:'  if (probe.measured) writeAppendRecord(root, probe, { fsType });',
+   to:'  void writeAppendRecord;  // MUTANT: the verdict is not kept',
+   tests:['test/alarm-tearing.test.mjs'] },
+
+ { name:'alarm-tearing: the record is written in place, not by temp file and rename',
+   file:'src/environment.mjs',
+   from:"    writeAtomic(path.join(root, APPEND_RECORD_FILE), `${JSON.stringify({",
+   to:"    fs.mkdirSync(path.join(root, '.pipeline'), { recursive: true });\n    fs.writeFileSync(path.join(root, APPEND_RECORD_FILE), `${JSON.stringify({  // MUTANT: not atomic",
+   tests:['test/alarm-tearing.test.mjs'] },
+
  { name:'SEM unknown environment counts as OK under --strict',
    file:'src/environment.mjs',
    from:'  return checks.every((c) => (strict ? c.ok === true : c.ok !== false));',
