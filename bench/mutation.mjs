@@ -959,7 +959,43 @@ export const MUTANTS=[
    file:'assets/dashboard/dashboard.js',
    from:'  partLaterSkipTimer();\n  const entriesRun1 = loadEntriesPart();',
    to:'  const entriesRun1 = loadEntriesPart();  // MUTANT',
-   tests:['test/dash-later-once-cm-browser.test.mjs'] },
+   // The logic half first: the guarantees job has no Chromium, the browser probe skips there, and a mutant whose suite
+   // only skipped sent the harness through the whole suite (8 min, the job's 25-minute limit; CI run 1103).
+   tests:['test/dash-later-once-cm.test.mjs', 'test/dash-later-once-cm-browser.test.mjs'] },
+
+ // CI run 1103: an entry point started through a symlinked directory (every macOS temp dir) printed nothing.
+ { name:'entry point: the starter compares argv[1] with import.meta.url as text again',
+   file:'src/headless.mjs',
+   from:"export { isMain } from './ismain.mjs';",
+   to:"import { pathToFileURL } from 'node:url';\nexport const isMain = (metaUrl, argv1 = process.argv[1]) => Boolean(argv1) && metaUrl === pathToFileURL(path.resolve(argv1)).href; // MUTANT",
+   tests:['test/ismain-symlink-entry.test.mjs'] },
+ // CI run 1103 (Windows): the per-run neutral folder was removed from inside, so it stayed.
+ { name:'headless cleanup: the shell stays in the per-run folder it removes',
+   file:'bin/_portable.sh',
+   from:'    if [ -n "$there" ] && [ "$here" = "$there" ]; then cd .. 2>/dev/null || cd / || true; fi\n',
+   to:'    : # MUTANT\n',
+   tests:['test/headless-cleanup-cwd.test.mjs'] },
+ { name:'headless cleanup (ps1): the location stays in the per-run folder it removes',
+   file:'bin/_headless.ps1',
+   from:'{ Set-Location -LiteralPath (Split-Path -Parent $Plan.Clean) }',
+   to:'{ } # MUTANT',
+   tests:['test/headless-cleanup-cwd.test.mjs'] },
+ // CI run 1103 (Windows): Git Bash hands XDG_STATE_HOME on in its Windows spelling.
+ { name:'tool-missing: a Windows-spelled XDG_STATE_HOME is passed over under Git Bash again',
+   file:'install/support/tool-missing.sh',
+   from:'        MINGW* | MSYS* | CYGWIN*) state="${XDG_STATE_HOME//\\\\//}" ;;',
+   to:'        MINGW* | MSYS* | CYGWIN*) state="$HOME/.local/state" ;; # MUTANT',
+   tests:['test/tool-missing-state-win.test.mjs'] },
+ { name:'before-edit trace: the JSON.parse message (which quotes the input) is printed again',
+   file:'src/beforeedit.mjs',
+   from:"why = `not JSON: ${String(e?.name || 'Error').replace(/[^A-Za-z]/g, '')}${at ? ` at position ${at[1]}` : ''}`;",
+   to:'why = `not JSON: ${String(e?.message || e).slice(0, 80)}`; void at; // MUTANT',
+   tests:['test/before-edit-trace-noleak.test.mjs'] },
+ { name:'entry point: the masked copy compares argv[1] with import.meta.url as text again',
+   file:'bin/mem-mask-copy.mjs',
+   from:'if (isMain(import.meta.url)) {',
+   to:"if (process.argv[1] && import.meta.url.endsWith(path.resolve(process.argv[1]).split(path.sep).join('/'))) { // MUTANT",
+   tests:['test/ismain-symlink-entry.test.mjs'] },
 
  // Round 3 (hooks-harden-cm): the tracked-runtime findings of the gitignore check and `mem init`.
  { name:'trackedruntime: the finding prints file names out of the index',
@@ -1259,6 +1295,25 @@ export const MUTANTS=[
    from:"tier ${authority.rankWord(k.rank, k.rank_state)}, ",
    to:"tier ${k.rank}, ",
    tests:['test/writer-identity.test.mjs'] },
+
+ // card-byline-ui-cm: the dashboard's origin line reads the card's byline in the words of rankWord.
+ { name:"BYLINE-UI the dashboard shows a missing rank as a plain tier",
+   file:"assets/dashboard/dashboard.js",
+   from:"(typeof state === 'string' && state !== 'set' ? `unknown (${state})` : ",
+   to:"(false ? `unknown (${state})` : ",
+   tests:['test/card-byline-ui-cm-browser.test.mjs'] },
+
+ { name:"BYLINE-UI the dashboard reads the rank from origin, not from the byline",
+   file:"assets/dashboard/dashboard.js",
+   from:"tier ${ce(rankWord(b.rank, b.rank_state))}",
+   to:"tier ${ce(rankWord(o.rank))}",
+   tests:['test/card-byline-ui-cm-browser.test.mjs'] },
+
+ { name:"BYLINE-UI the configured human's name drops the agent hint",
+   file:"assets/dashboard/dashboard.js",
+   from:"const note = o.rank === 'user' ? '' : ",
+   to:"const note = o.rank === 'user' || b.name === 'user' ? '' : ",
+   tests:['test/card-byline-ui-cm-browser.test.mjs'] },
  { name:'K1 the question query cuts an identifier at the underscore again',
    file:'src/search.mjs',
    from:"    .split(/[^a-z0-9_\\u00e4\\u00f6\\u00fc\\u00df]+/)",
