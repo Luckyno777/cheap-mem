@@ -46,6 +46,25 @@ test('judge on a result like this tree\'s: load, quiet and rebuild pass; reuse i
   });
 });
 
+test('judge: the load row says the same thing for one build and for two (a race decides which; --compare must not see a change)', () => {
+  const one = good();
+  one.load.counters = { contexts: 2, programs: 6, builds: 1, models: 1 };
+  const two = good();
+  two.load.counters = { contexts: 3, programs: 11, builds: 2, models: 2 };
+  const a = judged(one)[ID('load')]; const b = judged(two)[ID('load')];
+  assert.equal(a.actual, b.actual);
+  assert.match(a.actual, /per build 1 model computation\(s\), 1 context\(s\), 5 program\(s\), plus 1 context and 1 program for the background canvas/);
+  assert.deepEqual([a.verdict, b.verdict], [VERDICT.PASS, VERDICT.PASS]);
+  assert.notDeepEqual(a.measured.builds, b.measured.builds, 'the raw counts stay in `measured`');
+  // and it still tells a real change: a build that costs two contexts reads differently
+  const heavy = good();
+  heavy.load.counters = { contexts: 3, programs: 6, builds: 1, models: 1 };
+  assert.notEqual(judged(heavy)[ID('load')].actual, a.actual);
+  const three = good();
+  three.load.counters = { contexts: 4, programs: 16, builds: 3, models: 3 };
+  assert.match(judged(three)[ID('load')].actual, /NO \(3\)/);
+});
+
 test('judge: two builds on load are inside the bound (the head, then the full list); three are not', () => {
   const two = good();
   two.load.counters = { contexts: 3, programs: 11, builds: 2, models: 2 };

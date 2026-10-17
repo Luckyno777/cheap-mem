@@ -109,7 +109,9 @@ export function judge(atlas, m) {
   rec(atlas, {
     id: 'load', verdict: loadOk ? VERDICT.PASS : VERDICT.FAIL,
     expected: `drawn by webgl-3d; 1 to ${BUILDS_ON_LOAD_MAX} builds, one model computation each; contexts <= 1 + builds (the background canvas); programs <= 1 + ${PROGRAMS_PER_BUILD} x builds`,
-    actual: `drawn by ${m.load.drawn}; ${c.builds} build(s), ${c.models} model computation(s), ${c.contexts} context(s), ${c.programs} program(s)`,
+    // The raw counts move with a race (one build or two, depending on whether the head or the full list arrives first); what does not move is the cost PER build.
+    // So the text says the invariants, and `--compare` shows no change where there is none. The raw numbers are in `measured`.
+    actual: `drawn by ${m.load.drawn}; builds within 1 to ${BUILDS_ON_LOAD_MAX}: ${c.builds >= 1 && c.builds <= BUILDS_ON_LOAD_MAX ? 'yes' : `NO (${c.builds})`}; per build ${+(c.models / c.builds).toFixed(2)} model computation(s), ${+((c.contexts - 1) / c.builds).toFixed(2)} context(s), ${+((c.programs - 1) / c.builds).toFixed(2)} program(s), plus 1 context and 1 program for the background canvas`,
     evidence: 'bench/atlas/net-counter.mjs in Chromium (software GL) against bin/mem-serve; the view is opened at #knowledge/network and left to settle (full build, full list, 1.5 s of quiet)',
     measured: { ...c, limit: { builds: BUILDS_ON_LOAD_MAX, programsPerBuild: PROGRAMS_PER_BUILD } },
   });
