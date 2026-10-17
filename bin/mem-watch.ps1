@@ -29,11 +29,11 @@ if (-not $env:CHEAP_MEM_ROOT) {
   Write-Error "env CHEAP_MEM_ROOT missing"
   exit 2
 }
-if (-not (Test-Path (Join-Path $env:CHEAP_MEM_ROOT '.git'))) {
+if (-not (Test-Path -LiteralPath (Join-Path $env:CHEAP_MEM_ROOT '.git'))) {
   Write-Error "CHEAP_MEM_ROOT='$env:CHEAP_MEM_ROOT' is not a git clone"
   exit 2
 }
-if (-not (Test-Path (Join-Path $env:CHEAP_MEM_ROOT '.mem/config.json'))) {
+if (-not (Test-Path -LiteralPath (Join-Path $env:CHEAP_MEM_ROOT '.mem/config.json'))) {
   Write-Error "no .mem/config.json under CHEAP_MEM_ROOT - run 'mem init' first"
   exit 2
 }
@@ -51,7 +51,7 @@ New-Item -ItemType Directory -Force -Path (Split-Path $LogPath) | Out-Null
 
 $Here = Split-Path -Parent $PSCommandPath
 $MemCli = Join-Path $Here 'mem'
-if (-not (Test-Path $MemCli)) { $MemCli = 'mem' }
+if (-not (Test-Path -LiteralPath $MemCli)) { $MemCli = 'mem' }
 
 $Handler = if ($env:MEM_WATCH_HANDLER) {
   $env:MEM_WATCH_HANDLER
@@ -72,7 +72,7 @@ function Write-Note {
 function Invoke-Handler {
   # Windows has no flock. Use a stale-lock check: PID in the lock file.
   # If that PID still runs -> another handler is active. Else stale -> take.
-  if (Test-Path $LockPath) {
+  if (Test-Path -LiteralPath $LockPath) {
     $lockPid = Get-Content -LiteralPath $LockPath -ErrorAction SilentlyContinue
     if ($lockPid -and (Get-Process -Id $lockPid -ErrorAction SilentlyContinue)) {
       Write-Note "handler: already running (pid $lockPid), skipping"
@@ -106,7 +106,7 @@ function Invoke-Handler {
       return $false
     }
 
-    if (-not (Test-Path $Handler)) {
+    if (-not (Test-Path -LiteralPath $Handler)) {
       Write-Note "handler: no handler script at $Handler - post remains for a human to process"
       return $false
     }
@@ -117,8 +117,8 @@ function Invoke-Handler {
       param($h, $root, $log)
       $env:CHEAP_MEM_ROOT = $root
       $env:MEM_HEADLESS   = 'watcher'
-      Set-Location $root
-      & powershell -NoProfile -ExecutionPolicy Bypass -File $h 2>&1 | Out-File -Append -FilePath $log
+      Set-Location -LiteralPath $root
+      & powershell -NoProfile -ExecutionPolicy Bypass -File $h 2>&1 | Out-File -Append -LiteralPath $log
       # The job's own state is 'Completed' even when the handler failed.
       # Hand the handler's exit code back as the job's only output.
       $LASTEXITCODE
@@ -167,7 +167,7 @@ if ($env:MEM_WATCH_REMOTE) { $watchArgs += @('--remote', $env:MEM_WATCH_REMOTE) 
 
 while ($true) {
   # The appointment clock ticks here (see bin/mem-watch): a no-op until appointments/appointments.jsonl exists.
-  if ($env:MEM_WATCH_APPOINTMENTS -ne 'off' -and (Test-Path (Join-Path $env:CHEAP_MEM_ROOT 'appointments/appointments.jsonl'))) {
+  if ($env:MEM_WATCH_APPOINTMENTS -ne 'off' -and (Test-Path -LiteralPath (Join-Path $env:CHEAP_MEM_ROOT 'appointments/appointments.jsonl'))) {
     $tickArgs = @('appointment', 'tick', '--root', $env:CHEAP_MEM_ROOT)
     if ($env:MEM_WATCH_APPOINTMENTS_SYNC -eq '1') { $tickArgs += '--sync' }
     $tick = & node $MemCli @tickArgs 2>&1

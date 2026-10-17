@@ -26,7 +26,7 @@ $ErrorActionPreference = 'SilentlyContinue'
 if ($env:MEM_HEADLESS) { exit 0 }
 
 if (-not $env:CHEAP_MEM_ROOT) { exit 0 }
-if (-not (Test-Path (Join-Path $env:CHEAP_MEM_ROOT '.mem\config.json'))) { exit 0 }
+if (-not (Test-Path -LiteralPath (Join-Path $env:CHEAP_MEM_ROOT '.mem\config.json'))) { exit 0 }
 
 $Threshold = if ($env:MEM_REFLECT_THRESHOLD_BYTES) { [int64]$env:MEM_REFLECT_THRESHOLD_BYTES } else { 400000 }
 $Timeout   = if ($env:MEM_REFLECT_TIMEOUT)         { [int]$env:MEM_REFLECT_TIMEOUT }         else { 90 }
@@ -51,7 +51,7 @@ if (-not $transcriptPath -and $env:TRANSCRIPT_PATH_ENV) {
 # The variable held the raw path; the model must not inherit it (it would still point at the file as it lies on disk).
 Remove-Item Env:TRANSCRIPT_PATH_ENV -ErrorAction SilentlyContinue
 
-if (-not $transcriptPath -or -not (Test-Path $transcriptPath)) {
+if (-not $transcriptPath -or -not (Test-Path -LiteralPath $transcriptPath)) {
   exit 0
 }
 
@@ -65,10 +65,10 @@ $markerDir = Join-Path $env:CHEAP_MEM_ROOT '.mem\reflect-marker'
 New-Item -ItemType Directory -Force -Path $markerDir | Out-Null
 $marker = Join-Path $markerDir $hashHex
 
-$curSize = (Get-Item $transcriptPath).Length
+$curSize = (Get-Item -LiteralPath $transcriptPath).Length
 $lastSize = 0
-if (Test-Path $marker) {
-  $lastSize = [int64](Get-Content $marker -ErrorAction SilentlyContinue)
+if (Test-Path -LiteralPath $marker) {
+  $lastSize = [int64](Get-Content -LiteralPath $marker -ErrorAction SilentlyContinue)
 }
 
 $delta = $curSize - $lastSize

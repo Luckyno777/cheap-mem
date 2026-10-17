@@ -56,6 +56,18 @@
 //                (bench/atlas/run-counter.mjs) against the bound in
 //                src/entity.mjs. No wall clock decides.
 //
+// **The gap groups (atlas-luecken-cm, 2026-10-17).** Four more groups, in
+// bench/atlas/bridge-gaps.mjs, ask what the sister house (lucky-mem) measures
+// and this phase did not: `sdk` (A8, the floor of the SDK range and the SDK
+// that is installed), `bidi` (A9, the nine Trojan Source controls masked at
+// every MCP exit in both halves of an answer), `card` (H11, the `card_*`
+// fields: limits, shapes, rank, the person rule) and `http-token` (A14, the
+// HTTP bridge's start rule and its token check, the loopback switch, the
+// read-only default, and the dashboard's start rule with its login counted).
+// Each owns a throwaway root, has a positive control, and takes the code tree
+// as a parameter so test/atlas-gaps-cm.test.mjs can remove one guarantee at
+// its shared source (`GAP_MUTANTS` in bench/mutation.mjs) and watch the record turn red.
+//
 // **A control per group, and a group without its control says so.** If the
 // positive control of a group does not hold, every refusal record of the
 // group reads `not-measured` and names the control, instead of reporting a
@@ -76,6 +88,7 @@ import { openBridge, payloadOf, writeBridgeConfig } from './bridge-client.mjs';
 import * as memory from '../../src/memory.mjs';
 import * as appointments from '../../src/appointments.mjs';
 import * as entity from '../../src/entity.mjs';
+import { gapGroups } from './bridge-gaps.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const RUN_COUNTER = pathToFileURL(path.join(HERE, 'run-counter.mjs'));
@@ -506,10 +519,18 @@ export async function run(atlas, { quick = false } = {}) {
     await groupStore(atlas, bridge, root, outside);
     await groupLongRun(atlas, bridge, root, quick);
   } finally { await bridge.close(); }
+  // The gap groups open their own doors (a stdio bridge each, HTTP and dashboard processes) on roots of their own.
+  await gapGroups(atlas, { tree: REPO });
 
   phase.note = 'Counters, not clocks: refusals per door, rows written, the longest unbroken run a pattern was handed. The one limit in this phase that is a time (a call that gets no answer) is a stall guard, never a measurement.';
-  atlas.blind('the bridge over HTTP (mcp-http) and with a token',
-    'this phase talks stdio, with the identity "foreign" and the read-only switch off; the HTTP transport and its token check are a different door and are not asked');
+  atlas.blind('the HTTP bridge beyond its start rule and its token check',
+    'the http-token group starts real processes and asks from this machine: it does not ask the Host and Origin allow lists (test/mcp-http.test.mjs), the connection limits (test/http-limits.test.mjs), TLS, or a reverse proxy that adds no forwarding header (the start notice says such a proxy cannot be told from this machine)');
+  atlas.blind('the SDK version at run time',
+    'this house has no start-time check of the SDK version: the peer range in package.json is the guard (bridge.sdk.range, bridge.sdk.installed). An SDK older than the range, installed by hand, is not refused at start and no record asks what the bridge would do with it');
+  atlas.blind('bidi controls on the surfaces other than the MCP exits',
+    'the CLI (`mem find`, `mem show`, `mem context`), the viewer and the recall hook mask through the same src/bidi.mjs; test/bidi.test.mjs and test/hostile-surfaces.test.mjs cover them. The group counts the nine controls of the closed list at the bridge, not other control characters (ESC, zero-width)');
+  atlas.blind('decision cards on the surfaces other than the bridge',
+    'the card group asks mem_card_add and mem_log over the bridge; `mem card add`, the dashboard card and the person\'s own road are covered by test/decision-card*.test.mjs and test/cardstore.test.mjs. Where a connected agent can be a person (the name `owner` in a field) is a known limit documented in docs/security-model.md, not asked here');
   atlas.blind('forged fields on tools other than mem_log',
     'mem_inbox_write, mem_store_put and mem_appointment_new are asked about the one claim each (from, source, requested_by); their other arguments are not enumerated');
   atlas.blind('a second connected agent',

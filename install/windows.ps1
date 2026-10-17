@@ -48,13 +48,13 @@ if (-not $env:CHEAP_MEM_ROOT) {
   Write-Error "env CHEAP_MEM_ROOT missing"
   exit 2
 }
-if (-not (Test-Path (Join-Path $env:CHEAP_MEM_ROOT '.mem\config.json'))) {
+if (-not (Test-Path -LiteralPath (Join-Path $env:CHEAP_MEM_ROOT '.mem\config.json'))) {
   Write-Error "$env:CHEAP_MEM_ROOT\.mem\config.json not found - run 'node bin\mem init' first"
   exit 2
 }
 
 # Resolve the repo root (this script sits under <root>\install\).
-$RepoRoot = (Get-Item (Split-Path -Parent $PSCommandPath)).Parent.FullName
+$RepoRoot = (Get-Item -LiteralPath (Split-Path -Parent $PSCommandPath)).Parent.FullName
 $WatchScript   = Join-Path $RepoRoot 'bin\mem-watch.ps1'
 $McpScript     = Join-Path $RepoRoot 'bin\mem-mcp'
 $ReflectScript = Join-Path $RepoRoot 'bin\mem-reflect.ps1'
@@ -122,7 +122,7 @@ if (-not $SkipTask) {
   # a server rather than on this laptop.
   if ($env:MEM_SKIP_DIGEST -ne '1') {
     $DigestScript = Join-Path $RepoRoot 'bin\mem-digest.ps1'
-    if (-not (Test-Path $DigestScript)) {
+    if (-not (Test-Path -LiteralPath $DigestScript)) {
       Write-Warning "mem-digest.ps1 not found at $DigestScript - skipping the digest task"
     } else {
       $DigestTask = 'cheap-mem-digest'
@@ -171,7 +171,7 @@ if (-not $SkipClaudeDesktop) {
   New-Item -ItemType Directory -Force -Path (Split-Path $CdConfig) | Out-Null
 
   $cfg = @{}
-  if (Test-Path $CdConfig) {
+  if (Test-Path -LiteralPath $CdConfig) {
     try {
       $cfg = Get-Content -LiteralPath $CdConfig -Raw | ConvertFrom-Json -AsHashtable
     } catch {
@@ -345,7 +345,7 @@ foreach (`$candidate in @(
     (Join-Path `$env:USERPROFILE 'my-memory'),
     (Join-Path `$env:USERPROFILE '.cheap-mem'))) {
   if ([string]::IsNullOrWhiteSpace(`$candidate)) { continue }
-  if (Test-Path (Join-Path `$candidate '.mem\config.json')) { `$memRoot = `$candidate; break }
+  if (Test-Path -LiteralPath (Join-Path `$candidate '.mem\config.json')) { `$memRoot = `$candidate; break }
 }
 
 if (-not `$memRoot) {
@@ -500,9 +500,9 @@ try {
 } catch { }
 
 `$facts = Join-Path `$env:CHEAP_MEM_ROOT 'FACTS.md'
-if (Test-Path `$facts) {
+if (Test-Path -LiteralPath `$facts) {
   Write-Host '=== FACTS (always loaded) ==='
-  Get-Content `$facts
+  Get-Content -LiteralPath `$facts
   Write-Host ''
 }
 
@@ -668,7 +668,7 @@ foreach (`$candidate in @(
     (Join-Path `$env:USERPROFILE 'my-memory'),
     (Join-Path `$env:USERPROFILE '.cheap-mem'))) {
   if ([string]::IsNullOrWhiteSpace(`$candidate)) { continue }
-  if (Test-Path (Join-Path `$candidate '.mem\config.json')) { `$memRoot = `$candidate; break }
+  if (Test-Path -LiteralPath (Join-Path `$candidate '.mem\config.json')) { `$memRoot = `$candidate; break }
 }
 if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
@@ -736,7 +736,7 @@ foreach (`$candidate in @(
     (Join-Path `$env:USERPROFILE 'my-memory'),
     (Join-Path `$env:USERPROFILE '.cheap-mem'))) {
   if ([string]::IsNullOrWhiteSpace(`$candidate)) { continue }
-  if (Test-Path (Join-Path `$candidate '.mem\config.json')) { `$memRoot = `$candidate; break }
+  if (Test-Path -LiteralPath (Join-Path `$candidate '.mem\config.json')) { `$memRoot = `$candidate; break }
 }
 if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
@@ -784,7 +784,7 @@ foreach (`$candidate in @(
     (Join-Path `$env:USERPROFILE 'my-memory'),
     (Join-Path `$env:USERPROFILE '.cheap-mem'))) {
   if ([string]::IsNullOrWhiteSpace(`$candidate)) { continue }
-  if (Test-Path (Join-Path `$candidate '.mem\config.json')) { `$memRoot = `$candidate; break }
+  if (Test-Path -LiteralPath (Join-Path `$candidate '.mem\config.json')) { `$memRoot = `$candidate; break }
 }
 if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
@@ -832,7 +832,7 @@ foreach (`$candidate in @(
     (Join-Path `$env:USERPROFILE 'my-memory'),
     (Join-Path `$env:USERPROFILE '.cheap-mem'))) {
   if ([string]::IsNullOrWhiteSpace(`$candidate)) { continue }
-  if (Test-Path (Join-Path `$candidate '.mem\config.json')) { `$memRoot = `$candidate; break }
+  if (Test-Path -LiteralPath (Join-Path `$candidate '.mem\config.json')) { `$memRoot = `$candidate; break }
 }
 if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
@@ -881,7 +881,7 @@ foreach (`$candidate in @(
     (Join-Path `$env:USERPROFILE 'my-memory'),
     (Join-Path `$env:USERPROFILE '.cheap-mem'))) {
   if ([string]::IsNullOrWhiteSpace(`$candidate)) { continue }
-  if (Test-Path (Join-Path `$candidate '.mem\config.json')) { `$memRoot = `$candidate; break }
+  if (Test-Path -LiteralPath (Join-Path `$candidate '.mem\config.json')) { `$memRoot = `$candidate; break }
 }
 if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
@@ -930,7 +930,7 @@ foreach (`$candidate in @(
     (Join-Path `$env:USERPROFILE 'my-memory'),
     (Join-Path `$env:USERPROFILE '.cheap-mem'))) {
   if ([string]::IsNullOrWhiteSpace(`$candidate)) { continue }
-  if (Test-Path (Join-Path `$candidate '.mem\config.json')) { `$memRoot = `$candidate; break }
+  if (Test-Path -LiteralPath (Join-Path `$candidate '.mem\config.json')) { `$memRoot = `$candidate; break }
 }
 if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
@@ -965,7 +965,7 @@ if (-not `$subagent) {
 
   # Merge settings.json.
   $cfg = @{}
-  if (Test-Path $Settings) {
+  if (Test-Path -LiteralPath $Settings) {
     try {
       $cfg = Get-Content -LiteralPath $Settings -Raw | ConvertFrom-Json -AsHashtable
     } catch {
