@@ -302,7 +302,7 @@ const PATH_CMDLETS = [
 // Aliases count only where a command can stand (line start, after ; { ( | &), so a word in a string is not one.
 const PATH_ALIASES = ['ls', 'dir', 'gci', 'cat', 'gc', 'sc', 'ac', 'rm', 'ri', 'del', 'cp', 'copy', 'mv', 'move', 'sl', 'cd', 'pushd'];
 const PATH_CMD_RE = new RegExp(
-  `(?<![\\w$.:-])(${PATH_CMDLETS.join('|')})(?![\\w-])|(?:^|[;{(|&=]\\s*)(${PATH_ALIASES.join('|')})(?=\\s)`, 'gi');
+  `(?<![\\w$.:-])(${PATH_CMDLETS.join('|')})(?![\\w-])|(?:^\\s*|[;{(|&=]\\s*)(${PATH_ALIASES.join('|')})(?=\\s)`, 'gi');
 // Cmdlets deliberately NOT in the list: New-Item (and `md`/`mkdir`) have no -LiteralPath and take -Path as it
 // is - "Accept wildcard characters: False" in the cmdlet's own help; a directory is created, never searched for.
 // Allowed without -LiteralPath, each with its reason:
@@ -423,6 +423,7 @@ test('POSITIVE CONTROL: the path-cmdlet detector fires on every bare shape and s
     'if ((Test-Path -LiteralPath $a) -and (Test-Path $b)) { }',
     '$x = gc $p',
     'ls $dir',
+    '      sl $root',
     'foreach ($f in (Get-ChildItem $dir)) { }',
   ];
   for (const l of bad) assert.notEqual(pathCallProblems(l).length, 0, `not flagged: ${l}`);
