@@ -278,13 +278,55 @@ export function writeIndexCache(cacheDir, { version, language, files, fullAt, in
       renameWithRetry(tmpDir, cacheDir);
     } catch (err) {
       // Put the old cache back rather than leave neither in place.
-      if (staleDir) { try { renameWithRetry(staleDir, cacheDir); } catch { /* best effort */ } }
+      if (staleDir) {
+        try { renameWithRetry(staleDir, cacheDir); } catch {
+          // Two writers at once: the other one landed its cache in the gap between our two renames, so the old one
+          // cannot go back (the directory is not empty). Ours is then the only copy of a cache nobody wants, and
+          // it stays beside the cache for ever unless we remove it here (measured with the probe in
+          // test/index-snapshot-cm.test.mjs: one full old cache left per lost race).
+          if (fs.existsSync(path.join(cacheDir, 'manifest.json'))) {
+            try { fs.rmSync(staleDir, { recursive: true, force: true }); } catch { /* the sweep below the next swap gets it */ }
+          }
+        }
+      }
       throw err;
     }
     if (staleDir) { try { fs.rmSync(staleDir, { recursive: true, force: true }); } catch { /* fine */ } }
+    sweepStaleLeftovers(cacheDir);
   } catch {
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* nothing to clean */ }
   }
+}
+
+/**
+ * How old a `<cache>.stale.<pid>.<random>` directory has to be before the next swap removes it: ten minutes.
+ *
+ * A writer parks the old cache under that name for the length of two renames and one `rmSync`; a name still there after
+ * minutes belongs to a writer that died in between (killed, power) and nobody will ever look at it again. The age is the
+ * directory's CHANGE time (`ctimeMs`), not its modification time: the modification time of a parked cache is the day it
+ * was written, however fresh the parking is, while a rename touches the change time. Only this cache's own siblings are
+ * looked at (same name up to `.stale.`), and a failure to remove one is never an error. Removing a parked cache that a
+ * live writer still wants is harmless as well: its put-back then fails and the next load rebuilds.
+ */
+export const STALE_LEFTOVER_MS = 10 * 60 * 1000;
+
+/** Remove this cache's `.stale.*` siblings older than `STALE_LEFTOVER_MS`; returns how many went. Never throws. */
+export function sweepStaleLeftovers(cacheDir, { now = Date.now(), olderThanMs = STALE_LEFTOVER_MS } = {}) {
+  let removed = 0;
+  try {
+    const dir = path.dirname(cacheDir);
+    const prefix = `${path.basename(cacheDir)}.stale.`;
+    for (const name of fs.readdirSync(dir)) {
+      if (!name.startsWith(prefix) || !/^\d+\.[0-9a-z]+$/.test(name.slice(prefix.length))) continue;
+      const full = path.join(dir, name);
+      try {
+        if (now - fs.statSync(full).ctimeMs < olderThanMs) continue;
+        fs.rmSync(full, { recursive: true, force: true });
+        removed += 1;
+      } catch { /* gone already, or not ours to remove: leave it */ }
+    }
+  } catch { /* a directory that cannot be listed has nothing for us */ }
+  return removed;
 }
 
 /**

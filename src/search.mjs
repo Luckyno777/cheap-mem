@@ -855,7 +855,7 @@ export function fullBuildCount() { return fullBuilds; }
  * already read — but which pack actually tokenises a given document is
  * now decided PER DOCUMENT, by `detectEntryLanguage` below.
  */
-export function buildIndex(root, { types = null, language = 'en' } = {}) {
+export function buildIndex(root, { types = null, language = 'en', snapshot = null } = {}) {
   fullBuilds += 1;
   const lang = pack(language);
   const targetTypes = types ?? memory.SEARCH_TYPES;
@@ -880,7 +880,10 @@ export function buildIndex(root, { types = null, language = 'en' } = {}) {
         }
         continue;
       }
-      const lines = memory.withoutBom(fs.readFileSync(p, 'utf8')).split('\n');
+      // The bytes of ONE read; with a `snapshot` the state of this file is taken from them (see `snapshotOfBytes`).
+      const bytes = fs.readFileSync(p);
+      if (snapshot) snapshot.logs.set(memory.asSource(root, p), { ...snapshotOfBytes(bytes), type, project });
+      const lines = memory.withoutBom(bytes.toString('utf8')).split('\n');
       for (let i = 0; i < lines.length; i += 1) {
         if (!lines[i].trim()) continue;
         // Unreadable OR wrongly shaped (an object in a text field) stays out of the index: the doctor reports it.
@@ -986,7 +989,13 @@ export function buildIndex(root, { types = null, language = 'en' } = {}) {
   // quiet. This is the number to ask for first.
   profile.measure('index', 'raw', () => {
     let n = 0;
-    for (const doc of rawDocuments(root, lexicons)) { addDoc(doc); n += 1; }
+    // With a snapshot the list is taken HERE, once, and the state records exactly the captures this build read.
+    let listed = null;
+    if (snapshot) {
+      try { listed = raw.listCaptures(root); } catch { listed = []; }
+      snapshot.captures = new Set(listed);
+    }
+    for (const doc of rawDocuments(root, lexicons, listed)) { addDoc(doc); n += 1; }
     return n;
   }, { count: (n) => n });
 
@@ -2193,6 +2202,11 @@ function tailHash(file, upto) {
     fd = fs.openSync(file, 'r');
     fs.readSync(fd, buf, 0, len, from);
   } catch { return null; } finally { if (fd !== undefined) try { fs.closeSync(fd); } catch { /* fine */ } }
+  return tailHashOfBytes(buf);
+}
+
+/** The tail hash of the last bytes of a range (`tailHash` reads them from the file, the snapshot has them in memory). */
+function tailHashOfBytes(buf) {
   // FNV-1a: no dependency, and collisions here cost a needless rebuild,
   // never a wrong answer.
   let h = 0x811c9dc5;
@@ -2200,7 +2214,7 @@ function tailHash(file, upto) {
     h ^= buf[i];
     h = Math.imul(h, 0x01000193) >>> 0;
   }
-  return `${len}:${h.toString(36)}`;
+  return `${buf.length}:${h.toString(36)}`;
 }
 
 /**
@@ -2235,6 +2249,27 @@ export function fullHash(file, upto) {
     }
   } catch { return null; } finally { if (fd !== undefined) try { fs.closeSync(fd); } catch { /* fine */ } }
   return `${upto}:${h.digest('hex').slice(0, 32)}`;
+}
+
+/**
+ * What the state records about a log file, derived from the bytes one read returned and from nothing else: size, lines, the
+ * tail hash and the whole-range hash (`tailHash` / `fullHash` over the same bytes). Index-snapshot-cm (2026-10-17): the full
+ * build used to stat the files BEFORE it read them and count lines, tail and hash AFTER, from the file as it was by then;
+ * an entry written in between was in the index and not in the recorded size (indexed twice by the next append), and the
+ * lines of later entries were off by the lines in between.
+ */
+function snapshotOfBytes(buf) {
+  let lines = 0;
+  if (buf.length) {
+    for (let at = buf.indexOf(10); at !== -1; at = buf.indexOf(10, at + 1)) lines += 1;
+    if (buf[buf.length - 1] !== 10) lines += 1;
+  }
+  return {
+    bytes: buf.length,
+    lines,
+    tail: buf.length ? tailHashOfBytes(buf.subarray(Math.max(0, buf.length - TAIL_BYTES))) : '0',
+    full: buf.length ? `${buf.length}:${createHash('sha256').update(buf).digest('hex').slice(0, 32)}` : '0',
+  };
 }
 
 /** Every file the index is built from, with its current size. */
@@ -3084,13 +3119,19 @@ export function rebuildIndexCache(root, { language = 'en' } = {}) {
  * wrong for a rebuild whose only job is the cache. Read it back whole (every shard against its hash) and throw if it is not the
  * build that was just made: the child then books a failure and the backoff holds in.
  */
-export function assertCacheLanded(root, language, fullAt) {
-  const res = indexcache.readIndexCache(path.join(root, CACHE_DIR + expand.cacheSuffix()), {
+export function assertCacheLanded(root, language, fullAt, { pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) } = {}) {
+  const read = () => indexcache.readIndexCache(path.join(root, CACHE_DIR + expand.cacheSuffix()), {
     expectedVersion: CACHE_VERSION,
     expectedLanguage: pack(language).name,
   });
+  // A second builder may have swapped its own, valid cache in between our write and this read: a cache of a LATER or equal
+  // build is as good as ours (`<`, not `!==`), and one read can fall into the gap of that swap (no manifest, a torn
+  // shard). So a first miss is looked at once more after a short wait before it counts as a failure; otherwise the
+  // child books a failure and the backoff holds in for a cache that is in fact there.
+  let res = read();
+  if (!res.ok || !(res.fullAt >= fullAt)) { pause(50); res = read(); }
   if (!res.ok) throw new Error(`the rebuilt search index did not land in the cache (${res.reason})`);
-  if (res.fullAt !== fullAt) throw new Error(`the cache holds a build of ${res.fullAt} documents, not the ${fullAt} just made`);
+  if (!(res.fullAt >= fullAt)) throw new Error(`the cache holds a build of ${res.fullAt} documents, not the ${fullAt} just made`);
 }
 
 function loadIndexCached(root, { fresh = false, language = 'en', wantState = false, derivedState = null, allowStale = false } = {}) {
@@ -3123,25 +3164,56 @@ function loadIndexCached(root, { fresh = false, language = 'en', wantState = fal
   // unpacked from the cache against what the cache itself claims they
   // should add up to.
   const now = indexedFiles(root);
-  const stateOf = (files, lines, docCounts) => {
+  const stateOf = (files, lines, docCounts, snap = null) => {
     const out = {};
     for (const [rel, info] of files) {
+      const taken = snap?.logs.get(rel) ?? null;
       out[rel] = {
-        bytes: info.bytes,
-        mtimeMs: info.mtimeMs,
-        ctimeMs: info.ctimeMs,
+        bytes: taken ? taken.bytes : info.bytes,
+        ...(taken ? settledTimes(rel, info, taken.bytes) : { mtimeMs: info.mtimeMs, ctimeMs: info.ctimeMs }),
         kind: info.kind,
         type: info.type,
         project: info.project,
-        lines: lines ? (lines.get(rel) ?? 0) : countLines(root, rel),
-        tail: tailHash(piecePath(root, rel), info.bytes),
+        lines: taken ? taken.lines : lines ? (lines.get(rel) ?? 0) : countLines(root, rel),
+        tail: taken ? taken.tail : tailHash(piecePath(root, rel), info.bytes),
         // O3: whole-file hash, the only way to prove on growth that
         // nothing further up was rewritten (see fullHash).
-        full: info.kind === 'log' ? fullHash(piecePath(root, rel), info.bytes) : null,
+        full: taken ? taken.full : info.kind === 'log' ? fullHash(piecePath(root, rel), info.bytes) : null,
+        docs: docCounts ? (docCounts.get(rel) ?? 0) : 0,
+      };
+    }
+    // What the build read and the stat before it did not list: a log written for the first time, or a capture that
+    // landed, while the build ran. Without them here the next load would read them again as new (every document twice).
+    for (const [rel, taken] of snap?.logs ?? []) {
+      if (out[rel]) continue;
+      const st = statOrNull(rel);
+      out[rel] = {
+        bytes: taken.bytes, mtimeMs: st?.mtimeMs ?? null, ctimeMs: st?.ctimeMs ?? null, kind: 'log', type: taken.type,
+        project: taken.project, lines: taken.lines, tail: taken.tail, full: taken.full,
+        docs: docCounts ? (docCounts.get(rel) ?? 0) : 0,
+      };
+    }
+    for (const rel of snap?.captures ?? []) {
+      if (out[rel]) continue;
+      const st = statOrNull(rel);
+      if (!st) continue;
+      out[rel] = {
+        bytes: st.size, mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs, kind: 'raw', type: undefined, project: undefined,
+        lines: countLines(root, rel), tail: tailHash(piecePath(root, rel), st.size), full: null,
         docs: docCounts ? (docCounts.get(rel) ?? 0) : 0,
       };
     }
     return out;
+  };
+  const statOrNull = (rel) => { try { return fs.statSync(piecePath(root, rel)); } catch { return null; } };
+  // The times that go with a size the build READ: those of the file as it stands when it still has that size (an append
+  // between the read and now would otherwise make the very next load see a different time at an equal size and rebuild
+  // for nothing), else the ones from the stat before the read (older, so a doubt costs a rebuild, never a wrong answer).
+  const settledTimes = (rel, before, bytesRead) => {
+    const st = statOrNull(rel);
+    return st && st.size === bytesRead
+      ? { mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs }
+      : { mtimeMs: before.mtimeMs, ctimeMs: before.ctimeMs };
   };
 
   // **`cacheStatus`, distinct from `fromCache`.** `fromCache` (returned
@@ -3269,7 +3341,9 @@ function loadIndexCached(root, { fresh = false, language = 'en', wantState = fal
   // `memory.retiredMap` to exactly those entries. Re-deriving the same
   // answer from the same file would be the second reading of one truth,
   // and it would cost every cold start a log re-read for nothing.
-  const index = buildIndex(root, { language });
+  // The state is taken from the bytes THIS build read (`snapshotOfBytes`), not from a stat before and a second read after.
+  const snapshot = { logs: new Map(), captures: null };
+  const index = buildIndex(root, { language, snapshot });
   // **Migration (decided, not defaulted): discard, never convert-in-place.**
   // A pre-B8 single-file cache at `legacyCachePath` is never read by the
   // code above — different path (`CACHE_DIR` vs. `CACHE_FILE`), different
@@ -3287,7 +3361,7 @@ function loadIndexCached(root, { fresh = false, language = 'en', wantState = fal
   // present — is the "half old, half new" shape this round was told to
   // rule out, so it does not get to exist even briefly on disk.
   try { fs.rmSync(legacyCachePath, { force: true }); } catch { /* nothing to remove */ }
-  const builtFiles = stateOf(now, null, sourceDocCounts(index.documents));
+  const builtFiles = stateOf(now, null, sourceDocCounts(index.documents), snapshot);
   writeCache(index, builtFiles, index.N);
   return {
     ...index, fromCache: false, appended: 0, graphsStale: false, cacheStatus,
