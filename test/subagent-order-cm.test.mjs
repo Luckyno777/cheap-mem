@@ -30,7 +30,6 @@ const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MEM = path.join(REPO, 'bin', 'mem');
 // The fixed old commit (tip of agent/k1-teilwort-cm): the card was allocated before the procedures. Never a merge-base.
 const BASE = '71be9cfe0a269932fd1c51bd889f5ea378b745ad';
-const bytes = (s) => Buffer.byteLength(String(s ?? ''), 'utf8');
 const plain = (s) => s;
 
 // --- A. the selection ------------------------------------------------------------------------------------------
