@@ -79,13 +79,18 @@ test('THE CASE: no command is a bare script path', () => {
 
 test('a path with a space is quoted', () => {
   // `C:\Program Files\Git\bin\bash.exe` is the normal case on Windows.
+  // The form depends on the platform's path, on purpose (#42): a Windows path
+  // (drive letter) keeps double quotes, a POSIX path goes into single quotes,
+  // the only quoting in which `$` and a backtick stay literal.
+  // test/installer-command-quoting.test.mjs holds the full table.
   const { tmp, cfg } = install({ homeName: 'claude home' });
   try {
     for (const cmd of commands(cfg)) {
-      const parts = cmd.match(/"[^"]*"|\S+/g) ?? [];
+      const parts = cmd.match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
       assert.equal(parts.length, 2, `not exactly two parts: ${cmd}`);
-      assert.ok(parts[1].startsWith('"') && parts[1].endsWith('"'),
-        `path with a space is unquoted: ${cmd}`);
+      const quote = /^[A-Za-z]:/.test(parts[1].replace(/^['"]/, '')) ? '"' : "'";
+      assert.ok(parts[1].startsWith(quote) && parts[1].endsWith(quote),
+        `path with a space is unquoted or in the wrong quotes: ${cmd}`);
     }
   } finally { wipe(tmp); }
 });
