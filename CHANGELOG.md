@@ -14,6 +14,45 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Fixed - CI run 1103: macOS and Windows red, the guarantees job cancelled - entry points under a symlinked path, per-run folders left behind, an 8-minute mutant
+
+- **macOS: no unattended model session started from a copy of the tool under a symlinked path.** `src/headless.mjs` and
+  `bin/mem-mask-copy.mjs` decided "am I the program" by comparing `import.meta.url` (the real path) with `argv[1]` (the path
+  as typed) as text. Under a symlinked parent - every macOS temp dir, `/var` -> `/private/var` - the starter printed nothing,
+  and the digest, the mail handler and the reflector refused (`REFUSED - no safe way to start the model session`); the
+  reflector also found no masked copy. Both now use `src/ismain.mjs` (real paths on both sides, already used by eight entry
+  points). `test/ismain-symlink-entry.test.mjs` starts both through a symlink (a junction on Windows) and holds every
+  file in `bin/` and `src/` that reads `process.argv[1]` and `import.meta.url` or `import.meta.filename` to calling
+  `isMain(` (per file, so a two-line test, `import.meta.url.endsWith(...)` and `import.meta.filename` are seen; one
+  reasoned exception, `src/timetrack.mjs`, whose `node -e` child takes argv[1] as data); red on `9a10bf6`, reproduced on
+  Linux with a symlinked `TMPDIR` (`test/f2-audit.test.mjs` #10 and both red proofs of `test/headless-start.test.mjs`).
+  Known gap, deliberately not touched: dev scripts under `bench/` (docs-images, scale-gate, gold-compare, heaps-corpus,
+  field-without-writer, `bench/mutation.mjs` itself) still compare argv[1] with their own path as text and do nothing
+  when started through a symlinked directory.
+- **Windows: the per-run neutral folder of the mail handler and the reflector stayed in the temp directory.** Both `cd` into
+  it to start the model and then removed it from inside; Windows does not remove a process's working directory.
+  `mem_headless_cleanup` (`bin/_portable.sh`) and `Remove-HeadlessDir` (`bin/_headless.ps1`) step out to its parent first.
+  `test/headless-cleanup-cwd.test.mjs`, red on `9a10bf6`.
+- **Windows: `install/support/tool-missing.sh` passed over a Windows-spelled `XDG_STATE_HOME`** (Git Bash converts only
+  PATH, HOME and the temp variables) and put its marker in `~/.local/state`. Under Git Bash `C:\x` / `C:/x` is absolute now;
+  elsewhere it stays refused. `test/tool-missing-state-win.test.mjs` (a `uname` stand-in on Linux, the real Git Bash on Windows).
+- **The guarantees job hit its 25-minute limit.** The mutant "deferred parts: a newer round leaves the old retry waiting" was
+  checked only by a browser probe; the job has no Chromium, the probe skipped, and the harness re-ran the whole suite for it
+  (8 minutes). `test/dash-later-once-cm.test.mjs` holds the same guarantee on the cut-out functions, without a browser (red on
+  `dc6b69d` and on the mutant). Six new mutants in `bench/mutation.mjs`, all caught.
+- **Probes that asked the wrong place.** `test/headless-start.test.mjs` planted the neutral folder under `~/.cache` on every
+  platform (macOS reads `Library/Caches`, Windows `LOCALAPPDATA`), compared paths with the JS realpath that keeps the 8.3
+  short name of the Windows temp dir (`RUNNER~1`, while a started process reports `runneradmin`), and ran its first-version
+  red proof from a symlinked temp dir, where the old starter failed for the reason fixed above. `test/own-tool.test.mjs`
+  expected the memory's rules in the short spelling (the installer resolves with `pwd -W`: the long form).
+  `test/hook-spaces.test.mjs` hands HOME and USERPROFILE together, in the Windows spelling, as its end-to-end probe does.
+- Open: the Windows PowerShell 5.1 runs of the `.ps1` hooks still answer with nothing (`before-edit-twin` PLATFORM, `windows.ps1:
+  the installed .ps1 hooks ... deliver`). The core receives no readable hook JSON; the trace now says how many bytes reached
+  the core and whether they parse (in the twin's ASCII mode only, by size, error NAME and position - never the parser's
+  message, which quotes the first characters of the input; `test/before-edit-trace-noleak.test.mjs` plants a key
+  prefix built at run time, red on the first form of this diagnosis), the twin says how many characters it read from
+  stdin, and the installed-hooks probe shows stderr - the next Windows run says on which side of the pipe to node it is lost.
+
 ### Changed - the dashboard's card origin line names the author with name AND rank, in the words of `mem today`
 
 The origin line of a decision card ("Written by X · tier Y") now reads the card's `byline` (`src/decisioncard.mjs`) and says a rank the line does not carry the way `authority.rankWord` does:
