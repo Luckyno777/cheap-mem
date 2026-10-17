@@ -67,7 +67,6 @@ are the day the work landed on `main`.
   three states: ENOENT is a gap (zero, every platform), a refusal on Windows is counted, named and kept out of the read
   budget, anything else fails; the codes seen are in every message. D drives the classification on all three
   platforms. Not reproduced here: which code the 738 were, the next Windows run names.
-
 ### Fixed - CI run 1141: http-limits red on Node 20 and Node 22.23, the guarantees job cancelled after 25 minutes
 
 - **Node 22.23.3: "header lines: 300 lines -> the server reads at most maxHeadersCount".** From 22.23.2 on (CVE-2026-58044,
