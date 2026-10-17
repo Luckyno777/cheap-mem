@@ -14,6 +14,29 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Added - atlas gaps: A8, A9, H11, A14 in `bridge`, E1 to E3 and the duties in `silent-errors`, each record with a mutant at its shared source (atlas-luecken-cm)
+
+Plan step 3 (T3, part 3). Measures what the sister house measures and these two phases had named as blind spots. No source of `src/` or `bin/` changed; a red record is a finding.
+- **`bridge`: 22 new records (79 -> 101 in the quick run, about 11 s).** `bench/atlas/bridge-gaps.mjs`, four groups, each on a root of its own with a positive control.
+  A8 `sdk` (2): the peer range of the SDK has a floor equal to the dev range and not above the locked version; the installed SDK is inside it.
+  A9 `bidi` (6): the nine Trojan Source controls are masked in `mem_find`, `mem_show`, `mem_context` and `mem_retrieve`, in text and in `structuredContent`
+  (0 raw controls, `mem_show` equal to the expected mask), also on the road write over `mem_log` then read; each of the nine alone; Arabic, Hebrew, umlauts and the
+  two direction marks arrive unchanged. H11 `card` (7): both roads (`mem_card_add`, `mem_log` type card) accept a card exactly at every limit and refuse one over
+  it, naming the limit (14 of 14, 0 rows); 13 wrong shapes refused with the reason; a claimed tier `user` is stored as `agent`, forged rank fields are refused, a
+  person's card stays the one that counts; the person rule in stage 1 (taken in and named) and stage 2 (`CHEAP_MEM_CARD_REJECT=yes`, refused). A14 `http-token` (7):
+  real `bin/mem-mcp --http` and `bin/mem-serve` processes: 4 allowed starts up, 7 refused starts exit 1 naming the variable, 8 bad requests 401 with a Bearer challenge
+  and 0 rows, the loopback switch turns away four proxy headers, a foreign Host and a foreign Origin, the HTTP default has no write tool, the dashboard starts with its
+  login (decision 2hhdn4aug8uk) and the bridge never does. The blind spot "the bridge over HTTP and with a token" is gone; narrower ones took its place.
+- **`silent-errors`: 20 new records (31 -> 51, about 7 s).** `bench/atlas/silent-errors-gaps.mjs`: E1 the visibility journal in five read states and a bridge that
+  keeps answering when it cannot be read (3); E2 `mem doctor` tells the five states of a drawer apart (5); E3 the block of a subagent says the lookup failed with a real
+  unreadable drawer, no injection (2); the duties surface over the CLI and the bridge in five states (10; broken and unreadable read `degraded`, like find and context: the
+  skipped line is not mentioned, the error does not name the file). E4 has nothing to measure: `src/today.mjs` lists its review part as not built (blind spot says so).
+- **Red proof.** `bench/atlas/gap-mutants.mjs`: 42 mutants at the shared source (the limits constant of the card rules, the nine-control mask, the one start rule of
+  `src/webauth.mjs`, the visibility reader, the doctor drawer check, the subagent notice). `test/atlas-gaps-mutants-cm.test.mjs` applies each to a scratch copy and requires the
+  listed records red, the controls green, the dependents of a fallen control `not-measured`, and that every new record has a mutant. A guarantee with two layers (the
+  visibility journal) is removed in both. 41 mutants (one edit) are also in the catalogue of `bench/mutation.mjs`. Live suites: `test/atlas-gaps-{bridge,http,silent}-cm.test.mjs`.
+- `bench/atlas/bridge-client.mjs` `openBridge` takes the code tree (`tree`), `surfacesGroup` is exported and takes it too. `docs/benchmark-atlas.md` has the section.
+
 ### Added - atlas frame: four named phases (stubs) and one id per phase in both houses (atlas-rahmen-cm)
 
 Plan step 3 (T3, part 1). No measuring run; the stubs measure nothing.

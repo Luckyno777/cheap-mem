@@ -122,10 +122,17 @@ test('bridge (quick): every door has its records, every control holds, nothing i
     for (const klass of Object.keys(bridge.FIELD_CLASSES)) must.push(`bridge.fields.${type}.${klass}`);
   }
   for (const type of bridge.REFUSED_TYPES) must.push(`bridge.fields.${type}.refused-type`);
+  // The gap groups (atlas-luecken-cm): A8 sdk, A9 bidi, H11 card, A14 http-token. Their own suites are test/atlas-gaps-*-cm.test.mjs.
+  must.push('bridge.sdk.range', 'bridge.sdk.installed',
+    'bridge.bidi.world', 'bridge.bidi.exits', 'bridge.bidi.structured', 'bridge.bidi.roundtrip', 'bridge.bidi.all-nine', 'bridge.bidi.clean',
+    'bridge.card.control', 'bridge.card.limits-edge', 'bridge.card.limits', 'bridge.card.shape', 'bridge.card.rank', 'bridge.card.person-stage1', 'bridge.card.person-stage2',
+    'bridge.http-token.start-control', 'bridge.http-token.start-refused', 'bridge.http-token.accepted', 'bridge.http-token.rejected',
+    'bridge.http-token.local-switch', 'bridge.http-token.read-only-default', 'bridge.http-token.dashboard');
   for (const id of must) assert.ok(ids.has(id), `missing record ${id}`);
   assert.equal(recs.length, must.length, `unexpected records: ${recs.filter((r) => !must.includes(r.id)).map((r) => r.id).join(', ')}`);
   // The controls hold: otherwise the refusals below them would say nothing.
   for (const r of recs.filter((x) => /\.control(-cli-claim)?$/.test(x.id))) assert.equal(r.verdict, VERDICT.PASS, `${r.id}: ${r.actual}`);
+  for (const id of ['bridge.bidi.world', 'bridge.card.control', 'bridge.http-token.start-control', 'bridge.http-token.accepted']) assert.equal(ids.get(id).verdict, VERDICT.PASS, `${id}: ${ids.get(id).actual}`);
   // With the controls holding, a refusal record is a pass or a fail, never not-measured.
   for (const r of recs) assert.notEqual(r.verdict, VERDICT.NOT_MEASURED, `${r.id}: ${r.evidence}`);
   // The counters are there: refused of asked per type and class, never a time.
@@ -152,11 +159,18 @@ test('silent-errors (quick): every state on every surface has a record, E1 and E
   for (const surface of ['cli-find', 'cli-context', 'bridge-find', 'bridge-context']) for (const s of silent.STATES) must.push(`silent-errors.${surface}.${s}`);
   must.push('silent-errors.visibility.ok', 'silent-errors.visibility.broken', 'silent-errors.visibility.unreadable',
     'silent-errors.task-lane.control', 'silent-errors.task-lane.nothing-found', 'silent-errors.task-lane.failed-lane');
+  // The duties are a surface of their own (what is still owed), and the gap groups (atlas-luecken-cm): E1 states and bridge, E2 doctor, E3 real lane.
+  for (const surface of ['cli-duties', 'bridge-duties']) for (const s of silent.STATES) must.push(`silent-errors.${surface}.${s}`);
+  must.push('silent-errors.visibility.states', 'silent-errors.visibility.bridge-control', 'silent-errors.visibility.bridge-unreadable',
+    'silent-errors.task-lane.real-control', 'silent-errors.task-lane.real-unreadable');
+  for (const s of silent.STATES) must.push(`silent-errors.doctor.${s}`);
   for (const id of must) assert.ok(ids.has(id), `missing record ${id}`);
   assert.equal(recs.length, must.length, `unexpected records: ${recs.filter((r) => !must.includes(r.id)).map((r) => r.id).join(', ')}`);
   // The controls hold, so no state record is not-measured for a harness reason.
   for (const id of ['silent-errors.readlog.ok', 'silent-errors.cli-find.ok', 'silent-errors.cli-context.ok', 'silent-errors.bridge-find.ok',
-    'silent-errors.bridge-context.ok', 'silent-errors.visibility.ok', 'silent-errors.task-lane.control', 'silent-errors.task-lane.nothing-found']) {
+    'silent-errors.bridge-context.ok', 'silent-errors.cli-duties.ok', 'silent-errors.bridge-duties.ok', 'silent-errors.visibility.ok',
+    'silent-errors.task-lane.control', 'silent-errors.task-lane.nothing-found', 'silent-errors.doctor.ok', 'silent-errors.task-lane.real-control',
+    'silent-errors.visibility.bridge-control']) {
     assert.equal(ids.get(id).verdict, VERDICT.PASS, `${id}: ${ids.get(id).actual}`);
   }
   for (const r of recs) assert.notEqual(r.verdict, VERDICT.NOT_MEASURED, `${r.id}: ${r.evidence}`);
@@ -169,6 +183,7 @@ test('silent-errors (quick): every state on every surface has a record, E1 and E
     if (r.verdict === VERDICT.FAIL) assert.match(r.evidence, /src\/(mcpvisibility|subagenttask)\.mjs:\d+/, `${id}: the evidence does not point to the source line`);
   }
   assert.ok(atlas.blindSpots.some((b) => /E2/.test(b.what)) && atlas.blindSpots.some((b) => /E4/.test(b.what)), 'E2 and E4 are named as not asked');
+  assert.match(atlas.blindSpots.find((b) => /E4/.test(b.what)).why, /NOT BUILT/, 'E4 says why there is nothing to measure');
 });
 
 test('the atlas runner knows both phases', () => {

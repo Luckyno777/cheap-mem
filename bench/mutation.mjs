@@ -23,6 +23,7 @@ import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { catalogue as atlasGapCatalogue } from './atlas/gap-mutants.mjs';
 const ROOT=path.resolve(fileURLToPath(new URL('.', import.meta.url)), '..');
 
 export const MUTANTS=[
@@ -2302,6 +2303,13 @@ export const MUTANTS=[
    to:'try { if ([Console]::InputEncoding.CodePage -eq 1252 -and',
    tests:['test/hook-stdin-bom.test.mjs'] },
 ];
+
+// The records the atlas gap groups added (atlas-luecken-cm, 2026-10-17): the mutants with ONE edit, from the table
+// `bench/atlas/gap-mutants.mjs` (the one source of the mutants and of the records each must turn red). Each is held by a
+// live suite: test/atlas-gaps-{bridge,http,silent}-cm.test.mjs ask the gap groups of the phases `bridge` and
+// `silent-errors` of the unmutated tree and require every record to pass. A mutant with two edits (a guarantee with a second
+// layer behind it) is proven only by test/atlas-gaps-mutants-cm.test.mjs, which applies both in a scratch copy.
+MUTANTS.push(...atlasGapCatalogue());
 
 // The modules whose failure is a security or data-integrity failure. The
 // measure that matters is "mutants caught per module here", not "share of

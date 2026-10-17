@@ -46,10 +46,13 @@ const textOfResult = (r) => (r?.content ?? []).map((c) => c.text ?? '').join('\n
 
 /**
  * Connect to a fresh `bin/mem-mcp` that serves `root`.
+ * `tree` is the code tree whose `bin/mem-mcp` is started (default: this repository). A phase group takes it as a
+ * parameter so the same measurement can be pointed at a scratch copy with one guarantee removed (test/atlas-gaps-cm.test.mjs).
  * @returns {Promise<{ call: Function, tools: Function, close: Function }>}
  */
-export async function openBridge(root, { env = {} } = {}) {
-  const transport = new StdioClientTransport({ command: process.execPath, args: [MCP], env: bridgeEnv(root, env), stderr: 'pipe' });
+export async function openBridge(root, { env = {}, tree = REPO } = {}) {
+  const mcp = tree === REPO ? MCP : path.join(tree, 'bin', 'mem-mcp');
+  const transport = new StdioClientTransport({ command: process.execPath, args: [mcp], env: bridgeEnv(root, env), stderr: 'pipe' });
   const client = new Client({ name: 'atlas-probe', version: '1' });
   await client.connect(transport);
   return {
