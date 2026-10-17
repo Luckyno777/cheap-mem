@@ -54,7 +54,7 @@ if ($StdinJson) {
 }
 
 if (-not $Transcript) { exit 0 }
-if (-not (Test-Path $Transcript)) { exit 0 }
+if (-not (Test-Path -LiteralPath $Transcript)) { exit 0 }
 
 $MinBytes = if ($env:MEM_CAPTURE_MIN) { $env:MEM_CAPTURE_MIN } else { '4096' }
 
