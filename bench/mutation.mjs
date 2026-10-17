@@ -1618,6 +1618,23 @@ export const MUTANTS=[
    from:"  'Bash(*CHEAP_MEM_PROVISION*)',\n",
    to:"  // MUTANT\n",
    tests:['test/own-tool.test.mjs'] },
+
+// help-after-bool-cm: `-h` after a yes/no switch is a help request, test/bool-switch-help.test.mjs
+ { name:"HELP-BOOL the parser gives -h to a listed yes/no switch again",
+   file:"src/cli/shell.mjs",
+   from:" && !(next === '-h' && BOOL_SWITCHES.has(key))",
+   to:"  // MUTANT: the register is not asked",
+   tests:['test/bool-switch-help.test.mjs'] },
+ { name:"HELP-BOOL `sync` (appointment tick) is not in the register",
+   file:"src/cli/shell.mjs",
+   from:"'suggested', 'sync', 'table'",
+   to:"'suggested', 'table'  /* MUTANT */",
+   tests:['test/bool-switch-help.test.mjs'] },
+ { name:"HELP-BOOL `readonly` (serve) is not in the register",
+   file:"src/cli/shell.mjs",
+   from:"'dry-run', 'readonly', 'allow-writes'",
+   to:"'dry-run', 'allow-writes'  /* MUTANT */",
+   tests:['test/bool-switch-help.test.mjs'] },
 ];
 
 // The modules whose failure is a security or data-integrity failure. The

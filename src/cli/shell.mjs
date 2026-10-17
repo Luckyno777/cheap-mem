@@ -46,9 +46,9 @@ const SWITCH_FIELDS = frozenSet(['shred', 'automatic', 'without-scaffold', 'no-b
  * never takes `-h` as its value; `-h` stays a help request, as everywhere else.
  *
  * **What is listed.** Names that are switches in EVERY command that knows them (read as `Boolean(args.x)` / `if (args.x)`,
- * never through `textFlag` / `numberFlag` / `String(args.x)`): test/bool-switches.test.mjs holds that against the source.
+ * never through `textFlag` / `numberFlag` / `String(args.x)`): test/bool-switch-help.test.mjs holds that against the source.
  * Left out on purpose: `quiet` (a switch in `doctor`, a number of minutes in `digest due`), `human` (a switch OR a name in
- * `init`), and every name that is a value switch somewhere. A value switch keeps its old reading (`--text -h` still writes
+ * `init`; so `doctor --quiet -h` runs the doctor), and every name that is a value switch somewhere. A value switch keeps its old reading (`--text -h` still writes
  * the text "-h"; `--top 5`, `--root x` are untouched).
  *
  * **What is NOT changed.** Any other word after a switch is still taken as its value, as before: the handlers that refuse a

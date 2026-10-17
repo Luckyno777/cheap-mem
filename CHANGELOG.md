@@ -21,10 +21,10 @@ The parser reads `--key next` as "key is next" unless next starts with `--`, and
 or started the server) instead of showing help. The sibling case, a bare `-h`, was closed on 2026-10-13.
 - **One register, one place:** `BOOL_SWITCHES` in `src/cli/shell.mjs` (it takes in the `mem log` switches `shred`, `automatic`, `without-scaffold`, `no-broadcast`). The parser never gives `-h` to a listed name.
   Every other reading is as before: `--text -h` still writes the text "-h", `--top 5` and `--root x` are untouched, any other word after a switch is still its value (so `serve --allow-writes maybe` and
-  `--as-me <word>` are still refused, not silently dropped). `quiet` (a number in `digest due`) and `human` (a name in `init`) are left out on purpose.
-- **Guard:** `test/bool-switch-help.test.mjs` reads every (command, switch) pair out of the `checkFlags` declarations (131, plus 5 for `mem log`) and runs `<cmd> --<switch> -h` against an initialised scratch memory: help, exit 0,
+  `--as-me <word>` are still refused, not silently dropped). `quiet` (a number in `digest due`) and `human` (a name in `init`) are left out on purpose, so `mem doctor --quiet -h` still runs the doctor.
+- **Guard:** `test/bool-switch-help.test.mjs` reads every (command, switch) pair out of the `checkFlags` declarations (plus the `appointment` table and 5 for `mem log`) and runs `<cmd> --<switch> -h` against an initialised scratch memory: help, exit 0,
   memory and HOME byte-for-byte unchanged. Another test keeps the register honest against the source: no listed name is read as a text or number, and a switch that is only ever yes/no but is not listed is a failure.
-  Red on `9a10bf6` (the parser eats `-h`; with only that one parser line reverted, 58 of 136 pairs fail - a `serve --readonly -h` that never ends, refusals instead of help - and the scratch memory changes on top: `.mem/epoch.json`, `.agents/skills/mem/SKILL.md`, hooks).
+  Red on `9a10bf6` (the parser eats `-h`; with only that one parser line reverted, 58 of the 136 pairs of the first version fail - a `serve --readonly -h` that never ends, refusals instead of help - and the scratch memory changes on top: `.mem/epoch.json`, `.agents/skills/mem/SKILL.md`, hooks).
 
 ### Security - unattended model sessions no longer read a project's settings or `.mcp.json` (digest, mail handler, reflector)
 

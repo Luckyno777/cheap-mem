@@ -26,6 +26,7 @@ import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { oldModuleCopy } from './helpers/old-source-copy.mjs';
 import { BOOL_SWITCHES, parseArgs } from '../src/cli/shell.mjs';
+import { FLAGS as APPOINTMENT_FLAGS } from '../src/cli/appointments.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..');
@@ -178,6 +179,13 @@ async function declaredPairs() {
       }
     }
   }
+  // `mem appointment <sub>` declares its switches in a table (src/cli/appointments.mjs FLAGS), not through checkFlags.
+  for (const [sub, names] of Object.entries(APPOINTMENT_FLAGS)) {
+    for (const sw of names) {
+      const key = `appointment ${sub} --${sw}`;
+      if (BOOL_SWITCHES.has(sw) && !seen.has(key)) { seen.add(key); pairs.push({ words: ['appointment', sub], sw, key }); }
+    }
+  }
   return pairs;
 }
 
@@ -201,7 +209,7 @@ test('POSITIVE CONTROL: the probe sees a write, and the pair list is large and h
   assert.ok(pairs.length >= 60, `only ${pairs.length} pairs read out of the source: the reader is broken`);
   const keys = new Set(pairs.map((p) => p.key));
   for (const k of ['init --force', 'serve --readonly', 'epoch --force', 'raw delete --yes', 'suggest rules --write', 'find --literal',
-    'show --json', 'store list --all', 'inbox watch --skip-fetch', 'hooks install --pre-push', 'trust-own-tool --off']) {
+    'show --json', 'appointment tick --sync', 'appointment cap --proposals', 'store list --all', 'inbox watch --skip-fetch', 'hooks install --pre-push', 'trust-own-tool --off']) {
     assert.ok(keys.has(k), `the pair "${k}" was not read out of the source`);
   }
 });
