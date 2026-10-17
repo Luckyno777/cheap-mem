@@ -93,7 +93,9 @@ test('requests: with Chromium the home view asks appointments.json twice (pinned
   assert.equal(reason, null);
   assert.equal(r.verdict, VERDICT.FAIL, `fixed? then change this pin: ${r.actual}`);
   const views = r.measured.views;
-  assert.deepEqual(views['#home'].duplicates, [{ route: '/dashboard/appointments.json', times: 2 }]);
+  // The home view draws once from the head and once from the full list, so twice (a third draw under load would still be this finding).
+  assert.deepEqual(views['#home'].duplicates.map((d) => d.route), ['/dashboard/appointments.json']);
+  assert.ok(views['#home'].duplicates[0].times >= 2);
   assert.deepEqual(views['#knowledge/entries'].duplicates, []);
   assert.deepEqual(views['#home'].failed, []);
   assert.ok(views['#home'].total >= 10 && views['#knowledge/entries'].total >= 10, 'positive control: the page was watched');

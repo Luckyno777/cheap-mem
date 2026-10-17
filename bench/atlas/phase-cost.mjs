@@ -96,7 +96,7 @@ export const countedStarts = (rows) => (rows ?? []).filter((s) => !s.tagged);
 const short = (s, n = 200) => String(s ?? '').replace(/\s+/g, ' ').slice(0, n);
 const IDS = [
   'cli-start', 'hook.before-edit', 'hook.retrieve', 'hook.after-failure', 'hook.catch-fail', 'hook.subagent-start', 'hook.stop',
-  'retrieve-opens', 'doctor-probe', 'doctor-fs', 'today-journal',
+  'retrieve-opens', 'doctor-probe', 'doctor-fs', 'today-journal', 'today-probe',
 ];
 const TITLES = {
   'cli-start': 'A CLI start is one node process and loads at most one command group (TB4)',
@@ -110,6 +110,7 @@ const TITLES = {
   'doctor-probe': 'The doctor starts the concurrent-append probe only with --full (TB7)',
   'doctor-fs': 'The doctor makes no more file-system calls for more entries (TB2)',
   'today-journal': 'A `mem today` call reads each byte of the injection journal at most once (TB8)',
+  'today-probe': 'A `mem today` call starts no concurrent-append probe (TB7 holds for the doctor; the day card runs the doctor too)',
 };
 
 function rec(atlas, {
@@ -342,13 +343,15 @@ function journalWorld(lines) {
   return { root, bytes: fs.statSync(file).size };
 }
 
+/** Bytes of the injection journal one `mem today` call reads: the counter WATCHES that one file (the rest of what the call reads comes and goes). */
 function bytesRead(root) {
   const dir = tempRoot('atlas-cost-io-');
   const out = path.join(dir, 'io.txt');
   fs.writeFileSync(out, '');
-  const r = spawnSync(process.execPath, [`--import=${spec('io-counter.mjs', { root, out })}`, MEM, '--root', root, 'today'], { encoding: 'utf8', timeout: 120000, cwd: root, env: { ...process.env, CHEAP_MEM_ROOT: root } });
+  const watch = injection.JOURNAL_FILE.split(path.sep).join('/');
+  const r = spawnSync(process.execPath, [`--import=${spec('io-counter.mjs', { root, out, watch })}`, MEM, '--root', root, 'today'], { encoding: 'utf8', timeout: 120000, cwd: root, env: { ...process.env, CHEAP_MEM_ROOT: root } });
   const rows = readRows(out);
-  return { status: r.status, bytes: rows && rows.length ? rows[rows.length - 1].otherBytesRead : null };
+  return { status: r.status, bytes: rows && rows.length ? rows.reduce((n, x) => n + (x.watchedBytesRead ?? 0), 0) : null };
 }
 
 function todayGroup(atlas, quick) {
@@ -363,8 +366,24 @@ function todayGroup(atlas, quick) {
     id: 'today-journal', ok: ok0 && slope >= 0.9 && slope <= JOURNAL_READS + 0.05, severity: SEVERITY.MINOR,
     expected: `bytes read per journal byte, from the difference of two journals, between 0.9 (positive control: the journal is read at all) and ${JOURNAL_READS}`,
     actual: ok0 ? `${slope.toFixed(2)} bytes read per journal byte (journal ${lo.bytes} -> ${hi.bytes} bytes; read ${a.bytes} -> ${b.bytes} bytes)` : 'the counter wrote nothing or `mem today` failed',
-    evidence: `bench/atlas/io-counter.mjs (otherBytesRead) on \`mem today\`; the card reads the journal once itself (${where('src/today.mjs', 'injection.read(root)')}) and once more through the doctor it runs (${where('src/doctor.mjs', 'j = injection.read(root)')}), two whole reads of the same file (traced 2026-10-17). Two journals of different size, the same memory otherwise, so the constant part cancels`,
+    evidence: `bench/atlas/io-counter.mjs (watchedBytesRead: the counter watches the journal file) on \`mem today\`; the card reads the journal once itself (${where('src/today.mjs', 'injection.read(root)')}) and once more through the doctor it runs (${where('src/doctor.mjs', 'j = injection.read(root)')}), two whole reads of the same file (traced 2026-10-17). Two journals of different size, the same memory otherwise, so the constant part cancels`,
     measured: { journalLo: lo.bytes, journalHi: hi.bytes, readLo: a.bytes, readHi: b.bytes, slope: slope === null ? null : +slope.toFixed(3), limit: JOURNAL_READS },
+  });
+}
+
+/** The day card runs the doctor; the doctor's append probe (six writer threads) was limited to `--full` by TB7. Does the card respect that? */
+function todayProbe(atlas) {
+  const root = worldWith(50);
+  const args = [MEM, '--root', root, 'today'];
+  counted('calls', args, { root }); // the first call may write derived state
+  const { r, rows } = counted('calls', args, { root });
+  const t = total(rows);
+  rec(atlas, {
+    id: 'today-probe', ok: rows !== null && r.status === 0 && t.workers === 0, severity: SEVERITY.MINOR,
+    expected: 'exit 0 and 0 worker threads (the probe only with --full, as for `mem doctor`; control: doctor-probe sees the six writers with --full)',
+    actual: `exit ${r.status}, ${t.workers} worker thread(s)`,
+    evidence: `bench/atlas/call-counter.mjs wraps new Worker on a warm \`mem today\`; the card calls ${where('src/today.mjs', 'check = doctorMod.checkAll')}, and ${where('src/doctor.mjs', 'export function checkAll')} measures by default (\`full = true\`); it also writes a probe folder under the memory root on every call`,
+    measured: { workers: t.workers, status: r.status },
   });
 }
 
@@ -389,6 +408,7 @@ export async function run(atlas, opt = {}) {
   retrieveGroup(atlas);
   doctorGroup(atlas);
   todayGroup(atlas, quick);
+  todayProbe(atlas);
 
   atlas.blind('cost: the PowerShell twins', 'the PowerShell twins of the hooks (the .ps1 files in bin/) are not driven; their node starts are held by test/before-edit-twin.test.mjs for the before-edit hook only. The ratchets here are the bash hooks.');
   atlas.blind('cost: the ratchets are today\'s numbers', 'a start count that is far above what the work needs (the after-failure, prompt and stop hooks start four or five processes) passes while it does not grow; the phase says what is, not what could be.');

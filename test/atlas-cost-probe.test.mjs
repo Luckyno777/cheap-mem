@@ -4,11 +4,12 @@
 // counted (node starts per hook, modules per CLI start, opens per log, probe threads, stat calls,
 // journal bytes). The counters themselves are held by test/atlas-counters-probe.test.mjs.
 //
-// What it proves. The phase returns its eleven records with the four fields. On a platform with bash and
-// a time-cap program the ten ratchet and bound rows read `pass` and the eleventh, `cost.today-journal`,
-// reads `fail` — a FINDING, pinned here as it stands (`mem today` reads the injection journal twice per
-// call: 2.0 bytes per journal byte, once for the card, once through the doctor it runs). When that is
-// fixed the pin goes red on purpose: change the expectation to `pass` in the same commit as the fix.
+// What it proves. The phase returns its twelve records with the four fields. On a platform with bash and
+// a time-cap program the ten ratchet and bound rows read `pass`; `cost.today-journal` and `cost.today-probe`
+// read `fail` — two FINDINGS, pinned here as they stand (`mem today` reads the injection journal twice per
+// call: 2.0 bytes per journal byte, once for the card, once through the doctor it runs; and the doctor it runs
+// starts the six writer threads of the concurrent-append probe on every call). When one is fixed its pin goes
+// red on purpose: change the expectation to `pass` in the same commit as the fix.
 // Without bash or without a cap program the six hook rows are `not-measured` and name why (asserted,
 // not skipped).
 //
@@ -29,7 +30,7 @@ import * as phase from '../bench/atlas/phase-cost.mjs';
 const VERDICTS = Object.values(VERDICT);
 const HOOKS = Object.keys(phase.HOOK_STARTS);
 const IDS = [
-  'cost.cli-start', ...HOOKS.map((h) => `cost.hook.${h}`), 'cost.retrieve-opens', 'cost.doctor-probe', 'cost.doctor-fs', 'cost.today-journal',
+  'cost.cli-start', ...HOOKS.map((h) => `cost.hook.${h}`), 'cost.retrieve-opens', 'cost.doctor-probe', 'cost.doctor-fs', 'cost.today-journal', 'cost.today-probe',
 ];
 
 let cached = null;
@@ -41,7 +42,7 @@ const runOnce = () => (cached ??= (async () => {
 const records = (atlas) => atlas.phases.find((p) => p.id === 'cost').records;
 const hooksRun = () => phase.bashStarts() && phase.capIsProgram();
 
-test('the phase records its eleven rows, each with the four fields, and names what it cannot see', async () => {
+test('the phase records its twelve rows, each with the four fields, and names what it cannot see', async () => {
   const atlas = await runOnce();
   const rs = records(atlas);
   assert.deepEqual(rs.map((r) => r.id).sort(), [...IDS].sort());
@@ -57,7 +58,7 @@ test('the phase records its eleven rows, each with the four fields, and names wh
 test('the ratchet and bound rows pass; the hook rows say not-measured with the reason where there is no bash or no cap program', async () => {
   const rs = records(await runOnce());
   const by = Object.fromEntries(rs.map((r) => [r.id, r]));
-  for (const id of IDS.filter((i) => i !== 'cost.today-journal' && !i.startsWith('cost.hook.'))) {
+  for (const id of IDS.filter((i) => i !== 'cost.today-journal' && i !== 'cost.today-probe' && !i.startsWith('cost.hook.'))) {
     assert.equal(by[id].verdict, VERDICT.PASS, `${id}: ${by[id].actual}`);
   }
   for (const h of HOOKS) {
@@ -75,6 +76,17 @@ test('FINDING (pinned): `mem today` reads each byte of the injection journal twi
   assert.equal(r.verdict, VERDICT.FAIL, `fixed? then change this pin: ${r.actual}`);
   assert.ok(Math.abs(r.measured.slope - 2) < 0.05, `slope ${r.measured.slope}`);
   assert.ok(r.measured.readHi > r.measured.readLo, 'positive control: the counter saw the journal being read');
+  assert.equal(r.measured.readLo, 2 * r.measured.journalLo, 'exactly twice the journal: the counter watches that one file, so a probe\'s temporary file cannot move it');
+  assert.equal(r.measured.readHi, 2 * r.measured.journalHi);
+  assert.match(r.evidence, /src\/today\.mjs:\d+/);
+  assert.match(r.evidence, /src\/doctor\.mjs:\d+/);
+});
+
+test('FINDING (pinned): `mem today` starts the concurrent-append probe (six writer threads) on every call, which the doctor does only with --full', async () => {
+  const r = records(await runOnce()).find((x) => x.id === 'cost.today-probe');
+  assert.equal(r.verdict, VERDICT.FAIL, `fixed? then change this pin: ${r.actual}`);
+  assert.ok(r.measured.workers >= 2, `workers ${r.measured.workers}`);
+  assert.equal(r.measured.status, 0);
   assert.match(r.evidence, /src\/today\.mjs:\d+/);
   assert.match(r.evidence, /src\/doctor\.mjs:\d+/);
 });

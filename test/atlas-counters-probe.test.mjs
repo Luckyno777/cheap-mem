@@ -12,7 +12,8 @@
 //   module-counter  modules loaded, groups among them (bench/atlas/module-counter.mjs)
 //   call-counter    fs calls, opens per log, workers  (bench/atlas/call-counter.mjs)
 //
-// (bench/atlas/io-counter.mjs has its own probe in test/atlas-skala-identifiers-probe.test.mjs.)
+// (bench/atlas/io-counter.mjs has its own probe in test/atlas-skala-identifiers-probe.test.mjs; its `watch` parameter, added for the
+// cost phase, is held here.)
 //
 // Red proof: the mutants "counter writes nothing" for each of the three in bench/mutation.mjs
 // turn the matching test red (a counter that wrote nothing would give an empty list here, and
@@ -135,6 +136,29 @@ test('call-counter: planted calls are counted exactly; opens are per file under 
   assert.deepEqual(Object.keys(sum.opens), ['global/planted.jsonl'], 'only files under global/ or projects/ are named: not a file under the root, not a file outside it');
   assert.ok(!JSON.stringify(rows).includes(dir), 'no scratch path travels into a row');
   assert.equal(readRows(path.join(dir, 'never-written.txt')), null, 'a counter that never ran is not an empty list');
+});
+
+test('io-counter `watch`: the bytes of ONE file are counted on their own, whatever else is read under the root', (t) => {
+  const dir = tempDir('cm-atlas-io-', t);
+  const root = path.join(dir, 'root');
+  fs.mkdirSync(path.join(root, '.pipeline'), { recursive: true });
+  const watched = path.join(root, '.pipeline', 'journal.jsonl');
+  fs.writeFileSync(watched, 'x'.repeat(1000));
+  fs.writeFileSync(path.join(root, '.pipeline', 'other.txt'), 'y'.repeat(300));
+  const prog = path.join(dir, 'prog.mjs');
+  fs.writeFileSync(prog, "import fs from 'node:fs';\nconst [a, b] = process.argv.slice(2);\nfs.readFileSync(a); fs.readFileSync(a, 'utf8'); fs.readFileSync(b);\n");
+  const run = (query) => {
+    const out = path.join(dir, `io-${Object.keys(query).join('')}.txt`);
+    fs.writeFileSync(out, '');
+    const r = spawnSync(process.execPath, [`--import=${spec('io-counter.mjs', { root, out, ...query })}`, prog, watched, path.join(root, '.pipeline', 'other.txt')], { encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    return readRows(out)[0];
+  };
+  const withWatch = run({ watch: '.pipeline/journal.jsonl' });
+  assert.equal(withWatch.watchedBytesRead, 2000, 'two reads of the watched file');
+  assert.equal(withWatch.otherBytesRead, 2300, 'the watched file is still counted in its class too');
+  assert.equal(run({}).watchedBytesRead, 0, 'without `watch` nothing is watched');
+  assert.equal(run({ watch: '.pipeline/nothing.txt' }).watchedBytesRead, 0);
 });
 
 test('call-counter: the doctor starts its append-probe writers only with --full (the number the cost phase judges)', (t) => {
