@@ -13,11 +13,12 @@
 //                      3.85 (figure tile under its hover glow) and 3.32 at the page top (the dark .content tint); light
 //                      --muted 4.13 at the page top; dark --quiet #91a699 at 4.30 on a figure tile.
 // Expected change:     every measured element at 4.5 or more, in both themes and both widths.
-// Abort criterion:     one element below 4.5, or a theme in which the walk finds no --quiet or no --muted text at all.
+// Abort criterion:     one element below 4.5, a --quiet/--muted text under an opacity that is no disabled control (it
+//                      would escape the measurement), or a theme in which the walk finds no --quiet or no --muted text.
 //
 // Red proof: the same walk against the dashboard.css of 9a10bf6 (git show, played in through page.route) finds elements
 // below 4.5 in both themes; positive control: the same pages with the current stylesheet. The measurement itself is
-// checked on a page with known colours (it must find 4.48 below and 4.54 above the line, and the worst gradient stop).
+// checked on a page with known colours (it must find 4.48 below and 4.54 above the line, the worst gradient stop, and name a grey text under opacity .5).
 /* global document, window, localStorage, route, sections */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -29,7 +30,7 @@ import { fileURLToPath } from 'node:url';
 import { lazyBrowser, browserStartProbe, startView } from './fixture/browser.mjs';
 import { removeTree } from './fixture/cleanup.mjs';
 import { buildWorld } from './fixture/card-view-world.mjs';
-import { AA, measureInPage, PAGES_IN_PAGE } from './fixture/text-contrast.mjs';
+import { AA, fadedText, measureInPage, PAGES_IN_PAGE } from './fixture/text-contrast.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = '9a10bf6940634d0b249f402139dbec1fed366ba5'; // the state before this branch (fixed, never merge-base)
@@ -93,7 +94,7 @@ const below = (rec) => rec.flatMap((r) => r.rows.filter((x) => x.ratio < AA).map
 const lowest = (rec, v) => Math.min(...rec.flatMap((r) => r.rows.filter((x) => x.variable === v).map((x) => x.ratio)));
 const count = (rec, v) => rec.reduce((n, r) => n + r.rows.filter((x) => x.variable === v).length, 0);
 
-test('the measurement is right on a page with known colours (below and above the line, the worst gradient stop, a faded control apart)', { timeout: 120000 }, async (t) => {
+test('the measurement is right on a page with known colours (below and above the line, the worst gradient stop, a faded control apart, a faded text named)', { timeout: 120000 }, async (t) => {
   const browser = await B.need(t);
   if (!browser) return;
   const page = await browser.newPage();
@@ -102,7 +103,8 @@ test('the measurement is right on a page with known colours (below and above the
       <p id="x" style="color:var(--a)">just below</p><p style="color:var(--b)">just above</p>
       <div style="background:linear-gradient(90deg,#ffffff,#cccccc)"><span style="color:var(--c)">on a gradient</span></div>
       <div style="background:rgba(0,0,0,.5)"><span style="color:var(--b)">on half black</span></div>
-      <button disabled style="color:var(--b);opacity:.45;background:#fff;border:0">off</button>`);
+      <button disabled style="color:var(--b);opacity:.45;background:#fff;border:0">off</button>
+      <p class="quiet" style="color:var(--b);opacity:.5">faded hint</p>`);
     const m = await page.evaluate(measureInPage, ['--a', '--b', '--c']);
     const by = Object.fromEntries(m.rows.map((r) => [r.text, r]));
     assert.equal(by['just below'].ratio, 4.48, '#777 on white');
@@ -110,8 +112,10 @@ test('the measurement is right on a page with known colours (below and above the
     assert.equal(by['on a gradient'].bg, '#cccccc', 'the darker stop decides');
     assert.equal(by['on a gradient'].ratio, 4.36, '#595959 on #ccc (on white it would be 7.0)');
     assert.equal(by['on half black'].bg, '#808080', 'a translucent layer is composited over what is below');
-    assert.equal(m.faded.length, 1, 'the disabled, faded button is listed apart');
+    assert.equal(m.faded.length, 2, 'the disabled button and the faded hint are listed apart');
     assert.equal(m.rows.length, 4);
+    // RED for the page probes below: a grey text under opacity .5 that is no disabled control is named, not dropped.
+    assert.deepEqual(fadedText(m).map((x) => x.replace(/ \(.*$/, '')), [': --b under opacity 0.5']);
   } finally { await page.close(); }
 });
 
@@ -124,6 +128,8 @@ for (const width of [1920, 390]) {
       for (const v of VARS) assert.ok(count(rec, v) > 50, `the walk found ${v} text (${count(rec, v)} elements)`);
       t.diagnostic(`lowest: --quiet ${lowest(rec, '--quiet')}, --muted ${lowest(rec, '--muted')} over ${rec.length} pages`);
       assert.deepEqual(below(rec), []);
+      // A grey text under an opacity is not measured; only a disabled control may stand there.
+      assert.deepEqual(fadedText(rec), [], 'a faded --quiet/--muted text that is no disabled control escapes the measurement');
     });
   }
 }

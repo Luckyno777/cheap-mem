@@ -9,13 +9,24 @@
 // in the stylesheet. Every layer from the canvas down to the element is composited in paint order: background-color,
 // then the gradient layers bottom to top. A gradient counts with EVERY colour stop as a possible background (the worst
 // one decides), because the text can sit anywhere on it. Not counted: canvas drawings (#atmosphere), pseudo-elements
-// (the 1px sheen line of a panel) and images. Elements under an opacity below 1 (a disabled button) are listed apart:
-// WCAG exempts inactive controls, and their colour is not the variable any more.
+// (the 1px sheen line of a panel) and images. Elements under an opacity below 1, and disabled controls, are listed
+// apart (`faded`, each with `disabled`): WCAG exempts inactive controls, and under an opacity the colour is not the
+// variable any more. Any other faded text is a finding: `fadedText()` names it, and the probe holds that list empty.
 
 /** The WCAG minimum for normal text (1.4.3, AA). */
 export const AA = 4.5;
 
 /* global sections, document, getComputedStyle -- the in-page functions below run inside the dashboard page */
+
+/**
+ * The faded rows that are NOT a disabled control, as readable lines. Such a text is not measured (its colour under
+ * the opacity is no longer the variable), so a probe must hold this list empty: a new faded grey text would otherwise
+ * slip past the measurement unseen. `rec` is a list of `{ page, faded }` records (or one measureInPage result).
+ */
+export function fadedText(rec) {
+  const list = Array.isArray(rec) ? rec : [{ page: '', ...rec }];
+  return list.flatMap((r) => r.faded.filter((x) => !x.disabled).map((x) => `${r.page}: ${x.variable} under opacity ${x.opacity} (${x.where} "${x.text}")`));
+}
 
 /** The pages of the dashboard: the overview plus every tab of every area, read from the page's own `sections`. */
 export const PAGES_IN_PAGE = () => {
@@ -107,7 +118,8 @@ export function measureInPage(names) {
       color: hex(fg), bg: hex(worst.bg), ratio: Math.round(worst.ratio * 100) / 100, size: cs.fontSize, weight: cs.fontWeight,
     };
     const o = opacityOf(el);
-    if (o < 0.99 || el.disabled || el.closest('[disabled],[aria-disabled=true]')) faded.push({ ...row, opacity: Math.round(o * 100) / 100 });
+    const disabled = Boolean(el.disabled || el.closest('[disabled],[aria-disabled=true]'));
+    if (o < 0.99 || disabled) faded.push({ ...row, opacity: Math.round(o * 100) / 100, disabled });
     else rows.push(row);
   }
   return { vars, rows, faded };
