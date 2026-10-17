@@ -40,6 +40,17 @@
 //                 answer (positive control), an assignment nothing matches
 //                 (the "nothing found" answer) and the failing lane.
 //
+// **The gap groups (atlas-luecken-cm, 2026-10-17).** What the sister house's
+// phase measures and this one did not, in bench/atlas/silent-errors-gaps.mjs:
+// the five read states of the visibility journal and a bridge that keeps
+// answering when it cannot be read (E1), `mem doctor` telling a broken drawer
+// from an unreadable one (E2), the subagent block naming a lane that FAILED for
+// real, with no injection (E3). The surfaces above also gained `mem duties` and
+// `mem_duties` (what is still owed must not read "nothing" after a failed read).
+// E4 of the sister house (a dismissed review suggestion still on the daily
+// summary) has no counterpart here: `src/today.mjs` lists its part (d) review as
+// not built.
+//
 // **Counters.** Every record carries the answer it saw (exit code, whether
 // it was an error, whether it named the file or the skipped line), never a
 // duration.
@@ -63,6 +74,7 @@ import {
 import { openBridge, writeBridgeConfig } from './bridge-client.mjs';
 import * as memory from '../../src/memory.mjs';
 import * as mcpvisibility from '../../src/mcpvisibility.mjs';
+import { gapGroups } from './silent-errors-gaps.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const INJECTOR = pathToFileURL(path.join(HERE, 'inject-search-failure.mjs'));
@@ -75,6 +87,7 @@ const QUERY = 'zorbleplex';
 const MARK = 'sefmarker';
 const GOOD_LEARNING = { id: 'sef-learning-1', ts: '2026-10-01T10:00:00Z', title: `${MARK} note`, text: `${QUERY} works the way it should`, tags: ['silent-errors'] };
 const GOOD_ERROR = { id: 'sef-error-1', ts: '2026-10-01T10:00:00Z', class: 'wrong-cause', title: `${MARK} error`, text: `${QUERY} broke`, tags: ['silent-errors'] };
+const GOOD_DUTY = { id: 'sef-duty-1', ts: '2026-10-01T10:00:00Z', title: `${MARK} duty`, duty: `${MARK} duty ${QUERY}`, tags: ['silent-errors'] };
 
 const short = (s, n = 160) => String(s ?? '').replace(/\s+/g, ' ').slice(0, n);
 const rmDir = (d) => fs.rmSync(d, { recursive: true, force: true });
@@ -175,21 +188,24 @@ export function judge(state, d) {
   }
 }
 
-async function surfacesGroup(atlas) {
+/** `tree`: the code tree whose `bin/mem` and `bin/mem-mcp` are asked (default: this repository; test/atlas-gaps-mutants-cm.test.mjs hands in a scratch copy). */
+export async function surfacesGroup(atlas, { tree = REPO } = {}) {
+  const bin = path.join(tree, 'bin', 'mem');
   const root = tempRoot('atlas-silent-surfaces-');
   writeBridgeConfig(root);
   const learnings = memory.logPath(root, 'learning');
   const errors = memory.logPath(root, 'error');
-  const bridge = await openBridge(root);
+  const duties = memory.logPath(root, 'duty');
+  const bridge = await openBridge(root, { tree });
   try {
     const surfaces = [
       {
         key: 'cli-find', file: learnings, good: GOOD_LEARNING, mark: MARK, what: '`mem find`',
-        ask: () => mem(['find', QUERY], { root }),
+        ask: () => mem(['find', QUERY], { root, bin }),
       },
       {
         key: 'cli-context', file: errors, good: GOOD_ERROR, mark: MARK, what: '`mem context`',
-        ask: () => mem(['context'], { root }),
+        ask: () => mem(['context'], { root, bin }),
       },
       {
         key: 'bridge-find', file: learnings, good: GOOD_LEARNING, mark: MARK, what: 'the bridge tool `mem_find`',
@@ -198,6 +214,15 @@ async function surfacesGroup(atlas) {
       {
         key: 'bridge-context', file: errors, good: GOOD_ERROR, mark: MARK, what: 'the bridge tool `mem_context`',
         ask: () => bridge.call('mem_context', {}),
+      },
+      // What is still owed: a failed read must not read "nothing open".
+      {
+        key: 'cli-duties', file: duties, good: GOOD_DUTY, mark: MARK, what: '`mem duties`',
+        ask: () => mem(['duties'], { root, bin }),
+      },
+      {
+        key: 'bridge-duties', file: duties, good: GOOD_DUTY, mark: MARK, what: 'the bridge tool `mem_duties`',
+        ask: () => bridge.call('mem_duties', {}),
       },
     ];
     for (const s of surfaces) {
@@ -333,19 +358,20 @@ export async function run(atlas, { quick = false } = {}) {
   void quick; // the phase is small at any size: five files, four surfaces, three child processes
   const phase = atlas.phase('silent-errors', 'Silent errors: a read that failed must not look like a read that found nothing');
   readlogGroup(atlas);
-  await surfacesGroup(atlas);
+  await surfacesGroup(atlas, { tree: REPO });
   visibilityGroup(atlas);
   taskGroup(atlas);
+  await gapGroups(atlas, { tree: REPO });
 
   phase.note = 'Counters, not clocks: per state, the answer each surface gave (error or not, entry shown or not, file named or not, skipped line mentioned or not). E1 (visibility journal) and E3 (task lane) are recorded as measured; both were red when the phase was added and were fixed by the port that followed (silent-errors-cm).';
   atlas.blind('E2: other catch blocks that return an empty value in critical paths',
-    'the sister house found its E2 by searching the code for `catch` that returns empty; this phase asks the surfaces above, not the whole code base, so an empty catch elsewhere is invisible to it');
+    'the sister house found its E2 by searching the code for `catch` that returns empty; this phase asks the surfaces above (find, context, duties over the CLI and the bridge), the doctor, the visibility journal and the task block, not the whole code base. Its other E2 lanes (the dashboard advisory file, the digest bell after a condense, the mail that waits, the backup probe mark, the duties after a compaction, the subagent base block) are not asked here; an empty catch there is invisible to this phase');
   atlas.blind('E4: dismissed suggestions on the daily summary',
-    'the sister house\'s `mem heute` showed review suggestions that had been dismissed; this house has no command of that name and its counterpart was not looked for in this phase');
+    'the sister house\'s `mem heute` showed review suggestions that had been dismissed. Looked for here (2026-10-17): this house has `mem today`, but its part (d) review is NOT BUILT (src/today.mjs), so there is no review suggestion to dismiss and nothing to measure; if part (d) is built, a record is owed');
   atlas.blind('the file lane of the task block',
     'src/subagenttask.mjs also drops a failing component-table lookup into an empty list (lane 0); only the content-word lane (lane 1) is made to fail');
   atlas.blind('the SubagentStart hook end to end',
-    'forTask() is called in a child process with the failure injected; bin/mem-subagent-start and its fallback to the old block are not run');
+    'forTask() is called in a child process, with the failure injected and, in the gap group, with a real unreadable drawer; bin/mem-subagent-start and its fallback to the old block are not run');
   atlas.blind('the dashboard page for the visibility journal',
     'bin/mem-serve is not started; the consumer of the journal is named by file and line, its page is not rendered');
   atlas.blind('other unreadable states than a directory in place of the file',
