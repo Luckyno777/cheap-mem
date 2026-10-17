@@ -699,6 +699,7 @@ for (const c of [
   { name: 'git ignores .agents/ and there was no .gitignore at all', git: true, exclude: '.agents/\n', pre: [] },
   { name: '.agents and .agents/skills were there before (with another tool\'s file), only mem/ is new', git: false, pre: ['.agents/other-tool.json', '.agents/skills/'] },
   { name: '.agents/skills/mem was there before, empty', git: false, pre: ['.agents/skills/mem/'] },
+  { name: '.agents/skills/mem was there before, with a file of another tool in it', git: false, pre: ['.agents/skills/mem/other.json'] },
 ]) {
   test(`mem setup codex-cloud: a failed SKILL.md write leaves the tree as it was - ${c.name}`, { skip: c.git && !haveGit && 'git is not available' }, () => {
     const root = scratch('rollback');
@@ -736,4 +737,132 @@ test('mem setup codex-cloud: .agents/skills as a symbolic link is refused, wheth
     assert.deepEqual(fs.readdirSync(dest), [], `${where}: something was written through the link`);
     assert.ok(isLink(path.join(m.root, '.agents', 'skills')));
   }
+});
+
+// --- the report of a failed run must be true, and must not hide the first error -------------
+
+/**
+ * Run `install` while `fault(to, hit)` may throw for a rename onto `to` (`hit` counts the renames onto that path, from 1).
+ * Injected, so it works for root and on Windows alike. Returns the result and how often a fault fired.
+ */
+function installWithRenameFaults(root, fault) {
+  const real = fs.renameSync;
+  const seen = new Map();
+  let fired = 0;
+  fs.renameSync = function patched(from, to, ...rest) {
+    const key = path.resolve(String(to));
+    const hit = (seen.get(key) ?? 0) + 1;
+    seen.set(key, hit);
+    const err = fault(key, hit);
+    if (err) { fired += 1; throw err; }
+    return real.call(this, from, to, ...rest);
+  };
+  let r;
+  try { r = codexcloud.install(root, ROOT, {}); } finally { fs.renameSync = real; }
+  return { r, fired };
+}
+const eio = (what) => Object.assign(new Error(`EIO: ${what}`), { code: 'EIO' });
+
+for (const level of ['mem', 'skills', 'agents']) {
+  test(`mem setup codex-cloud: a failed SKILL.md write never deletes a file that appeared in a folder this run made (${level}/)`, () => {
+    // The folders are taken back with rmdir: a folder with anything in it stays. A recursive delete would remove the
+    // other tool's file as well - and nothing in the plain rollback probes above holds a foreign file during the run.
+    const root = scratch('foreign');
+    const target = path.join(root, '.agents', 'skills', 'mem', 'SKILL.md');
+    const home = { mem: path.dirname(target), skills: path.join(root, '.agents', 'skills'), agents: path.join(root, '.agents') }[level];
+    const foreign = path.join(home, 'foreign.txt');
+    const real = fs.renameSync;
+    let landed = false;
+    fs.renameSync = function patched(from, to, ...rest) {
+      if (path.resolve(String(to)) === target) {
+        fs.writeFileSync(foreign, 'not ours\n'); // somebody else writes here while the run is under way
+        landed = true;
+        throw eio('injected write failure');
+      }
+      return real.call(this, from, to, ...rest);
+    };
+    let r;
+    try { r = codexcloud.install(root, ROOT, {}); } finally { fs.renameSync = real; }
+    assert.ok(landed, 'the injected failure never fired: the probe would prove nothing');
+    assert.equal(r.ok, false);
+    assert.equal(fs.readFileSync(foreign, 'utf8'), 'not ours\n', 'a file that was not ours was deleted by the rollback');
+    // every folder on the way to a foreign file stays; the empty ones below it are gone
+    const levels = ['agents', 'skills', 'mem'];
+    const dirs = [path.join(root, '.agents'), path.join(root, '.agents', 'skills'), path.dirname(target)];
+    levels.forEach((l, i) => assert.equal(fs.existsSync(dirs[i]), i <= levels.indexOf(level), `${l}/ after the failed run`));
+    assert.ok(!fs.existsSync(target));
+  });
+}
+
+for (const c of [
+  { name: 'no git at all', git: false },
+  { name: 'a git repository that does not ignore .agents/', git: true },
+]) {
+  test(`mem setup codex-cloud: a failed SKILL.md write does not claim ".gitignore was put back" when it never changed it - ${c.name}`, { skip: c.git && !haveGit && 'git is not available' }, () => {
+    const root = scratch('claim');
+    if (c.git) assert.equal(spawnSync('git', ['init', '-q'], { cwd: root }).status, 0);
+    const target = path.join(root, '.agents', 'skills', 'mem', 'SKILL.md');
+    const { r, fired } = installWithRenameFaults(root, (to) => (to === target ? eio('injected write failure') : null));
+    assert.equal(fired, 1);
+    assert.equal(r.ok, false);
+    assert.equal(r.changed, false);
+    const text = r.lines.join('\n');
+    assert.match(text, /cannot write .*SKILL\.md: EIO: injected write failure/);
+    assert.doesNotMatch(text, /put back/, 'the report says .gitignore was put back, but this run never touched it');
+    assert.doesNotMatch(text, /\.gitignore/, 'the report talks about .gitignore, but this run never touched it');
+    assert.ok(!fs.existsSync(path.join(root, '.agents')));
+  });
+}
+
+test('mem setup codex-cloud: a failed SKILL.md write after .gitignore was rewritten says so, and the file really is as before', { skip: !haveGit && 'git is not available' }, () => {
+  const root = scratch('claim-true');
+  assert.equal(spawnSync('git', ['init', '-q'], { cwd: root }).status, 0);
+  const gi = path.join(root, '.gitignore');
+  fs.writeFileSync(gi, 'node_modules/\n.agents/\n');
+  const target = path.join(root, '.agents', 'skills', 'mem', 'SKILL.md');
+  const { r, fired } = installWithRenameFaults(root, (to) => (to === target ? eio('injected write failure') : null));
+  assert.equal(fired, 1);
+  assert.equal(r.ok, false);
+  assert.match(r.lines.join('\n'), /\.gitignore was put back as it was/);
+  assert.equal(fs.readFileSync(gi, 'utf8'), 'node_modules/\n.agents/\n', 'the report says it was put back, the file says otherwise');
+});
+
+test('mem setup codex-cloud: when putting .gitignore back fails after a failed SKILL.md write, the first error stays and the second is named', { skip: !haveGit && 'git is not available' }, () => {
+  const root = scratch('restore-fails-a');
+  assert.equal(spawnSync('git', ['init', '-q'], { cwd: root }).status, 0);
+  const gi = path.join(root, '.gitignore');
+  fs.writeFileSync(gi, 'node_modules/\n.agents/\n');
+  const target = path.join(root, '.agents', 'skills', 'mem', 'SKILL.md');
+  const { r, fired } = installWithRenameFaults(root, (to, hit) => {
+    if (to === target) return eio('injected write failure');
+    if (to === path.resolve(gi) && hit === 2) return eio('injected restore failure'); // hit 1 is the rewrite, hit 2 the way back
+    return null;
+  });
+  assert.equal(fired, 2, 'both injected failures must fire, or the probe proves nothing');
+  const text = r.lines.join('\n');
+  assert.equal(r.ok, false);
+  assert.match(text, /cannot write .*SKILL\.md: EIO: injected write failure/, 'the first error was masked');
+  assert.match(text, /\.gitignore could NOT be put back \(EIO: injected restore failure\)/);
+  assert.match(text, /by hand/);
+  assert.doesNotMatch(text, /was put back as it was/, 'it claims a restore that did not happen');
+  assert.equal(r.changed, true, '.gitignore still holds the new rules: the result must say the memory changed');
+  assert.ok(fs.readFileSync(gi, 'utf8').includes('!/.agents/skills/mem/'), 'the probe expected the rewritten .gitignore to stay');
+  assert.ok(!fs.existsSync(path.join(root, '.agents')), 'the folders this run made must still be taken back');
+});
+
+test('mem setup codex-cloud: when putting .gitignore back fails after the ignore check failed, the first error stays and the second is named', { skip: !haveGit && 'git is not available' }, () => {
+  const root = scratch('restore-fails-b');
+  assert.equal(spawnSync('git', ['init', '-q'], { cwd: root }).status, 0);
+  const gi = path.join(root, '.gitignore');
+  fs.writeFileSync(gi, '');
+  fs.appendFileSync(path.join(root, '.git', 'info', 'exclude'), '.agents/\nSKILL.md\n'); // a rule the .gitignore cannot beat
+  const { r, fired } = installWithRenameFaults(root, (to, hit) => (to === path.resolve(gi) && hit === 2 ? eio('injected restore failure') : null));
+  assert.equal(fired, 1, 'the injected restore failure never fired: the probe would prove nothing');
+  const text = r.lines.join('\n');
+  assert.equal(r.ok, false);
+  assert.match(text, /still ignored/, 'the first error was masked');
+  assert.match(text, /\.gitignore could NOT be put back \(EIO: injected restore failure\)/);
+  assert.doesNotMatch(text, /was put back as it was/);
+  assert.equal(r.changed, true);
+  assert.ok(!fs.existsSync(path.join(root, '.agents')));
 });
