@@ -459,8 +459,10 @@ add({ id: 'B appointment-today.today: duty title (120)', cut: 120,
     await plant(tree, root, 'duty', { title: b.text, owner: 'human', due: '2020-01-01' });
     const at = await imp(tree, 'src/appointment-today.mjs');
     const r = at.today(root, { now: Date.parse('2026-10-13T10:00:00Z') });
-    assert.equal(r.duties?.dueList?.length, 1, `positive control: the duty is due: ${J(r.duties)}`);
-    return J(r.duties.dueList);
+    // The day list is `dueList` now; the pinned old tree (acff04e) still calls it `due`. Same list, one name per tree.
+    const list = r.duties?.dueList ?? r.duties?.due;
+    assert.equal(list?.length, 1, `positive control: the duty is due: ${J(r.duties)}`);
+    return J(list);
   } });
 
 add({ id: 'B appointment-today.today: letter subject (100)', cut: 100,
