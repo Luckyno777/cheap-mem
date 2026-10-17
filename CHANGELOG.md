@@ -14,6 +14,12 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Fixed - 413 probes: a reset after the answer is part of the answer, not a red file (reset-413-cm; tests only, no `src/` or `bin/`)
+
+A service that refuses an over-limit body answers 413 at once and may cut the connection while the client still writes. The reset then lands on the request before any answer, or on the response after its status line. The 413 probes handled only the first place well: `test/service-door-cm.test.mjs` (the 1 MiB bridge limit) resolved at the response's `end`, so a response that ended in a reset instead hung the probe; `test/body-reader.test.mjs` had no `error` listener on the response. The sibling saw the same class once in 16 runs under load ("asynchronous activity after the test ended", file red, every assertion green).
+- **One helper:** `test/helpers/probe-post.mjs` settles when the request is closed; the status line that arrived is the answer and a reset after it is recorded (`resetAfterAnswer`), a failure before any answer is `{ status: null, code }` (the code is never interpreted), the response's `error` is always listened to, and a time limit settles a hung connection. Both files use it. A hang is never a refusal: `probeStatus` throws on a connection that does not answer (before, `service-door-cm` would have counted `error timeout` as "a reset" and as "not 413"), and the exactly-1-MiB control needs a real numeric answer. Nothing was weakened: `service-door-cm` still requires at least one real 413, `body-reader` still requires exactly `[413]` at all seven places.
+- **Guard:** `test/probe-post.test.mjs` cuts the connection after the status line on purpose with a raw server (no timing involved) and holds the helper to the five outcomes above; its control proves the cut is visible on the response. The old `service-door-cm` helper shape hangs on the same server (measured), the old `body-reader` shape survived it on Node 22.
+- **Not reproduced here:** the reset after the answer did not occur in 540 probe rounds on Node 22 / loopback under load (the 1-byte-over and 3 MiB bodies always arrived as 413, the multi-byte one always as a reset before any answer), so the wobble counts are equal (20 full runs of each file, four at a time, before and after: 0 of 20 red every time); the fix follows the sibling's measured case.
 ### Security - MCP SDK raised to 1.32.1, floor 1.31.0 (GHSA-6qxp-vccf-f47h)
 
 - **The optional MCP SDK's range admitted releases with a known advisory.** [GHSA-6qxp-vccf-f47h](https://github.com/advisories/GHSA-6qxp-vccf-f47h)
