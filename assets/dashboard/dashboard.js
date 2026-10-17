@@ -982,17 +982,24 @@ function cardEvidenceItem(raw) {
   if (e) return `<button class="textlink" data-entry="${ce(s)}">${ce(e.title)}</button> <span class="mono small quiet">${ce(s)}</span>`;
   return `<code class="mono small">${ce(s)}</code>`;
 }
+// The rank as a word: the SAME wording as `authority.rankWord` (src/authority.mjs), which `mem today`, `mem card list` and the
+// bridge print. A tier the line carries stands as it is; one it does not carry reads "unknown (missing)", "unknown (empty)" or
+// "unknown (broken)", never a bare "unknown" for all three. `state` absent (an older payload) reads as set.
+const rankWord = (tier, state) => (typeof state === 'string' && state !== 'set' ? `unknown (${state})` : (tier ? String(tier) : 'unknown'));
 function cardOriginHtml(c) {
   const o = c.origin || {};
   const stage = CARD_STAGE[o.stage] || 'unknown stage';
   if (o.stage === 'fallback') {
     return `<p class="dcard-origin small quiet" data-card-origin="fallback"><b>Replacement card.</b> Nobody wrote a card for this entry; it is made by rule from the title and the first sentence. No author, no tier.</p>`;
   }
-  const who = o.author ? ce(o.author) : 'an unknown author';
-  // No hint for a card a person wrote: `origin.by_human` comes from the server (the configured human participant), no name here.
-  const note = o.rank === 'user' || o.by_human ? '' : `<p class="dcard-agent small" data-card-agent>Written by an agent, not checked by you.</p>`;
+  // Name AND rank from the card's `byline` (src/decisioncard.mjs `bylineOf`); a payload without one falls back to `origin`.
+  const b = c.byline || { name: o.author ?? null, rank: o.rank ?? null, rank_state: null };
+  const who = b.name ? ce(b.name) : 'an unknown author';
+  // No hint for a card a person wrote. `by_human` = rank user (and a name); it implies `o.rank === 'user'`, so the rank alone
+  // decides. The name never does: the configured human's name at tier agent keeps the hint.
+  const note = o.rank === 'user' ? '' : `<p class="dcard-agent small" data-card-agent>Written by an agent, not checked by you.</p>`;
   const replaced = c.replaced ? ` · replaced a card by ${ce(c.replaced.author || 'an unknown author')}${c.replaced.rank ? ` (tier ${ce(c.replaced.rank)})` : ''}` : '';
-  return `<p class="dcard-origin small quiet" data-card-origin="${ce(o.stage)}">Written by ${who} · tier ${ce(o.rank || 'unknown')} · ${ce(o.ts ? when(o.ts) : 'date unknown')} · ${esc(stage)}${replaced}</p>${note}`;
+  return `<p class="dcard-origin small quiet" data-card-origin="${ce(o.stage)}">Written by ${who} · tier ${ce(rankWord(b.rank, b.rank_state))} · ${ce(o.ts ? when(o.ts) : 'date unknown')} · ${esc(stage)}${replaced}</p>${note}`;
 }
 /**
  * @param c     a card of src/decisioncard.mjs (`{kind, question, context, options, advice, evidence, origin, replaced, identifier, supplemented}`)
