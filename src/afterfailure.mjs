@@ -39,6 +39,7 @@
  */
 
 import { isMain } from './ismain.mjs';
+import { readHookStdin } from './hookstdin.mjs';
 import * as injection from './injection.mjs';
 import { visible as bidiVisible } from './bidi.mjs';
 import { maskText } from './outputguard.mjs';
@@ -166,17 +167,10 @@ export function bookReason(root, reason, env = process.env) {
 
 // --- command line ----------------------------------------------------------
 
-function readStdin() {
-  return new Promise((resolve) => {
-    let d = '';
-    process.stdin.on('data', (c) => { d += c; }).on('end', () => resolve(d)).on('error', () => resolve(d));
-  });
-}
-
 if (isMain(import.meta.url)) {
   const mode = process.argv[2];
   const root = process.env.CHEAP_MEM_ROOT;
-  readStdin().then(async (raw) => {
+  readHookStdin().then(async (raw) => {
     if (mode === 'parse') {
       const r = parseHook(raw);
       if (r) process.stdout.write(JSON.stringify(r));

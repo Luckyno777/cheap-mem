@@ -36,6 +36,10 @@
 //   C  the rename it calls survives what Windows actually answers —
 //      driven through the real helper, because a source-level check
 //      here was measured to be worthless (see the comment there).
+//   D  what a failed read MEANS, per platform (CI run 1141): a missing
+//      name is a gap everywhere; on Windows an open refused while the
+//      writer replaces the file is a refusal, not a gap - counted as its
+//      own state, never as "found no file at all".
 //
 // invariant: leer-ist-kein-bestehen
 import test from 'node:test';
@@ -108,6 +112,31 @@ Atomics.store(flag, 2, refused);
 `;
 
 /**
+ * What a failed read of the target means. Three answers, never one bucket.
+ *
+ * **CI run 1141 (windows, node 20): "738 reads found no file at all".** The
+ * reader counted EVERY exception as a missing file. On Windows that is not
+ * what an exception during a replace says: NTFS refuses to open a file whose
+ * replacement is in flight (the old file is delete-pending, or held for the
+ * rename), and libuv answers that open with EPERM, EACCES or EBUSY - the same
+ * codes the writer's own rename gets, which is why the shipped writer retries
+ * them. The NAME never went away; the reader got no bytes - neither torn nor
+ * missing ones. So:
+ *   - `missing`: ENOENT - the name was gone. A gap, which rename must never
+ *     open, on any platform.
+ *   - `refused`: EPERM / EACCES / EBUSY on win32 - a refusal, counted as
+ *     itself and kept out of the read budget (a refused read is no read).
+ *   - `failed`: anything else, and those codes off Windows - never expected.
+ * The codes seen are reported, so a red run says which one it was.
+ */
+const REFUSED_ON_WINDOWS = new Set(['EPERM', 'EACCES', 'EBUSY']);
+function readFailure(err, platform = process.platform) {
+  if (err?.code === 'ENOENT') return 'missing';
+  if (platform === 'win32' && REFUSED_ON_WINDOWS.has(err?.code)) return 'refused';
+  return 'failed';
+}
+
+/**
  * Hammer one path from another thread and count what the reader sees.
  *
  * Driven by COUNTS and by what was seen — never by a clock. Five probes
@@ -129,7 +158,8 @@ async function hammer(target, mode, { reads }) {
     worker.once('exit', resolve);
   });
 
-  const seen = { torn: 0, ok: 0, missing: 0, other: 0 };
+  const seen = { torn: 0, ok: 0, missing: 0, other: 0, refused: 0, failed: 0 };
+  const codes = {};
   const DEADLINE = Date.now() + 60000;
 
   // Wait for the FIRST file, not for a number of milliseconds. Starting
@@ -143,10 +173,15 @@ async function hammer(target, mode, { reads }) {
   } catch { /* the loop below reports a missing file as such */ }
 
   try {
-    while (seen.ok + seen.torn + seen.missing + seen.other < reads
+    while (seen.ok + seen.torn + seen.missing + seen.other + seen.failed < reads
       && Date.now() < DEADLINE) {
       let text;
-      try { text = fs.readFileSync(target, 'utf8'); } catch { seen.missing += 1; continue; }
+      try { text = fs.readFileSync(target, 'utf8'); } catch (err) {
+        seen[readFailure(err)] += 1;
+        codes[err?.code ?? String(err)] = (codes[err?.code ?? String(err)] ?? 0) + 1;
+        await new Promise((r) => setImmediate(r));
+        continue;
+      }
       try {
         const tag = JSON.parse(text).tag;
         if (tag === 'A' || tag === 'B') seen.ok += 1;
@@ -161,6 +196,7 @@ async function hammer(target, mode, { reads }) {
   await done;
   return {
     ...seen,
+    codes,
     writes: Atomics.load(flag, 1),
     refused: Atomics.load(flag, 2),
     timedOut: Date.now() >= DEADLINE,
@@ -211,10 +247,17 @@ test('A the rename-based write never tears', async (t) => {
   assert.equal(r.torn, 0,
     `${r.torn} torn reads out of ${r.ok + r.torn + r.missing + r.other} — rename is ` +
     'not doing what this whole change rests on');
+  const codes = JSON.stringify(r.codes);
   assert.equal(r.missing, 0,
-    `${r.missing} reads found no file at all — rename never unlinks the ` +
+    `${r.missing} reads found no file at all (ENOENT; read errors seen: ${codes}) — rename never unlinks the ` +
     'target, so a reader must never see a gap either');
+  assert.equal(r.failed, 0, `${r.failed} reads failed in a way no platform explains (read errors seen: ${codes})`);
   assert.equal(r.other, 0, `${r.other} reads parsed but held neither payload`);
+  // The platform branch. Off Windows `readFailure` never answers `refused`, so this is zero by construction there and
+  // asserted anyway; on Windows refusals are what NTFS answers during a replace - counted, named in the diagnostic,
+  // and kept out of the read budget, so `ok >= 2000` below still demands the full budget of clean reads.
+  if (process.platform !== 'win32') assert.equal(r.refused, 0, `refused reads off Windows (read errors seen: ${codes})`);
+  else t.diagnostic(`windows: ${r.refused} reads refused during a replace (${codes}), ${r.ok} clean, ${r.torn} torn, ${r.missing} gaps`);
 
   if ((r.timedOut || r.ok < 2000 || r.writes - r.refused <= 0) && lastNotQuiet) {
     t.skip(`throughput not measurable under load: timedOut=${r.timedOut}, ok=${r.ok}/2000, `
@@ -225,7 +268,7 @@ test('A the rename-based write never tears', async (t) => {
   }
 
   assert.ok(!r.timedOut,
-    `the experiment ran out of time at ${r.ok + r.torn} reads — no verdict`);
+    `the experiment ran out of time at ${r.ok + r.torn} reads (${r.refused} refused) — no verdict`);
   assert.ok(r.ok >= 2000, `only ${r.ok} clean reads, expected the full budget`);
 
   // **Three states, not two.** A rename Windows refused is neither a
@@ -321,3 +364,18 @@ for (const [label, impl] of [
     assert.equal(tryCount, 1, `${label}: a non-transient error is retried instead of thrown at once`);
   });
 }
+
+test('D what a failed read means: a missing name is a gap everywhere, a refusal during a replace only on Windows', () => {
+  const e = (code) => Object.assign(new Error(code), { code });
+  for (const platform of ['linux', 'darwin', 'win32']) {
+    assert.equal(readFailure(e('ENOENT'), platform), 'missing', `${platform}: ENOENT must stay a gap`);
+    assert.equal(readFailure(e('EISDIR'), platform), 'failed', `${platform}: an unexplained error must not hide`);
+    assert.equal(readFailure(new Error('no code'), platform), 'failed');
+    assert.equal(readFailure(undefined, platform), 'failed');
+  }
+  for (const code of ['EPERM', 'EACCES', 'EBUSY']) {
+    assert.equal(readFailure(e(code), 'win32'), 'refused', `win32: ${code} during a replace is a refusal`);
+    assert.equal(readFailure(e(code), 'linux'), 'failed', `linux: ${code} has no replace to blame`);
+    assert.equal(readFailure(e(code), 'darwin'), 'failed', `darwin: ${code} has no replace to blame`);
+  }
+});

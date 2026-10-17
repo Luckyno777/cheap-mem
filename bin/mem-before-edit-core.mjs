@@ -20,12 +20,12 @@
 // Never exits non-zero over recall: a hook that fails loudly is worse
 // than none. No process.exit(): the journal line must be written out.
 
-import fs from 'node:fs';
 import { run } from '../src/beforeedit.mjs';
+import { readHookStdinSync } from '../src/hookstdin.mjs';
 
 const root = process.env.CHEAP_MEM_ROOT || '';
-let input = '';
-try { input = fs.readFileSync(0, 'utf8'); } catch { input = ''; }
+// Without a byte order mark in front: Windows PowerShell 5.1 put one on the pipe (src/hookstdin.mjs, CI run 1141).
+const input = readHookStdinSync();
 
 if (root) {
   const top = process.env.MEM_BEFORE_EDIT_TOP;

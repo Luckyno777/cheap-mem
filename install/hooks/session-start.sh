@@ -141,13 +141,19 @@ fi
 if [ -n "$mem_bin" ]; then
   echo "=== cheap-mem attached ==="
 else
-  echo "=== cheap-mem NOT attached: memory found at $CHEAP_MEM_ROOT, but no tool to read it with (installed: ${CHEAP_MEM_CODE:-not set}) ==="
+  mem_code_none="not set"; [ -z "${MEM_CODE_REJECTED:-}" ] || mem_code_none="rejected, see below"
+  echo "=== cheap-mem NOT attached: memory found at $CHEAP_MEM_ROOT, but no tool to read it with (installed: ${CHEAP_MEM_CODE:-$mem_code_none}) ==="
   echo "Recent context, alarm state and today line: UNKNOWN (not loaded, not 'nothing')."
   if [ -n "${CHEAP_MEM_CODE:-}" ]; then
     # The installer baked a code path in. Name it: a checkout that was moved
     # or deleted silences UserPromptSubmit, PreToolUse, SubagentStart and Stop
     # too - this line is the one place a person sees it at the start.
     echo "The code path baked in by the installer has no tool: CHEAP_MEM_CODE=$CHEAP_MEM_CODE (nothing under bin/ there)."
+    echo "The other hooks (prompt recall, before-edit, subagent, stop) are SILENT for the same reason."
+    echo "Fix: run install/claude-code.sh from a current cheap-mem checkout: CHEAP_MEM_ROOT=$CHEAP_MEM_ROOT bash <checkout>/install/claude-code.sh (or mem setup claude)."
+  elif [ -n "${MEM_CODE_REJECTED:-}" ]; then
+    # bin/_owntool.sh (mem_code_clean) threw the value out: it held a control character. Printable form only.
+    echo "The code path baked in by the installer was REJECTED: CHEAP_MEM_CODE holds a control character (a line break, tab or escape; value: $MEM_CODE_REJECTED), so no tool was run from it."
     echo "The other hooks (prompt recall, before-edit, subagent, stop) are SILENT for the same reason."
     echo "Fix: run install/claude-code.sh from a current cheap-mem checkout: CHEAP_MEM_ROOT=$CHEAP_MEM_ROOT bash <checkout>/install/claude-code.sh (or mem setup claude)."
   else
