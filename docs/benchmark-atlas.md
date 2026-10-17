@@ -548,8 +548,13 @@ stat-class calls of `mem doctor --quiet` do not grow with the entries (829 calls
 100 entries and at 400), they do grow with the project folders (about 450 per
 folder, printed and not judged). `today-journal` (counterpart of TB8): `mem today`
 reads each byte of the injection journal twice per call (slope 2.00 bytes read per
-journal byte, once for the card and once through the doctor it runs), expected
-once: a **finding**, recorded as `fail` (minor). TB1, TB2 and TB8 are the sister
+journal byte, once for the card and once through the doctor it runs; the counter
+watches the journal file alone, so the probe's temporary file cannot move it),
+expected once: a **finding**, recorded as `fail` (minor). `today-probe`: the same
+doctor, called with its default, starts the six writer threads of the
+concurrent-append probe on every `mem today` call (10 calls out of 10) and writes a
+probe folder under the memory root each time, although TB7 limited the probe to
+`--full` for `mem doctor`: a second **finding**, `fail` (minor). TB1, TB2 and TB8 are the sister
 house's items by name (`/schreibtisch.json`, `mem doktor`, `mem heute`); the rows
 here are their counterparts in this house's code, not copies.
 
@@ -572,8 +577,8 @@ which the script word-splits) the five rows are `not-measured`.
 
 **What the first quick run says, in one line each.** `dashboard`: 3 pass, 2 fail
 (the findings `desk` and `requests`). `net-tempo`: 3 pass, 1 degraded (`reuse`).
-`cost`: 10 pass, 1 fail (`today-journal`). `digest`: 5 pass. The five findings are
-recorded, not fixed; each is a pinned row of its probe test, which goes red on
+`cost`: 10 pass, 2 fail (`today-journal`, `today-probe`). `digest`: 5 pass. The five non-passes are
+findings, recorded and not fixed; each is a pinned row of its probe test, which goes red on
 purpose when the finding is fixed so the row is changed with the fix.
 
 `test/atlas-phase-parity.json` lists the sister house's phase ids and the

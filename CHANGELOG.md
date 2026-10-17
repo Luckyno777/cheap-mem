@@ -18,7 +18,7 @@ are the day the work landed on `main`.
 
 Plan step 3 (T3, part 2). The stubs of the atlas frame become measuring phases; the sister house's ids are kept. Every phase leads with a count
 (never a clock), has an expectation that is a bound of the design or a ratchet with its reason, and names its blind spots. Quick runs on 2026-10-17
-(a box at load 14 on 4 cores, which does not move a count): `dashboard` 3 pass / 2 fail, `net-tempo` 3 pass / 1 degraded, `cost` 10 pass / 1 fail,
+(a box at load 14 on 4 cores, which does not move a count): `dashboard` 3 pass / 2 fail, `net-tempo` 3 pass / 1 degraded, `cost` 10 pass / 2 fail,
 `digest` 5 pass. The five non-passes are FINDINGS, recorded and not fixed; each is a pinned row of its probe test that goes red on purpose when the
 finding is fixed.
 - **Counters** (preloads; the output file travels in the URL's query string, so no environment variable is added): `bench/atlas/start-counter.mjs` (node
@@ -32,7 +32,9 @@ finding is fixed.
 - **`cost`** - node starts per hook (`before-edit` 1 (TB5), `subagent-start` 1, `retrieve` 4, `catch-fail` 4, `after-failure` 5, `stop` 5; ratchets), a CLI start
   is one process and at most one command group (modules: version 101, help 61, find 92; TB4), a warm `retrieve` opens each log at most 3 times (TB6), no
   worker thread without `doctor --full` (TB7), the doctor's stat-class calls do not grow with the entries (829 at 100 and 400; counterpart of TB2).
-  FINDING: `mem today` reads the injection journal twice per call (2.00 bytes read per journal byte; the card and the doctor it runs), counterpart of TB8.
+  FINDINGS: `mem today` reads the injection journal twice per call (2.00 bytes read per journal byte; the card and the doctor it runs), counterpart of TB8;
+  and it starts the six writer threads of the concurrent-append probe on every call (the doctor does so only with `--full` since TB7; the card calls it with its default).
+  `bench/atlas/io-counter.mjs` gained an optional `watch` parameter (bytes of ONE file, `watchedBytesRead`) so the journal row is not moved by a probe's temporary file.
 - **`dashboard`** - passes over the entry logs per full build (28.5 to 29.4, bound 32), a warm page load reads nothing, one new entry costs a full rebuild
   (27.7 passes, printed), requests of a real page load. FINDINGS: `/desk.json` collects on every call (22.1 passes, the second call reads 100 % of the first;
   no page asks for it; counterpart of TB1), and the home view asks `/dashboard/appointments.json` twice per load.
@@ -43,7 +45,7 @@ finding is fixed.
   `test/atlas-stub-never-passes.test.mjs` now uses a made stub and `exitCodeOf` (there is no stub file left), `cmStubs` of the parity list is empty.
 - Tests: `test/atlas-counters-probe.test.mjs`, `test/atlas-digest-probe.test.mjs`, `test/atlas-cost-probe.test.mjs` + `-logic`, `test/atlas-dashboard-probe.test.mjs`
   + `-logic`, `test/atlas-net-tempo-probe.test.mjs` (browser half, skipped as a whole where there is no Chromium: the four rows then say `not-measured`)
-  + `-logic` (judge on doctored results, the page-side counter in a vm). 21 mutants in `bench/mutation.mjs` ("ATLAS-..."), none of which needs a browser.
+  + `-logic` (judge on doctored results, the page-side counter in a vm). 22 mutants in `bench/mutation.mjs` ("ATLAS-..."), none of which needs a browser.
 - `test/serve-token-refuse-cm.test.mjs`: `bench/atlas/serve-world.mjs` is a named exemption of the listener inventory, like `bench/board-tempo.mjs` (it binds `127.0.0.1:0` for an
   instant to find a free port and serves nothing; the server it starts is `bin/mem-serve` itself, loopback-only). The tor found it on the first run.
 - `docs/benchmark-atlas.md`: the section on the four phases (what is counted, threshold and why, blind spot, red proof, findings). Against the base commit
