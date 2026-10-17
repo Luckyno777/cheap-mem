@@ -48,6 +48,13 @@ Proofs: `test/index-bound-cm.test.mjs` (13 probes; the scenes are built with lit
 
 Not done: `src/recallhook.mjs` (the signal check opens the index with a plain `loadIndex`, so it keeps the terminal's rule, and a fifth reached there is still rebuilt in that process; the file belongs to a parallel order). The warm server's memo still drops at a fifth.
 
+### Changed - the one-place latch for the due date now sees destructuring, bracket access and the `due ?? by` idiom
+
+`due-one-place` (`shared/calculations.jsonl`, owner `src/due.mjs`) only knew the property read `x.due`. A reader could take the field with `const { due } = d`, `d["due"]` or `d['deadline']` and the latch stayed green. The core had left the destructuring open on purpose, because its own results were called `due` too (`const { due: dueNow } = s`), so a destructuring of a result could not be told from a read of a duty.
+- **The core's results no longer carry the raw field's name.** `situationFromOpen` returns the count of the state as `dueNow` (was `due`) and a row's text as `dueAt` (was `due`); the day list of `appointment-today` is `dueList` (was `due`, the machine form `duties.due` is unchanged). `mem deadlines --json`, `mem_deadlines` and the day list JSON keep the public key `due`: `rowForOutput` gives a row its public name back in the same place.
+- **The pattern has four branches now:** property read (as before), destructuring that is assigned to, iterated or taken as the single destructured parameter of an arrow (`{ due }`, `{ due: x }`, `{ due = null }`, quoted keys), bracket access with a literal name (also a template key) and the alias fallback `due ?? x.by`. An object literal `{ due: x }` is no read. A bare `.by` is not searched: it is the author field of claims, appointments and deletions; the only duty reader of `by` is the core.
+- **Two new `except` entries, each with its reason in the `why`:** `src/questiontext.mjs` (an options parameter `{ since, until }`, a time window) and `src/today.mjs` (renders the rows of the deadline and decision parts, whose public key is `due`; it reads no duty).
+- Proofs: `test/due-core.test.mjs` is red on the base in four places (the result names, the day list, the positive control with readers e to k, the line-by-line pattern probe). `bench/mutation.mjs`: three new mutants on `shared/calculations.jsonl` (no destructuring branch, no bracket branch, no `due ?? by` branch), 3/3 caught. Parity: the sibling house has the same gap (`frist-zustand` knows only `.frist`) and its rows are called `frist`; that port is open.
 ### Tests - the heap-cap probes measured: every one has a wide window (heap-margin-cm; counterpart of the sibling's heap-marge fix, Parity lm=yes)
 
 The sibling's `dash-tempo2-lm` memory probe had ~1 MB between "the bounded path fits" and "the unbounded path does not" and failed 7 of 40 runs under load. The five equal-shaped probes here were measured
@@ -190,6 +197,18 @@ the token, except with `--local-no-token` on loopback. `test/http-limits.test.mj
 answer, the real services as processes, the recall socket with a hung client; one mutation per probe) and the listener inventory in
 `test/serve-token-refuse-cm.test.mjs` (every listed HTTP service must call `hardenServer` with a named cap) hold it. The recall
 server (Unix socket) got no cap, with the reason in `docs/security-model.md` ("HTTP service limits"). No new environment variable.
+
+### Fixed - three leftovers of `mem setup codex-cloud` (codex-rest-cm)
+
+- **The report of a failed skill write said ".gitignore was put back as it was" even when this run had never touched
+  `.gitignore`.** It now says so only when the file was really rewritten and written back.
+- **A failure while putting `.gitignore` back masked the error that made it necessary** (the exception replaced the
+  report, and the folders this run made were not taken back). The first error now stays, a second line names the failed
+  restore and the file to put back by hand, and `changed` is true, because the file still holds the new rules.
+- **No probe held a foreign file in a folder this run had made**, so a recursive delete in place of `rmdir` survived the
+  mutation sweep. Three probes now put a file into each of the three folders during the failing write; it must stay. Four
+  mutants in `bench/mutation.mjs` (recursive delete, the false claim, the two masked restores) are caught.
+
 ### Fixed - leftovers of the masked transcript copy and of the pin words (small-rest2-cm)
 
 Five items checked, three were real:

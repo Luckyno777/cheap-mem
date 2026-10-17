@@ -186,13 +186,20 @@ export function openSince(duty) {
  * Pure: `now` and `zone` come from outside; `title` makes the display title (its rule lives in memory.mjs, which this
  * module must not import).
  *
- * Returns `{ open, withDue, withoutDue, fresh, due, overdue, unknown, list }`. `unknown` counts only duties that CARRY a
+ * Returns `{ open, withDue, withoutDue, fresh, dueNow, overdue, unknown, list }`. `unknown` counts only duties that CARRY a
  * value which cannot be read; a duty without one is `withoutDue`. `list` holds only the duties with a value, earliest due
- * first, unreadable ones last, ties by id.
+ * first, unreadable ones last, ties by id; a row is `{ id, title, who, project, dueAt, day, state, since, overdueFromMs }`.
+ *
+ * ## Why the results do not say `due`
+ *
+ * `due` is the name of the RAW field on a duty. A result that answered to the same name (the count of the state `due`, the
+ * text of a row) was read by `const { due } = s` exactly like the field, and the one-place latch (shared/calculations.jsonl,
+ * `due-one-place`) could not tell the two apart, so it could not look for destructuring. The count is `dueNow` and the row's
+ * text is `dueAt`; `rowForOutput` gives a row back its public name for the CLI and bridge JSON, which stay as they were.
  */
 export function situationFromOpen(open, { now = Date.now(), zone = systemZone(), title = (d) => String(d?.title ?? d?.text ?? '') } = {}) {
   const t = toMs(now);
-  const count = { fresh: 0, due: 0, overdue: 0, unknown: 0 };
+  const count = { fresh: 0, due: 0, overdue: 0, unknown: 0 }; // keyed by the STATE value; returned as `dueNow` below
   const list = [];
   let withoutDue = 0;
   for (const d of open ?? []) {
@@ -206,7 +213,7 @@ export function situationFromOpen(open, { now = Date.now(), zone = systemZone(),
       title: title(d),
       who: addressee.ofDuty(d) || null,
       project: d._project ?? null,
-      due: typeof value === 'string' ? value : null,
+      dueAt: typeof value === 'string' ? value : null,
       day: read.ok ? read.day : null,
       state: s,
       since: openSince(d),
@@ -217,7 +224,23 @@ export function situationFromOpen(open, { now = Date.now(), zone = systemZone(),
     const x = a.overdueFromMs ?? Infinity; const y = b.overdueFromMs ?? Infinity;
     return x !== y ? x - y : String(a.id).localeCompare(String(b.id));
   });
-  return { open: (open ?? []).length, withDue: list.length, withoutDue, ...count, list };
+  return {
+    open: (open ?? []).length, withDue: list.length, withoutDue,
+    fresh: count.fresh, dueNow: count.due, overdue: count.overdue, unknown: count.unknown, list,
+  };
+}
+
+/**
+ * A row of `situationFromOpen` as the CLI (`mem deadlines --json`) and the bridge (`mem_deadlines`) print it: the public
+ * name `due` back in the place `dueAt` had, and without the internal `overdueFromMs`. Pure.
+ */
+export function rowForOutput(row) {
+  const out = {};
+  for (const [key, v] of Object.entries(row ?? {})) {
+    if (key === 'overdueFromMs') continue;
+    out[key === 'dueAt' ? 'due' : key] = v;
+  }
+  return out;
 }
 
 /**
