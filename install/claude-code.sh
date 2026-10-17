@@ -289,15 +289,22 @@ cfg.hooks = cfg.hooks || {};
 // something this repository can prove (the Windows branch cannot run in CI
 // against Claude Code itself), so single quotes are NOT used there: cmd.exe
 // does not read them. What cannot be written safely in double quotes is
-// refused instead of written wrong: a `"` in a Windows path stops the
-// installer before settings.json is touched.
+// refused instead of written wrong: a `"`, a `$` or a backtick in a Windows
+// path stops the installer before settings.json is touched. Inside double
+// quotes a POSIX-style shell (Git Bash) still evaluates `$` and a backtick
+// and reads `"` as the end of the word, and a `"` cannot be escaped in
+// cmd.exe at all, so there is no spelling that is right under both. (A UNC
+// administrative share such as `\\host\c$\x` is refused for the same reason;
+// map it to a drive letter.)
 const isWindowsPath = (s) => /^[A-Za-z]:/.test(s) || s.startsWith('\\\\')
   || (!s.startsWith('/') && s.includes('\\'));
 const SAFE_POSIX = /^[-A-Za-z0-9_.:@%+=,/]+$/;
 function q(s) {
   if (isWindowsPath(s)) {
-    if (s.includes('"')) {
-      console.error(`error: the path ${JSON.stringify(s)} contains a double quote; it cannot be written into a hook command safely.`);
+    const bad = [['"', 'a double quote'], ['$', 'a dollar sign'], ['`', 'a backtick']].find(([c]) => s.includes(c));
+    if (bad) {
+      console.error(`error: the path ${JSON.stringify(s)} contains ${bad[1]}; it cannot be written into a hook command safely.`);
+      console.error(`       (Inside double quotes a shell would evaluate it, and single quotes are not read by cmd.exe.)`);
       console.error(`       Move the tool or the Claude home to a path without one, then run this installer again.`);
       console.error(`       ${settingsPath} was not changed.`);
       process.exit(1);

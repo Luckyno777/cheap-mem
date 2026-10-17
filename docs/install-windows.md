@@ -115,10 +115,13 @@ You should see a `[UTC-time] watcher awake` line within seconds.
   runs a hook command in on Windows is not something this repository can prove
   (the installer's comments and tests only establish that `cmd.exe` does not
   find `bash` on its own, which is why the full interpreter path is written).
-  A `"` inside such a path cannot be written safely in double quotes, so the
-  installer stops with an error before `settings.json` is changed. Windows does
-  not allow `"` in file names, so this does not happen with a real folder.
-  `$` and a backtick in a Windows path are written as they are.
+  A `"`, a `$` or a backtick inside such a path cannot be written safely in
+  double quotes (a bash-style shell evaluates `$` and a backtick there, and
+  `"` ends the word), so the installer stops with an error before
+  `settings.json` is changed. Windows does not allow `"` in file names;
+  `$` and a backtick are legal, so a folder such as `C:\Users\a$b` or a UNC
+  administrative share (`\\host\c$\...`) is refused: use a path without them
+  (map the share to a drive letter).
 - **Long paths.** If your memory root has spaces or is deeper than
   ~200 chars, wrap it in double-quotes in every command and enable long
   paths (`git config --global core.longpaths true`).
