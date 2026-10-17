@@ -100,13 +100,19 @@ if ($OwnToolTrusted -and (Test-Path -LiteralPath (Join-Path $Root 'bin/mem'))) {
 # --- Read the hook JSON, and check tool_name + the exact signature ----
 $In = ''
 if ([Console]::IsInputRedirected) { $In = [Console]::In.ReadToEnd() }
+# stdin to node (CI run 1141, src/hookstdin.mjs says why): Windows PowerShell 5.1 opens a native command's stdin in
+# [Console]::InputEncoding and writes its preamble first - under code page 65001 a UTF-8 BOM before the hook JSON, and
+# the core's JSON.parse failed in silence. Same code page without a preamble; what PowerShell writes into the pipe as
+# UTF-8 without a BOM (or a non-ASCII path arrives as '?'). No console to set it on: the cores strip a BOM themselves.
+try { if ([Console]::InputEncoding.CodePage -eq 65001 -and [Console]::InputEncoding.GetPreamble().Length -gt 0) { [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false) } } catch { }
+$OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 if (-not $In) { exit 0 }
 
 $ErrSigPath = Join-Path $ToolRoot 'src/errorsignature.mjs'
 $CheckScript = @'
   let d = "";
   process.stdin.on("data", (c) => (d += c)).on("end", async () => {
-    let j; try { j = JSON.parse(d); } catch { process.exit(0); }
+    let j; try { j = JSON.parse(d.replace(/^[\uFEFF\s]+/, "")); } catch { process.exit(0); }
     if (String(j.tool_name ?? "") !== "Bash") process.exit(0);
     let sig;
     try {

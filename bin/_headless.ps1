@@ -65,6 +65,9 @@ function Remove-HeadlessDir {
 function Get-OldClaudeMessage {
   param([string]$Text)
   $ErrorActionPreference = 'Continue'
+  # stdin to node as in the hook twins (CI run 1141, src/hookstdin.mjs): no BOM in front, UTF-8 without one.
+  try { if ([Console]::InputEncoding.CodePage -eq 65001 -and [Console]::InputEncoding.GetPreamble().Length -gt 0) { [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false) } } catch { }
+  $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
   $m = @($Text | & node $script:HeadlessHelper 'old-claude' '-' 2>$null)
   if ($LASTEXITCODE -eq 0) { return $m }
   return $null

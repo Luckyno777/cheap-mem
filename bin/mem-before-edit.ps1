@@ -135,6 +135,12 @@ if ([Console]::IsInputRedirected) { $In = [Console]::In.ReadToEnd() }
 # Size only, never content (CI runs 1066-1103: under Windows PowerShell 5.1 the core said `no-readable-path`; this line
 # and the core's own size say on which side of the pipe to node the hook JSON was lost).
 Write-Note "stdin: $($In.Length) chars, redirected=$([Console]::IsInputRedirected)"
+# stdin to node (CI run 1141, src/hookstdin.mjs says why): Windows PowerShell 5.1 opens a native command's stdin in
+# [Console]::InputEncoding and writes its preamble first - under code page 65001 a UTF-8 BOM before the hook JSON, and
+# the core's JSON.parse failed in silence. Same code page without a preamble; what PowerShell writes into the pipe as
+# UTF-8 without a BOM (or a non-ASCII path arrives as '?'). No console to set it on: the cores strip a BOM themselves.
+try { if ([Console]::InputEncoding.CodePage -eq 65001 -and [Console]::InputEncoding.GetPreamble().Length -gt 0) { [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false) } } catch { }
+$OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 
 if ($In -and $In -match '"tool_name"\s*:\s*"Bash"') {
   try {
@@ -235,12 +241,8 @@ $env:MEM_BE_START_MS = [string]$HookStartMs
 $env:MEM_BE_ASCII = '1'
 
 # The hook JSON goes to node on stdin (it can be large: a Write carries the
-# whole file, far over what an environment variable holds). `$OutputEncoding`
-# decides what bytes PowerShell pipes to a native command - UTF-8 without a
-# BOM here, or a path with an umlaut arrives as `?`.
-$SavedEncoding = $OutputEncoding
-$OutputEncoding = [System.Text.UTF8Encoding]::new($false)
-try { $Answer = (($In | & node $CorePath) -join "`n") }
-finally { $OutputEncoding = $SavedEncoding }
+# whole file, far over what an environment variable holds), in the encoding
+# set right after stdin was read above.
+$Answer = (($In | & node $CorePath) -join "`n")
 if ($Answer) { [Console]::Out.Write($Answer) }
 exit 0
