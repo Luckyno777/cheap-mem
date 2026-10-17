@@ -164,13 +164,19 @@ export function select(root, { n = 10, workflowBlock = null, taskBlock = null, t
   const procedureChars = hits.length ? hits.map((e) => procedure.display(e)).join('\n\n').length
     : parts.find((p) => p.id === 'no-procedure').forms[0].length;
   const legacyChars = LEGACY_CAP_CHARS - ((wf ? wf.length + 2 : 0) + procedureChars + hintLine.length + 4);
-  // The recap is asked once at its natural size (the first ask, `legacyChars`) and that text is reused when it fits.
+  // With a workflow card that has a pointer, the recap is first asked at its natural size (the first ask, `legacyChars`):
+  // the card is whole only if that text still fits next to it (`holdBack`), and the text is reused when it fits. Without
+  // such a card the recap is asked exactly as it always was.
+  const card = parts.find((p) => p.id === 'workflow');
+  const holds = Boolean(card && card.forms.length > 1);
   let natural = null;
   const naturalRecap = () => { if (natural === null) natural = recapFor(root, n, Infinity, legacyChars); return natural; };
   parts.push({ id: 'recap', kind: 'recap', rank: RANK_RECAP, order: 100, how: 'mem context', ref: 'recap',
-    fill: (room) => { const t = naturalRecap(); return t && Buffer.byteLength(maskText(t), 'utf8') <= room ? t : recapFor(root, n, room, legacyChars); } });
-  const card = parts.find((p) => p.id === 'workflow');
-  if (card && card.forms.length > 1) {
+    fill: (room) => {
+      if (holds) { const t = naturalRecap(); if (t && Buffer.byteLength(maskText(t), 'utf8') <= room) return t; }
+      return recapFor(root, n, room, legacyChars);
+    } });
+  if (holds) {
     const whole = naturalRecap();
     card.holdBack = whole ? Buffer.byteLength(maskText(whole), 'utf8') + Buffer.byteLength('\n\n', 'utf8') : 0;
   }
