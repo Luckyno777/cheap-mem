@@ -2598,6 +2598,7 @@ export function skipsOf(tap) {
 // reader for the files, so a probe can feed it a made-up catalogue.
 export const MIXED_SUITES = {
   'test/dash-confirm-fresh-cm.test.mjs': 'tests (1) and (1b) are module tests; only (2) and (3) start a browser or a view',
+  'test/atlas-dashboard-probe.test.mjs': 'the server rows (build-reads, warm-load, write-rebuild, desk) run a bin/mem-serve child and need no browser; only the requests row watches a page, and without Chromium it reads not-measured with the reason (no test skips), so a mutant on the server side is judged in a job without Playwright; the browser fixture is imported for its lock only',
 };
 export function browserBound(file, read, mixed = MIXED_SUITES) {
   if (/browser/i.test(path.basename(file))) return true;
