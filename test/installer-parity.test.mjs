@@ -108,7 +108,7 @@ test('the Windows Stop hook is the model-FREE one', () => {
   // person to delete the explanation to get green. So it reads the
   // ASSIGNMENT: which script the generated hook resolves and starts.
   const srcText = fs.readFileSync(WINDOWS, 'utf8');
-  const created = srcText.split('Set-Content -LiteralPath $stopHookDst')[0];
+  const created = srcText.split('Out-HookScript $stopHookDst')[0];
   const block = created.slice(created.lastIndexOf('cheap-mem Stop hook'));
   const withoutComment = block.split('\n').filter((z) => !/^\s*#/.test(z)).join('\n');
   const called = [...withoutComment.matchAll(/'bin\\(mem-[a-z-]+\.ps1)'/g)].map((m) => m[1]);
