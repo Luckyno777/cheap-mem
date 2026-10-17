@@ -40,6 +40,7 @@ const ENV = { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEA
 
 /** Files that steer the cache with the probe switch THEMSELVES (the fixture keeps nothing fresh there). */
 const STEERS_ITSELF = {
+  'dash-confirm-fresh-cm.test.mjs': 'holds the background rebuild back (SYNC_TEST_MS=0, long gap) so the confirm must show up from the live part while the cache is still old',
   'no-jump.test.mjs': 'needs real "not fresh" answers and background builds (SYNC_TEST_MS=0): a request before the page changes the sequence',
   'cat-confirm-cm-browser.test.mjs': 'rebuilds the state after a click with SYNC_TEST_MS=0 and a long minimum gap: a request before the page would use up the build',
   'dash-package-cm-browser.test.mjs': 'one probe forces the worker lane (SYNC_TEST_MS=0, long gap) with its own server and its own sequence of states',
@@ -48,6 +49,7 @@ const STEERS_ITSELF = {
 };
 /** Files with `keepFresh: false` - none. New ones only with a reason. */
 const NOT_FRESH = {
+  'dash-confirm-fresh-cm.test.mjs': 'a request before the page would start the rebuild the probe has to hold back: the confirm must be fresh from the live part while the cache is still old',
   'dash-write-fresh-cm.test.mjs': 'a request before the page would start the rebuild the probe has to hold back: the write must be fresh from the live parts while the cache is still old',
 };
 /** Files with `.goto(` whose pages do NOT come from the fixture - none. */
