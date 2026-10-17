@@ -37,6 +37,7 @@ import { loadCases, loadWorld, buildWorld } from './gold-compare.mjs';
 import { buildCorpus } from './scale.mjs';
 import * as memory from '../src/memory.mjs';
 import { clears, RECALL_MIN } from '../src/recallrender.mjs';
+import { isMain } from '../src/ismain.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..');
@@ -165,7 +166,7 @@ export function render(r) {
   return L.join('\n');
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   const r = await measure({ size: Number(arg('size', 0)), ref: arg('old-ref', PINNED_OLD) });
   process.stdout.write(`${process.argv.includes('--json') ? JSON.stringify(r, null, 1) : render(r)}\n`);
 }

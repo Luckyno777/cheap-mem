@@ -42,9 +42,8 @@ export {
   debtList,
 } from '../src/parity.mjs';
 
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { DEFAULT_ROOT, CUTOFF, evaluate, debtList, W9_BASELINE } from '../src/parity.mjs';
+import { isMain } from '../src/ismain.mjs';
 
 function debtMain(cutoff) {
   const r = debtList(DEFAULT_ROOT, cutoff);
@@ -86,5 +85,4 @@ function main() {
   for (const v of r.violations) console.log(`    ${v.hash} ${v.subject}`);
 }
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-if (isMain) main();
+if (isMain(import.meta.url)) main();

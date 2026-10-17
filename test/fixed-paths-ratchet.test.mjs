@@ -97,6 +97,8 @@ const EXCEPTIONS = {
     'test/hook-lock-held.test.mjs': { max: 2, why: WHY_WIN_EXAMPLE },
     'test/hook-windows-root.test.mjs': { max: 2, why: WHY_WIN_EXAMPLE },
     'test/install-hooks.test.mjs': { max: 2, why: WHY_WIN_EXAMPLE },
+    'test/installer-command-quoting.test.mjs': { max: 7, why: WHY_WIN_EXAMPLE },
+    'test/shim-rest-cm.test.mjs': { max: 4, why: WHY_WIN_EXAMPLE },
     'test/windows-install.test.mjs': { max: 3, why: WHY_WIN_EXAMPLE },
   },
 };
