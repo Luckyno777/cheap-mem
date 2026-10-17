@@ -429,8 +429,8 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-numbers.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **88 CLI commands, 45 MCP tools, 221 modules, 5190
-tests**; as of 2026-09-20, about 91263 lines in `bin/` and `src/`, at
+As of 2026-09-26: **88 CLI commands, 45 MCP tools, 224 modules, 5223
+tests**; as of 2026-09-20, about 91891 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 
 ### Reading it with a model, or evaluating it properly
@@ -467,7 +467,7 @@ enforced fails the build rather than waiting for someone to audit it.
 
 | check | what a red run means |
 |---|---|
-| `bench/mutation.mjs` | one of 270 guarantees was broken on purpose and no test noticed |
+| `bench/mutation.mjs` | one of 297 guarantees was broken on purpose and no test noticed |
 | `bench/fuzz.mjs` | a crash, hang, unbounded growth, or a bypass |
 | `bench/composed.mjs` | seven attacks that are only dangerous in combination |
 | `bench/byzantine.mjs` | a flood of rule-abiding liars buried the genuine claim, or the conflict went unreported |
@@ -826,8 +826,10 @@ is allowed without asking. Details: [docs/security-model.md](docs/security-model
   tagged `subagent-start` (a norm only a human can issue — see
   `mem log procedure --help`; `src/gauges.mjs`) plus a context recap, and
   the errors, learnings, duties, procedures and skills that fit the
-  subagent's own task (read from its transcript; 4 hits, 1,500 bytes,
-  nothing encrypted or personal).
+  subagent's own task (read from its transcript; 4 hits, nothing encrypted
+  or personal). The whole start answers under one budget of 3,200 bytes, as
+  does the `UserPromptSubmit` answer: what does not fit steps down to a
+  pointer (id and `mem show <id>`) and one note says what was left out.
 - Below an error the recall hooks show, one line gives its newest valid
   solution (`↳ Solution <id>: ...`); a skill offer brings two lines of its
   experience account.

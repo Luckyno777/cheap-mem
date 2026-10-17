@@ -24,12 +24,12 @@
  */
 
 import fs from 'node:fs';
-import path from 'node:path';
 import { isMain } from './ismain.mjs';
 import * as memory from './memory.mjs';
 import * as workflow from './workflow.mjs';
 import * as component from './component.mjs';
 import * as pointer from './pointer.mjs';
+import * as wfpointer from './workflowpointer.mjs';
 import { maskText } from './outputguard.mjs';
 
 /** The status value that keeps a workflow out of every hook. */
@@ -155,43 +155,65 @@ export function cardText(entry) {
     + `${entry.id} loads it again)`;
 }
 
-function marksDir(root, env) {
-  return env?.MEM_WORKFLOW_MARKS || path.join(root, '.mem', 'workflow-marks');
+/**
+ * A card longer than this (bytes) can never sit next to anything else in the 3200-byte answer
+ * (src/answerbudget.mjs): for the question and subagent hooks (`forText`) it is shown as a POINTER from the
+ * start, and the mark says "shown" like for any card, so the pointer comes once and afterwards the usual
+ * back-reference.
+ */
+export const CARD_MAX_BYTES = 1500;
+
+/** The pointer for a card that is too long for the answer: title, id, how to load it. */
+function sizePointerText(entry, size) {
+  return `Workflow '${entry.title ?? entry.id}' (${entry.id}) matches; its card is ${size} bytes, `
+    + `too long for this block. Full card: mem workflow show ${entry.id}`;
+}
+
+/** The repeat of {@link sizePointerText}: no claim that the card was seen. */
+function sizePointerRepeatText(entry, size) {
+  return `Workflow '${entry.title ?? entry.id}' (${entry.id}) matches again; only its pointer was shown so far, `
+    + `the card is ${size} bytes, too long for this block. Full card: mem workflow show ${entry.id}`;
 }
 
 /** The card the first time in a session, then the pointer (unless the card changed). */
-function cardOrPointer(root, entry, session, env = process.env) {
+function cardOrPointer(root, entry, session, env = process.env, maxBytes = Infinity) {
   const full = () => cardText(entry);
-  const dir = marksDir(root, env);
+  const dir = wfpointer.marksDir(root, env);
   try { fs.mkdirSync(dir, { recursive: true }); } catch { return full(); }
   const level = pointer.watermark(root).bytes;
-  const safe = `${session || 'none'}__${entry.id}`.replace(/[^A-Za-z0-9_.-]/g, '_');
-  const where = path.join(dir, `${safe}.json`);
+  const where = wfpointer.markFile(root, session, entry.id, env);
   const mark = pointer.readMark(where);
-  if (pointer.decide({ mark, levelNow: level }).action === pointer.ACTION.POINTER) return pointerText(entry);
+  if (pointer.decide({ mark, levelNow: level }).action === pointer.ACTION.POINTER) {
+    // A card that is over its limit was only ever shown as a pointer: say so (the usual wording claims the card was seen).
+    const size = Buffer.byteLength(full(), 'utf8');
+    return size > maxBytes ? sizePointerRepeatText(entry, size) : pointerText(entry);
+  }
   const text = full();
+  const size = Buffer.byteLength(text, 'utf8');
   const fp = pointer.fingerprint(text);
   const verdict = pointer.decide({ mark, levelNow: level, newFingerprint: fp });
   pointer.writeMark(where, { level, fingerprint: fp, shown: 1 });
-  return verdict.action === pointer.ACTION.POINTER ? pointerText(entry) : text;
+  if (verdict.action === pointer.ACTION.POINTER) return pointerText(entry);
+  return size > maxBytes ? sizePointerText(entry, size) : text;
 }
 
 /** Hits -> card/pointer for one winner, titles for a tie, `null` for none. */
-function fromHits(root, hits, { session = null, env = process.env } = {}) {
+function fromHits(root, hits, { session = null, env = process.env, maxBytes = Infinity } = {}) {
   if (!hits.length) return null;
   const best = Math.max(...hits.map((h) => h.count));
   const winners = hits.filter((h) => h.count === best);
   if (winners.length > 1) {
     return { text: tieText(winners.map((h) => h.w)), count: winners.length, tie: true };
   }
-  return { text: cardOrPointer(root, winners[0].w, session, env), count: 1, tie: false };
+  return { text: cardOrPointer(root, winners[0].w, session, env, maxBytes), count: 1, tie: false };
 }
 
 /** Question/subagent occasion: triggers against free text. */
 export async function forText(root, text, { session = null, env = process.env } = {}) {
   const workflows = visibleWorkflows(root);
   if (!workflows.length) return null;
-  return fromHits(root, await triggerHits(root, text, { workflows }), { session, env });
+  // The question and subagent answers share one byte budget (src/answerbudget.mjs): a card too long for it comes as a pointer.
+  return fromHits(root, await triggerHits(root, text, { workflows }), { session, env, maxBytes: CARD_MAX_BYTES });
 }
 
 /** Bash occasion: tool patterns against the command text. */
