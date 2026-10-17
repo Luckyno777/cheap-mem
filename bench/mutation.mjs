@@ -1325,6 +1325,12 @@ export const MUTANTS=[
    to:'      ;  // MUTANT: the typed word and its part both score',
    tests:['test/k1-subword.test.mjs'] },
 
+ { name:'K1S a part shared by two identifiers is counted once per identifier',
+   file:'src/search.mjs',
+   from:'      const key = JSON.stringify(p.perPack);',
+   to:'      const key = `${subwordMap.size}:${JSON.stringify(p.perPack)}`;  // MUTANT: no sharing',
+   tests:['test/k1-subword.test.mjs'] },
+
  { name:'K1S a two-letter part is searched',
    file:'src/search.mjs',
    from:'    if (part.length < SUBWORD_MIN ||',

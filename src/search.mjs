@@ -1809,14 +1809,20 @@ export function search(index, query, {
   // k1-subword-cm: the parts of an identifier with an underscore, weaker than the whole word, only while the index
   // does not hold the whole word (see `subwordParts`). Scored below with MAX across packs like the typed forms;
   // in coverage a word covered only by its parts counts HALF, like a bridged one.
-  const subwords = [];
+  // ONE entry per distinct part across all typed words, the highest weight (like the typed terms: a part that two
+  // identifiers share is one piece of evidence, not two).
+  const subwordMap = new Map();
   for (const packVariants of groups) {
     const parts = subwordParts(index, packVariants.word ?? '', queryPacks)
       .filter((p) => !p.perPack.flat().some((t) => ownSet.has(t)));
     if (!parts.length) continue;
     packVariants.subwordForms = parts.flatMap((p) => p.perPack.flat());
-    subwords.push(...parts);
+    for (const p of parts) {
+      const key = JSON.stringify(p.perPack);
+      if ((subwordMap.get(key)?.weight ?? -1) < p.weight) subwordMap.set(key, p);
+    }
   }
+  const subwords = [...subwordMap.values()];
 
   // The curated thesaurus is English-only (see `curatedCoverage`'s own
   // doc comment) — a German pack could not look its own words up in it

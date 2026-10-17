@@ -263,7 +263,10 @@ an entry carries only in prose: "the peer closed the socket"), its parts
 (`socket`, `closed`, `peer`) are searched too, at weight 0.6 against 1.0
 for a typed word, and a word covered only through its parts counts half
 in the coverage factor. When the index holds the word, no part is
-searched. Parts under three letters are filler. A hyphen needs none of
+searched. "Holds" counts every entry in the index, also discarded or
+superseded ones and raw captures (the raw document frequency, as in the
+sibling house). A part that two identifiers of one question share counts
+once. Parts under three letters are filler. A hyphen needs none of
 this: there the question already types the whole and the parts.
 Measurement: `bench/subword-measure.mjs`, `CHANGELOG.md`.
 

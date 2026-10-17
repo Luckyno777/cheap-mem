@@ -151,6 +151,21 @@ test('A5: the coordination factor counts the word half: score(coverage 1) / scor
   assert.ok(Math.abs(ratio - expected) < 1e-9, `${ratio} vs ${expected}`);
 });
 
+test('A6: two unknown identifiers that share a part count the part ONCE (the maximum per term, not a sum per word)', (t) => {
+  const root = world(t);
+  const index = search.buildIndex(root);
+  const score = (q) => search.search(index, q, { coverage: 0, top: 8 }).find((h) => h.entry.id === PROSE)?.score;
+  const one = score('socket_closed_by_peer');
+  const same = score('socket_closed_by_peer socket_closed_by_peer');
+  const shared = score('socket_closed_by_peer socket_closed_by_host');
+  // the same identifier twice adds nothing; a second one adds only its OWN parts (`host` is in no entry)
+  assert.ok(Math.abs(same - one) < 1e-9, `${same} vs ${one}`);
+  assert.ok(Math.abs(shared - one) < 1e-9, `shared parts counted once: ${shared} vs ${one}`);
+  // control: a second identifier with a part of its own that the entry carries DOES add (`frame`)
+  const own = score('socket_closed_by_peer frame_host_zzz');
+  assert.ok(own > one + 1e-9, `an own part still counts: ${own} vs ${one}`);
+});
+
 // --- B. the whole word is known: no parts ------------------------------------------------------------------------
 
 test('B1: an identifier the index HOLDS finds the entry that carries it, and ONLY that one (no part hits on prose)', (t) => {
