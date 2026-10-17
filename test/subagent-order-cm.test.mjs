@@ -110,18 +110,38 @@ test('B1: procedures and a large card, the card does not fit next to them: the p
   assert.match(was.text, /pointer - the rule did not fit this block/, 'old: a rule was a pointer');
 });
 
-test('B2: still tighter: the card is its pointer and the recap is shortened away FIRST; the procedures stay whole', async (t) => {
-  const root = world(t, { procedures: 4 });
-  const sel = subagentstart.select(root, { workflowBlock: cardBlock() });
-  assert.ok(sel.bytes <= answerbudget.ANSWER_BYTES, `${sel.bytes} bytes`);
-  assert.deepEqual(wholeRules(sel.text, 4), [0, 1, 2, 3], 'every rule stands whole');
-  assert.equal(cardPointer(sel.text), true, 'the card is its pointer');
-  assert.equal(sel.chosen.some((c) => c.kind === 'recap'), false, 'the recap gave way');
-  assert.match(sel.note, /recap left out/);
-  const old = await baseModules(t);
-  const was = old.select(root, { workflowBlock: cardBlock() });
-  assert.equal(cardWhole(was.text), true, 'old: the card stood whole');
-  assert.ok(wholeRules(was.text, 4).length < 4, 'old: a rule was only a pointer');
+test('B2: the order of giving way, swept over the size of the assignment block: the card is never whole while the recap is cut; the procedures stay whole (RED at the old commit)', async (t) => {
+  // The paths in the closing hint differ from machine to machine, so no size is tuned to a byte: the assignment block
+  // grows from nothing to more than the budget, and whatever the machine, the card must step down BEFORE the recap does.
+  const root = world(t, { procedures: 3, repeat: 10 });
+  const small = workflowdetect.cardText({ id: 'wf000001', title: 'Release procedure', issued_by: 'owner', status: 'released',
+    steps: Array.from({ length: 3 }, (_, i) => `Step ${i} ${'does a thing '.repeat(8)}`) });
+  const block = `${subagentstart.WORKFLOW_LEAD}\n${small}`;
+  const sizes = Array.from({ length: 41 }, (_, i) => i * 40); // 0 .. 1600 bytes of assignment text
+  const probe = (mod) => {
+    let natural = null;
+    return sizes.map((n) => {
+      const sel = mod.select(root, { workflowBlock: block, taskBlock: n ? `${subagenttask.HEADER}\n- ${'t'.repeat(n)}` : null });
+      const asked = Number(/--- budget (\d+) chars/.exec(sel.text)?.[1]);
+      if (natural === null) natural = asked;
+      const card = sel.chosen.find((c) => c.kind === 'workflow');
+      return { n, bytes: sel.bytes, rules: wholeRules(sel.text, 3, 10).length, recapWhole: asked === natural,
+        card: card ? card.form : 'gone' };
+    });
+  };
+  const now = probe(subagentstart);
+  for (const r of now) {
+    assert.ok(r.bytes <= answerbudget.ANSWER_BYTES, `assignment ${r.n}: ${r.bytes} bytes`);
+    assert.equal(r.rules, 3, `assignment ${r.n}: every rule stands whole`);
+    if (!r.recapWhole) assert.notEqual(r.card, 0, `assignment ${r.n}: the recap is cut, so the card must not stand whole`);
+  }
+  // Positive controls: the sweep crosses all three states (the probe measures something).
+  assert.ok(now.some((r) => r.card === 0 && r.recapWhole), 'a small assignment: card whole, recap whole');
+  assert.ok(now.some((r) => r.card === 1 && r.recapWhole), 'a larger one: the card is its pointer and the recap is still whole');
+  assert.ok(now.some((r) => !r.recapWhole), 'a still larger one: the recap is cut');
+  // RED at the old commit: there the card was allocated first, so the recap was cut while the card stood whole.
+  const old = probe(await baseModules(t));
+  assert.ok(old.some((r) => r.card === 0 && !r.recapWhole), 'old: the card stood whole while the recap was cut');
 });
 
 test('B3: many procedures: the first ones whole, the rest at least a pointer with its id, the card a pointer, the recap gone; nothing left out', (t) => {
@@ -139,18 +159,26 @@ test('B3: many procedures: the first ones whole, the rest at least a pointer wit
   assert.match(sel.text, /component <path>/, 'the hint is in');
 });
 
-test('B3b: the card plus the rules fit but not the recap besides: the card steps down FIRST, the recap stands whole (RED at the old commit: the recap was lost)', async (t) => {
+// How many characters the recap was asked for, plus the length of the card block: the old cap of 4,000 characters minus
+// everything else, so the number is the same for every card as long as the recap is delivered whole (NaN: no recap).
+const recapAsked = (sel, block) => Number(/--- budget (\d+) chars/.exec(sel.text)?.[1]) + String(block).trim().length;
+
+test('B3b: the card plus the rules fit but not the recap besides: the card steps down FIRST, the recap stands whole (RED at the old commit: the recap was cut)', async (t) => {
   const root = world(t, { procedures: 2, repeat: 16 });
+  const bigger = `${subagentstart.WORKFLOW_LEAD}\n${workflowdetect.cardText({ id: 'wf000001', title: 'Release procedure', issued_by: 'owner', status: 'released',
+    steps: Array.from({ length: 10 }, (_, i) => `Step ${i} ${'does a thing '.repeat(8)}`) })}`;
+  const reference = recapAsked(subagentstart.select(root, { workflowBlock: bigger }), bigger);
+  assert.ok(Number.isFinite(reference), 'beside a pointer the recap stands (the reference)');
   const sel = subagentstart.select(root, { workflowBlock: cardBlock() });
   assert.ok(sel.bytes <= answerbudget.ANSWER_BYTES, `${sel.bytes} bytes`);
   assert.deepEqual(wholeRules(sel.text, 2, 16), [0, 1]);
   assert.equal(cardPointer(sel.text), true, 'the card gave way');
-  assert.match(sel.text, /cheap-mem context/, 'the recap stands');
+  assert.equal(recapAsked(sel, cardBlock()), reference, 'the recap is the whole one');
   assert.deepEqual(sel.omitted, [], 'nothing fell away');
   const old = await baseModules(t);
   const was = old.select(root, { workflowBlock: cardBlock() });
   assert.equal(cardWhole(was.text), true, 'old: the card stood whole');
-  assert.doesNotMatch(was.text, /cheap-mem context/, 'old: the recap was lost behind it (the probe measures something)');
+  assert.notEqual(recapAsked(was, cardBlock()), reference, 'old: the recap was cut or lost behind it (the probe measures something)');
 });
 
 test('B3c: at the exact boundary the card is whole only if the WHOLE recap and the separator still fit (a sweep over the card size, byte by byte)', (t) => {
@@ -165,15 +193,17 @@ test('B3c: at the exact boundary the card is whole only if the WHOLE recap and t
   // The card is one byte longer for each k, and the recap's first ask shrinks by one character for each k (the old cap
   // of 4,000 characters minus the card): while the whole recap is delivered `asked + k` is the same number.
   assert.equal(at(0).form, 0, 'a small card is whole');
-  assert.equal(at(700).form, 1, 'a large card is its pointer');
+  assert.equal(at(2000).form, 1, 'a large card is its pointer');
   let lo = 0;
-  let hi = 700; // at(lo) is whole, at(hi) is a pointer
+  let hi = 2000; // at(lo) is whole, at(hi) is a pointer
   while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (at(mid).form === 0) lo = mid; else hi = mid; }
   const natural = at(hi).recapAsked;
+  assert.ok(Number.isFinite(natural), 'beside a pointer the recap stands (the reference)');
   for (let k = Math.max(0, lo - 8); k <= hi + 3; k += 1) {
     const r = at(k);
     assert.ok(r.bytes <= answerbudget.ANSWER_BYTES, `k ${k}: ${r.bytes} bytes`);
     assert.equal(r.form, k <= lo ? 0 : 1, `k ${k}: the card is whole up to the boundary, then its pointer`);
+    assert.ok(Number.isFinite(r.recapAsked), `k ${k}: a recap stands`);
     assert.equal(r.recapAsked, natural, `k ${k}: the recap is the whole one (it is never cut to make the card fit)`);
   }
   assert.ok(at(lo).bytes >= answerbudget.ANSWER_BYTES - 8, `the last whole card sits at the boundary: ${at(lo).bytes} bytes`);
@@ -181,40 +211,44 @@ test('B3c: at the exact boundary the card is whole only if the WHOLE recap and t
 
 test('B4: a start that fits is byte for byte the old one (card whole, nothing stepped down, no note)', async (t) => {
   const root = world(t, { procedures: 2 });
+  const small = `${subagentstart.WORKFLOW_LEAD}\n${workflowdetect.cardText({ id: 'wf000001', title: 'Release procedure', issued_by: 'owner', status: 'released',
+    steps: Array.from({ length: 3 }, (_, i) => `Step ${i} ${'does a thing '.repeat(8)}`) })}`;
   const old = await baseModules(t);
-  const want = old.select(root, { workflowBlock: cardBlock() });
-  const got = subagentstart.select(root, { workflowBlock: cardBlock() });
+  const want = old.select(root, { workflowBlock: small });
+  const got = subagentstart.select(root, { workflowBlock: small });
   assert.ok(want.bytes <= answerbudget.ANSWER_BYTES && want.note === null, `the case fits the old budget: ${want.bytes}`);
   // The closing hint names the path of the tool; the old code was exported to another directory, so that path (and with it
   // the number in the recap's footer) differs by exactly its length. Nothing else may differ.
   const tool = (x) => x.replace(/node \S+ --root/, 'node TOOL --root').replace(/--- budget \d+ chars \(~\d+ tokens/, '--- budget N chars (~N tokens');
   assert.equal(tool(got.text), tool(want.text));
   assert.equal(got.note, null);
-  assert.equal(cardWhole(got.text), true, 'the card is whole');
+  assert.ok(got.text.includes('Step 2'), 'the card is whole');
   assert.equal(got.chosen.find((c) => c.kind === 'workflow').form, 0);
 });
 
 test('B5: the assignment block outranks the card: its lines stay whole and the card is its pointer (RED at the old commit)', async (t) => {
   const root = world(t, { procedures: 2, learnings: 0 });
-  const items = [0, 1, 2, 3].map((i) => ({ id: `ord${i}aaaa`, line: `- [error ord${i}aaaa] ${'text '.repeat(60)}`,
+  const items = [0, 1].map((i) => ({ id: `ord${i}aaaa`, line: `- [error ord${i}aaaa] ${'text '.repeat(60)}`,
     pointer: `- [error ord${i}aaaa] t [pointer - full text: mem show ord${i}aaaa]` }));
   const opts = { workflowBlock: cardBlock(), taskForms: subagenttask.blockForms({ items }) };
   const sel = subagentstart.select(root, opts);
   assert.ok(sel.bytes <= answerbudget.ANSWER_BYTES, `${sel.bytes} bytes`);
   assert.deepEqual(wholeRules(sel.text, 2), [0, 1]);
-  assert.equal(items.filter((i) => sel.text.includes(i.line)).length, 4, 'every assignment line is whole');
+  assert.equal(items.filter((i) => sel.text.includes(i.line)).length, 2, 'every assignment line is whole');
   assert.equal(cardPointer(sel.text), true, 'the card is its pointer');
   const old = await baseModules(t);
   const was = old.select(root, opts);
   assert.equal(cardWhole(was.text), true, 'old: the card stood whole');
-  assert.ok(items.filter((i) => was.text.includes(i.line)).length < 4, 'old: assignment lines had stepped down to pointers');
+  assert.ok(items.filter((i) => was.text.includes(i.line)).length < 2, 'old: assignment lines had stepped down to pointers');
 });
 
-test('B6: the workflow mark is taken back when the card came as a pointer (hookResultFor path keeps working with the new order)', (t) => {
+test('B6: a card that did not come whole is not "seen" (the check hookResultFor makes on `chosen` still reads the new order right)', (t) => {
   const root = world(t, { procedures: 4 });
   const sel = subagentstart.select(root, { workflowBlock: cardBlock() });
   const seen = sel.chosen.find((c) => c.ref === 'workflow');
-  assert.ok(seen && seen.form > 0, 'the card is a pointer here: hookResultFor sees form > 0 and forgets the mark');
+  // Not whole: a pointer, or (a long path in the closing hint leaves no room even for that) left out. Either way
+  // hookResultFor (`!seen || seen.form > 0`) takes the mark back.
+  assert.ok(!seen || seen.form > 0, 'the card is not whole here: hookResultFor forgets the mark');
 });
 
 // --- C. source guards --------------------------------------------------------------------------------------------
