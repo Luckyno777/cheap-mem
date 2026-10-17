@@ -202,6 +202,16 @@ if (-not $SkipClaudeCode) {
   $Settings   = Join-Path $ClaudeHome 'settings.json'
   New-Item -ItemType Directory -Force -Path $HooksDir | Out-Null
 
+  # A hook script is written as UTF-8 WITH a byte-order mark, on every PowerShell. `Set-Content -Encoding UTF8` writes
+  # the mark on Windows PowerShell 5.1 but not on PowerShell 7, and 5.1 - the `powershell` the hook commands start -
+  # reads a script without one as ANSI: a baked path with a non-ASCII letter arrived as other characters, and some
+  # of those are quote characters (shim-rest-cm, 2026-10-17). The text itself stays ASCII; the mark is the second belt.
+  function Out-HookScript {
+    param([string]$Path)
+    $text = (@($input) -join [Environment]::NewLine) + [Environment]::NewLine
+    [System.IO.File]::WriteAllText($Path, $text, (New-Object System.Text.UTF8Encoding($true)))
+  }
+
   # Copy hooks with CHEAP_MEM_ROOT baked in.
   $startHookSrc = Join-Path $RepoRoot 'install\hooks\session-start.sh'
   $stopHookSrc  = Join-Path $RepoRoot 'install\hooks\session-stop.sh'
@@ -211,10 +221,16 @@ if (-not $SkipClaudeCode) {
   # `mem init` carries no bin\, so a hook that looked only in the memory
   # found no tool, exited 0 and stayed silent (found 2026-10-16). The
   # environment variable wins when set; this baked path is the fallback.
-  $CodeHint = $RepoRoot -replace "'", "''"
+  #
+  # Baked into '...' strings, so every character PowerShell reads as a single quote is doubled, not only the ASCII one:
+  # it also takes the typographic ones U+2018, U+2019, U+201A and U+201B as quotes, so a folder named with a curly
+  # apostrophe ended the string early, the shim did not parse, and the hook was mute (shim-rest-cm, 2026-10-17).
+  # Spelled with [char], because this file has to stay ASCII (Windows PowerShell 5.1 reads it as ANSI).
+  $SingleQuoteChars = "['" + [char]0x2018 + [char]0x2019 + [char]0x201A + [char]0x201B + "]"
+  $CodeHint = $RepoRoot -replace $SingleQuoteChars, '$0$0'
   # The memory path is baked in single quotes the same way (an apostrophe
   # in a path must not end the string).
-  $RootHint = $env:CHEAP_MEM_ROOT -replace "'", "''"
+  $RootHint = $env:CHEAP_MEM_ROOT -replace $SingleQuoteChars, '$0$0'
 
   # On native Windows, Claude Code hooks are PowerShell too.
   $startHookDst = Join-Path $HooksDir 'cheap-mem-session-start.ps1'
@@ -257,19 +273,25 @@ if (-not $SkipClaudeCode) {
   # install/support/tool-missing.sh for the reasoning): systemMessage JSON on
   # stdout, exit 0 (never block), at most once per 30 minutes per hook.
   @'
-param([string]$Name, [string]$Tool, [string]$Code, [string]$Root, [switch]$Skipped)
+param([string]$Name, [string]$Tool, [string]$Code, [string]$Root, [switch]$Skipped, [switch]$Rejected)
 # -Skipped: the memory ships its own tool, the user never switched that on
 # (mem trust-own-tool) and no installed tool could take its place (tool-trust-cm).
 # That case speaks even without a code path: the hook would otherwise be silent
 # on every prompt for a reason a person can fix in one line.
-if (-not $Code -and -not $Skipped) { exit 0 }
+# -Rejected: the shim threw CHEAP_MEM_CODE out because it held a control character (shim-rest-cm); that speaks too.
+if (-not $Code -and -not $Skipped -and -not $Rejected) { exit 0 }
+# A control character is shown escaped, never raw (ConvertTo-Json below escapes the JSON; this keeps the terminal text clean).
+if ($Code -match '[\x00-\x1f\x7f]') { $Code = [regex]::Replace($Code, '[\x00-\x1f\x7f]', { param($m) '\x{0:x2}' -f [int][char]$m.Value }) }
+$noCode = 'no installed tool is configured'
+if ($Rejected) { $noCode = 'CHEAP_MEM_CODE was rejected because it contains a control character such as a line break, tab or escape' }
 if ($Skipped) {
   # Two different facts, said apart: the tool is MISSING, or it is THERE but lies in the memory and was passed over.
   $why = 'the memory ships its own tool, which is not trusted'
-  if (-not $Code) { $why = "$why, and no installed tool is configured" }
+  if (-not $Code) { $why = "$why, and $noCode" }
   elseif (Test-Path -LiteralPath (Join-Path $Code "bin\$Tool")) { $why = "$why; the installed tool ($Code) lies inside the memory, so it counts as the memory's own and was passed over" }
   else { $why = "$why, and the installed tool is missing ($Code has no bin\$Tool)" }
 }
+elseif (-not $Code) { $why = "$noCode, so the hook has no installed tool" }
 elseif (-not (Test-Path -LiteralPath $Code)) { $why = "the code path $Code does not exist" } else { $why = "$Code has no bin\$Tool" }
 # The "at most every 30 minutes" marker lives in the USER's state directory, never in the memory: a memory is a
 # git clone, and a committed symlink or junction at the old place (<memory>\.pipeline\tool-missing-<hook>) made the
@@ -298,7 +320,7 @@ $msg = "$msg Said at most every 30 minutes."
 [Console]::Error.WriteLine($msg)
 Write-Output (@{ systemMessage = $msg } | ConvertTo-Json -Compress)
 exit 0
-'@ | Set-Content -LiteralPath $missingHookDst -Encoding UTF8
+'@ | Out-HookScript $missingHookDst
 
   @"
 # cheap-mem SessionStart hook (Windows).
@@ -341,6 +363,14 @@ if (-not `$memRoot) {
 # a git clone pulled from origin: code taken from it is code its remote can
 # ship. cheap-mem-own-tool.ps1 (a copy of bin\_owntool.ps1) holds the rule.
 `$codeRoot = if (`$env:CHEAP_MEM_CODE) { `$env:CHEAP_MEM_CODE } else { '$CodeHint' }
+# A code path with a control character (a line break, tab, escape) is REJECTED, not used and not printed: the start hook
+# writes it into the session's context, where a line break would start a line of someone else's choosing. Said on stderr,
+# and by the missing-tool message (-Rejected); the hook goes on without it and never fails (shim-rest-cm, 2026-10-17).
+`$codeRejected = `$false
+if (`$codeRoot -match '[\x00-\x1f\x7f]') {
+  `$codeRejected = `$true; `$codeRoot = ''; `$env:CHEAP_MEM_CODE = `$null
+  [Console]::Error.WriteLine('cheap-mem: CHEAP_MEM_CODE rejected: it contains a control character')
+}
 if (`$codeRoot -and (Test-Path -LiteralPath `$codeRoot)) { `$env:CHEAP_MEM_CODE = `$codeRoot }
 `$mem = `$null
 `$memOk = `$false
@@ -377,10 +407,14 @@ if (-not `$env:NODE_COMPILE_CACHE) {
 if (`$memOk) {
   Write-Host '=== cheap-mem attached ==='
 } else {
-  Write-Host "=== cheap-mem NOT attached: memory found at `$env:CHEAP_MEM_ROOT, but no tool to read it with (installed: `$codeRoot) ==="
+  Write-Host "=== cheap-mem NOT attached: memory found at `$env:CHEAP_MEM_ROOT, but no tool to read it with (installed: `$(if (`$codeRejected) { 'rejected, see below' } else { `$codeRoot })) ==="
   Write-Host "Recent context, alarm state and today line: UNKNOWN (not loaded, not 'nothing')."
   if (`$codeRoot) {
     Write-Host "The code path baked in by the installer has no tool: CHEAP_MEM_CODE=`$codeRoot (nothing under bin\ there)."
+    Write-Host 'The other hooks (prompt recall, before-edit, subagent, stop) are SILENT for the same reason.'
+    Write-Host "Fix: run install\windows.ps1 from a current cheap-mem checkout (CHEAP_MEM_ROOT=`$env:CHEAP_MEM_ROOT)."
+  } elseif (`$codeRejected) {
+    Write-Host 'The code path baked in by the installer was REJECTED: CHEAP_MEM_CODE holds a control character (a line break, tab or escape), so no tool was run from it.'
     Write-Host 'The other hooks (prompt recall, before-edit, subagent, stop) are SILENT for the same reason.'
     Write-Host "Fix: run install\windows.ps1 from a current cheap-mem checkout (CHEAP_MEM_ROOT=`$env:CHEAP_MEM_ROOT)."
   } else {
@@ -577,10 +611,12 @@ try {
     `$env:MEM_SS_SRC = ([System.Uri]::new([System.IO.Path]::GetFullPath(`$injection))).AbsoluteUri
     `$env:MEM_SS_INPUT = `$hookIn
     `$env:MEM_SS_START_MS = [string]`$hookStartMs
+    # Single quotes only: Windows PowerShell 5.1 passes the double quotes inside a native argument unescaped and node
+    # cuts the snippet apart at them (CI run 1180; the rule: test/ps51-node-snippet.test.mjs).
     `$bookScript = @'
       import(process.env.MEM_SS_SRC).then((m) => {
         let session = null;
-        try { session = String(JSON.parse(process.env.MEM_SS_INPUT).session_id || "") || null; } catch { }
+        try { session = String(JSON.parse(process.env.MEM_SS_INPUT).session_id || '') || null; } catch { }
         const start = Number(process.env.MEM_SS_START_MS);
         m.book(process.env.CHEAP_MEM_ROOT, {
           session, occasion: m.OCCASION.SESSION_START, reason: null,
@@ -608,7 +644,7 @@ Write-Host "  node `$mem inbox write --as session --to librarian --subject <text
 Write-Host ''
 Write-Host 'The Stop hook (cheap-mem-session-stop.ps1) will reflect automatically once the'
 Write-Host 'transcript grows past the byte-delta threshold.'
-"@ | Set-Content -LiteralPath $startHookDst -Encoding UTF8
+"@ | Out-HookScript $startHookDst
 
   @"
 # cheap-mem Stop hook (Windows). Delegates to mem-stop.ps1.
@@ -638,6 +674,12 @@ if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
 `$rel = 'bin\mem-stop.ps1'
 `$codeRoot = if (`$env:CHEAP_MEM_CODE) { `$env:CHEAP_MEM_CODE } else { '$CodeHint' }
+# A code path with a control character is rejected, not used (see the start hook); the missing-tool message says so.
+`$codeRejected = `$false
+if (`$codeRoot -match '[\x00-\x1f\x7f]') {
+  `$codeRejected = `$true; `$codeRoot = ''; `$env:CHEAP_MEM_CODE = `$null
+  [Console]::Error.WriteLine('cheap-mem: CHEAP_MEM_CODE rejected: it contains a control character')
+}
 # Which tool runs (tool-trust-cm): the installed one, else the one next to this hook; the memory's own
 # bin\ only with mem trust-own-tool (cheap-mem-own-tool.ps1, a copy of bin\_owntool.ps1).
 `$stop = `$null
@@ -653,11 +695,11 @@ if (Test-Path -LiteralPath `$ownLib) {
 if (-not `$stop) {
   # Say so instead of exiting silent (cheap-mem-tool-missing.ps1).
   `$missing = Join-Path `$PSScriptRoot 'cheap-mem-tool-missing.ps1'
-  if (Test-Path -LiteralPath `$missing) { & `$missing -Name 'session-stop' -Tool 'mem-stop.ps1' -Code `$codeRoot -Root `$env:CHEAP_MEM_ROOT -Skipped:`$skipped }
+  if (Test-Path -LiteralPath `$missing) { & `$missing -Name 'session-stop' -Tool 'mem-stop.ps1' -Code `$codeRoot -Root `$env:CHEAP_MEM_ROOT -Skipped:`$skipped -Rejected:`$codeRejected }
   exit 0
 }
 & powershell -NoProfile -ExecutionPolicy Bypass -File `$stop
-"@ | Set-Content -LiteralPath $stopHookDst -Encoding UTF8
+"@ | Out-HookScript $stopHookDst
 
   # --- The two lanes that were missing entirely ------------------------
   #
@@ -700,6 +742,12 @@ if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
 `$rel = 'bin\mem-retrieve.ps1'
 `$codeRoot = if (`$env:CHEAP_MEM_CODE) { `$env:CHEAP_MEM_CODE } else { '$CodeHint' }
+# A code path with a control character is rejected, not used (see the start hook); the missing-tool message says so.
+`$codeRejected = `$false
+if (`$codeRoot -match '[\x00-\x1f\x7f]') {
+  `$codeRejected = `$true; `$codeRoot = ''; `$env:CHEAP_MEM_CODE = `$null
+  [Console]::Error.WriteLine('cheap-mem: CHEAP_MEM_CODE rejected: it contains a control character')
+}
 # Which tool runs (tool-trust-cm): the installed one, else the one next to this hook; the memory's own
 # bin\ only with mem trust-own-tool (cheap-mem-own-tool.ps1, a copy of bin\_owntool.ps1).
 `$retrieve = `$null
@@ -715,11 +763,11 @@ if (Test-Path -LiteralPath `$ownLib) {
 if (-not `$retrieve) {
   # Say so instead of exiting silent (cheap-mem-tool-missing.ps1).
   `$missing = Join-Path `$PSScriptRoot 'cheap-mem-tool-missing.ps1'
-  if (Test-Path -LiteralPath `$missing) { & `$missing -Name 'user-prompt' -Tool 'mem-retrieve.ps1' -Code `$codeRoot -Root `$env:CHEAP_MEM_ROOT -Skipped:`$skipped }
+  if (Test-Path -LiteralPath `$missing) { & `$missing -Name 'user-prompt' -Tool 'mem-retrieve.ps1' -Code `$codeRoot -Root `$env:CHEAP_MEM_ROOT -Skipped:`$skipped -Rejected:`$codeRejected }
   exit 0
 }
 & powershell -NoProfile -ExecutionPolicy Bypass -File `$retrieve
-"@ | Set-Content -LiteralPath $promptHookDst -Encoding UTF8
+"@ | Out-HookScript $promptHookDst
 
   @"
 # cheap-mem PreToolUse hook (Windows). Delegates to mem-before-edit.ps1.
@@ -742,6 +790,12 @@ if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
 `$rel = 'bin\mem-before-edit.ps1'
 `$codeRoot = if (`$env:CHEAP_MEM_CODE) { `$env:CHEAP_MEM_CODE } else { '$CodeHint' }
+# A code path with a control character is rejected, not used (see the start hook); the missing-tool message says so.
+`$codeRejected = `$false
+if (`$codeRoot -match '[\x00-\x1f\x7f]') {
+  `$codeRejected = `$true; `$codeRoot = ''; `$env:CHEAP_MEM_CODE = `$null
+  [Console]::Error.WriteLine('cheap-mem: CHEAP_MEM_CODE rejected: it contains a control character')
+}
 # Which tool runs (tool-trust-cm): the installed one, else the one next to this hook; the memory's own
 # bin\ only with mem trust-own-tool (cheap-mem-own-tool.ps1, a copy of bin\_owntool.ps1).
 `$before = `$null
@@ -757,11 +811,11 @@ if (Test-Path -LiteralPath `$ownLib) {
 if (-not `$before) {
   # Say so instead of exiting silent (cheap-mem-tool-missing.ps1).
   `$missing = Join-Path `$PSScriptRoot 'cheap-mem-tool-missing.ps1'
-  if (Test-Path -LiteralPath `$missing) { & `$missing -Name 'pre-edit' -Tool 'mem-before-edit.ps1' -Code `$codeRoot -Root `$env:CHEAP_MEM_ROOT -Skipped:`$skipped }
+  if (Test-Path -LiteralPath `$missing) { & `$missing -Name 'pre-edit' -Tool 'mem-before-edit.ps1' -Code `$codeRoot -Root `$env:CHEAP_MEM_ROOT -Skipped:`$skipped -Rejected:`$codeRejected }
   exit 0
 }
 & powershell -NoProfile -ExecutionPolicy Bypass -File `$before
-"@ | Set-Content -LiteralPath $editHookDst -Encoding UTF8
+"@ | Out-HookScript $editHookDst
 
   @"
 # cheap-mem PostToolUse hook (Windows), matcher Bash. Delegates to
@@ -784,6 +838,12 @@ if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
 `$rel = 'bin\mem-catch-fail.ps1'
 `$codeRoot = if (`$env:CHEAP_MEM_CODE) { `$env:CHEAP_MEM_CODE } else { '$CodeHint' }
+# A code path with a control character is rejected, not used (see the start hook); the missing-tool message says so.
+`$codeRejected = `$false
+if (`$codeRoot -match '[\x00-\x1f\x7f]') {
+  `$codeRejected = `$true; `$codeRoot = ''; `$env:CHEAP_MEM_CODE = `$null
+  [Console]::Error.WriteLine('cheap-mem: CHEAP_MEM_CODE rejected: it contains a control character')
+}
 # Which tool runs (tool-trust-cm): the installed one, else the one next to this hook; the memory's own
 # bin\ only with mem trust-own-tool (cheap-mem-own-tool.ps1, a copy of bin\_owntool.ps1).
 `$catchFail = `$null
@@ -799,11 +859,11 @@ if (Test-Path -LiteralPath `$ownLib) {
 if (-not `$catchFail) {
   # Say so instead of exiting silent (cheap-mem-tool-missing.ps1).
   `$missing = Join-Path `$PSScriptRoot 'cheap-mem-tool-missing.ps1'
-  if (Test-Path -LiteralPath `$missing) { & `$missing -Name 'catch-fail' -Tool 'mem-catch-fail.ps1' -Code `$codeRoot -Root `$env:CHEAP_MEM_ROOT -Skipped:`$skipped }
+  if (Test-Path -LiteralPath `$missing) { & `$missing -Name 'catch-fail' -Tool 'mem-catch-fail.ps1' -Code `$codeRoot -Root `$env:CHEAP_MEM_ROOT -Skipped:`$skipped -Rejected:`$codeRejected }
   exit 0
 }
 & powershell -NoProfile -ExecutionPolicy Bypass -File `$catchFail
-"@ | Set-Content -LiteralPath $catchFailHookDst -Encoding UTF8
+"@ | Out-HookScript $catchFailHookDst
 
   @"
 # cheap-mem PostToolUseFailure hook (Windows), matcher Bash|Edit|Write.
@@ -827,6 +887,12 @@ if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
 `$rel = 'bin\mem-after-failure.ps1'
 `$codeRoot = if (`$env:CHEAP_MEM_CODE) { `$env:CHEAP_MEM_CODE } else { '$CodeHint' }
+# A code path with a control character is rejected, not used (see the start hook); the missing-tool message says so.
+`$codeRejected = `$false
+if (`$codeRoot -match '[\x00-\x1f\x7f]') {
+  `$codeRejected = `$true; `$codeRoot = ''; `$env:CHEAP_MEM_CODE = `$null
+  [Console]::Error.WriteLine('cheap-mem: CHEAP_MEM_CODE rejected: it contains a control character')
+}
 # Which tool runs (tool-trust-cm): the installed one, else the one next to this hook; the memory's own
 # bin\ only with mem trust-own-tool (cheap-mem-own-tool.ps1, a copy of bin\_owntool.ps1).
 `$afterFailure = `$null
@@ -842,11 +908,11 @@ if (Test-Path -LiteralPath `$ownLib) {
 if (-not `$afterFailure) {
   # Say so instead of exiting silent (cheap-mem-tool-missing.ps1).
   `$missing = Join-Path `$PSScriptRoot 'cheap-mem-tool-missing.ps1'
-  if (Test-Path -LiteralPath `$missing) { & `$missing -Name 'after-failure' -Tool 'mem-after-failure.ps1' -Code `$codeRoot -Root `$env:CHEAP_MEM_ROOT -Skipped:`$skipped }
+  if (Test-Path -LiteralPath `$missing) { & `$missing -Name 'after-failure' -Tool 'mem-after-failure.ps1' -Code `$codeRoot -Root `$env:CHEAP_MEM_ROOT -Skipped:`$skipped -Rejected:`$codeRejected }
   exit 0
 }
 & powershell -NoProfile -ExecutionPolicy Bypass -File `$afterFailure
-"@ | Set-Content -LiteralPath $afterFailureHookDst -Encoding UTF8
+"@ | Out-HookScript $afterFailureHookDst
 
   @"
 # cheap-mem SubagentStart hook (Windows). Delegates to mem-subagent-start.ps1.
@@ -870,6 +936,12 @@ if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
 `$rel = 'bin\mem-subagent-start.ps1'
 `$codeRoot = if (`$env:CHEAP_MEM_CODE) { `$env:CHEAP_MEM_CODE } else { '$CodeHint' }
+# A code path with a control character is rejected, not used (see the start hook); the missing-tool message says so.
+`$codeRejected = `$false
+if (`$codeRoot -match '[\x00-\x1f\x7f]') {
+  `$codeRejected = `$true; `$codeRoot = ''; `$env:CHEAP_MEM_CODE = `$null
+  [Console]::Error.WriteLine('cheap-mem: CHEAP_MEM_CODE rejected: it contains a control character')
+}
 # Which tool runs (tool-trust-cm): the installed one, else the one next to this hook; the memory's own
 # bin\ only with mem trust-own-tool (cheap-mem-own-tool.ps1, a copy of bin\_owntool.ps1).
 `$subagent = `$null
@@ -885,11 +957,11 @@ if (Test-Path -LiteralPath `$ownLib) {
 if (-not `$subagent) {
   # Say so instead of exiting silent (cheap-mem-tool-missing.ps1).
   `$missing = Join-Path `$PSScriptRoot 'cheap-mem-tool-missing.ps1'
-  if (Test-Path -LiteralPath `$missing) { & `$missing -Name 'subagent-start' -Tool 'mem-subagent-start.ps1' -Code `$codeRoot -Root `$env:CHEAP_MEM_ROOT -Skipped:`$skipped }
+  if (Test-Path -LiteralPath `$missing) { & `$missing -Name 'subagent-start' -Tool 'mem-subagent-start.ps1' -Code `$codeRoot -Root `$env:CHEAP_MEM_ROOT -Skipped:`$skipped -Rejected:`$codeRejected }
   exit 0
 }
 & powershell -NoProfile -ExecutionPolicy Bypass -File `$subagent
-"@ | Set-Content -LiteralPath $subagentHookDst -Encoding UTF8
+"@ | Out-HookScript $subagentHookDst
 
   # Merge settings.json.
   $cfg = @{}

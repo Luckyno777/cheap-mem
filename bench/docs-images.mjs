@@ -23,6 +23,7 @@ import * as archive from '../src/archive.mjs';
 import * as heartbeat from '../src/heartbeat.mjs';
 import { waitReady } from '../test/fixture/browser.mjs';
 import { writeState, hashUi } from '../src/docimages-state.mjs';
+import { isMain } from '../src/ismain.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..');
@@ -556,6 +557,6 @@ async function main() {
 // Only run when started directly -- an `import` (e.g. from the guard
 // test, which only needs assertRootIsTemp()) must NEVER trigger the
 // whole screenshot run (browser, server, minutes).
-if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
+if (isMain(import.meta.url)) {
   main().catch((e) => { console.error(e); process.exit(1); });
 }

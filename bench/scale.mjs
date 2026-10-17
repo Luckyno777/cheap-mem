@@ -56,9 +56,9 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { performance } from 'node:perf_hooks';
 import { buildIndex, search } from '../src/search.mjs';
+import { isMain } from '../src/ismain.mjs';
 
 const TOPICS = ['billing', 'auth', 'database', 'ci', 'ops', 'frontend', 'security',
   'cache', 'payments', 'search', 'deploy', 'testing', 'mobile', 'api', 'queue'];
@@ -187,7 +187,7 @@ export function measure(n) {
 }
 
 // Import-safe: bench/cold-find.mjs reuses buildCorpus() and QUERIES.
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isMain(import.meta.url)) {
   const sizes = process.argv.includes('--million')
     ? [1000, 10000, 100000, 1000000]
     : [1000, 10000, 100000];

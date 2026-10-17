@@ -3,9 +3,9 @@
 // bench/atlas/phase-silent-errors.mjs — does a read that failed look different
 // from a read that found nothing?
 //
-// **The phase id.** `silent-errors`. The sister house (lucky-mem) calls the
-// same phase `stille-fehler` ("silent errors" in German); the mapping is
-// recorded in test/atlas-phase-parity.json.
+// **The phase id.** `silent-errors`. The sister house (lucky-mem) used to call
+// it `stille-fehler` and renames it to the same id before its first baseline;
+// the state of that rename is recorded in test/atlas-phase-parity.json.
 //
 // **The rule (CLAUDE.md, design commitment 2).** Reads distinguish
 // missing / empty / broken, and never collapse to `[]` on failure. A failure
