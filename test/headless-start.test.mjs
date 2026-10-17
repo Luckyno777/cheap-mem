@@ -100,7 +100,9 @@ function hostileMemory(s, name = 'memory') {
   return { root, canary, canaryMcp };
 }
 
-const real = (p) => fs.realpathSync(p);
+// `.native`: on Windows the JS realpath keeps an 8.3 short name (C:\\Users\\RUNNER~1, the CI temp dir) while a started
+// process reports its directory in the long form (runneradmin) - two spellings of one place (CI run 1103).
+const real = (p) => fs.realpathSync.native(p);
 const inside = (child, parent) => { const r = path.relative(real(parent), real(child)); /* rel-ok: containment only, compared with '..' */ return r === '' || (!r.startsWith('..') && !path.isAbsolute(r)); };
 
 function runDigest(script, s, root, extra = {}) {
@@ -228,7 +230,10 @@ test('B3: a neutral directory that is a symlink, open, foreign or a project is n
   try {
     const root = path.join(s.dir, 'mem');
     fs.mkdirSync(root);
-    const base = path.join(s.home, '.cache', 'cheap-mem');
+    // The user cache by platform, as neutralDir reads it (Library/Caches on macOS, LOCALAPPDATA on Windows): a folder
+    // planted under ~/.cache is never looked at there, and the probe proved nothing (CI run 1103, macOS and Windows).
+    const base = process.platform === 'darwin' ? path.join(s.home, 'Library', 'Caches', 'cheap-mem')
+      : process.platform === 'win32' ? path.join(s.env().LOCALAPPDATA, 'cheap-mem') : path.join(s.home, '.cache', 'cheap-mem');
     const dir = path.join(base, 'headless-cwd');
     fs.mkdirSync(base, { recursive: true });
     const env = s.env();
@@ -621,7 +626,10 @@ test('B1: an alias or a wrapper under another name is NOT recognised: no flags, 
 
 test('RED on the first version: wrappers, npx, sudo, aliases and a quoted path all started in the memory without a flag, and the planted hook ran', () => {
   const s = scratch();
-  const dir = fs.mkdtempSync(path.join(spaceFreeBase(), 'cm-hl-old-'));
+  // The REAL temp path: the first version also compared argv[1] with import.meta.url as text, so under a symlinked
+  // parent (every macOS temp dir) its starter printed nothing and it refused for a reason that is not the one proved
+  // here (CI run 1103). From the real path it runs as it did when it was the live code.
+  const dir = fs.mkdtempSync(path.join(fs.realpathSync(spaceFreeBase()), 'cm-hl-old-'));
   try {
     const { root, canary } = hostileMemory(s);
     if (process.platform === 'win32') return; // git archive | tar and bash shims: the same proof is made on POSIX

@@ -15,7 +15,6 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 
 /** The flags every claude start carries. `--add-dir` is added per job and goes LAST. */
 export const ISOLATION_FLAGS = Object.freeze(['--setting-sources', 'user', '--strict-mcp-config']);
@@ -218,4 +217,7 @@ export function main(argv, { out = (s) => process.stdout.write(s), err = (s) => 
   return 2;
 }
 
-export const isMain = (metaUrl, argv1 = process.argv[1]) => Boolean(argv1) && metaUrl === pathToFileURL(path.resolve(argv1)).href;
+// The shared test (src/ismain.mjs): both sides as real paths. A text comparison of `import.meta.url` (the REAL path) with
+// argv[1] (the path as typed) was false under any symlinked parent - every macOS temp dir, /var -> /private/var - and
+// bin/mem-headless.mjs then printed nothing: the digest, the mail handler and the reflector refused to start (CI run 1103).
+export { isMain } from './ismain.mjs';

@@ -187,8 +187,12 @@ async function runPlain({ input, root, marks, startMs, top = 3, ascii = false, t
     if (!reading) {
       // The bash form names the missing write too (test/recall-gaps-before-edit-bash).
       let isBash = false;
-      try { isBash = JSON.parse(input)?.tool_name === 'Bash'; } catch { /* not JSON: no path either */ }
-      exitAt(`no-readable-path${isBash ? ' (bash: no written file)' : ''}`);
+      let why = '';
+      try { isBash = JSON.parse(input)?.tool_name === 'Bash'; why = 'JSON without a file path'; } catch (e) { why = `not JSON: ${String(e?.message || e).slice(0, 80)}`; }
+      // What arrived, by size and shape, never by content: the Windows PowerShell 5.1 twin answered with nothing in CI
+      // (runs 1066-1103) and the bare exit name could not say whether its stdin was empty or mangled on the way.
+      const size = Buffer.byteLength(String(input ?? ''), 'utf8');
+      exitAt(`no-readable-path${isBash ? ' (bash: no written file)' : ` (input ${size} bytes${size ? `, ${why}` : ''})`}`);
       return { stdout: '' };
     }
     target = reading;

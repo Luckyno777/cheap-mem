@@ -29,8 +29,8 @@ import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 import { once } from 'node:events';
-import { fileURLToPath } from 'node:url';
 import { maskEntry, maskText } from '../src/outputguard.mjs';
+import { isMain } from '../src/ismain.mjs';
 
 const DIR_PREFIX = 'mem-reflect-';
 const FILE_NAME = 'transcript.jsonl';
@@ -142,7 +142,9 @@ export function cleanCopy(target) {
   return true;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+// Both sides as real paths (src/ismain.mjs): under a symlinked parent (a macOS temp dir) the text comparison was false,
+// the script printed nothing, and the reflector, which starts no model without the masked copy, never ran (CI run 1103).
+if (isMain(import.meta.url)) {
   const args = process.argv.slice(2);
   try {
     if (args[0] === '--clean') {
