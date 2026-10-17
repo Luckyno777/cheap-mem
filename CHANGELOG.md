@@ -21,6 +21,20 @@ The origin line of a decision card ("Written by X · tier Y") now reads the card
 rank alone: the configured human's name at tier agent keeps it, a card of rank `user` carries none (`origin.by_human` implies rank `user`, so the old `rank === 'user' || by_human` was the rank check).
 `test/card-byline-ui-cm-browser.test.mjs` (real Chromium, 390 px light and dark): red on `9a10bf6`; three mutants in `bench/mutation.mjs`.
 
+### Security - hard HTTP limits for the dashboard server and the MCP bridge (slow headers, dripping body, connection flood)
+
+`mem serve` and `mem-mcp --http` ran with the Node defaults: headers could take 90 s in practice (60 s, checked every 30 s), a body 330 s,
+and the number of open connections was unlimited. Measured on a real service (8 slow connections, 600 silent ones): slow headers held
+89.5 s, a dripping body 329.5 s, 600 silent connections freed only after 89.4 s. `src/http-limits.mjs` `hardenServer()` now sets head 10 s, request 30 s,
+idle 5 s, 100 header lines, a check every 2 s and `maxConnections` per service (dashboard 512, MCP 256; never 0, Node drops every
+connection at 0), right after `createServer`. Measured after: slow headers closed at ~11.6 s, dripping body at ~31.5 s, 600 silent
+connections freed by ~11.9 s with the surplus dropped at once. The limits bound only the receiving of a request, so a long answer or a
+stream does not break. Residual risk, documented and not coded: the MCP bridge streams (`GET /mcp` opens an SSE stream with a
+`: keepalive` every 15 s), and every open stream holds one of its 256 seats for good, so 256 held streams lock the bridge; that needs
+the token, except with `--local-no-token` on loopback. `test/http-limits.test.mjs` (slow headers, silent connections, dripping body, flood at cap 8, header lines, long
+answer, the real services as processes, the recall socket with a hung client; one mutation per probe) and the listener inventory in
+`test/serve-token-refuse-cm.test.mjs` (every listed HTTP service must call `hardenServer` with a named cap) hold it. The recall
+server (Unix socket) got no cap, with the reason in `docs/security-model.md` ("HTTP service limits"). No new environment variable.
 ### Fixed - leftovers of the masked transcript copy and of the pin words (small-rest2-cm)
 
 Five items checked, three were real:
