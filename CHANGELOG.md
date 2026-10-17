@@ -26,10 +26,17 @@ a record from another device or another named filesystem (the memory moved) is n
 one (not JSON, wrong shape, directory in its place) is its own note and never a throw. The file can be edited by anybody who can write the clone, so only
 validated fields are read, the time is re-formatted from the parsed number and the filesystem name shown is the live one. A measurement that did not
 finish (writers timed out) leaves the earlier record alone. No new environment variable.
+Who writes the record: every caller that measures, not only the `mem doctor --full` command. The dashboard (`src/dashboard-data.mjs`) and the weekly
+instrument trace (`src/measurements.mjs`) call `doctor.checkAll(root)`, whose library default is `full: true`, so they leave it too. Who removes a torn
+verdict: only a later clean measurement (`--full`, `--strict`, or one of those two callers) replaces it, and that is the only way out; a short clean run
+shows that no tearing happened, not that none can, so a torn entry is not aged out and a clean record never alarms. The record is only read within a bound: it must
+be a plain file of at most 4096 bytes (it is about 250), checked with `stat` before it is opened and again on the bounded read; a device behind a symlink
+(a symlink to `/dev/zero` ran into `bad_alloc` under a memory limit in review), a pipe, a directory or an oversize file is not read and gets its own note
+("is not a plain file of at most 4096 bytes and was not read"), level UNKNOWN. Tested with an oversize file and a symlink to a large file in the scratch, never to a device.
 Time: `mem doctor --alarm` adds one `stat` and the read of a file of about 200 bytes; median of 10 fresh processes on a scratch memory before/after is in the
 hand-over report (the probe itself, 167 to 445 ms, stays behind `--full`). `test/alarm-tearing.test.mjs` (torn record alarms and starts no probe, clean record stays
 unknown, other device and other filesystem not used, six damaged shapes, the record written by `--full` and atomically, the loop torn -> alarm -> clean measurement -> no alarm, a git tree
-stays clean) and six mutants in `bench/mutation.mjs` hold it.
+stays clean) and nine mutants in `bench/mutation.mjs` hold it.
 
 ### Security - hard HTTP limits for the dashboard server and the MCP bridge (slow headers, dripping body, connection flood)
 

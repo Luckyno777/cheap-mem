@@ -278,6 +278,24 @@ export const MUTANTS=[
    to:'  r = JSON.parse(text);  // MUTANT: a damaged record takes the doctor down',
    tests:['test/alarm-tearing.test.mjs'] },
 
+ { name:'alarm-tearing: the filesystem name of the record is not compared',
+   file:'src/environment.mjs',
+   from:"  if (fsType && r.fsType && fsType.toLowerCase() !== r.fsType.toLowerCase()) return { state: 'other' };",
+   to:'  void fsType;  // MUTANT: a record from another named filesystem counts',
+   tests:['test/alarm-tearing.test.mjs'] },
+
+ { name:'alarm-tearing: the record is read without looking at its kind and size first',
+   file:'src/environment.mjs',
+   from:"  if (!st.isFile() || st.size > APPEND_RECORD_MAX_BYTES) return { state: 'unfit' };",
+   to:'  void st;  // MUTANT: a device, a pipe or a huge file is read',
+   tests:['test/alarm-tearing.test.mjs'] },
+
+ { name:'alarm-tearing: the read itself is not bounded',
+   file:'src/environment.mjs',
+   from:"      if (n > APPEND_RECORD_MAX_BYTES) return { state: 'unfit' };",
+   to:'      void n;  // MUTANT: a file that grew after the look is taken as it is',
+   tests:['test/alarm-tearing.test.mjs'] },
+
  { name:'alarm-tearing: --full keeps no record',
    file:'src/environment.mjs',
    from:'  if (probe.measured) writeAppendRecord(root, probe, { fsType });',

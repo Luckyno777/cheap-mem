@@ -151,12 +151,79 @@ for (const [name, [content, note]] of Object.entries(DAMAGED)) {
   });
 }
 
-test('(c) a directory where the record should be is unreadable, not a crash', (t) => {
+test('(c) a directory where the record should be is not read, not a crash', (t) => {
   const root = world(t);
   fs.mkdirSync(recordPath(root), { recursive: true });
   const f = atomicity(doctor.checkAll(root, { full: false }));
   assert.equal(f.level, doctor.LEVEL.UNKNOWN);
-  assert.match(f.text, /unreadable/);
+  assert.match(f.text, /not a plain file of at most 4096 bytes and was not read/);
+});
+
+// --- the reading bound: a record is a few hundred bytes; nothing else is read -------------------------------------
+
+/** How many times the record file was opened or read whole while `fn` ran. */
+function readsDuring(root, fn) {
+  const target = recordPath(root);
+  const realOpen = fs.openSync; const realRead = fs.readFileSync;
+  let n = 0;
+  fs.openSync = function patched(p, ...rest) { if (p === target) n += 1; return realOpen.call(this, p, ...rest); };
+  fs.readFileSync = function patched(p, ...rest) { if (p === target) n += 1; return realRead.call(this, p, ...rest); };
+  try { fn(); } finally { fs.openSync = realOpen; fs.readFileSync = realRead; }
+  return n;
+}
+
+test('(c) an oversize record is not read: its own note, unknown, no alarm', (t) => {
+  const root = world(t);
+  putRecord(root);
+  fs.appendFileSync(recordPath(root), ' '.repeat(5 * 1024 * 1024));
+  let f;
+  assert.equal(readsDuring(root, () => { f = atomicity(doctor.checkAll(root, { full: false })); }), 0, 'the file must not be opened');
+  assert.equal(f.level, doctor.LEVEL.UNKNOWN);
+  assert.match(f.text, /not a plain file of at most 4096 bytes and was not read/);
+  const r = cli(t, root, ['--alarm']);
+  assert.equal(r.status, 0);
+  assert.equal(r.stdout.trim(), '');
+});
+
+test('(c) the bound is 4096 bytes: a record padded to exactly that still counts, one byte more does not', (t) => {
+  const root = world(t);
+  const rec = putRecord(root);
+  const body = JSON.stringify(rec);
+  fs.writeFileSync(recordPath(root), body + ' '.repeat(environment.APPEND_RECORD_MAX_BYTES - body.length));
+  assert.equal(fs.statSync(recordPath(root)).size, 4096);
+  assert.equal(environment.readAppendRecord(root).state, 'usable');
+  fs.appendFileSync(recordPath(root), ' ');
+  assert.equal(environment.readAppendRecord(root).state, 'unfit');
+});
+
+test('(c) a symlink to a large file in the scratch is not read either (never to a device)', (t) => {
+  const root = world(t);
+  const big = path.join(tempDir('cm-alarm-tearing-big-', t), 'big.bin');
+  fs.writeFileSync(big, Buffer.alloc(3 * 1024 * 1024, 0x20));
+  fs.mkdirSync(path.dirname(recordPath(root)), { recursive: true });
+  try { fs.symlinkSync(big, recordPath(root)); } catch (err) {
+    // Windows without the symlink privilege: the platform cannot make this case; say so with an assertion, not a skip.
+    assert.equal(process.platform, 'win32', `symlink failed on a POSIX platform: ${err.message}`);
+    assert.ok(['EPERM', 'EACCES'].includes(err.code), `unexpected symlink error ${err.code}`);
+    return;
+  }
+  assert.equal(readsDuring(root, () => assert.equal(environment.readAppendRecord(root).state, 'unfit')), 0);
+  const f = atomicity(doctor.checkAll(root, { full: false }));
+  assert.equal(f.level, doctor.LEVEL.UNKNOWN);
+  assert.match(f.text, /was not read/);
+});
+
+test('(c) a file that grows between the look and the read is still bounded', (t) => {
+  const root = world(t);
+  putRecord(root);
+  fs.appendFileSync(recordPath(root), ' '.repeat(100000));
+  const real = fs.statSync;
+  // The look is told the file is small (as it was a moment ago); the read must not trust it.
+  fs.statSync = function patched(p, ...rest) {
+    const st = real.call(this, p, ...rest);
+    return p === recordPath(root) ? { isFile: () => true, size: 200, dev: st.dev } : st;
+  };
+  try { assert.equal(environment.readAppendRecord(root).state, 'unfit'); } finally { fs.statSync = real; }
 });
 
 test('(c) the three states: missing says nothing extra, empty and broken each say their own', (t) => {

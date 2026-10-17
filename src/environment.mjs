@@ -410,6 +410,8 @@ export function runAppendAtomicityProbe(root, opts = {}) {
  *     the live one, never the one in the file.
  */
 export const APPEND_RECORD_FILE = path.join('.pipeline', 'append-atomicity.json');
+/** The record is about 250 bytes; anything above this is not one and is not read. */
+export const APPEND_RECORD_MAX_BYTES = 4096;
 
 /** Identity of the mount the memory sits on: the device number as text, or null when it cannot be read. */
 function deviceOf(root) {
@@ -445,13 +447,30 @@ const wholeCount = (n) => Number.isInteger(n) && n >= 0 && n <= 1e9;
  *   `{ state: 'missing' }`   no file (never measured with `--full`, or measured before this record existed)
  *   `{ state: 'empty' }`     a file with nothing in it
  *   `{ state: 'broken' }`    not JSON, or not the shape written above
+ *   `{ state: 'unfit' }`     not a plain file (a device, a pipe, a directory) or larger than APPEND_RECORD_MAX_BYTES: not read
  *   `{ state: 'other' }`     a valid record taken on another device / filesystem: not used
  *   `{ state: 'usable', ok, measuredAt, workers, perWorker, torn, missing, duplicates }`
  */
 export function readAppendRecord(root, { fsType = null } = {}) {
   const file = path.join(root, APPEND_RECORD_FILE);
+  // Look BEFORE reading: the record is a few hundred bytes. A device behind a symlink (/dev/zero has no end), a pipe (a read
+  // blocks) or a file of any other size is not read at all - it is its own note, never an allocation or a hang.
+  let st;
+  try { st = fs.statSync(file); } catch (err) {
+    return err && err.code === 'ENOENT' ? { state: 'missing' } : { state: 'broken' };
+  }
+  if (!st.isFile() || st.size > APPEND_RECORD_MAX_BYTES) return { state: 'unfit' };
   let text;
-  try { text = fs.readFileSync(file, 'utf8'); } catch (err) {
+  try {
+    // Bounded read, so a file that grows between the look and the read cannot be pulled in whole either.
+    const fd = fs.openSync(file, 'r');
+    try {
+      const buf = Buffer.alloc(APPEND_RECORD_MAX_BYTES + 1);
+      const n = fs.readSync(fd, buf, 0, buf.length, 0);
+      if (n > APPEND_RECORD_MAX_BYTES) return { state: 'unfit' };
+      text = buf.toString('utf8', 0, n);
+    } finally { fs.closeSync(fd); }
+  } catch (err) {
     return err && err.code === 'ENOENT' ? { state: 'missing' } : { state: 'broken' };
   }
   if (text.trim() === '') return { state: 'empty' };
@@ -535,6 +554,7 @@ export function checkAppendAtomicity(root, opts = {}) {
       usable: ` The last measurement (${rec.measuredAt}) was clean, which says nothing about now.`,
       other: ' A recorded measurement from another device or filesystem is not used.',
       empty: ' The record of an earlier measurement (.pipeline/append-atomicity.json) is empty and was ignored.',
+      unfit: ' The record of an earlier measurement (.pipeline/append-atomicity.json) is not a plain file of at most 4096 bytes and was not read.',
       broken: ' The record of an earlier measurement (.pipeline/append-atomicity.json) is unreadable and was ignored.',
       missing: '',
     }[rec.state];
