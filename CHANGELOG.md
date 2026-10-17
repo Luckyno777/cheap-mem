@@ -55,6 +55,51 @@ Prompt-hook answers under the budget are byte for byte the base's (B1: 3 hit cou
 **Step 5 - `mem_find` on the core of `mem find`, `src/findcore.mjs`.** The MCP tool had its own copy of "ask the index": no exact lane, no echo filter, no MMR, no retired/as-of gates, and the query pinned to the memory's configured language (`test/paths-agree.test.mjs` names that as the third divergence: score 10.879 against 1.808 for one entry). The ranked lane of `mem find` moved out of the CLI handler into `findcore.rankedFind`; the CLI and the tool both call it and differ only in what they hand in and how they print (the CLI keeps the time router, the literal lane, `--wildcard`; the tool keeps its `*` operator, the journal line and its text). The same question now gives the same hits - ids, order and scores - at both doors. Behaviour change: **`mem_find` answers like `mem find`** (near-duplicates are MMR-ordered, an identifier in the question leads, a raw capture that is the user's own sentence is dropped, scores are the CLI's). Not unified: the CLI's time router (a question that names a window), which the tool never had. **`mem_find` cuts `top` to 25** (the sibling's limit; schema `maximum: 25` and the answer says `top N was cut to 25`): with the shared core a large `top` is slow in the synchronous server (top 200: 0.8 -> 6.1 s, top 1000: 0.9 -> 16.6 s, the MMR re-rank is quadratic in what it fetches).
 
 Measured: `test/answer-budget-cm.test.mjs`, 33 probes - A (the selection: fits, rank order, pointers, note counted in the budget, fixed parts, byte-counted elastic part, mask before measure, input order); B (prompt hook: equal to the base under the budget; RED on `f5ee47b`: 5 long hits + a 1.4 KB card + a skill offer = 3,441 bytes at the base, 2,324 now with pointers and the note); C (start: equal under the budget, RED on `f5ee47b`: long card + long rule + four assignment lines = 4,670 bytes at the base, 2,976 now); D (the "seen" mark); E (CLI and MCP give the same ids, order and scores on 8 questions - RED on `f5ee47b`: 4 of 4 probed questions differ there); F (source guards); H (six and twelve procedures next to a card: none left out; `keep` at every budget; the ids in the note); N1 (a fuzz of 400 mixed-order part lists: the text is within the budget whenever the parts that must be in leave room); H2 (a token built at run time across the cut of a pointer title); M1 (`top` cut to 25). 18 NEW mutants in `bench/mutation.mjs`, all caught (one first survived: MMR off in the core - the probe E1 now compares with the pure-BM25 order); two existing `mem find` mutants moved their anchors into `findcore.mjs`. Gold set through the CLI: 34 of 44 before and after, 0 flips; through the MCP tool (new in this measurement): 30 -> 31 of 44 (3 as-of cases cannot be asked over MCP), flips para-06 and lang-05 to pass, para-04 to fail - the tool now fails what the CLI fails (para-04 failed in the CLI all along; the tool passed it only by its divergent copy). `bench/recall-levers.mjs`: identical on both sides (gold 34 hits / 29 pass, decoys 1 of 28 answered). There is no real journal in this repository: the size distribution is a synthetic scratch spread, not a user's.
+### Fixed - CI run 1103: macOS and Windows red, the guarantees job cancelled - entry points under a symlinked path, per-run folders left behind, an 8-minute mutant
+
+- **macOS: no unattended model session started from a copy of the tool under a symlinked path.** `src/headless.mjs` and
+  `bin/mem-mask-copy.mjs` decided "am I the program" by comparing `import.meta.url` (the real path) with `argv[1]` (the path
+  as typed) as text. Under a symlinked parent - every macOS temp dir, `/var` -> `/private/var` - the starter printed nothing,
+  and the digest, the mail handler and the reflector refused (`REFUSED - no safe way to start the model session`); the
+  reflector also found no masked copy. Both now use `src/ismain.mjs` (real paths on both sides, already used by eight entry
+  points). `test/ismain-symlink-entry.test.mjs` starts both through a symlink (a junction on Windows) and holds every
+  file in `bin/` and `src/` that reads `process.argv[1]` and `import.meta.url` or `import.meta.filename` to calling
+  `isMain(` (per file, so a two-line test, `import.meta.url.endsWith(...)` and `import.meta.filename` are seen; one
+  reasoned exception, `src/timetrack.mjs`, whose `node -e` child takes argv[1] as data); red on `9a10bf6`, reproduced on
+  Linux with a symlinked `TMPDIR` (`test/f2-audit.test.mjs` #10 and both red proofs of `test/headless-start.test.mjs`).
+  Known gap, deliberately not touched: dev scripts under `bench/` (docs-images, scale-gate, gold-compare, heaps-corpus,
+  field-without-writer, `bench/mutation.mjs` itself) still compare argv[1] with their own path as text and do nothing
+  when started through a symlinked directory.
+- **Windows: the per-run neutral folder of the mail handler and the reflector stayed in the temp directory.** Both `cd` into
+  it to start the model and then removed it from inside; Windows does not remove a process's working directory.
+  `mem_headless_cleanup` (`bin/_portable.sh`) and `Remove-HeadlessDir` (`bin/_headless.ps1`) step out to its parent first.
+  `test/headless-cleanup-cwd.test.mjs`, red on `9a10bf6`.
+- **Windows: `install/support/tool-missing.sh` passed over a Windows-spelled `XDG_STATE_HOME`** (Git Bash converts only
+  PATH, HOME and the temp variables) and put its marker in `~/.local/state`. Under Git Bash `C:\x` / `C:/x` is absolute now;
+  elsewhere it stays refused. `test/tool-missing-state-win.test.mjs` (a `uname` stand-in on Linux, the real Git Bash on Windows).
+- **The guarantees job hit its 25-minute limit.** The mutant "deferred parts: a newer round leaves the old retry waiting" was
+  checked only by a browser probe; the job has no Chromium, the probe skipped, and the harness re-ran the whole suite for it
+  (8 minutes). `test/dash-later-once-cm.test.mjs` holds the same guarantee on the cut-out functions, without a browser (red on
+  `dc6b69d` and on the mutant). Six new mutants in `bench/mutation.mjs`, all caught.
+- **Probes that asked the wrong place.** `test/headless-start.test.mjs` planted the neutral folder under `~/.cache` on every
+  platform (macOS reads `Library/Caches`, Windows `LOCALAPPDATA`), compared paths with the JS realpath that keeps the 8.3
+  short name of the Windows temp dir (`RUNNER~1`, while a started process reports `runneradmin`), and ran its first-version
+  red proof from a symlinked temp dir, where the old starter failed for the reason fixed above. `test/own-tool.test.mjs`
+  expected the memory's rules in the short spelling (the installer resolves with `pwd -W`: the long form).
+  `test/hook-spaces.test.mjs` hands HOME and USERPROFILE together, in the Windows spelling, as its end-to-end probe does.
+- Open: the Windows PowerShell 5.1 runs of the `.ps1` hooks still answer with nothing (`before-edit-twin` PLATFORM, `windows.ps1:
+  the installed .ps1 hooks ... deliver`). The core receives no readable hook JSON; the trace now says how many bytes reached
+  the core and whether they parse (in the twin's ASCII mode only, by size, error NAME and position - never the parser's
+  message, which quotes the first characters of the input; `test/before-edit-trace-noleak.test.mjs` plants a key
+  prefix built at run time, red on the first form of this diagnosis), the twin says how many characters it read from
+  stdin, and the installed-hooks probe shows stderr - the next Windows run says on which side of the pipe to node it is lost.
+
+### Changed - the dashboard's card origin line names the author with name AND rank, in the words of `mem today`
+
+The origin line of a decision card ("Written by X · tier Y") now reads the card's `byline` (`src/decisioncard.mjs`) and says a rank the line does not carry the way `authority.rankWord` does:
+`tier unknown (missing)`, `tier unknown (empty)` or `tier unknown (broken)` instead of one bare `tier unknown` for all three. The hint "Written by an agent, not checked by you" still goes by the
+rank alone: the configured human's name at tier agent keeps it, a card of rank `user` carries none (`origin.by_human` implies rank `user`, so the old `rank === 'user' || by_human` was the rank check).
+`test/card-byline-ui-cm-browser.test.mjs` (real Chromium, 390 px light and dark): red on `9a10bf6`; three mutants in `bench/mutation.mjs`.
 
 ### Fixed - `-h` after a yes/no switch is a help request, not the switch's value (help-after-bool-cm)
 

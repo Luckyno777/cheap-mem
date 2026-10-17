@@ -461,6 +461,13 @@ mem_headless_plan() {
 #   checks the name and the type; nothing else is ever removed).
 mem_headless_cleanup() {
   if [ -n "${MEM_HL_CLEAN:-}" ]; then
+    # The mail handler and the reflector `cd` into the folder to start the model. On Windows a directory that is
+    # a process's working directory cannot be removed - this shell's, and the node below inherits it: the folder
+    # stayed behind in the temp directory after every run (CI run 1103). Step out to its parent first.
+    local here there
+    here="$(pwd -P 2>/dev/null)"
+    there="$(cd "$MEM_HL_CLEAN" 2>/dev/null && pwd -P)"
+    if [ -n "$there" ] && [ "$here" = "$there" ]; then cd .. 2>/dev/null || cd / || true; fi
     node "$MEM_HL_HELPER" cleanup "$MEM_HL_CLEAN" > /dev/null 2>&1 || true
     MEM_HL_CLEAN=""
   fi
