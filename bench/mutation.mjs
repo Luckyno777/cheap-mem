@@ -1233,7 +1233,26 @@ export const MUTANTS=[
    from:"tier ${authority.rankWord(k.rank, k.rank_state)}, ",
    to:"tier ${k.rank}, ",
    tests:['test/writer-identity.test.mjs'] },
- { name:'K1 the question query cuts an identifier at the underscore again',
+
+ // card-byline-ui-cm: the dashboard's origin line reads the card's byline in the words of rankWord.
+ { name:"BYLINE-UI the dashboard shows a missing rank as a plain tier",
+   file:"assets/dashboard/dashboard.js",
+   from:"(typeof state === 'string' && state !== 'set' ? `unknown (${state})` : ",
+   to:"(false ? `unknown (${state})` : ",
+   tests:['test/card-byline-ui-cm-browser.test.mjs'] },
+
+ { name:"BYLINE-UI the dashboard reads the rank from origin, not from the byline",
+   file:"assets/dashboard/dashboard.js",
+   from:"tier ${ce(rankWord(b.rank, b.rank_state))}",
+   to:"tier ${ce(rankWord(o.rank))}",
+   tests:['test/card-byline-ui-cm-browser.test.mjs'] },
+
+ { name:"BYLINE-UI the configured human's name drops the agent hint",
+   file:"assets/dashboard/dashboard.js",
+   from:"const note = o.rank === 'user' ? '' : ",
+   to:"const note = o.rank === 'user' || b.name === 'user' ? '' : ",
+   tests:['test/card-byline-ui-cm-browser.test.mjs'] },
+ { name:'K1the question query cuts an identifier at the underscore again',
    file:'src/search.mjs',
    from:"    .split(/[^a-z0-9_\\u00e4\\u00f6\\u00fc\\u00df]+/)",
    to:"    .split(/[^a-z0-9\\u00e4\\u00f6\\u00fc\\u00df]+/)  // MUTANT: `a_b` falls apart again",

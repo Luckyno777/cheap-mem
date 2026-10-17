@@ -14,6 +14,13 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Changed - the dashboard's card origin line names the author with name AND rank, in the words of `mem today`
+
+The origin line of a decision card ("Written by X · tier Y") now reads the card's `byline` (`src/decisioncard.mjs`) and says a rank the line does not carry the way `authority.rankWord` does:
+`tier unknown (missing)`, `tier unknown (empty)` or `tier unknown (broken)` instead of one bare `tier unknown` for all three. The hint "Written by an agent, not checked by you" still goes by the
+rank alone: the configured human's name at tier agent keeps it, a card of rank `user` carries none (`origin.by_human` implies rank `user`, so the old `rank === 'user' || by_human` was the rank check).
+`test/card-byline-ui-cm-browser.test.mjs` (real Chromium, 390 px light and dark): red on `9a10bf6`; three mutants in `bench/mutation.mjs`.
+
 ### Security - unattended model sessions no longer read a project's settings or `.mcp.json` (digest, mail handler, reflector)
 
 Without `--bare`, `claude -p` runs the hooks of the `.claude/settings.json` of its working directory and connects the servers of its `.mcp.json`, in a folder nobody trusted and with no dialog
