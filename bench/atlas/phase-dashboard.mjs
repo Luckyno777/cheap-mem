@@ -61,6 +61,7 @@ import {
   startServer, startBrowser, sumReads, sleep,
 } from './serve-world.mjs';
 import * as memory from '../../src/memory.mjs';
+import { warmView } from '../../test/fixture/browser.mjs';
 
 /** Passes over the entry logs a full build may read: today's measured 28.5 to 29.4 (300 and 1000 entries, 2026-10-17) plus a tenth. */
 export const BUILD_PASSES_MAX = 32;
@@ -287,6 +288,9 @@ async function requestsRow(atlas, entries) {
     mem(['init'], { root });
     buildCorpus(root, Math.min(entries, 600));
     server = await startServer(root, { outDir: root });
+    // The first page must not pay the cold start of the server inside its deadline (test/browser-cold-start.test.mjs):
+    // ask once for what the page asks for, over Node fetch, before the first context opens. Counts nothing of the page.
+    await warmView(server.base);
     const seen = {};
     for (const hash of ROUTES) {
       const context = await browser.newContext({ viewport: { width: 1400, height: 900 } });
