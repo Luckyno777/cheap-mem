@@ -28,6 +28,28 @@ the token, except with `--local-no-token` on loopback. `test/http-limits.test.mj
 answer, the real services as processes, the recall socket with a hung client; one mutation per probe) and the listener inventory in
 `test/serve-token-refuse-cm.test.mjs` (every listed HTTP service must call `hardenServer` with a named cap) hold it. The recall
 server (Unix socket) got no cap, with the reason in `docs/security-model.md` ("HTTP service limits"). No new environment variable.
+### Fixed - leftovers of the masked transcript copy and of the pin words (small-rest2-cm)
+
+Five items checked, three were real:
+
+- **A key as ONE JSON string (`\n` escapes)** was already masked whole (structured line, a line cut off inside the string,
+  a string inside a string): no defect. The one real gap beside it: the short LAST line of a key (fewer than 20 characters)
+  survived in an open block (no END) and in a block past the 8 KB bound of the complete-block rule. It now falls, but only
+  when it ends its line, so prose after an open block stays.
+- **The block cut of `bin/mem-mask-copy.mjs`** (20000 lines or 2 MiB) split a key that began just before it: the part
+  behind the cut stayed in the clear (297 of 300 key lines in the probe). A cut now carries the header of a block that is
+  still open into the next block; it is masked to the END or to the end of the file.
+- **`pinhashes`** (one word, plural of `pinhash`) is a counter key like `pincodes`. Bare `pins`, `spins`, `hairpins`,
+  `kingpins` stay free, as before.
+- **`bin/mem-reflect.ps1`**: the helper already got root and transcript as separate arguments (a space or an apostrophe
+  in a path was no problem); the root now loses a trailing separator, which Windows PowerShell 5.1 would turn into an
+  escaped closing quote.
+- **Parallel runs of the two mask test files** (the mutation baseline runs every suite in one `node --test`):
+  `test/reflect-masked-copy.test.mjs` counted `mem-reflect-*` directories in the shared temp directory and saw the copies
+  of a file running beside it (red in 3 of 4 double runs). Both files now work in their own temp directory
+  (TMPDIR, TEMP, TMP), and the count is taken there (double run: 6 of 6 red before, 10 of 10 green after).
+- **`test/no-jump.test.mjs`**: the 20 s limit timer of the held-request wait was never cleared and kept the test process
+  alive after the test (the single test: 26.7 s wall, 11.0 s with `clearTimeout` in a `finally`).
 
 ### Security - unattended model sessions no longer read a project's settings or `.mcp.json` (digest, mail handler, reflector)
 
