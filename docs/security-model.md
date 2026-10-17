@@ -621,13 +621,13 @@ they are freed. Neither needs a credential: the limits act before the token is l
 | `headersTimeout` | 10 s | 60 s | the whole head (also a connection that sends nothing: Node answers 408) |
 | `requestTimeout` | 30 s | 300 s | head plus body |
 | `keepAliveTimeout` | 5 s | 5 s | idle time between two requests (written down on purpose) |
-| `maxHeadersCount` | 100 | unlimited | header lines per request (the head is capped at 16 KiB anyway) |
+| `maxHeadersCount` | 100 | unlimited | header lines per request (the head is capped at 16 KiB anyway); Node 20.x and 22.x up to 22.23.1 drop the surplus lines, from 22.23.2 on (CVE-2026-58044) Node refuses the request with 431 |
 | `connectionsCheckingInterval` | 2 s | 30 s | how often Node looks; without it a 10 s limit acts after up to 40 s |
 | `maxConnections` | dashboard 512, MCP 256 | unlimited | open connections; the rest is dropped on accept |
 
 The caps sit clearly below the 1024 descriptors a service unit usually has and leave room for files and child processes. They
-are never 0: Node drops EVERY connection at `maxConnections = 0`, so the helper ignores 0 (and any other non-positive or
-non-integer value) and leaves the cap unset (`test/http-limits.test.mjs`).
+are never 0: from Node 21 on a raw `maxConnections = 0` drops EVERY connection, and Node 20 reads it as no cap at all, so the
+helper ignores 0 (and any other non-positive or non-integer value) and leaves the cap unset (`test/http-limits.test.mjs`).
 
 **What is not limited, on purpose.** The limits bound only the RECEIVING of a request. The answer is untouched: there is
 no socket idle limit (`server.timeout` stays 0), so a long answer or a stream is not cut (probe "long answer": 12 s of events

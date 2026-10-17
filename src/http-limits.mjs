@@ -38,7 +38,8 @@ export const LIMITS = Object.freeze({
   requestTimeoutMs: 30_000,
   /** Idle time between two requests on one connection. The Node default, written down on purpose. Must stay BELOW headersTimeoutMs. */
   keepAliveTimeoutMs: 5_000,
-  /** No more header lines are read (Node default: unlimited, apart from the 16 KiB head size). */
+  /** At most this many header lines reach a handler (Node default: unlimited, apart from the 16 KiB head size). Node 20.x and
+   *  22.x up to 22.23.1 drop the surplus lines; from 22.23.2 on (CVE-2026-58044) Node refuses such a request with 431. */
   maxHeadersCount: 100,
   /** How often Node checks the time limits (Node default: 30000). */
   checkIntervalMs: 2_000,
@@ -63,8 +64,8 @@ export const MAX_CONNECTIONS = Object.freeze({
 /**
  * Sets the limits on an `http.Server` that does not listen yet and returns the same server.
  *
- * Leave `maxConnections` out for unlimited. NEVER pass 0: Node then drops EVERY connection (event `drop`); anything that is
- * not a positive integer leaves the cap unset.
+ * Leave `maxConnections` out for unlimited. NEVER pass 0: from Node 21 on a raw 0 drops EVERY connection (event `drop`),
+ * Node 20 reads it as no cap at all - neither is a cap. Anything that is not a positive integer leaves the cap unset.
  *
  * The other options are for probes (small times, so a probe waits for a state and not for a long span); the services call
  * without them.
