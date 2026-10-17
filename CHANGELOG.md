@@ -30,7 +30,7 @@ finding is fixed.
   threshold at zero = exactly 1 call, and a stand-in that digests nothing makes the script say FAILED and exit 1; the call gets 4 of 21 captures
   (990 of 1000 raw bytes, the oldest among them); the backlog drains in 4 ticks (bound 5), one call each; ratchets 3 / 14 starts.
 - **`cost`** - node starts per hook (`before-edit` 1 (TB5), `subagent-start` 1, `retrieve` 4, `catch-fail` 4, `after-failure` 5, `stop` 5; ratchets), a CLI start
-  is one process and at most one command group (modules: version 101, help 61, find 92; TB4), a warm `retrieve` opens each log at most 3 times (TB6), no
+  is one process and at most one command group (modules: version 103, help 62, find 94, limits 111 / 71 / 102; TB4), a warm `retrieve` opens each log at most 3 times (TB6), no
   worker thread without `doctor --full` (TB7), the doctor's stat-class calls do not grow with the entries (829 at 100 and 400; counterpart of TB2).
   FINDINGS: `mem today` reads the injection journal twice per call (2.00 bytes read per journal byte; the card and the doctor it runs), counterpart of TB8;
   and it starts the six writer threads of the concurrent-append probe on every call (the doctor does so only with `--full` since TB7; the card calls it with its default).
@@ -45,9 +45,14 @@ finding is fixed.
   `test/atlas-stub-never-passes.test.mjs` now uses a made stub and `exitCodeOf` (there is no stub file left), `cmStubs` of the parity list is empty.
 - Tests: `test/atlas-counters-probe.test.mjs`, `test/atlas-digest-probe.test.mjs`, `test/atlas-cost-probe.test.mjs` + `-logic`, `test/atlas-dashboard-probe.test.mjs`
   + `-logic`, `test/atlas-net-tempo-probe.test.mjs` (browser half, skipped as a whole where there is no Chromium: the four rows then say `not-measured`)
-  + `-logic` (judge on doctored results, the page-side counter in a vm). 22 mutants in `bench/mutation.mjs` ("ATLAS-..."), none of which needs a browser.
+  + `-logic` (judge on doctored results, the page-side counter in a vm). 28 mutants in `bench/mutation.mjs` ("ATLAS-..."), none of which needs a browser.
 - `test/serve-token-refuse-cm.test.mjs`: `bench/atlas/serve-world.mjs` is a named exemption of the listener inventory, like `bench/board-tempo.mjs` (it binds `127.0.0.1:0` for an
   instant to find a free port and serves nothing; the server it starts is `bin/mem-serve` itself, loopback-only). The tor found it on the first run.
+- Review fixes: `counted()` no longer makes the counter file beforehand (a counter that never ran is `null`, not `[]`), and `cost.today-probe` asks for a sign of life
+  (a row and file-system calls) and says "counter did not run" instead of passing on 0 workers; `net-tempo.load` states the invariants (per build 1 model computation,
+  1 context, 5 programs, plus the background canvas) so `--compare` does not see the build race, the raw numbers stay in `measured`; module counts corrected to 103 / 62 / 94
+  (limits 111 / 71 / 102); `node bench/atlas.mjs --phase <unknown id>` is refused with the list of valid ids and exit 2 (it used to run nothing and end 0), and `exitCodeOf`
+  of a run in which no record ran is 3, not 0.
 - `docs/benchmark-atlas.md`: the section on the four phases (what is counted, threshold and why, blind spot, red proof, findings). Against the base commit
   of this change each of the four ids is one `not-measured` stub row.
 ### Fixed - hook commands in settings.json: a path with `$`, a backtick, `"` or `'` ran the wrong thing or nothing (werkzeug-rest-cm, #42)
