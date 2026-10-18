@@ -78,7 +78,7 @@ function open(port, { prelude = '', drip = null, intervalMs = 250 } = {}) {
     });
     s.on('close', () => { o.closed = true; clearInterval(o.beat); });
     let connected = false;
-    s.on('error', (e) => { if (!connected) reject(e); });
+    s.on('error', (e) => { if (!connected) reject(e); else o.error = e.code || 'error'; });
     s.on('connect', () => {
       connected = true;
       if (prelude) s.write(prelude);
@@ -137,8 +137,9 @@ async function probeSlowHeaders(modulePath, edgeMs, { opt = { ...SMALL, requestT
     const stillOpen = conns.filter((o) => !o.closed).length;
     const closed = await waitUntil(() => conns.every((o) => o.closed), edgeMs);
     const first = conns.map((o) => o.first.split('\r\n')[0]);
+    const ends = conns.map((o) => o.error || 'close');
     closeAll(conns);
-    return { ok: closed && meanwhile.status === 200 && (stillOpen > 0 || !mustBeOpen), closed, meanwhile, stillOpen, first };
+    return { ok: closed && meanwhile.status === 200 && (stillOpen > 0 || !mustBeOpen), closed, meanwhile, stillOpen, first, ends };
   } finally { k.stop(); }
 }
 
@@ -252,6 +253,30 @@ function mutatedHelper(t, from, to) {
   return target;
 }
 
+/**
+ * What the slow-header clients heard, one first line per connection. Every line that arrived is a 408. Off Windows every
+ * connection hears it. On Windows a client that keeps dripping head lines into a connection the server has already closed
+ * may get a reset, and a reset throws away the 408 still unread in the client's buffer (CI run 1255, Node 22: two of five
+ * connections showed the 408, three closed with nothing read). There at least one 408 has to arrive, and nothing else.
+ * '' = right, otherwise the reason.
+ */
+function slowHeaders408(first, platform = process.platform) {
+  const said = first.filter((z) => z !== '');
+  if (!said.every((z) => /^HTTP\/1\.1 408 /.test(z))) return 'an answer other than 408 arrived';
+  if (platform === 'win32') return said.length >= 1 ? '' : 'no connection heard a 408';
+  return said.length === first.length ? '' : 'a connection closed without its 408';
+}
+
+test('the slow-header verdict: every 408 off Windows, at least one and nothing else on Windows', () => {
+  const run1255 = ['HTTP/1.1 408 Request Timeout', '', 'HTTP/1.1 408 Request Timeout', '', ''];
+  assert.equal(slowHeaders408(run1255, 'win32'), '');
+  assert.equal(slowHeaders408(run1255, 'linux'), 'a connection closed without its 408');
+  assert.equal(slowHeaders408(Array(5).fill('HTTP/1.1 408 Request Timeout'), 'linux'), '');
+  assert.equal(slowHeaders408(Array(5).fill(''), 'win32'), 'no connection heard a 408');
+  assert.equal(slowHeaders408(['HTTP/1.1 200 OK', '', '', '', ''], 'win32'), 'an answer other than 408 arrived');
+  assert.equal(slowHeaders408(['HTTP/1.1 431 Request Header Fields Too Large', ...Array(4).fill('HTTP/1.1 408 Request Timeout')], 'linux'), 'an answer other than 408 arrived');
+});
+
 const EDGE_GREEN = 30_000;    // hard edge, green expected after ~3-5 s
 const EDGE_MUTATION = 15_000; // red means "not closed within the edge"
 
@@ -260,7 +285,8 @@ test('group 1: the helper hardens; the mutations and controls keep the probes ho
     t.test('slow headers: the server closes, a normal request goes through meanwhile', async () => {
       const v = await probeSlowHeaders(HELPER, EDGE_GREEN);
       assert.ok(v.ok, JSON.stringify(v));
-      assert.ok(v.first.every((z) => /408/.test(z)), `the server says 408: ${JSON.stringify(v.first)}`);
+      const why = slowHeaders408(v.first);
+      assert.equal(why, '', `${why}: ${JSON.stringify({ first: v.first, ends: v.ends })}`);
     }),
     t.test('mutation: headersTimeout removed -> slow headers are NOT closed (red)', async (tt) => {
       const m = mutatedHelper(tt, 'server.headersTimeout = g.headersTimeoutMs;', 'server.headersTimeout = 0;');

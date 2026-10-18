@@ -30,7 +30,13 @@ const MASK = path.join(REPO, 'bin', 'mem-mask-copy.mjs');
 
 const TOKEN = `gh${'p_'}${'Ab3xK9mQ'.repeat(4)}Ab3x`;
 const KEYED = ['hunter2', 'is-not-a-', 'secret-shape'].join('');
-const PIN = String(4000 + 711);
+// The PIN is four digits, and the model's environment is the one the reflector inherits: on a CI runner it carries run ids,
+// GUIDs and inode numbers, any of which may hold four given digits (CI run 1255: `no secret in argv or env` with no secret
+// handed over - the digits stood in an unrelated runner value). So the PIN is chosen at run time as the first four-digit value
+// from 4711 up that the inherited environment, the repository path and the temp directory do NOT hold. A PIN the model then
+// sees in argv or env can only have come from the transcript.
+const NOT_IN = JSON.stringify([process.env, REPO, os.tmpdir()]);
+const PIN = (() => { for (let n = 4711; n < 10000; n += 1) if (!NOT_IN.includes(String(n))) return String(n); throw new Error('no free PIN'); })();
 const SECRETS = [TOKEN, KEYED, PIN];
 
 // The test's OWN temp directory: every `mem-reflect-*` copy this file makes (in this process or in a child, which inherits
@@ -90,6 +96,7 @@ test('positive control: the transcript on disk holds every secret', () => {
   try {
     const t = fs.readFileSync(writeTranscript(d), 'utf8');
     for (const s of SECRETS) assert.ok(t.includes(s), `control: ${s.slice(0, 6)}... is in the raw file`);
+    for (const s of SECRETS) assert.ok(!NOT_IN.includes(s), 'control: no secret is already in the inherited environment');
   } finally { fs.rmSync(d, { recursive: true, force: true }); }
 });
 
