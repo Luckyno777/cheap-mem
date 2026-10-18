@@ -80,7 +80,7 @@ function stage({ alarmOut = '', alarmRc = 0, busyMs = 0 } = {}) {
   fs.mkdirSync(path.join(code, 'bin'), { recursive: true });
   fs.writeFileSync(path.join(code, 'bin', 'mem'), `
 const argv = process.argv.slice(2).join(' ');
-if (argv.includes('doctor') && argv.includes('--alarm')) {
+if (argv.includes('today') && argv.includes('--start')) {  // the one call that carries the alarm and the day line (startblock-cm)
   const until = Date.now() + ${busyMs};
   while (Date.now() < until) { /* real wall clock, so timeout really bites */ }
   const t = ${JSON.stringify(alarmOut)};
@@ -105,7 +105,7 @@ test('positive control: the hook runs at all and finds the memory', () => {
 });
 
 test('F: red findings show up in the start banner', () => {
-  const r = stage({ alarmOut: 'FAIL  viewer  last pulse 1.9 h ago', alarmRc: 1 }).run();
+  const r = stage({ alarmOut: '=== DOWN RIGHT NOW (mem doctor --alarm) ===\nFAIL  viewer  last pulse 1.9 h ago' }).run();
   assert.match(r.stdout, /DOWN RIGHT NOW/, `no alarm section:\n${r.stdout}`);
   assert.match(r.stdout, /FAIL {2}viewer {2}last pulse 1\.9 h ago/);
 });

@@ -363,7 +363,7 @@ if [ -n "$mem_bin" ]; then
   fi
 fi
 
-# --- What is down right now ------------------------------------------
+# --- What is down right now, and "Today" (ONE reading) -----------------
 #
 # **Why (2026-09-17).** On the sibling house's machine a VM reboot wiped
 # three systemd units together with a door secret — that OS keeps /etc
@@ -372,53 +372,44 @@ fi
 # time: two findings at level ERROR, both correct. Nobody heard them,
 # because the doctor only runs when someone types it.
 #
-# `--alarm` prints level ERROR only, and prints NOTHING when nothing is
+# The alarm prints level ERROR only, and prints NOTHING when nothing is
 # red — which is why there is no `echo` outside the `if`. A banner that
 # appears on every start is background within three days.
+#
+# **One process, not two (startblock-cm, 2026-10-18).** This used to be
+# `mem doctor --alarm` (8 s cap) and then `mem today --line` (5 s cap).
+# Both ran the whole doctor, and the alarm read every drawer once more
+# to move the rollback mark: about 3 passes over the entry logs for
+# what one pass answers, and on a cold 20 000-entry memory the alarm
+# ran past its cap. `mem today --start` computes the doctor ONCE and
+# prints exactly what the two commands printed: the alarm block under
+# its heading, a blank line, the day line (`mem today --help`). Where
+# the line comes from is unchanged: src/today.mjs `line()`, the SAME
+# function `mem today` and the dashboard's Today card read. It prints
+# nothing when there is nothing notable ("only when there is
+# something", same rule the habit line above already follows).
 #
 # The cap reports its own expiry. `timeout` returns 124; without that
 # branch "timed out" looks exactly like "all fine", and that confusion
 # is what carried the outage above for so long. Where `timeout` does not
-# exist the check runs uncapped rather than silently not at all.
+# exist the check runs uncapped rather than silently not at all. One
+# cap for both parts now: MEM_ALARM_SECONDS (default 8); the run is
+# cheaper than the two it replaces, so it fits. MEM_TODAY_SECONDS no
+# longer caps anything here.
 if [ -n "$mem_bin" ]; then
   if command -v timeout >/dev/null 2>&1; then
-    MEM_ALARM="$(timeout "${MEM_ALARM_SECONDS:-8}" node "$mem_bin" doctor --alarm 2>/dev/null)"
+    MEM_ALARM="$(timeout "${MEM_ALARM_SECONDS:-8}" node "$mem_bin" today --start 2>/dev/null)"
   else
-    MEM_ALARM="$(node "$mem_bin" doctor --alarm 2>/dev/null)"
+    MEM_ALARM="$(node "$mem_bin" today --start 2>/dev/null)"
   fi
   MEM_ALARM_RC=$?
   if [ -n "$MEM_ALARM" ]; then
-    echo "=== DOWN RIGHT NOW (mem doctor --alarm) ==="
     echo "$MEM_ALARM"
     echo ""
   elif [ "$MEM_ALARM_RC" -eq 124 ]; then
     echo "=== DOWN RIGHT NOW ==="
-    echo "The alarm hit its time cap (${MEM_ALARM_SECONDS:-8}s) — NOT checked."
+    echo "The start block (alarm and day line) hit its time cap (${MEM_ALARM_SECONDS:-8}s) — NOT checked."
     echo "By hand: node $mem_show doctor --quiet"
-    echo ""
-  fi
-fi
-
-# --- "Today" (N8/N21 parity: one source, three surfaces) --------------
-#
-# `mem today --line` (src/today.mjs, `today()`/`line()`) — the SAME
-# function `mem today` and the dashboard's Today card read, not a
-# separate calculation here. `line()` returns nothing at all when there
-# is nothing notable ("only when there is something", same rule the
-# habit line above already follows) — so there is no bare `echo` outside
-# the `if`.
-#
-# Own time cap, same shape as the alarm above: today() reads
-# doctor.checkAll() and every open duty, and a session start must never
-# hang waiting on either.
-if [ -n "$mem_bin" ]; then
-  if command -v timeout >/dev/null 2>&1; then
-    MEM_TODAY="$(timeout "${MEM_TODAY_SECONDS:-5}" node "$mem_bin" today --line 2>/dev/null)"
-  else
-    MEM_TODAY="$(node "$mem_bin" today --line 2>/dev/null)"
-  fi
-  if [ -n "$MEM_TODAY" ]; then
-    echo "$MEM_TODAY"
     echo ""
   fi
 fi

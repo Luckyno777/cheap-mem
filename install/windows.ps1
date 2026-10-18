@@ -530,66 +530,39 @@ if (`$memOk) {
   } catch { }
 }
 
-# --- What is down right now -------------------------------------------
+# --- What is down right now, and "Today" (ONE reading) -----------------
 #
-# Same reasoning as install/hooks/session-start.sh: --alarm prints
-# level ERROR only, and prints NOTHING when nothing is red, so there is
-# no unconditional Write-Host outside the checks below. Windows has no
-# timeout binary, so the cap is a background job with a wait limit -
-# the same shape bin/mem-watch.ps1 and bin/mem-reflect.ps1 already use.
-# A cap that expires reports itself as expired, never as "all fine".
+# Same reasoning as install/hooks/session-start.sh: `mem today --start`
+# (src/startblock.mjs) computes the doctor ONCE and prints what
+# `mem doctor --alarm` and `mem today --line` used to print from two
+# runs - the alarm block (level ERROR only) under its heading, a blank
+# line, the day line - and NOTHING when neither has anything to say, so
+# there is no unconditional Write-Host outside the checks below.
+# Windows has no timeout binary, so the cap is a background job with a
+# wait limit - the same shape bin/mem-watch.ps1 and bin/mem-reflect.ps1
+# already use. A cap that expires reports itself as expired, never as
+# "all fine". One cap for both parts: MEM_ALARM_SECONDS.
 if (`$memOk) {
   try {
     `$alarmSeconds = 8
     if (`$env:MEM_ALARM_SECONDS) { `$alarmSeconds = [int]`$env:MEM_ALARM_SECONDS }
     `$alarmJob = Start-Job -ScriptBlock {
       param(`$m)
-      & node `$m doctor --alarm 2>`$null
+      & node `$m today --start 2>`$null
     } -ArgumentList `$mem
     `$alarmDone = Wait-Job -Job `$alarmJob -Timeout `$alarmSeconds
     if (-not `$alarmDone) {
       Stop-Job -Job `$alarmJob -ErrorAction SilentlyContinue
       Remove-Job -Job `$alarmJob -Force -ErrorAction SilentlyContinue
       Write-Host '=== DOWN RIGHT NOW ==='
-      Write-Host "The alarm hit its time cap (`$alarmSeconds s) - NOT checked."
+      Write-Host "The start block (alarm and day line) hit its time cap (`$alarmSeconds s) - NOT checked."
       Write-Host "By hand: node `$mem doctor --quiet"
       Write-Host ''
     } else {
       `$alarmOut = Receive-Job -Job `$alarmJob -ErrorAction SilentlyContinue
       Remove-Job -Job `$alarmJob -Force -ErrorAction SilentlyContinue
       if (`$alarmOut) {
-        Write-Host '=== DOWN RIGHT NOW (mem doctor --alarm) ==='
         `$alarmOut | ForEach-Object { Write-Host `$_ }
-        Write-Host ''
-      }
-    }
-  } catch { }
-}
-
-# --- "Today" (N8/N21 parity: one source, three surfaces) --------------
-#
-# Same reasoning as install/hooks/session-start.sh: `mem today --line`
-# (src/today.mjs) is the SAME function `mem today` and the dashboard's
-# Today card read, and it prints nothing at all when there is nothing
-# notable, so there is no unconditional Write-Host outside the check
-# below. Own time-cap job, same shape as the alarm above.
-if (`$memOk) {
-  try {
-    `$todaySeconds = 5
-    if (`$env:MEM_TODAY_SECONDS) { `$todaySeconds = [int]`$env:MEM_TODAY_SECONDS }
-    `$todayJob = Start-Job -ScriptBlock {
-      param(`$m)
-      & node `$m today --line 2>`$null
-    } -ArgumentList `$mem
-    `$todayDone = Wait-Job -Job `$todayJob -Timeout `$todaySeconds
-    if (-not `$todayDone) {
-      Stop-Job -Job `$todayJob -ErrorAction SilentlyContinue
-      Remove-Job -Job `$todayJob -Force -ErrorAction SilentlyContinue
-    } else {
-      `$todayOut = Receive-Job -Job `$todayJob -ErrorAction SilentlyContinue
-      Remove-Job -Job `$todayJob -Force -ErrorAction SilentlyContinue
-      if (`$todayOut) {
-        `$todayOut | ForEach-Object { Write-Host `$_ }
         Write-Host ''
       }
     }
