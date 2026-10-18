@@ -108,11 +108,18 @@ test('requests: with Chromium the home view asks appointments.json twice (pinned
     return;
   }
   assert.equal(reason, null);
-  assert.equal(r.verdict, VERDICT.FAIL, `fixed? then change this pin: ${r.actual}`);
   const views = r.measured.views;
-  // The home view draws once from the head and once from the full list, so twice (a third draw under load would still be this finding).
-  assert.deepEqual(views['#home'].duplicates.map((d) => d.route), ['/dashboard/appointments.json']);
-  assert.ok(views['#home'].duplicates[0].times >= 2);
+  // The home view draws once from the head and once from the full list, so twice (a third draw under load would still be this
+  // finding). Since the requests row warms the server first (browser-cold-start ratchet), the full list can arrive before the head
+  // draw, and then the page asks once: the finding is timing-bound. Either it shows, and then it is exactly this route, or the row
+  // passes with no duplicate at all; anything else fails.
+  if (r.verdict === VERDICT.FAIL) {
+    assert.deepEqual(views['#home'].duplicates.map((d) => d.route), ['/dashboard/appointments.json'], `fixed? then change this pin: ${r.actual}`);
+    assert.ok(views['#home'].duplicates[0].times >= 2);
+  } else {
+    assert.equal(r.verdict, VERDICT.PASS, r.actual);
+    assert.deepEqual(views['#home'].duplicates, [], 'a pass with a duplicate on #home would be a wrong verdict');
+  }
   assert.deepEqual(views['#knowledge/entries'].duplicates, []);
   assert.deepEqual(views['#home'].failed, []);
   assert.ok(views['#home'].total >= 10 && views['#knowledge/entries'].total >= 10, 'positive control: the page was watched');
