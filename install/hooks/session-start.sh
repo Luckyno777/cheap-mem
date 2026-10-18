@@ -408,7 +408,7 @@ if [ -n "$mem_bin" ]; then
     echo ""
   elif [ "$MEM_ALARM_RC" -eq 124 ]; then
     echo "=== DOWN RIGHT NOW ==="
-    echo "The alarm hit its time cap (${MEM_ALARM_SECONDS:-8}s) — NOT checked."
+    echo "The start block (alarm and day line) hit its time cap (${MEM_ALARM_SECONDS:-8}s) — NOT checked."
     echo "By hand: node $mem_show doctor --quiet"
     echo ""
   fi

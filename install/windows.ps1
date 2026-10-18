@@ -555,7 +555,7 @@ if (`$memOk) {
       Stop-Job -Job `$alarmJob -ErrorAction SilentlyContinue
       Remove-Job -Job `$alarmJob -Force -ErrorAction SilentlyContinue
       Write-Host '=== DOWN RIGHT NOW ==='
-      Write-Host "The alarm hit its time cap (`$alarmSeconds s) - NOT checked."
+      Write-Host "The start block (alarm and day line) hit its time cap (`$alarmSeconds s) - NOT checked."
       Write-Host "By hand: node `$mem doctor --quiet"
       Write-Host ''
     } else {
