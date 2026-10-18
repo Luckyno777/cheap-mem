@@ -231,6 +231,7 @@ directory. The section number in brackets is where it is explained.
 | `snippet.mjs` | a reusable code/script/text/mail/letter block WITH PLACEHOLDERS — a `text`/`mail`/`letter` body must clear redaction before write (10.27) |
 | `source.mjs` | knowledge that already exists, indexed rather than copied (10.10) |
 | `state.mjs` | the derived state, and nothing else derives it |
+| `startblock.mjs` | the session start's alarm block and day line from ONE reading of the memory: the doctor runs once (mark ticked as `mem doctor --alarm` does), the day result is derived from it, all inside one drawer memo; `mem today --start`, read by both session-start hooks; the text is what the hook used to assemble from `doctor --alarm` and `today --line` (3.65 to 1.56 passes over the entry logs with `context`, warm) |
 | `statequestion.mjs` | freshness for questions that ask "what holds now": a state signal word ("current", "still", "latest", ...; file/config-extensible, English default) dampens older same-`topic` hits among a query's own results — the newest, and anything with no readable `ts`, untouched (M9 parity) |
 | `store.mjs` | generated files provable by hash, without bloating the repo |
 | `stores.mjs` | the usual places people keep files, found by name (10.11) |
