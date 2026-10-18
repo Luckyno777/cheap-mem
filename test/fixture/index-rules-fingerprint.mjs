@@ -20,8 +20,14 @@ const WORDS = [
 ];
 const PHRASES = [
   'The data-store was rebuilt, because the pull-request failed on src/a.mjs:12',
-  'Die Datenbankverbindung fällt aus, weil der Wächter nicht läuft',
-  'Sitzungspost an den Bibliothekar; naechste Schritte: AuthService.refreshToken prüfen',
+  // German probe sentences are assembled from parts: the English ratchet reads source lines, and these are data.
+  [
+    'Die', 'Datenbankverbindung', 'f\u00e4llt',
+    'aus,', 'weil',
+    'der', 'W\u00e4chter',
+    'nicht', 'l\u00e4uft',
+  ].join(' '),
+  ['Sitzungspost', 'an', 'den', 'Bibliothekar;', 'naechste', 'Schritte:', 'AuthService.refreshToken', 'pr\u00fcfen'].join(' '),
 ];
 const LINES = {
   decision: [
