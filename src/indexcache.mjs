@@ -103,7 +103,7 @@
 //               live cache and an inert leftover never sit side by
 //               side under two names that both look current.
 //   `unbekannt` a `readIndexCache` failure whose reason is NOT
-//               'version-mismatch'/'language-mismatch' (an expected,
+//               'version-mismatch'/'language-mismatch'/'rules-mismatch' (an expected,
 //               ordinary case) and NOT 'no-manifest' on a cache
 //               directory that never existed (an ordinary cold start)
 //               means a cache directory WAS there and did not read
@@ -117,6 +117,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import * as thesaurus from './thesaurus.mjs';
 import * as entity from './entity.mjs';
+import { INDEX_RULES_VERSION } from './indexrules.mjs';
 
 /**
  * How many documents (and how many bytes) go in one shard file.
@@ -247,6 +248,8 @@ export function writeIndexCache(cacheDir, { version, language, files, fullAt, in
 
     const manifest = {
       version,
+      // The rules that built these documents; read back against the same constant (`src/indexrules.mjs`).
+      indexRules: INDEX_RULES_VERSION,
       language,
       files,
       fullAt,
@@ -361,6 +364,9 @@ export function readIndexCache(cacheDir, { expectedVersion, expectedLanguage } =
   } catch { return { ok: false, reason: 'no-manifest' }; }
 
   if (manifest.version !== expectedVersion) return { ok: false, reason: 'version-mismatch' };
+  // The rules, not the format: an index built under other index rules (or before the field existed) is wrong for this code
+  // although every file stamp matches. `found` is what the manifest says, null when it says nothing.
+  if (manifest.indexRules !== INDEX_RULES_VERSION) return { ok: false, reason: 'rules-mismatch', found: manifest.indexRules ?? null };
   if (manifest.language !== expectedLanguage) return { ok: false, reason: 'language-mismatch' };
   if (!Array.isArray(manifest.documents) || !manifest.meta) return { ok: false, reason: 'malformed-manifest' };
 
