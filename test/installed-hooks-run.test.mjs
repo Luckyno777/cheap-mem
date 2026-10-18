@@ -355,6 +355,26 @@ test('time cap in the start hook: rc 0, the cap is REPORTED, the rest of the out
   else assert.doesNotMatch(r.stdout, /hit its time cap/, 'no timeout(1): the alarm runs uncapped');
 });
 
+test('time cap that let the command finish (rc 124 WITH output): the output comes AND the cap is reported', () => {
+  // CI run 1255, windows-latest: Git Bash's timeout(1) did not stop the native node.exe in 0.01 s; `today --start`
+  // ran to its end and printed its day line, timeout(1) still said 124. The hook read "there is output" as "all
+  // fine" and the expired cap went unreported. A stand-in timeout(1) does exactly that on every platform: it runs
+  // the command to its end and returns 124.
+  const { scratch, home, cfg } = installSh();
+  const cmds = registered(cfg, 'sh');
+  const fake = temp('cm-ihr-fake-timeout-');
+  fs.writeFileSync(path.join(fake, 'timeout'), '#!/bin/sh\nshift\n"$@"\nexit 124\n', { mode: 0o755 });
+  const base = hookEnv(home);
+  const env = { ...base, PATH: `${fake}${path.delimiter}${base.PATH}` };
+  const r = spawnSync(cmds.get('session-start'), {
+    shell: true, input: JSON.stringify(inputs(scratch)['session-start']), encoding: 'utf8', timeout: 90000, env,
+  });
+  assert.equal(r.status, 0, `rc ${r.status}: ${r.stderr}`);
+  assert.match(r.stdout, /^Today: /m, `control: the stand-in let the command print its day line:\n${r.stdout}`);
+  assert.match(r.stdout, /hit its time cap/, `rc 124 with output looked like all fine:\n${r.stdout}`);
+  assert.match(r.stdout, /=== how to use this memory this session ===/, 'the output stopped after the cap');
+});
+
 test('control: the same bare run WITHOUT a code path is mute (the probe can fail)', () => {
   // Strip the CHEAP_MEM_CODE line from the installed prompt and start
   // hooks. If the probe above could not see the difference between a shim

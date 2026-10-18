@@ -403,10 +403,15 @@ if [ -n "$mem_bin" ]; then
     MEM_ALARM="$(node "$mem_bin" today --start 2>/dev/null)"
   fi
   MEM_ALARM_RC=$?
+  # Output and an expired cap are not exclusive: Git Bash's timeout(1) may
+  # not stop a native node.exe in time, the run prints to its end and the
+  # rc is still 124 (CI run 1255). Whatever came is shown, and 124 is
+  # reported either way; the PowerShell twin reports on the expiry alone.
   if [ -n "$MEM_ALARM" ]; then
     echo "$MEM_ALARM"
     echo ""
-  elif [ "$MEM_ALARM_RC" -eq 124 ]; then
+  fi
+  if [ "$MEM_ALARM_RC" -eq 124 ]; then
     echo "=== DOWN RIGHT NOW ==="
     echo "The start block (alarm and day line) hit its time cap (${MEM_ALARM_SECONDS:-8}s) — NOT checked."
     echo "By hand: node $mem_show doctor --quiet"
