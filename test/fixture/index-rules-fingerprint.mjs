@@ -11,6 +11,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import * as memory from '../../src/memory.mjs';
 import * as search from '../../src/search.mjs';
+import * as raw from '../../src/raw.mjs';
 import { PACKS, pack } from '../../src/language.mjs';
 import { BODY_FIELDS_BY_TYPE, NON_BODY_FIELDS } from '../../src/bodyfields.mjs';
 
@@ -35,7 +36,14 @@ const LINES = {
     { id: 'd2', ts: '2026-01-02T00:00:00Z', title: 'Datenbankverbindung prüfen', choice: 'Verbindung', why: 'Datenbank und Verbindung getrennt', tags: 'x, y' },
   ],
   error: [{ id: 'e1', ts: '2026-01-03T00:00:00Z', title: 'Boom in src/a.mjs', text: 'it broke twice quickly', why: 'cache', class: 'looks-right', file: 'src/a.mjs' }],
-  event: [{ id: 'v1', ts: '2026-01-04T00:00:00Z', title: 'Release 1.0', text: 'shipped the running version' }],
+  event: [
+    { id: 'v1', ts: '2026-01-04T00:00:00Z', title: 'Release 1.0', text: 'shipped the running version' },
+    { id: 'v2', ts: '2026-01-04T01:00:00Z', title: 'Release 0.9', text: 'the retired earlier version' },
+    // a closing line (retires v2): bookkeeping, never indexed itself; v2 stays in the index, marked retired
+    { id: 'v3', ts: '2026-01-04T02:00:00Z', retires_id: 'v2', state: 'retired', reason: 'closingmarker retired by the probe' },
+    // a closing line with the other field (closes_id): also bookkeeping
+    { id: 'v4', ts: '2026-01-04T03:00:00Z', closes_id: 'v1', text: 'closesmarker never indexed' },
+  ],
   timeline: [{ id: 't1', ts: '2026-01-05T00:00:00Z', title: 'Status', fact: 'the server runs in a container', text: 'since January' }],
   thought: [
     { id: 'h1', ts: '2026-01-06T00:00:00Z', title: 'alpha one', text: 'alpha healthy words', why: 'because', author: 'alice' },
@@ -84,11 +92,19 @@ function indexFacts(language) {
       fs.writeFileSync(p, `${rows.map((r) => JSON.stringify({ v: 1, authority: 'agent', ...r })).join('\n')}\n${extra}`);
     };
     for (const [type, rows] of Object.entries(LINES)) put(type, null, rows, type === 'error' ? 'not json at all\n' : '');
+    // One raw capture (the weighted-low pending documents), from a fixed transcript at a fixed time.
+    const transcript = path.join(root, 'session-fingerprint.jsonl');
+    fs.writeFileSync(transcript, [
+      { type: 'user', message: { role: 'user', content: 'rawcapturemarker how do the database queries run quickly' } },
+      { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'They run from the cached index, the Wächter checks it' }] } },
+    ].map((l) => JSON.stringify(l)).join('\n') + '\n');
+    const cap = raw.capture(root, transcript, { minBytes: 0, now: new Date('2026-03-01T12:00:00Z'), env: {} });
+    if (cap.status !== 'captured') throw new Error(`fingerprint fixture: the capture did not land (${cap.status})`);
     put('decision', 'proj', [{ id: 'dp', ts: '2026-02-01T00:00:00Z', title: 'Project decision about caches', choice: 'keep', why: 'the Wächter runs' }]);
     const idx = search.buildIndex(root, { language });
     const docs = idx.documents.map((d) => ({
-      id: d.entry.id, type: d.type, project: d.project, line: d.line, lang: d.lang, certain: d.langCertain, enc: d.enc ?? false,
-      length: d.length, weights: sortedEntries(d.weights), exp: d.expOnly ? [...d.expOnly].sort() : null,
+      id: d.entry.id ?? 'raw', pending: d.pending ?? false, type: d.type, project: d.project, line: d.line, lang: d.lang, certain: d.langCertain, enc: d.enc ?? false,
+      length: d.length, retired: d.retired ?? null, weights: sortedEntries(d.weights), exp: d.expOnly ? [...d.expOnly].sort() : null,
     })).sort((a, b) => (a.id < b.id ? -1 : 1));
     return {
       docs, N: idx.N, avgLength: idx.avgLength, statsN: idx.statsN, statsAvgLength: idx.statsAvgLength,
@@ -110,6 +126,7 @@ export function ruleFacts() {
     drawers: { types: Object.keys(memory.TYPES), searched: memory.SEARCH_TYPES },
     raw: { weight: search.RAW_WEIGHT, cap: search.RAW_CAP },
     index: indexFacts('en'),
+    indexDe: indexFacts('de'),
   };
 }
 

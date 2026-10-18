@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { tempDir } from './temp-dir.mjs';
 import { INDEX_RULES_VERSION } from '../src/indexrules.mjs';
 import { loadIndex, CACHE_DIR, CACHE_VERSION } from '../src/search.mjs';
+import * as indexrebuild from '../src/indexrebuild.mjs';
 import { readIndexCache, writeIndexCache } from '../src/indexcache.mjs';
 import { PACKS } from '../src/language.mjs';
 import * as memory from '../src/memory.mjs';
@@ -123,6 +124,44 @@ test('the read side takes the number from the constant, not from the caller (not
   assert.equal(res.ok, false);
   assert.equal(res.reason, 'rules-mismatch');
   assert.equal(res.found, INDEX_RULES_VERSION + 1);
+});
+
+test('the recall hook (allowStale) over an index of other rules: fast, empty, starts ONE child, never the old index; then the cache lands and the next call is quiet', async (t) => {
+  const root = world(t);
+  loadIndex(root);
+  plantMarker(root, (m) => ({ ...m, indexRules: INDEX_RULES_VERSION + 1 }));
+  const before = fs.statSync(manifestOf(root)).mtimeMs;
+  const t0 = Date.now();
+  const { value: idx, lines } = captureStderr(() => loadIndex(root, { allowStale: true }));
+  const took = Date.now() - t0;
+  assert.ok(took < 1000, `the hook call took ${took} ms: it built in the caller`);
+  assert.equal(idx.documents.length, 0, 'no index is served while the rebuild runs');
+  assert.ok(!hasMarker(idx), 'the old index was used');
+  assert.equal(idx.cacheStatus, 'stale');
+  assert.equal(idx.rebuild, 'started', 'a detached rebuild was started');
+  assert.equal(lines.length, 1, lines.join('\n'));
+  assert.match(lines[0], /in the background/);
+  assert.equal(fs.statSync(manifestOf(root)).mtimeMs, before, 'the caller did not write the cache');
+  // a second call while the child runs (or after a failed one) starts no second child and says nothing
+  const second = captureStderr(() => loadIndex(root, { allowStale: true }));
+  if (second.value.documents.length === 0) {
+    assert.ok(['running', 'started'].includes(second.value.rebuild) || second.value.rebuild === 'backoff', String(second.value.rebuild));
+    assert.deepEqual(second.lines, [], 'the migration is said once');
+  }
+  // the child lands the cache
+  const deadline = Date.now() + 60000;
+  let landed = false;
+  while (Date.now() < deadline) {
+    try {
+      if (JSON.parse(fs.readFileSync(manifestOf(root), 'utf8')).indexRules === INDEX_RULES_VERSION) { landed = true; break; }
+    } catch { /* between swaps */ }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  assert.ok(landed, `the background rebuild did not land (note: ${JSON.stringify(indexrebuild.failedRecently(root))})`);
+  const after = captureStderr(() => loadIndex(root, { allowStale: true }));
+  assert.deepEqual(after.lines, [], 'after the rebuild the hook call is quiet');
+  assert.deepEqual(after.value.documents.map((d) => d.entry.id).sort(), ['a1alpha', 'a2alpha']);
+  assert.ok(!hasMarker(after.value));
 });
 
 // --- the ratchet ---

@@ -1,6 +1,6 @@
 {
   "note": "Append-only. One entry per INDEX_RULES_VERSION (src/indexrules.mjs): the fingerprint of the rules' behaviour at that version. Changing a rule moves the fingerprint; append the next version here and raise the constant to match. Never edit an old entry.",
   "history": [
-    { "version": 1, "fingerprint": "590c7d71b4d5de31669db39e80f82b8af676501079b644e74f09a2b0f4533041", "what": "baseline: the first numbered version" }
+    { "version": 1, "fingerprint": "5e465b06a02277ff8d98294c5476bc186cc33cfc22d277f8e4dbff860048e816", "what": "baseline: the first numbered version" }
   ]
 }

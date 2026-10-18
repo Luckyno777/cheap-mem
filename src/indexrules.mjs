@@ -19,6 +19,15 @@
  * this one constant, so build and read cannot disagree and no caller has to pass it. An index with another number, or with
  * none (built before the field existed), is stale: it is not used, a line on stderr says so, and it is rebuilt once.
  *
+ * **Who rebuilds.** The terminal and the writers rebuild in their own process. The recall hook (`allowStale`) never does: a
+ * full build can outlast its time cap, so it would be cut off every time and the cache would never land. It gets an EMPTY index
+ * (the old one has the wrong rules), starts the detached rebuild (`indexrebuild.kickIndexRebuild`: one at a time, a backoff
+ * after a failure) and says so once; the next call after the child has ended reads the new cache.
+ *
+ * **Known limit: old and new code on the same root.** Code from before this number writes a manifest WITHOUT `indexRules`;
+ * code with it reads that as stale. Two installations of different age sharing one memory root (a synced folder, a shared
+ * volume) therefore replace each other's cache in turn, each rebuild saying so on stderr. It heals when both are upgraded.
+ *
  * **Relation to `search.CACHE_VERSION`.** They answer different questions and stay apart. `CACHE_VERSION` is the FORMAT of the
  * files on disk (manifest keys, shard layout, what a document looks like); this number is the RULES that produced the content.
  * A format change that is also a rule change (version 15 and 16 were both) should raise both, but forgetting one can no longer

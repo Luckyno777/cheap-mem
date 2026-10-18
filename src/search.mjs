@@ -3020,6 +3020,9 @@ function loadMemoized(root, opts) {
     const loadedAt = Date.now();
     const r = loadIndexCached(root, { language, wantState: true, derivedState: opts.derivedState, allowStale: Boolean(opts.allowStale) });
     const { state, ...base } = r;
+    // An empty stand-in (index rules changed, rebuild running in the background) is served once and never memoized: the
+    // next question asks the cache again.
+    if (r.servedEmpty) return { ...base, appended: 0, graphsStale: false };
     m = {
       root, base, files: state.files, fullAt: state.fullAt, gen: 0,
       hasEnc: base.documents.some((d) => d.enc),
@@ -3139,6 +3142,15 @@ export function assertCacheLanded(root, language, fullAt, { pause = (ms) => Atom
   if (!res.ok || !(res.fullAt >= fullAt)) { pause(50); res = read(); }
   if (!res.ok) throw new Error(`the rebuilt search index did not land in the cache (${res.reason})`);
   if (!(res.fullAt >= fullAt)) throw new Error(`the cache holds a build of ${res.fullAt} documents, not the ${fullAt} just made`);
+}
+
+/** An index with no documents: what the recall hook gets while the index is being rebuilt under new rules. */
+function emptyIndex(language) {
+  return {
+    documents: [], docFreq: new Map(), lexicon: new Set(), lexicons: new Map(), tagGraph: new Map(), termGraph: new Map(),
+    entityIndex: entity.buildIndex([], entityText), language, N: 0, avgLength: 1, statsN: 0, statsDocFreq: new Map(),
+    statsAvgLength: 1, builtAt: new Date().toISOString(),
+  };
 }
 
 function loadIndexCached(root, { fresh = false, language = 'en', wantState = false, derivedState = null, allowStale = false } = {}) {
@@ -3321,12 +3333,23 @@ function loadIndexCached(root, { fresh = false, language = 'en', wantState = fal
       } catch { /* a broken cache is not an error, just a rebuild */ }
     } else if (res.reason === 'rules-mismatch') {
       // The index was built under other INDEX RULES (or before the manifest carried them): wrong for this code although the
-      // file stamps match. Not silent, unlike a format bump: one line says why the next answer takes a rebuild.
+      // file stamps match. Not silent, unlike a format bump.
       cacheStatus = 'stale';
-      console.error(
-        `cheap-mem: search index cache at ${cacheDir} was built under index rules ${res.found ?? 'none (older build)'}, `
-        + `this code has ${INDEX_RULES_VERSION} - rebuilding it from the log (once).`,
-      );
+      const was = `built under index rules ${res.found ?? 'none (older build)'}, this code has ${INDEX_RULES_VERSION}`;
+      if (allowStale) {
+        // **The recall hook never sits through this rebuild (indexregeln-cm, follow-up).** A full build is 22 s at 20,000
+        // entries and the hook's cap is 8 s: built here it would be cut off every time, the cache would never land and every
+        // call would pay the cap again, silently. The old index is NOT used (wrong rules), so the answer is an EMPTY index
+        // while the rebuild runs detached (`kickIndexRebuild`: one at a time by its lock, a backoff after a failure, which
+        // is what makes the migration happen once). Only the terminal and the writers build in their own process.
+        const rebuild = indexrebuild.kickIndexRebuild(root, { language: lang.name });
+        if (rebuild === 'started') {
+          console.error(`cheap-mem: search index cache at ${cacheDir} was ${was} - rebuilding it in the background (once); until it lands this answer has no index.`);
+        }
+        return { ...emptyIndex(lang.name), fromCache: false, appended: 0, graphsStale: false, cacheStatus, rebuild, servedEmpty: true,
+          ...(wantState ? { state: { files: {}, fullAt: 0 } } : {}) };
+      }
+      console.error(`cheap-mem: search index cache at ${cacheDir} was ${was} - rebuilding it from the log (once).`);
     } else if (res.reason === 'version-mismatch' || res.reason === 'language-mismatch') {
       // Expected, not corruption: a schema bump or a language change
       // makes yesterday's cache the wrong shape ON PURPOSE. Silent, same
