@@ -113,7 +113,7 @@ test('POSITIVE CONTROL: shellCalls reads the real calls off session-start.sh', (
   // The floor a reader that no longer fits the file would fall below.
   assert.ok(calls.size >= 9, `only ${calls.size} calls read from session-start.sh — the reader broke`);
   for (const expected of [
-    'context --n', 'user --session-start', 'doctor --alarm', 'doctor --quiet',
+    'context --n', 'user --session-start', 'today --start', 'doctor --quiet',
     'log event --title', 'log decision --topic', 'log error --class',
     'find', 'inbox write --as',
   ]) {

@@ -309,6 +309,30 @@ export const MUTANTS=[
    to:'export function checkAll(root, { memo = true, full = true, record = true } = {}) {  // MUTANT',
    tests:['test/alarm-tearing.test.mjs','test/agents-d5.test.mjs'] },
 
+ { name:'startblock-cm: the start block runs without the shared drawer memo (the doctor, the tick and the day read the logs separately)',
+   file:'src/startblock.mjs',
+   from:'doctor.withRunMemo(() => {',
+   to:'((run) => run())(() => {  // MUTANT',
+   tests:['test/startblock.test.mjs'] },
+
+ { name:'startblock-cm: the day result keeps the alarm run\'s rollback finding (a warning the tick already cleared)',
+   file:'src/doctor.mjs',
+   from:"findings.push(x.name === 'rollback' ? rollback : x);",
+   to:"findings.push(x);  // MUTANT",
+   tests:['test/startblock.test.mjs'] },
+
+ { name:'startblock-cm: the day result keeps the alarm run\'s environment findings (the append probe never ran)',
+   file:'src/doctor.mjs',
+   from:"if (!envPlaced) { findings.push(...env); envPlaced = true; }\n      continue;",
+   to:"findings.push(x);  // MUTANT\n      continue;",
+   tests:['test/startblock.test.mjs'] },
+
+ { name:'startblock-cm: the alarm block loses its heading',
+   file:'src/startblock.mjs',
+   from:"if (alarm.length) parts.push([ALARM_HEADING, ...alarm].join('\\n'));",
+   to:"if (alarm.length) parts.push([...alarm].join('\\n'));  // MUTANT",
+   tests:['test/startblock.test.mjs'] },
+
  { name:'alarm-record: mem doctor --full does not ask for the record',
    file:'src/cli/commands/admin.mjs',
    from:'full: Boolean(args.full || args.strict), record: true });',

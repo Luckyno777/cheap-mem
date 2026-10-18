@@ -36,7 +36,7 @@ function stage({ todayOut = '', busyMs = 0 } = {}) {
   const code = fs.mkdtempSync(path.join(os.tmpdir(), 'today-code-'));
   const stub = `
 const argv = process.argv.slice(2).join(' ');
-if (argv.includes('today') && argv.includes('--line')) {
+if (argv.includes('today') && argv.includes('--start')) {  // alarm and day line in one call (startblock-cm)
   const until = Date.now() + ${busyMs};
   while (Date.now() < until) { /* real wall clock, so a timeout cap really bites */ }
   const t = ${JSON.stringify(todayOut)};
@@ -90,14 +90,15 @@ test('when today --line has nothing to say, the hook stays silent about it', () 
   finally { fs.rmSync(s.root, { recursive: true, force: true }); }
 });
 
-test('hitting the time cap is silent, never a hang (own MEM_TODAY_SECONDS)', (t) => {
+test('hitting the time cap is never a hang and never swallowed (the one cap, MEM_ALARM_SECONDS)', (t) => {
   const hasTimeout = spawnSync('sh', ['-c', 'command -v timeout'], { encoding: 'utf8' }).status === 0;
   if (!hasTimeout) { t.skip('no timeout(1) on this machine — the cap is not testable'); return; }
   const s = stage({ todayOut: 'Today: must never appear', busyMs: 3000 });
   const start = Date.now();
   try {
-    const r = s.run(HOOK, { MEM_TODAY_SECONDS: '1' });
+    const r = s.run(HOOK, { MEM_ALARM_SECONDS: '1' });
     assert.equal(r.status, 0);
+    assert.match(r.stdout, /hit its time cap/, 'a timed-out start must say so, not look like all fine');
     assert.doesNotMatch(r.stdout, /must never appear/);
     assert.ok(Date.now() - start < 10000, 'the hook must not hang on a slow today() call');
   } finally { fs.rmSync(s.root, { recursive: true, force: true }); }

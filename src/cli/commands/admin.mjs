@@ -906,7 +906,7 @@ export const COMMANDS = {
   today: async ({ args }) => {
     if (isHelp(args)) {
       out([
-        'mem today [--json] [--line]',
+        'mem today [--json] [--line] [--start]',
         '',
         '  What does the owner need TODAY? One source for this command, the',
         '  dashboard\'s "Today" card and the session-start line — read',
@@ -932,12 +932,26 @@ export const COMMANDS = {
         '           (never a cut inside a word). Deadlines that cannot be read',
         '           say "deadlines not measurable", never 0.',
         '',
-        '  Read-only.',
+        '  --start  the session-start pair in ONE reading of the memory: the alarm',
+        '           block (what `mem doctor --alarm` prints, under its heading), a',
+        '           blank line, then the --line text; nothing at all when neither',
+        '           has anything to say. Same text the hook used to assemble from',
+        '           the two commands, at about a third of the reads. Unlike plain',
+        '           `today` it moves the rollback mark like `mem doctor --alarm`',
+        '           (see `mem epoch --help`) and needs no config for the alarm part.',
+        '',
+        '  Read-only (apart from --start, see above).',
       ].join('\n'));
       return;
     }
-    checkFlags(args, ['json', 'line', 'root'], 'today');
+    checkFlags(args, ['json', 'line', 'start', 'root'], 'today');
     const root = findRoot(args);
+    if (args.start) {
+      const sb = await import('../../startblock.mjs');
+      const b = sb.startBlock(root);
+      if (b.text) out(b.text);
+      return;
+    }
     requireConfig(root);
     const r = today.today(root);
     if (args.line) { if (r.line) out(r.line); return; }
