@@ -441,6 +441,49 @@ export function checkAll(root, { memo = true, full = true, record = false } = {}
   } finally { RUN_INDEX = before; }
 }
 
+/**
+ * Run `fn` inside ONE drawer memo (src/drawermemo.mjs), the way {@link checkAll} does for itself. A caller that needs more
+ * than the findings from the same drawers - the session-start block, which also moves the rollback mark and reads the
+ * day's duties - puts all of it in here, so the drawers are read once for the whole piece, not once per piece
+ * (startblock-cm). Re-entrant: `checkAll` inside it just joins this memo.
+ */
+export function withRunMemo(fn) { return drawermemo.runWithMemo({ maxBytes: drawerMemoBytes() }, fn); }
+
+/**
+ * The doctor result the day's "operations" part reads, derived from the result `mem doctor --alarm` computed - so the
+ * session-start block needs ONE `checkAll`, not two (startblock-cm). `mem today` had always run its own `checkAll` with the
+ * defaults (the append probe ON, nothing recorded) AFTER the alarm run had moved the rollback mark. Two findings can
+ * therefore differ from the alarm's result and are taken the way that second run saw them:
+ *  - the environment findings, from `checkEnvironmentContract(root, { full: true })` (the probe; ~0.1 s), and
+ *  - `rollback`, read again now (the caller has ticked the mark by then; a "watermark predates a rules change" warning
+ *    the alarm run saw is gone for the next reader, as it was for `mem today` in its own process).
+ * Everything else is one reading. Findings keep their places; `worst` and `summary` are counted anew.
+ */
+export function dayResultFrom(root, alarmResult) {
+  const isEnv = (x) => x.name === 'environment' || x.name.startsWith('env/');
+  const env = guardedAll('checkEnvironmentContract', () => checkEnvironmentContract(root, { full: true, record: false }));
+  const rollback = guarded('checkRollback', () => checkRollback(root));
+  const findings = [];
+  let envPlaced = false;
+  for (const x of alarmResult.findings) {
+    if (isEnv(x)) {
+      if (!envPlaced) { findings.push(...env); envPlaced = true; }
+      continue;
+    }
+    findings.push(x.name === 'rollback' ? rollback : x);
+  }
+  if (!envPlaced) findings.push(...env);
+  return { findings, ...tally(findings) };
+}
+
+function tally(f) {
+  const rank = { error: 3, warn: 2, good: 1, unknown: 0 };
+  const worst = f.reduce((max, x) => (rank[x.level] > rank[max] ? x.level : max), LEVEL.GOOD);
+  const summary = { good: 0, warn: 0, error: 0, unknown: 0 };
+  for (const x of f) summary[x.level] += 1;
+  return { worst, summary };
+}
+
 function checkAllCore(root, { full = true, record = false } = {}) {
   const f = [];
   f.push(guarded('checkRoot', () => checkRoot(root)));
@@ -506,12 +549,7 @@ function checkAllCore(root, { full = true, record = false } = {}) {
   // container. If that decided the verdict, a perfectly healthy memory
   // would report "unknown" forever, and people would learn to ignore
   // the output. Only warnings and errors lower the grade.
-  const rank = { error: 3, warn: 2, good: 1, unknown: 0 };
-  const worst = f.reduce((max, x) => (rank[x.level] > rank[max] ? x.level : max), LEVEL.GOOD);
-
-  const count = { good: 0, warn: 0, error: 0, unknown: 0 };
-  for (const x of f) count[x.level] += 1;
-  return { findings: f, worst, summary: count };
+  return { findings: f, ...tally(f) };
 }
 
 /**

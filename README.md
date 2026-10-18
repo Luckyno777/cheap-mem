@@ -429,8 +429,8 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-numbers.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **88 CLI commands, 45 MCP tools, 226 modules, 5460
-tests**; as of 2026-09-20, about 92811 lines in `bin/` and `src/`, at
+As of 2026-09-26: **88 CLI commands, 45 MCP tools, 227 modules, 5465
+tests**; as of 2026-09-20, about 92914 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 
 ### Reading it with a model, or evaluating it properly
@@ -467,7 +467,7 @@ enforced fails the build rather than waiting for someone to audit it.
 
 | check | what a red run means |
 |---|---|
-| `bench/mutation.mjs` | one of 474 guarantees was broken on purpose and no test noticed |
+| `bench/mutation.mjs` | one of 478 guarantees was broken on purpose and no test noticed |
 | `bench/fuzz.mjs` | a crash, hang, unbounded growth, or a bypass |
 | `bench/composed.mjs` | seven attacks that are only dangerous in combination |
 | `bench/byzantine.mjs` | a flood of rule-abiding liars buried the genuine claim, or the conflict went unreported |
@@ -714,6 +714,7 @@ mem onboarding <agent>             five checks, each evidenced by an entry
 mem broadcast <error-id>           tell the agents who touched the same file
 mem heartbeat                      this agent was running and could write
 mem today                          operations, decisions, deadlines and facts to verify
+mem today --start                  the session-start block: alarm and day line from one doctor run
 mem guard run|quote|gaps           every latch: is the error back, which has none
 mem gaps [rate]                    open and closed knowledge gaps
 mem suggest procedure <class>      draft a procedure for a repeated error class

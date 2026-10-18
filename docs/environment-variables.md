@@ -83,7 +83,7 @@ A variable that is not in the table is not a switch: there is none.
 | `CHEAP_MEM_SERVE_WINDOW_ENTRIES` | 30000 | How many of the newest entries the compact build lists. |
 | `MEM_AFTER_FAILURE_MIN` | 2.0 | Score a hit needs before the after-failure hook shows it. |
 | `MEM_AFTER_FAILURE_TOP` | 3 | How many hits the after-failure hook shows at most. |
-| `MEM_ALARM_SECONDS` | 8 | Session-start hook: seconds `mem doctor --alarm` may take. |
+| `MEM_ALARM_SECONDS` | 8 | Session-start hook: seconds the alarm and the day line (`mem today --start`, one doctor run) may take together. |
 | `MEM_BEFORE_EDIT_TOP` | 3 | How many hits the before-edit hook shows at most. |
 | `MEM_BEFORE_EDIT_TRACE` | off | With `1` the before-edit hook says on stderr where it exited. |
 | `MEM_CAPTURE_MIN` | 4096 | Smallest transcript, in bytes, the capture hook keeps (Windows hook). |
@@ -123,7 +123,6 @@ A variable that is not in the table is not a switch: there is none.
 | `MEM_SKILLUSAGE_TIME_MS` | 8000 | Time cap, in milliseconds, for reading the captures. |
 | `MEM_SUBAGENT_START_TRACE` | off | With `1` the sub-agent start hook (Windows twin) says on stderr where it exited: lengths and exit codes, never content. |
 | `MEM_SUBAGENT_TASK_SECONDS` | 2 seconds | Time budget of the sub-agent start block for the assignment; past it the base block comes with one sentence saying the lookup did not finish (the POSIX hook runs a first, tighter pass and falls back). |
-| `MEM_TODAY_SECONDS` | 5 | Session-start hook: seconds `mem today --line` may take. |
 | `MEM_WATCH_BROKEN_WAIT` | 60 | Seconds the watcher waits after a failed poll. |
 | `MEM_WATCH_HANDLER_TIMEOUT` | 300 | Seconds the letter handler may take. |
 | `MEM_WATCH_INTERVAL` | 15 | Seconds between two polls of the inbox watcher. |
@@ -238,6 +237,6 @@ A variable that is not in the table is not a switch: there is none.
 ### Internal — handed from one cheap-mem process to the next
 
 Set by a hook script for the program it starts, or plain shell variables that only look like environment
-variables. Nothing to configure: `CM_REBUILD_LOCK`, `MAX`, `MEM_AF_REASON`, `MEM_AF_SESSION`, `MEM_AF_START_MS`, `MEM_ALARM_RC`, `MEM_ALARM`, `MEM_BE_ASCII`, `MEM_BE_START_MS`, `MEM_CAP`, `MEM_CLI`, `MEM_CODE_REJECTED`, `MEM_DETOUR_REASON`, `MEM_ERRSIG`, `MEM_HL_ARGS`, `MEM_HL_CLEAN`, `MEM_HL_CWD`, `MEM_HL_HELPER`, `MEM_HL_ISOLATED`, `MEM_HL_NOTE`, `MEM_HOOK_START_MS`, `MEM_J_BYTES`, `MEM_J_HITS`, `MEM_J_PATH_REASON`, `MEM_J_PATH`, `MEM_J_QB`, `MEM_J_Q`, `MEM_J_REASON`, `MEM_J_ROOT`, `MEM_J_SESSION`, `MEM_J_SRC`, `MEM_J_START`, `MEM_OWN_SKIPPED`, `MEM_RECALL_SERVER_PARENT`, `MEM_RH_CWD`, `MEM_RH_MIN`, `MEM_RH_PATH_REASON`, `MEM_RH_PATH`, `MEM_RH_PROMPT`, `MEM_RH_QB`, `MEM_RH_SESSION`, `MEM_RH_START_MS`, `MEM_RH_TRANSCRIPT`, `MEM_RH_TURNS`, `MEM_RH_WORKFLOW`, `MEM_SS_CODE`, `MEM_SS_INPUT`, `MEM_SS_IN`, `MEM_SS_PROV`, `MEM_SS_SRC`, `MEM_SS_START_MS`, `MEM_START`, `MEM_SUBAGENT_TASK_FELL_BACK`, `MEM_TODAY`, `MEM_USER_HABITS`, `RESERVE`, `ROOT`, `TRANSCRIPT_PATH`.
+variables. Nothing to configure: `CM_REBUILD_LOCK`, `MAX`, `MEM_AF_REASON`, `MEM_AF_SESSION`, `MEM_AF_START_MS`, `MEM_ALARM_RC`, `MEM_ALARM`, `MEM_BE_ASCII`, `MEM_BE_START_MS`, `MEM_CAP`, `MEM_CLI`, `MEM_CODE_REJECTED`, `MEM_DETOUR_REASON`, `MEM_ERRSIG`, `MEM_HL_ARGS`, `MEM_HL_CLEAN`, `MEM_HL_CWD`, `MEM_HL_HELPER`, `MEM_HL_ISOLATED`, `MEM_HL_NOTE`, `MEM_HOOK_START_MS`, `MEM_J_BYTES`, `MEM_J_HITS`, `MEM_J_PATH_REASON`, `MEM_J_PATH`, `MEM_J_QB`, `MEM_J_Q`, `MEM_J_REASON`, `MEM_J_ROOT`, `MEM_J_SESSION`, `MEM_J_SRC`, `MEM_J_START`, `MEM_OWN_SKIPPED`, `MEM_RECALL_SERVER_PARENT`, `MEM_RH_CWD`, `MEM_RH_MIN`, `MEM_RH_PATH_REASON`, `MEM_RH_PATH`, `MEM_RH_PROMPT`, `MEM_RH_QB`, `MEM_RH_SESSION`, `MEM_RH_START_MS`, `MEM_RH_TRANSCRIPT`, `MEM_RH_TURNS`, `MEM_RH_WORKFLOW`, `MEM_SS_CODE`, `MEM_SS_INPUT`, `MEM_SS_IN`, `MEM_SS_PROV`, `MEM_SS_SRC`, `MEM_SS_START_MS`, `MEM_START`, `MEM_SUBAGENT_TASK_FELL_BACK`, `MEM_USER_HABITS`, `RESERVE`, `ROOT`, `TRANSCRIPT_PATH`.
 
 <!-- envvars:end -->
