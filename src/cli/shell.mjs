@@ -63,7 +63,7 @@ export const BOOL_SWITCHES = frozenSet([
   'hook', 'large', 'list-stores', 'literal', 'markdown', 'names-only', 'new-baseline', 'no-mmr', 'no-raw', 'no-write',
   'non-interactive', 'off', 'only-raw', 'pre-push', 'private', 'proposals', 'rebuild', 'recall', 'self-test',
   'session-start', 'shown', 'skip-fetch', 'stale', 'status', 'strict', 'suggested', 'sync', 'table', 'weak', 'weekly',
-  'wildcard', 'with-disputed', 'with-echo', 'with-retired', 'content-words', 'head', 'raw', 'no-mark', 'html', 'line', 'draw',
+  'wildcard', 'with-disputed', 'with-echo', 'with-retired', 'content-words', 'head', 'raw', 'no-mark', 'html', 'line', 'draw', 'start',
 ]);
 
 export function parseArgs(argv) {
