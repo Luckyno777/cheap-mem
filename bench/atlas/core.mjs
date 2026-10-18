@@ -26,6 +26,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { TYPES as memoryTypes } from '../../src/memory.mjs';
 import { CACHE_DIR } from '../../src/search.mjs';
+import { cacheSuffix } from '../../src/expand.mjs';
 
 // Re-exported so every phase file imports the search-cache path from ONE
 // place (this module already imports it from `src/search.mjs`, its
@@ -1438,14 +1439,22 @@ export function dirBytes(p) {
 // phase used to `fs.existsSync`/`fs.statSync` the old path directly, so
 // the path itself (imported above) is spelled out in exactly one place.
 
-/** Absolute path to the cache directory under a given memory root. */
-export function cacheDirPath(root) {
-  return path.join(root, CACHE_DIR);
+/**
+ * Absolute path to the cache directory under a given memory root.
+ *
+ * `src/search.mjs` writes to `CACHE_DIR` plus `expand.cacheSuffix()` (`-expand`
+ * under `MEM_EXPAND=1`), so the probes that look for the cache take the
+ * suffix from the same function and the same environment the child
+ * process runs with. Without it a probe under that switch looks at a
+ * directory nobody writes to and reads "no cache".
+ */
+export function cacheDirPath(root, env = process.env) {
+  return path.join(root, CACHE_DIR + cacheSuffix(env));
 }
 
 /** Absolute path to that cache's manifest. */
-export function cacheManifestPath(root) {
-  return path.join(root, CACHE_DIR, MANIFEST_FILE);
+export function cacheManifestPath(root, env = process.env) {
+  return path.join(cacheDirPath(root, env), MANIFEST_FILE);
 }
 
 /**
