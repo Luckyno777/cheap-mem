@@ -46,6 +46,7 @@ import {
   VERDICT, SEVERITY, REPO, mem, tempRoot, buildCorpus, dirBytes, heapAround,
   cacheDirPath, cacheManifestPath, cacheBytes, cacheMtimeMs,
 } from './core.mjs';
+import { TYPES as MEMORY_TYPES, SEARCH_TYPES } from '../../src/memory.mjs';
 
 /** Same digest `src/indexcache.mjs`'s (unexported) `sha256` computes —
  * duplicated rather than imported because that helper is a private
@@ -77,6 +78,39 @@ function jsonlFiles(root) {
   return out.sort();
 }
 
+// The three cache verdicts below take the exit of the `find` that was
+// meant to write (or leave alone) the cache. A cache that changed while
+// the command failed says nothing about the threshold, and a cache that
+// stayed put because the command failed says nothing about restraint.
+
+/** Above the threshold the cache must be rewritten, by a find that succeeded. */
+export function cacheThresholdVerdict(r) {
+  return r.findExit === 0 && r.rewritten ? VERDICT.PASS : VERDICT.FAIL;
+}
+
+/** Below it the cache must be left alone; a failed find proves nothing. */
+export function cacheCounterVerdict(r) {
+  if (r.findExit !== 0) return VERDICT.NOT_MEASURED;
+  return !r.rewritten ? VERDICT.PASS : VERDICT.DEGRADED;
+}
+
+/** Positive control: no cache before, a cache after, and the find exited 0. */
+export function cachePositiveVerdict({ findExit, had, after }) {
+  return findExit === 0 && had === 0 && after > 0 ? VERDICT.PASS : VERDICT.FAIL;
+}
+
+/**
+ * File names of the drawers the system knows and deliberately does not
+ * search (`card` -> `cards.jsonl`). Derived from `memory.TYPES` minus
+ * `memory.SEARCH_TYPES`, never typed out here: a card is not in the index
+ * by design, so counting its lines as "should be found" fails every
+ * recovery and correctness probe on a corpus that holds a card.
+ * A file with a name the system does not know still counts - that gap is
+ * what this phase looks for.
+ */
+const NOT_SEARCHED_FILES = new Set(Object.entries(MEMORY_TYPES)
+  .filter(([type]) => !SEARCH_TYPES.includes(type)).map(([, file]) => file));
+
 /**
  * What is actually on disk: files, lines, parseable entries.
  *
@@ -85,8 +119,8 @@ function jsonlFiles(root) {
  * whether it sees every file is circular, and the circle is exactly the
  * gap this phase is built to catch.
  */
-function diskTruth(root) {
-  const files = jsonlFiles(root);
+export function diskTruth(root) {
+  const files = jsonlFiles(root).filter((f) => !NOT_SEARCHED_FILES.has(path.basename(f)));
   let lines = 0; let parseable = 0; let torn = 0;
   for (const f of files) {
     for (const line of fs.readFileSync(f, 'utf8').split('\n')) {
@@ -1606,10 +1640,11 @@ async function partResources(atlas, quick) {
     atlas.record({
       id: 'robust.resources.cache-threshold',
       title: 'above CACHE_WRITE_AFTER_BYTES (4 MB of new log) the cache is written again',
-      verdict: over.rewritten ? VERDICT.PASS : VERDICT.FAIL,
+      verdict: cacheThresholdVerdict(over),
       expected: 'src/search.mjs#CACHE_WRITE_AFTER_BYTES — the cache file is rewritten once ~4 MB of new log accumulated',
       actual: `${(over.approxNewLogBytes / 1048576).toFixed(2)} MB of new log -> `
-        + (over.rewritten
+        + (over.findExit !== 0 ? `the find itself failed (exit ${over.findExit}), no verdict on the cache`
+          : over.rewritten
           ? `cache rewritten, ${(over.before.bytes / 1048576).toFixed(2)} -> ${(over.after.bytes / 1048576).toFixed(2)} MB`
           : 'cache NOT rewritten'),
       measured: over,
@@ -1618,10 +1653,12 @@ async function partResources(atlas, quick) {
     atlas.record({
       id: 'robust.resources.cache-threshold-counter',
       title: 'counter-probe: below the threshold the cache is left alone',
-      verdict: !under.rewritten ? VERDICT.PASS : VERDICT.DEGRADED,
+      // A find that failed leaves the cache alone for the wrong reason.
+      verdict: cacheCounterVerdict(under),
       expected: 'new log under the threshold does NOT trigger a rewrite — otherwise the probe above measures nothing',
       actual: `${(under.approxNewLogBytes / 1048576).toFixed(2)} MB of new log -> `
-        + (under.rewritten ? 'rewritten anyway' : 'cache left alone, as documented'),
+        + (under.findExit !== 0 ? `the find itself failed (exit ${under.findExit})`
+          : under.rewritten ? 'rewritten anyway' : 'cache left alone, as documented'),
       measured: under,
       severity: SEVERITY.MINOR,
     });
@@ -1640,13 +1677,13 @@ async function partResources(atlas, quick) {
     const fresh = tempRoot('atlas-robust-cache-fresh-');
     const fc = buildCorpus(fresh, 300, { anchors: 1, seed: 17 });
     const had = cacheBytes(fresh);
-    mem(['find', fc.anchors[0].phrase], { root: fresh });
+    const freshFind = mem(['find', fc.anchors[0].phrase], { root: fresh });
     atlas.record({
       id: 'robust.resources.cache-positive',
       title: 'positive control: a first search writes a cache where there was none',
-      verdict: had === 0 && cacheBytes(fresh) > 0 ? VERDICT.PASS : VERDICT.FAIL,
-      expected: 'no cache before, a cache after',
-      actual: `${had} -> ${cacheBytes(fresh)} bytes`,
+      verdict: cachePositiveVerdict({ findExit: freshFind.status, had, after: cacheBytes(fresh) }),
+      expected: 'no cache before, a cache after, and the search that wrote it exits 0',
+      actual: `${had} -> ${cacheBytes(fresh)} bytes, find exit ${freshFind.status}`,
       severity: SEVERITY.MAJOR,
     });
   }

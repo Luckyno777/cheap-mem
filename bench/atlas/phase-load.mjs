@@ -127,6 +127,30 @@ function repsFor(oneRunMs, tuning) {
 }
 
 /**
+ * The cold/warm fields of one row. A cold or warm run that exited non-zero
+ * is a refusal being timed, not a search: its status is stored for both
+ * halves, and no warm p50 or penalty is derived from it (`null`, with the
+ * reason, never a small number that reads as a fast warm cache).
+ */
+export function coldWarmFields(name, cold, warm) {
+  const bad = cold.status !== 0 || warm.failedRuns > 0 || warm.p50 == null;
+  const f = {
+    [`${name}ColdMs`]: bad ? null : round(cold.ms, 1),
+    [`${name}WarmP50Ms`]: bad ? null : round(warm.p50, 1),
+    [`${name}WarmN`]: warm.n,
+    [`${name}PenaltyMs`]: bad ? null : round(cold.ms - warm.p50, 1),
+    [`${name}ColdStatus`]: cold.status,
+    [`${name}WarmStatus`]: warm.status,
+    [`${name}WarmFailedRuns`]: warm.failedRuns,
+  };
+  if (bad) {
+    f[`${name}NotMeasuredBecause`] = `cold exit ${cold.status}, warm failed runs ${warm.failedRuns}`
+      + ' — a command that did not answer has no cold or warm cost';
+  }
+  return f;
+}
+
+/**
  * Time one CLI command as a real process, with an adaptive repeat count.
  *
  * One probe run first: it both warms whatever the command caches and tells
@@ -140,21 +164,33 @@ function repsFor(oneRunMs, tuning) {
  * sample, and `probeIsSample` says so in the record — the reader can see
  * that this one cell may carry a cold cache.
  */
-function timeCli(args, root, tuning, { timeoutMs = 900000 } = {}) {
-  const probe = mem(args, { root, timeoutMs });
+export function timeCli(args, root, tuning, { timeoutMs = 900000, run = mem, okStatuses = [0] } = {}) {
+  const probe = run(args, { root, timeoutMs });
   const n = repsFor(probe.ms, tuning);
   const probeIsSample = n === 1;
   const runs = [];
+  const failures = [];
   let last = probe;
+  const take = (r, counts) => {
+    // An exit outside `okStatuses` (0 unless the command's own contract
+    // says more) is a command that did not answer. Its time is
+    // the time of a refusal or a crash, not of the work, so it never
+    // becomes a number below — and the probe counts too: a probe that
+    // failed and a loop that then "succeeded" at refusing is one story.
+    if (!okStatuses.includes(r.status)) failures.push(r.status ?? (r.signal ?? 'no-exit'));
+    if (counts) runs.push(r.ms);
+  };
+  take(probe, probeIsSample);
   if (probeIsSample) {
-    runs.push(probe.ms);
+    // the probe is the one sample
   } else {
     for (let i = 0; i < n; i += 1) {
-      last = mem(args, { root, timeoutMs });
-      runs.push(last.ms);
+      last = run(args, { root, timeoutMs });
+      take(last, true);
     }
   }
-  const sorted = [...runs].sort((a, b) => a - b);
+  const failed = failures.length > 0;
+  const sorted = failed ? [] : [...runs].sort((a, b) => a - b);
   const enough = n >= PERCENTILE_FLOOR;
   return {
     command: args.join(' '),
@@ -165,12 +201,20 @@ function timeCli(args, root, tuning, { timeoutMs = 900000 } = {}) {
     p50: pct(sorted, 50),
     // Not a number that looks like a tail when it is only the slowest of
     // three. Three states, not two: measured, or explicitly not measured.
-    p95: enough ? pct(sorted, 95) : null,
-    p99: enough ? pct(sorted, 99) : null,
+    p95: enough && !failed ? pct(sorted, 95) : null,
+    p99: enough && !failed ? pct(sorted, 99) : null,
     max: sorted[sorted.length - 1] ?? null,
-    percentilesFrom: enough ? n : null,
+    percentilesFrom: enough && !failed ? n : null,
     bytes: last?.bytes ?? null,
     status: last?.status ?? null,
+    // Empty when every run exited 0. Otherwise the cell has no timing at
+    // all (`p50` is null) and this says why.
+    failedRuns: failures.length,
+    failedStatuses: [...new Set(failures)],
+    notMeasuredBecause: failed
+      ? `${failures.length} run(s) exited non-zero (${[...new Set(failures)].join(', ')}); `
+        + 'a command that did not answer has no latency'
+      : null,
     stderr: (last?.stderr ?? '').slice(0, 200) || null,
   };
 }
@@ -277,6 +321,11 @@ export async function run(atlas, { quick = false } = {}) {
     ['viewer', (label) => ['viewer', '--out', path.join(outDir, `viewer-${label}.html`)]],
   ];
 
+  // Exit codes that mean "answered" beyond 0. `mem doctor` exits 1 when its
+  // worst finding is a warning - the report was printed, the timing is of
+  // real work. Everything else: 0 or no number.
+  const ANSWERS_WITH = { doctor: [0, 1] };
+
   /** cell[command][stageLabel] = timing record */
   const cells = {};
   for (const [name] of COMMANDS) cells[name] = {};
@@ -288,7 +337,8 @@ export async function run(atlas, { quick = false } = {}) {
     mem(['find', 'warmup'], { root: st.root, timeoutMs: 900000 });
     for (const [name, mk] of COMMANDS) {
       try {
-        cells[name][st.label] = timeCli(mk(st.label), st.root, tuning);
+        cells[name][st.label] = timeCli(mk(st.label), st.root, tuning,
+          { okStatuses: ANSWERS_WITH[name] });
       } catch (e) {
         cells[name][st.label] = { error: String(e.message).slice(0, 200) };
       }
@@ -316,11 +366,13 @@ export async function run(atlas, { quick = false } = {}) {
         title: `${name}: growth from ${first.label} to ${last.label}`,
         verdict: VERDICT.NOT_MEASURED,
         expected: `exponent <= ${EXP_DEGRADED}`,
-        actual: 'no usable timing at one or both ends',
+        actual: 'no usable timing at one or both ends'
+          + [a, b].filter((c) => c?.notMeasuredBecause).map((c) => ` — ${c.command}: ${c.notMeasuredBecause}`).join(''),
         measured: cells[name],
       });
       atlas.blind(`growth exponent for \`mem ${name}\``,
-        `no usable p50 at ${first.label} and/or ${last.label}`);
+        `no usable p50 at ${first.label} and/or ${last.label}`
+        + [a, b].filter((c) => c?.notMeasuredBecause).map((c) => ` (${c.notMeasuredBecause})`).join(''));
       continue;
     }
     const e = exponent(a.p50, first.corpus.count, b.p50, last.corpus.count);
@@ -405,7 +457,8 @@ export async function run(atlas, { quick = false } = {}) {
         title: `retrieve / find on the same question at ${st.label}`,
         verdict: VERDICT.NOT_MEASURED,
         expected: 'a ratio',
-        actual: 'one of the two has no p50',
+        actual: 'one of the two has no p50'
+          + [f, r].filter((c) => c?.notMeasuredBecause).map((c) => ` — ${c.command}: ${c.notMeasuredBecause}`).join(''),
       });
       continue;
     }
@@ -892,12 +945,10 @@ export async function run(atlas, { quick = false } = {}) {
         // different facts, and only `cacheExists` can tell them apart.
         const cacheBytesNow = cacheExists(st.root) ? cacheBytes(st.root) : null;
         const warm = timeCli(args, st.root, tuning);
-        row[`${name}ColdMs`] = round(cold.ms, 1);
-        row[`${name}WarmP50Ms`] = round(warm.p50, 1);
-        row[`${name}WarmN`] = warm.n;
-        row[`${name}PenaltyMs`] = round(cold.ms - warm.p50, 1);
-        row[`${name}ColdStatus`] = cold.status;
-        if (name === 'find') row.cacheBytes = cacheBytesNow;
+        Object.assign(row, coldWarmFields(name, cold, warm));
+        // A cache written by a command that failed is not a cache a
+        // working command wrote.
+        if (name === 'find') row.cacheBytes = cold.status === 0 ? cacheBytesNow : null;
       } catch (e) {
         row[`${name}Error`] = String(e.message).slice(0, 160);
       }
@@ -917,7 +968,9 @@ export async function run(atlas, { quick = false } = {}) {
     verdict: VERDICT.NOT_MEASURED,
     expected: null,
     actual: coldRows.map((r) => `${r.label}: find +${r.findPenaltyMs} ms, `
-      + `retrieve +${r.retrievePenaltyMs} ms, cache ${r.cacheBytes} B`).join('; '),
+      + `retrieve +${r.retrievePenaltyMs} ms, cache ${r.cacheBytes} B`
+      + ['find', 'retrieve'].filter((k) => r[`${k}NotMeasuredBecause`])
+        .map((k) => ` [${k} not measured: ${r[`${k}NotMeasuredBecause`]}]`).join('')).join('; '),
     measured: { rows: coldRows, findPenaltiesMs: penalties },
     evidence: 'Cold = the search-index cache directory (`CACHE_DIR`, `src/search.mjs`) '
       + 'removed immediately before the run, so the process pays the full build AND '

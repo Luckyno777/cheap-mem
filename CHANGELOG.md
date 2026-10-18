@@ -14,6 +14,13 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Fixed - the atlas measures honestly: a failed search is never warm, cards are not owed to the index (atlas-k0-proben-cm; K0 fixes 3 and 4)
+
+- Found: `timeCli` in `bench/atlas/phase-load.mjs` took its p50 from all runs without looking at the exit code, and the cold/warm row stored the cold status but not the warm one; a `find` that refused every time read as a fast warm cache. In `phase-robust.mjs` the `cache-positive`, `cache-threshold` and `cache-threshold-counter` rows looked at cache bytes only, never at the exit of the `find`. `core.mjs#cacheDirPath` ignored `expand.cacheSuffix()` (`-expand` under `MEM_EXPAND=1`), the directory `src/search.mjs` actually writes to. `diskTruth` counted every parseable line of every `.jsonl`, including `cards.jsonl` (type `card`, deliberately not in the index), so `robust.index-*.recovers` and `cache-correctness` compared the index against entries it does not owe.
+- Fix 3: a run (the probe included) that exits outside the command's own answer codes (0; `doctor` also 1 for a warning) leaves the cell without any timing (`p50`, `p95`, `min`, `max` null) and with `failedRuns`, `failedStatuses` and `notMeasuredBecause`; the growth, ratio and cold-start rows say why they are `not-measured`. Cold/warm rows store `WarmStatus` and derive no warm p50 or penalty from a failed run. The three cache rows are never `pass` with a `find` exit other than 0 (counter probe: `not-measured`). The cache helpers follow the expand suffix.
+- Fix 4: `diskTruth` skips the files of `memory.TYPES` that are not in `memory.SEARCH_TYPES` (derived, not typed out); a file with a name the system does not know still counts.
+- `test/atlas-k0-probes.test.mjs`: 7 probes with positive controls (including a real `find` under `MEM_EXPAND=1`); 7 source mutants `ATLAS-K0 ...` in `bench/mutation.mjs`, all caught.
+
 ### Fixed - the index cache now carries the version of the INDEX RULES, and an index of other rules is dropped loudly (indexregeln-cm; K0 fix 2)
 
 - Found: the cache manifest held only `CACHE_VERSION` (the on-disk format, raised by hand). A change to what goes INTO the index (tokenizer, stopwords, stemming, fields and weights, the drawer set, the shape rule) left every file stamp intact, so an index built under the old rules was served as it stood. Reproduced: a cache built at 346dec9^ was kept by 346dec9 (manifest mtime unchanged, old index in use).
