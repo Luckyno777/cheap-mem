@@ -157,6 +157,7 @@ directory. The section number in brackets is where it is explained.
 | `icon.mjs` | the mark, drawn in code |
 | `inbox.mjs` | cross-session messages |
 | `indexcache.mjs` | the search index cache as shards, never as one JSON string — the old cache broke past ~978,000 entries |
+| `indexrules.mjs` | the version of the INDEX RULES (tokenizer, stopwords, stemming, fields and weights, drawer set, shape rule) as one constant: the cache manifest carries it as `indexRules` and is read back against the same constant, so an index built under other rules, or before the field existed, is dropped with a line on stderr and rebuilt once; a behaviour fingerprint in `test/index-rules.test.mjs` goes red when a rule changes without the number moving |
 | `indexrebuild.mjs` | the full rebuild of the search index in the background: the recall hook answers from the cached index plus the appended lines and, past `min(a fifth, 100)` of them, starts a detached child that rebuilds the cache; one at a time (lock file), a lock of a dead child is taken over by age, a failed rebuild holds the next one back for ten minutes |
 | `injection.mjs` | the journal of what the hook put into a turn, and what it did not |
 | `integrity.mjs` | what is wrong with the log itself (4) |
