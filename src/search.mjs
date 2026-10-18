@@ -41,6 +41,7 @@ import * as raw from './raw.mjs';
 import * as archive from './archive.mjs';
 import { deriveState } from './state.mjs';
 import * as indexcache from './indexcache.mjs';
+import { INDEX_RULES_VERSION } from './indexrules.mjs';
 import * as indexrebuild from './indexrebuild.mjs';
 import * as expand from './expand.mjs';
 import * as statequestion from './statequestion.mjs';
@@ -232,6 +233,11 @@ export const CACHE_DIR = path.join('.mem', 'search-index');
 //     (`tags: true`) is read as an EMPTY list and IN. A version-15 cache built by the first round of that code still holds
 //     the documents of the `key: 5` / `title: true` lines and lacks the `tags: true` ones; it stays valid by its file
 //     stamps and would be served as it stands. Rebuilt once.
+//
+// This number is the FORMAT of the cache on disk. The RULES that decide what goes into the index have their own number,
+// `indexrules.INDEX_RULES_VERSION`, written into the manifest and checked on read by `indexcache.mjs` (a rules-mismatch is
+// reported on stderr, a format bump stays quiet). Since 2026-10-18 a rule change that forgets this number can no longer leave
+// a stale index in use.
 export const CACHE_VERSION = 16;
 
 /**
@@ -3223,7 +3229,8 @@ function loadIndexCached(root, { fresh = false, language = 'en', wantState = fal
   // cannot: WHY, when it did. 'hit' — used as-is or appended. 'miss' —
   // nothing was there to try (an ordinary cold start, or `fresh: true`
   // was asked for). 'stale' — a version or language mismatch: expected,
-  // e.g. right after an upgrade. 'unknown' — the plan's `unbekannt`: a
+  // e.g. right after an upgrade; a mismatch of the INDEX RULES is also
+  // 'stale' but is said on stderr. 'unknown' — the plan's `unbekannt`: a
   // cache directory WAS there and did not read back whole (a missing
   // shard, a torn one, a manifest from a different build). B8 of the
   // 2026-09-20 build plan is explicit that this last case must not look
@@ -3312,6 +3319,14 @@ function loadIndexCached(root, { fresh = false, language = 'en', wantState = fal
         // to the last full build (or `appendToIndex` declined outright).
         // Falls through to the full rebuild below, same as always.
       } catch { /* a broken cache is not an error, just a rebuild */ }
+    } else if (res.reason === 'rules-mismatch') {
+      // The index was built under other INDEX RULES (or before the manifest carried them): wrong for this code although the
+      // file stamps match. Not silent, unlike a format bump: one line says why the next answer takes a rebuild.
+      cacheStatus = 'stale';
+      console.error(
+        `cheap-mem: search index cache at ${cacheDir} was built under index rules ${res.found ?? 'none (older build)'}, `
+        + `this code has ${INDEX_RULES_VERSION} - rebuilding it from the log (once).`,
+      );
     } else if (res.reason === 'version-mismatch' || res.reason === 'language-mismatch') {
       // Expected, not corruption: a schema bump or a language change
       // makes yesterday's cache the wrong shape ON PURPOSE. Silent, same
